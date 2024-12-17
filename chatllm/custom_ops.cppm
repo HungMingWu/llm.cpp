@@ -1,0 +1,786 @@
+module;
+#include <assert.h>
+#include <algorithm>
+#include <cmath>
+#include <codecvt>
+#include <cstring>
+#include <fcntl.h>
+#include <fstream>
+#include <iomanip>
+#include <functional>
+#include <random>
+#include "basics.h"
+#define GGML_ASSERT(...) assert(__VA_ARGS__)
+
+#undef MIN
+#undef MAX
+
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+module chatllm:custom_ops;
+import :backend;
+import :layers;
+import ggml;
+
+using namespace chatllm;
+
+
+static float qwen_get_ntk_alpha(int true_seq_len, int seq_length)
+{
+    float context_value = log2f((float)true_seq_len / (float)seq_length) + 1;
+    float ntk_alpha = powf(2, ceil(context_value)) - 1;
+    return MAX(ntk_alpha, 1.0f);
+}
+
+static void ggml_compute_forward_mat_scale_f32(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+{
+    const ggml::tensor* src0 = a;
+    const ggml::tensor* src1 = b;
+
+    const int nr = (int)ggml::nrows(dst);
+
+    // rows per thread
+    const int dr = (nr + nth - 1) / nth;
+
+    // row range for this thread
+    const int ir0 = dr * ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    const float* scales = (const float*)src1->data;
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            //const auto p = pos[i2];
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+
+                const float scale = scales[i1];
+
+                for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
+                    const float* const src = (float*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                    float* dst_data = (float*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+                    *dst_data = *src * scale;
+                }
+            }
+        }
+    }
+}
+
+void ggml_compute_forward_mat_scale(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+{
+    switch (a->type)
+    {
+    case GGML_TYPE_F32:
+        ggml_compute_forward_mat_scale_f32(dst, a, b, ith, nth, userdata);
+        break;
+    default:
+        GGML_ASSERT(false);
+        break;
+    }
+}
+
+static void ggml_compute_forward_ntk_dynamic_rope_f32(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+{
+    QWenSelfAttention* data = reinterpret_cast<QWenSelfAttention*>(userdata);
+
+    const ggml::tensor* src0 = a;
+    const ggml::tensor* src1 = b;
+
+    int n_dims = data->rope_dim;
+
+    const int nr = (int)ggml::nrows(dst);
+
+    GGML_ASSERT(n_dims <= dst->ne[0]);
+    GGML_ASSERT(n_dims % 2 == 0);
+
+    // rows per thread
+    const int dr = (nr + nth - 1) / nth;
+
+    // row range for this thread
+    const int ir0 = dr * ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    const int32_t* pos = (const int32_t*)src1->data;
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            const auto p = pos[i2];
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+
+                const float ntk_alpha = qwen_get_ntk_alpha(p, data->seq_length);
+                const float base = data->freq_base * powf(ntk_alpha, (float)n_dims / ((float)n_dims - 2.0f));
+                const float inv_freq_scale = powf(base, -2.0f / (float)n_dims);
+                float inv_freq = 1.0f;
+
+                for (int64_t ic = 0; ic < dst->ne[0]; ic += 2, inv_freq *= inv_freq_scale) {
+                    if (ic < n_dims) {
+                        const int64_t ib = 0;
+
+                        float theta = (float)p * inv_freq;
+                        float cos_theta = cosf(theta);
+                        float sin_theta = sinf(theta);
+
+                        const int64_t i0 = ib * n_dims + ic / 2;
+
+                        const float* const src = (float*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                        float* dst_data = (float*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                        const float x0 = src[0];
+                        const float x1 = src[n_dims / 2];
+
+                        dst_data[0] = x0 * cos_theta - x1 * sin_theta;
+                        dst_data[n_dims / 2] = x0 * sin_theta + x1 * cos_theta;
+                    }
+                    else {
+                        const int64_t i0 = ic;
+
+                        const float* const src = (float*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                        float* dst_data = (float*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                        dst_data[0] = src[0];
+                        dst_data[1] = src[1];
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void ggml_compute_forward_ntk_dynamic_rope_f16(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+{
+    QWenSelfAttention* data = reinterpret_cast<QWenSelfAttention*>(userdata);
+
+    const ggml::tensor* src0 = a;
+    const ggml::tensor* src1 = b;
+
+    int n_dims = data->rope_dim;
+
+    const int nr = (int)ggml::nrows(dst);
+
+    GGML_ASSERT(n_dims <= dst->ne[0]);
+    GGML_ASSERT(n_dims % 2 == 0);
+
+    // rows per thread
+    const int dr = (nr + nth - 1) / nth;
+
+    // row range for this thread
+    const int ir0 = dr * ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    const int32_t* pos = (const int32_t*)src1->data;
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            const auto p = pos[i2];
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+
+                const float ntk_alpha = qwen_get_ntk_alpha(p, data->seq_length);
+                const float base = data->freq_base * powf(ntk_alpha, (float)n_dims / ((float)n_dims - 2.0f));
+                const float inv_freq_scale = powf(base, -2.0f / (float)n_dims);
+                float inv_freq = 1.0f;
+
+                for (int64_t ic = 0; ic < dst->ne[0]; ic += 2, inv_freq *= inv_freq_scale) {
+                    if (ic < n_dims) {
+                        const int64_t ib = 0;
+
+                        float theta = (float)p * inv_freq;
+                        float cos_theta = cosf(theta);
+                        float sin_theta = sinf(theta);
+
+                        const int64_t i0 = ib * n_dims + ic / 2;
+
+                        const ggml_fp16_t* const src = (ggml_fp16_t*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                        ggml_fp16_t* dst_data = (ggml_fp16_t*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                        const float x0 = toFloat32(src[0]);
+                        const float x1 = toFloat32(src[1]);
+
+                        dst_data[0] = fromFloat32<ggml_fp16_t>(x0 * cos_theta - x1 * sin_theta);
+                        dst_data[1] = fromFloat32<ggml_fp16_t>(x0 * sin_theta + x1 * cos_theta);
+                    }
+                    else {
+                        const int64_t i0 = ic;
+
+                        const ggml_fp16_t* const src = (ggml_fp16_t*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                        ggml_fp16_t* dst_data = (ggml_fp16_t*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                        dst_data[0] = src[0];
+                        dst_data[1] = src[1];
+                    }
+                }
+            }
+        }
+    }
+}
+
+void ggml_compute_forward_ntk_dynamic_rope(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+{
+    switch (a->type)
+    {
+    case GGML_TYPE_F16:
+        ggml_compute_forward_ntk_dynamic_rope_f16(dst, a, b, ith, nth, userdata);
+        break;
+    case GGML_TYPE_F32:
+        ggml_compute_forward_ntk_dynamic_rope_f32(dst, a, b, ith, nth, userdata);
+        break;
+    default:
+        GGML_ASSERT(false);
+        break;
+    }
+}
+
+static void ggml_compute_forward_ntk_mix_rope_f32(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+{
+    BlueLMSelfAttention* data = reinterpret_cast<BlueLMSelfAttention*>(userdata);
+
+    const ggml::tensor* src0 = a;
+    const ggml::tensor* src1 = b;
+
+    int n_dims = data->rope_dim;
+
+    const int nr = (int)ggml::nrows(dst);
+
+    GGML_ASSERT(n_dims <= dst->ne[0]);
+    GGML_ASSERT(n_dims % 2 == 0);
+
+    // rows per thread
+    const int dr = (nr + nth - 1) / nth;
+
+    // row range for this thread
+    const int ir0 = dr * ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    const int32_t* pos = (const int32_t*)src1->data;
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            const float p = (float)pos[i2];
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+
+                for (int64_t i0 = 0; i0 < dst->ne[0]; i0 += 2) {
+
+                    float theta = p * data->inv_freq[i0 / 2];
+
+                    float cos_theta = cosf(theta);
+                    float sin_theta = sinf(theta);
+
+                    const float* const src = (float*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                    float* dst_data = (float*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                    const float x0 = src[0];
+                    const float x1 = src[1];
+
+                    dst_data[0] = x0 * cos_theta - x1 * sin_theta;
+                    dst_data[1] = x0 * sin_theta + x1 * cos_theta;
+                }
+            }
+        }
+    }
+}
+
+static void ggml_compute_forward_ntk_mix_rope_f16(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+{
+    BlueLMSelfAttention* data = reinterpret_cast<BlueLMSelfAttention*>(userdata);
+
+    const ggml::tensor* src0 = a;
+    const ggml::tensor* src1 = b;
+
+    int n_dims = data->rope_dim;
+
+    const int nr = (int)ggml::nrows(dst);
+
+    GGML_ASSERT(n_dims <= dst->ne[0]);
+    GGML_ASSERT(n_dims % 2 == 0);
+
+    // rows per thread
+    const int dr = (nr + nth - 1) / nth;
+
+    // row range for this thread
+    const int ir0 = dr * ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    const int32_t* pos = (const int32_t*)src1->data;
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            const float p = (float)pos[i2];
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+
+                for (int64_t i0 = 0; i0 < dst->ne[0]; i0 += 2) {
+
+                    float theta = p * data->inv_freq[i0 / 2];
+
+                    float cos_theta = cosf(theta);
+                    float sin_theta = sinf(theta);
+
+                    const ggml_fp16_t* const src = (ggml_fp16_t*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                    ggml_fp16_t* dst_data = (ggml_fp16_t*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                    const float x0 = toFloat32(src[0]);
+                    const float x1 = toFloat32(src[1]);
+
+                    dst_data[0] = fromFloat32<ggml_fp16_t>(x0 * cos_theta - x1 * sin_theta);
+                    dst_data[1] = fromFloat32<ggml_fp16_t>(x0 * sin_theta + x1 * cos_theta);
+                }
+            }
+        }
+    }
+}
+
+void ggml_compute_forward_ntk_mix_rope(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+{
+    switch (a->type)
+    {
+    case GGML_TYPE_F16:
+        ggml_compute_forward_ntk_mix_rope_f16(dst, a, b, ith, nth, userdata);
+        break;
+    case GGML_TYPE_F32:
+        ggml_compute_forward_ntk_mix_rope_f32(dst, a, b, ith, nth, userdata);
+        break;
+    default:
+        GGML_ASSERT(false);
+        break;
+    }
+}
+
+void build_ntk_mixed_inv_freq(int dim, std::vector<float>& inv_freq,
+    int max_position_embeddings = 2048, float base = 10000.0, float k = 16, float b = 0.3)
+{
+    inv_freq.clear();
+    float a = log(k) / powf((float)dim / 2, b);
+    inv_freq.reserve(dim / 2);
+    for (int i = 0; i < dim; i += 2)
+    {
+        float v = 1.0f / powf(base, (float)i / (float)dim) / expf(a * powf((float)i / 2 + 1, b));
+        inv_freq.push_back(v);
+    }
+}
+
+
+static void ggml_compute_forward_chatglm1_rope_f16(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+{
+    GLMSelfAttention* data = reinterpret_cast<GLMSelfAttention*>(userdata);
+
+    const ggml::tensor* src0 = a;
+    const ggml::tensor* src1 = b;
+
+    int n_dims = data->rope_dim;
+    int n_ctx = data->n_ctx;
+
+    const int nr = (int)ggml::nrows(dst);
+
+    GGML_ASSERT(n_dims <= dst->ne[0]);
+    GGML_ASSERT(n_dims % 2 == 0);
+
+    // rows per thread
+    const int dr = (nr + nth - 1) / nth;
+
+    // row range for this thread
+    const int ir0 = dr * ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    const float theta_scale = powf(data->freq_base, -2.0f / n_dims);
+    const int32_t* pos = (const int32_t*)src1->data;
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            const int64_t p = pos[i2];
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+
+                float theta_base = (float)p;
+
+                theta_base = (float)MIN(p, n_ctx - 2);
+                float block_theta = (float)MAX(p - (n_ctx - 2), 0);
+                for (int64_t i0 = 0; i0 < dst->ne[0] / 4; i0++) {
+                    const float cos_theta = cosf(theta_base);
+                    const float sin_theta = sinf(theta_base);
+                    const float cos_block_theta = cosf(block_theta);
+                    const float sin_block_theta = sinf(block_theta);
+
+                    theta_base *= theta_scale;
+                    block_theta *= theta_scale;
+
+                    const ggml_fp16_t* const src = (ggml_fp16_t*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                    ggml_fp16_t* dst_data = (ggml_fp16_t*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                    const float x0 = toFloat32(src[0]);
+                    const float x1 = toFloat32(src[n_dims / 2]);
+                    const float x2 = toFloat32(src[n_dims]);
+                    const float x3 = toFloat32(src[n_dims / 2 * 3]);
+
+                    dst_data[0] = fromFloat32<ggml_fp16_t>(x0 * cos_theta - x1 * sin_theta);
+                    dst_data[n_dims / 2] = fromFloat32<ggml_fp16_t>(x0 * sin_theta + x1 * cos_theta);
+                    dst_data[n_dims] = fromFloat32<ggml_fp16_t>(x2 * cos_block_theta - x3 * sin_block_theta);
+                    dst_data[n_dims / 2 * 3] = fromFloat32<ggml_fp16_t>(x2 * sin_block_theta + x3 * cos_block_theta);
+                }
+            }
+        }
+    }
+}
+
+static void ggml_compute_forward_chatglm1_rope_f32(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+{
+    GLMSelfAttention* data = reinterpret_cast<GLMSelfAttention*>(userdata);
+
+    const ggml::tensor* src0 = a;
+    const ggml::tensor* src1 = b;
+
+    int n_dims = data->rope_dim;
+    int n_ctx = data->n_ctx;
+
+    const int nr = (int)ggml::nrows(dst);
+
+    GGML_ASSERT(n_dims <= dst->ne[0]);
+    GGML_ASSERT(n_dims % 2 == 0);
+
+    // rows per thread
+    const int dr = (nr + nth - 1) / nth;
+
+    // row range for this thread
+    const int ir0 = dr * ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    const float theta_scale = powf(data->freq_base, -2.0f / n_dims);
+    const int32_t* pos = (const int32_t*)src1->data;
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            const int64_t p = pos[i2];
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+
+                float theta_base = (float)p;
+
+                theta_base = (float)MIN(p, n_ctx - 2);
+                float block_theta = (float)MAX(p - (n_ctx - 2), 0);
+                for (int64_t i0 = 0; i0 < dst->ne[0] / 4; i0++) {
+                    const float cos_theta = cosf(theta_base);
+                    const float sin_theta = sinf(theta_base);
+                    const float cos_block_theta = cosf(block_theta);
+                    const float sin_block_theta = sinf(block_theta);
+
+                    theta_base *= theta_scale;
+                    block_theta *= theta_scale;
+
+                    const float* const src = (float*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                    float* dst_data = (float*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                    const float x0 = src[0];
+                    const float x1 = src[n_dims / 2];
+                    const float x2 = src[n_dims];
+                    const float x3 = src[n_dims / 2 * 3];
+
+                    dst_data[0] = x0 * cos_theta - x1 * sin_theta;
+                    dst_data[n_dims / 2] = x0 * sin_theta + x1 * cos_theta;
+                    dst_data[n_dims] = x2 * cos_block_theta - x3 * sin_block_theta;
+                    dst_data[n_dims / 2 * 3] = x2 * sin_block_theta + x3 * cos_block_theta;
+                }
+            }
+        }
+    }
+}
+
+void ggml_compute_forward_chatglm1_rope(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+{
+    switch (a->type)
+    {
+    case GGML_TYPE_F16:
+        ggml_compute_forward_chatglm1_rope_f16(dst, a, b, ith, nth, userdata);
+        break;
+    case GGML_TYPE_F32:
+        ggml_compute_forward_chatglm1_rope_f32(dst, a, b, ith, nth, userdata);
+        break;
+    default:
+        GGML_ASSERT(false);
+        break;
+    }
+}
+
+static void ggml_compute_forward_randn_f32(ggml::tensor* dst, int ith, int nth, void* userdata)
+{
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::normal_distribution<float> distribution(0.0f, 1.0f);
+
+    const int nr = (int)ggml::nrows(dst);
+
+    // rows per thread
+    const int dr = (nr + nth - 1) / nth;
+
+    // row range for this thread
+    const int ir0 = dr * ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+                for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
+                    float* dst_data = (float*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                    dst_data[0] = distribution(gen);
+                }
+            }
+        }
+    }
+}
+
+static void ggml_compute_forward_randn_f16(ggml::tensor* dst, int ith, int nth, void* userdata)
+{
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::normal_distribution<float> distribution(0.0f, 1.0f);
+
+    const int nr = (int)ggml::nrows(dst);
+
+    // rows per thread
+    const int dr = (nr + nth - 1) / nth;
+
+    // row range for this thread
+    const int ir0 = dr * ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+                for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
+                    ggml_fp16_t* dst_data = (ggml_fp16_t*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                    dst_data[0] = fromFloat32<ggml_fp16_t>(distribution(gen));
+                }
+            }
+        }
+    }
+}
+
+void ggml_compute_forward_randn(ggml::tensor* dst, const ggml::tensor* a, int ith, int nth, void* userdata)
+{
+    switch (dst->type)
+    {
+    case GGML_TYPE_F16:
+        ggml_compute_forward_randn_f16(dst, ith, nth, userdata);
+        break;
+    case GGML_TYPE_F32:
+        ggml_compute_forward_randn_f32(dst, ith, nth, userdata);
+        break;
+    default:
+        GGML_ASSERT(false);
+        break;
+    }
+}
+
+void ggml_custom_compute_forward_randn(ggml_tensor* dst, int ith, int nth, void* userdata)
+{
+    switch (dst->type)
+    {
+    case GGML_TYPE_F16:
+        ggml_compute_forward_randn_f16(dst, ith, nth, userdata);
+        break;
+    case GGML_TYPE_F32:
+        ggml_compute_forward_randn_f32(dst, ith, nth, userdata);
+        break;
+    default:
+        GGML_ASSERT(false);
+        break;
+    }
+}
+
+template <class T> 
+static void ggml_compute_forward_flip_T_0(ggml::tensor* dst, const ggml::tensor* a, int ith, int nth)
+{
+    const ggml::tensor* src0 = a;
+
+    const int nr = (int)ggml::nrows(dst);
+
+    // rows per thread
+    const int dr = (nr + nth - 1) / nth;
+
+    // row range for this thread
+    const int ir0 = dr * ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+                for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
+                    T* dst_data = (T*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+                    T* src_data = (T*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + (dst->ne[0] - 1 - i0) * src0->nb[0]);
+
+                    dst_data[0] = src_data[0];
+                }
+            }
+        }
+    }
+}
+
+void ggml_compute_forward_flip(ggml::tensor* dst, const ggml::tensor* a, int ith, int nth, void* userdata)
+{
+    const int dim = (int)(intptr_t)userdata;
+    CHATLLM_CHECK(dim == 0) << "flip: only dim = 0 is supported";
+    switch (a->type)
+    {
+    case GGML_TYPE_F16:
+        ggml_compute_forward_flip_T_0<ggml_fp16_t>(dst, a, ith, nth);
+        break;
+    case GGML_TYPE_F32:
+        ggml_compute_forward_flip_T_0<float>(dst, a, ith, nth);
+        break;
+    default:
+        GGML_ASSERT(false);
+        break;
+    }
+}
+
+void ggml_custom_compute_forward_zeroes(ggml_tensor* dst, int ith, int nth, void* userdata)
+{
+    memset(dst->data, 0, ggml::nbytes(dst));
+}
+
+// ref: https://www.ece.mcmaster.ca/~xwu/interp_1.pdf
+static void ggml_compute_forward_bicubic_f16(ggml::tensor* dst, const ggml::tensor* a, int ith, int nth, void* userdata)
+{
+    const ggml::tensor* src0 = a;
+
+    CHATLLM_CHECK(ggml::type_of(a) == ggml::type::GGML_TYPE_F32);
+
+    const int nr = (int)ggml::nrows(dst);
+
+    // rows per thread
+    const int dr = (nr + nth - 1) / nth;
+
+    // row range for this thread
+    const int ir0 = dr * ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+                for (int64_t i0 = 0; i0 < dst->ne[0] / 4; i0++) {
+
+                    const float* const src = (float*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                    float* dst_data = (float*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+
+                }
+            }
+        }
+    }
+}
+
+void ggml_compute_forward_bicubic(ggml_tensor* dst, int ith, int nth, void* userdata)
+{
+    switch (dst->type)
+    {
+    case GGML_TYPE_F16:
+        ggml_compute_forward_bicubic_f16(dst, dst->src[0], ith, nth, userdata);
+        break;
+    default:
+        GGML_ASSERT(false);
+        break;
+    }
+}
+
+void ggml_custom_merge_patch(ggml_tensor* dst, const ggml_tensor* src, int ith, int nth, const ggml::merge_patch_param* param)
+{
+    const int kernel_height = param->merge_kernel_size[0];
+    const int kernel_width = param->merge_kernel_size[1];
+    const int new_height = param->grid_h / kernel_height;
+    const int new_width = param->grid_w / kernel_width;
+
+    CHATLLM_CHECK(ggml::get_dim(src, 1) == (int64_t)param->grid_h * param->grid_w);
+
+    const int64_t nr = ggml::nrows(dst);
+    const int64_t dr = (nr + nth - 1) / nth;
+    const int64_t ir0 = dr * ith;
+    const int64_t ir1 = MIN(ir0 + dr, nr);
+
+    const int64_t nb1 = src->nb[1];
+    const int64_t nb2 = nb1 * kernel_width;
+    const int64_t nb3 = nb2 * kernel_height;
+    const int64_t nb4 = nb3 * new_width;
+
+    for (int64_t i4 = 0; i4 < new_height; i4++)
+    {
+        for (int64_t i3 = 0; i3 < new_width; i3++)
+        {
+            for (int64_t i2 = 0; i2 < kernel_height; i2++)
+            {
+                for (int64_t i1 = 0; i1 < kernel_width; i1++)
+                {
+                    const int64_t ir = (i2 + i4 * kernel_height) * param->grid_w + (i1 + i3 * kernel_width);
+                    if (ir < ir0) continue;
+                    if (ir > ir1) break;
+
+                    const void* src_data = (void*)((char*)src->data + ir * nb1);
+                    void* dst_data = (void*)((char*)dst->data + i4 * nb4 + i3 * nb3 + i2 * nb2 + i1 * nb1);
+                    memcpy(dst_data, src_data, nb1);
+                }
+            }
+        }
+    }
+}
+
+void ggml_custom_merge_patch(ggml_tensor* dst, int ith, int nth, void* userdata)
+{
+    const ggml::merge_patch_param* param = (const ggml::merge_patch_param*)userdata;
+
+    const struct ggml_tensor* a = dst->src[0];
+    CHATLLM_CHECK(ggml::is_contiguous(a));
+    CHATLLM_CHECK(ggml::get_dim(a, 3) == 1);
+    CHATLLM_CHECK(ggml::get_dim(a, 2) == 1);
+
+    ggml_custom_merge_patch(dst, a, ith, nth, param);
+}
