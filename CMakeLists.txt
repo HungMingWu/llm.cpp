@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.28)
 project(llm.cpp)
 
+option(GGML_CUDA                            "ggml: use CUDA"                                  OFF)
+add_subdirectory(ggml)
 add_subdirectory(core)
 
 add_executable(tutorial)
@@ -12,5 +14,5 @@ target_sources(tutorial
 
 target_link_libraries(tutorial
   PRIVATE
-    MathFunctions
+    libllm
 )
