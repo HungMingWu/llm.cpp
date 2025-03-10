@@ -20,10 +20,12 @@ target_sources(libggml
       buffer.cpp
       common.cpp
       cu/arange.cu
+      cu/argmax.cu
       cu/common.cuh
+      cu/conv-transpose-1d.cu
       cu/convert.cu
       cu/convert.cuh
-      cu/conv-transpose-1d.cu
+      cu/count-equal.cu
       cu/getrows.cu
       cu/im2col.cu
       cu/mmv.cu

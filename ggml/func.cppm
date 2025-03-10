@@ -2443,4 +2443,33 @@ export {
 
 		 return result;
 	 }
+
+	 ggml_tensor* ggml_argmax(
+		 ggml_context* ctx,
+		 ggml_tensor* a) {
+		 GGML_ASSERT(ggml_is_matrix(a));
+		 GGML_ASSERT(a->ne[0] <= INT32_MAX);
+
+		 ggml_tensor* result = ctx->create(GGML_TYPE_I32, { a->ne[1] });
+
+		 result->op = GGML_OP_ARGMAX;
+		 result->src.push_back(a);
+
+		 return result;
+	 }
+
+	 ggml_tensor* ggml_count_equal(
+		 ggml_context* ctx,
+		 ggml_tensor* a,
+		 ggml_tensor* b) {
+		 GGML_ASSERT(ggml_are_same_shape(a, b));
+
+		 ggml_tensor* result = ctx->create(GGML_TYPE_I64, { 1 });
+
+		 result->op = GGML_OP_COUNT_EQUAL;
+		 result->src.push_back(a);
+		 result->src.push_back(b);
+
+		 return result;
+	 }
 }

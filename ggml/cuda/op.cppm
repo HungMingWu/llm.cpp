@@ -275,4 +275,46 @@ namespace op
         };
         get_rows_back_cuda(&context, stream);
     }
+
+    void argmax(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_I32);
+
+        GGML_ASSERT(ggml_is_contiguous(src0));
+
+        argmax_context context{
+            .src0_d = (const float*)src0->data,
+            .dst_d = (int32_t*)dst->data,
+            .ne00 = src0->ne[0],
+            .nrows = ggml_nrows(src0)
+        };
+        argmax_cuda(&context, stream);
+    }
+
+    void count_equal(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+
+        GGML_ASSERT(src0->type == src1->type);
+        GGML_ASSERT(dst->type == GGML_TYPE_I64);
+
+        GGML_ASSERT(ggml_are_same_shape(src0, src1));
+        GGML_ASSERT(ggml_is_contiguous(src0));
+        GGML_ASSERT(ggml_is_contiguous(src1));
+        GGML_ASSERT(ggml_is_contiguous(dst));
+        GGML_ASSERT(src0->type == GGML_TYPE_I32);
+
+        const int64_t ne = src0->nelements();
+        GGML_ASSERT(ne < (1 << 30) && "atomicAdd implementation only supports int");
+        count_equal_context context{
+            .src0_d = (const int*)src0->data,
+            .src1_d = (const int*)src1->data,
+            .dst_d = (int64_t*)dst->data,
+            .dst_size = dst->nbytes(),
+            .ne = ne,
+        };
+        count_equal_cuda(&context, stream);
+    }
 }

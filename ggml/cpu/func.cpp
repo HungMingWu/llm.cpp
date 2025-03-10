@@ -2997,6 +2997,140 @@ static void ggml_compute_forward_get_rows_back(
 	//}
 }
 
+inline static void ggml_vec_argmax_f32(const int n, int* s, const float* x) {
+	float maxValue = -INFINITY;
+	int idx = 0;
+	for (int i = 0; i < n; ++i) {
+		maxValue = std::max(maxValue, x[i]);
+		if (maxValue == x[i]) { idx = i; }
+	}
+	*s = idx;
+}
+
+static void ggml_compute_forward_argmax_f32(
+	const struct ggml_compute_params* params,
+	struct ggml_tensor* dst) {
+
+	const struct ggml_tensor* src0 = dst->src[0];
+
+	if (params->ith != 0) {
+		return;
+	}
+
+	assert(src0->nb[0] == sizeof(float));
+	assert(dst->nb[0] == sizeof(float));
+
+	const int64_t ne00 = src0->ne[0];
+	const int64_t ne01 = src0->ne[1];
+
+	const size_t nb01 = src0->nb[1];
+	const size_t nb0 = dst->nb[0];
+
+	for (int64_t i1 = 0; i1 < ne01; i1++) {
+		float* src = (float*)((char*)src0->data + i1 * nb01);
+		int32_t* dst_ = (int32_t*)((char*)dst->data + i1 * nb0);
+		int v = 0;
+		ggml_vec_argmax_f32(ne00, &v, src);
+		dst_[0] = v;
+	}
+}
+
+static void ggml_compute_forward_argmax(
+	const struct ggml_compute_params* params,
+	struct ggml_tensor* dst) {
+
+	const struct ggml_tensor* src0 = dst->src[0];
+
+	switch (src0->type) {
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_argmax_f32(params, dst);
+	} break;
+	default:
+	{
+		GGML_ABORT("fatal error");
+	}
+	}
+}
+
+static void ggml_compute_forward_count_equal_i32(
+	const struct ggml_compute_params* params,
+	struct ggml_tensor* dst) {
+
+	const struct ggml_tensor* src0 = dst->src[0];
+	const struct ggml_tensor* src1 = dst->src[1];
+
+	GGML_TENSOR_BINARY_OP_LOCALS;
+
+	GGML_ASSERT(src0->type == GGML_TYPE_I32);
+	GGML_ASSERT(src1->type == GGML_TYPE_I32);
+	GGML_ASSERT(ggml_are_same_shape(src0, src1));
+	GGML_ASSERT(ggml_is_scalar(dst));
+	GGML_ASSERT(dst->type == GGML_TYPE_I64);
+
+	const int64_t nr = ggml_nrows(src0);
+
+	const int ith = params->ith;
+	const int nth = params->nth;
+
+	int64_t* sums = (int64_t*)params->wdata;
+	int64_t sum_thread = 0;
+
+	// rows per thread
+	const int64_t dr = (nr + nth - 1) / nth;
+
+	// row range for this thread
+	const int64_t ir0 = dr * ith;
+	const int64_t ir1 = std::min(ir0 + dr, nr);
+
+	for (int64_t ir = ir0; ir < ir1; ++ir) {
+		const int64_t i03 = ir / (ne02 * ne01);
+		const int64_t i02 = (ir - i03 * ne03) / ne01;
+		const int64_t i01 = ir - i03 * ne03 - i02 * ne02;
+
+		const char* data0 = (const char*)src0->data + i03 * nb03 + i02 * nb02 + i01 * nb01;
+		const char* data1 = (const char*)src1->data + i03 * nb13 + i02 * nb12 + i01 * nb11;
+
+		for (int64_t i00 = 0; i00 < ne00; ++i00) {
+			const int32_t val0 = *((const int32_t*)(data0 + i00 * nb00));
+			const int32_t val1 = *((const int32_t*)(data1 + i00 * nb10));
+
+			sum_thread += val0 == val1;
+		}
+	}
+	if (ith != 0) {
+		sums[ith] = sum_thread;
+	}
+	//ggml_barrier(params->threadpool);
+
+	if (ith != 0) {
+		return;
+	}
+
+	for (int ith_other = 1; ith_other < nth; ++ith_other) {
+		sum_thread += sums[ith_other];
+	}
+	*((int64_t*)dst->data) = sum_thread;
+}
+
+static void ggml_compute_forward_count_equal(
+	const struct ggml_compute_params* params,
+	struct ggml_tensor* dst) {
+
+	const struct ggml_tensor* src0 = dst->src[0];
+
+	switch (src0->type) {
+	case GGML_TYPE_I32:
+	{
+		ggml_compute_forward_count_equal_i32(params, dst);
+	} break;
+	default:
+	{
+		GGML_ABORT("fatal error");
+	}
+	}
+}
+
 static void ggml_compute_forward(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -3083,6 +3217,7 @@ static void ggml_compute_forward(
 	{
 		ggml_compute_forward_mean(params, tensor);
 	} break;
+#endif
 	case GGML_OP_ARGMAX:
 	{
 		ggml_compute_forward_argmax(params, tensor);
@@ -3091,12 +3226,11 @@ static void ggml_compute_forward(
 	{
 		ggml_compute_forward_count_equal(params, tensor);
 	} break;
-#endif
+#if 0
 	case GGML_OP_REPEAT:
 	{
 		ggml_compute_forward_repeat(tensor);
 	} break;
-#if 0
 	case GGML_OP_REPEAT_BACK:
 	{
 		ggml_compute_forward_repeat_back(params, tensor);

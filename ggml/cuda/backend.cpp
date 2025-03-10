@@ -1321,13 +1321,13 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     }
 
     switch (dst->op) {
-#if 0
     case GGML_OP_ARGMAX:
-        ggml_cuda_argmax(ctx, dst);
+        op::argmax(stream(), dst);
         break;
     case GGML_OP_COUNT_EQUAL:
-        ggml_cuda_count_equal(ctx, dst);
+        op::count_equal(stream(), dst);
         break;
+#if 0
     case GGML_OP_REPEAT:
         ggml_cuda_op_repeat(ctx, dst);
         break;

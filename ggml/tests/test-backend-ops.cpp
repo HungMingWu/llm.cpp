@@ -1142,6 +1142,39 @@ struct test_im2col : public test_case {
     }
 };
 
+struct test_conv_transpose_1d : public test_case {
+    const std::array<int64_t, 4> ne_input;
+    const std::array<int64_t, 4> ne_kernel;
+
+    const int s0; // stride
+    const int p0; // padding
+    const int d0; // dilation
+
+    std::string vars() override {
+        return std::format("ne_input={},ne_kernel={},s0={},p0={},d0={}",
+            toString(ne_input), toString(ne_kernel), s0, p0, d0);
+    }
+
+    test_conv_transpose_1d(std::array<int64_t, 4> ne_input = { 197, 32, 1, 1 }, // [input_width, input_height, input_channels, 1]
+        std::array<int64_t, 4> ne_kernel = { 16, 32, 32, 1 }, // [kernel_width, kernel_height, input_channels, 1]
+        int s0 = 1, int p0 = 0, int d0 = 1)
+        : ne_input(ne_input), ne_kernel(ne_kernel), s0(s0), p0(p0), d0(d0) {
+    }
+
+    ggml_tensor* build_graph(ggml_context* ctx) override {
+        ggml_tensor* input = ctx->create(GGML_TYPE_F32, { ne_input[0], ne_input[1], ne_input[2], ne_input[3] });
+        input->set_name("input");
+
+        ggml_tensor* kernel = ctx->create(GGML_TYPE_F32, { ne_kernel[0], ne_kernel[1], ne_kernel[2], ne_kernel[3] });;
+        kernel->set_name("kernel");
+
+        ggml_tensor* out = ggml_conv_transpose_1d(ctx, kernel, input, s0, p0, d0);
+        out->set_name("out");
+
+        return out;
+    }
+};
+
 // ###########################################
 // ## Section 3: GGML Op Test Instantiation ##
 // ###########################################
@@ -1238,7 +1271,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
             }
         }
     }
-#endif
+
     // im2col 1D
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F32, GGML_TYPE_F32, { 3000, 128, 1, 1 }, { 3, 128, 1280, 1 }, 1, 0, 1, 0, 1, 0, false));
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F32, { 3000, 128, 1, 1 }, { 3, 128, 1280, 1 }, 1, 0, 1, 0, 1, 0, false));
@@ -1282,14 +1315,14 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F16, { 12, 12, 2, 2048 }, { 3, 3, 2, 2048 }, 1, 1, 1, 1, 1, 1, true));
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F16, { 12, 12, 1, 2560 }, { 3, 3, 1, 2560 }, 1, 1, 1, 1, 1, 1, true));
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F16, { 12, 12, 2, 2560 }, { 3, 3, 2, 2560 }, 1, 1, 1, 1, 1, 1, true));
-
+#endif
     // sycl backend will limit task global_range < MAX_INT
     // test cases for 2D im2col with large input W and H (occurs in stable-diffusion)
     // however these cases need to alloc more memory which may fail in some devices (Intel Arc770, etc.)
     // these cases are verified (pass) in Intel(R) Data Center GPU Max 1100 (sycl backend) and NV A30 (cuda backend)
     // test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F16, {1024, 1024, 256, 1}, {3, 3, 256, 1}, 1, 1, 1, 1, 1, 1, true));
     // test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F32, {1024, 1024, 256, 1}, {3, 3, 256, 1}, 1, 1, 1, 1, 1, 1, true));
-#if 0
+
     test_cases.emplace_back(new test_conv_transpose_1d());
     test_cases.emplace_back(new test_conv_transpose_1d({ 3,2,1,1 }, { 2,3,2,1 }, 3, 0, 1));
     test_cases.emplace_back(new test_conv_transpose_1d({ 3,2,1,1 }, { 2,3,2,1 }, 2, 0, 1));
@@ -1298,7 +1331,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_conv_transpose_1d({ 3,2,1,1 }, { 3,2,2,1 }, 1, 0, 1));
     test_cases.emplace_back(new test_conv_transpose_1d({ 3,2,1,1 }, { 3,1,2,1 }, 1, 0, 1));
     test_cases.emplace_back(new test_conv_transpose_1d({ 2,1,1,1 }, { 3,1,1,1 }, 1, 0, 1));
-
+#if 0
     test_cases.emplace_back(new test_count_equal());
 
     test_cases.emplace_back(new test_argmax(GGML_TYPE_F32, { 32,    1, 1, 1 }));

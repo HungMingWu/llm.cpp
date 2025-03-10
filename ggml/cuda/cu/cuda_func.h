@@ -76,7 +76,7 @@ void abs_f32_cuda(const float* x, float* dst, const int k, cudaStream_t stream);
 void sgn_f32_cuda(const float* x, float* dst, const int k, cudaStream_t stream);
 void elu_f32_cuda(const float* x, float* dst, const int k, cudaStream_t stream);
 
-// get_row context
+// get_row
 struct get_row_context {
     ggml_type type;
     const void* src0_d;
@@ -100,3 +100,22 @@ struct get_row_back_context {
 
 void get_rows_cuda(const get_row_context *ctx, cudaStream_t stream);
 void get_rows_back_cuda(const get_row_back_context* ctx, cudaStream_t stream);
+
+// argmax
+struct argmax_context {
+    const float* src0_d;
+    int32_t* dst_d;
+    const int64_t ne00;
+    const int64_t nrows;
+};
+void argmax_cuda(const argmax_context* ctx, cudaStream_t stream);
+
+// count_equal
+struct count_equal_context {
+    const int* src0_d;
+    const int* src1_d;
+    int64_t* dst_d;
+    const size_t dst_size;
+    const int64_t ne;
+};
+void count_equal_cuda(const count_equal_context* ctx, cudaStream_t stream);
