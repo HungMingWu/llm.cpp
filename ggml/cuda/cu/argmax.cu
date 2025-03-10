@@ -1,3 +1,4 @@
+#include <float.h>
 #include <algorithm>
 #include "common.cuh"
 #include "cuda_func.h"
