@@ -1,5 +1,6 @@
 module;
 #include <assert.h>
+#include <string.h>
 #include <array>
 #include <bit>
 #include "block.h"
