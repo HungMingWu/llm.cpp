@@ -1,10 +1,7 @@
 #pragma once
 #include "../common.h"
 #include <stdint.h>
-
-enum ggml_prec : int;
-enum ggml_op_pool : int;
-enum ggml_type : int;
+#include "internal_ds.h"
 
 struct mmq_args {
     const char* x; const char* y; float* dst;
