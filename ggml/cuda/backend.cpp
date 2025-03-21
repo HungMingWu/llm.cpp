@@ -1499,11 +1499,10 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     case GGML_OP_SOFT_MAX_BACK:
         op::soft_max_back(stream(), dst);
         break;
-#if 0
     case GGML_OP_ROPE:
-        ggml_cuda_op_rope(ctx, dst);
+    case GGML_OP_ROPE_BACK:
+        op::rope(stream(), dst, (dst->op == GGML_OP_ROPE) ? true : false);
         break;
-#endif
     case GGML_OP_IM2COL:
         op::im2col(stream(), dst);
         break;

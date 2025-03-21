@@ -304,3 +304,38 @@ void soft_max_back_f32_cuda(
     const float* grad, const float* dstf, float* dst,
     const int ncols, const int nrows, const float scale, cudaStream_t stream);
 
+// rope
+
+struct mrope_sections {
+    int v[4];
+};
+
+struct rope_corr_dims {
+    float v[2];
+};
+
+struct rope_context {
+    const bool forward;
+    const bool is_neox;
+    const bool is_mrope;
+    const bool is_vision;
+    const ggml_type src0_type;
+    const void* src0_d;
+    void* dst_d;
+    const int64_t ne00, ne01, ne02;
+    const size_t s01, s02;
+    const int n_dims;
+    const int n_ctx_orig;
+    const int64_t nr;
+    const int32_t* pos;
+    const float freq_scale;
+    const float freq_base;
+    const float ext_factor;
+    const float attn_factor;
+    const float beta_fast;
+    const float beta_slow;
+    const float* freq_factors;
+    mrope_sections sections;
+};
+
+void rope_cuda(const rope_context* ctx, cudaStream_t stream);

@@ -40,6 +40,7 @@ target_sources(libggml
       cu/norm.cu
       cu/pool2d.cu
       cu/quantize.cu
+      cu/rope.cu
       cu/scale.cu
       cu/softmax.cu
       cu/unary.cu

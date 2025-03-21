@@ -319,7 +319,11 @@ public:
         case GGML_OP_SOFT_MAX_BACK:
             return std::bit_cast<float>(op->op_params[1]) == 0.0f;
         case GGML_OP_ROPE:
-            return ggml_is_contiguous(op->src[0]);
+        case GGML_OP_ROPE_BACK: {
+            const size_t ts = ggml_type_size(op->src[0]->type);
+            const int64_t ne0_012 = op->src[0]->ne[0] * op->src[0]->ne[1] * op->src[0]->ne[2];
+            return op->src[0]->nb[0] == ts && op->src[0]->nb[3] == ne0_012 * ts;
+        }
         case GGML_OP_IM2COL:
         case GGML_OP_POOL_2D:
         case GGML_OP_SUM:

@@ -631,9 +631,9 @@ ggml_tensor* ggml_rope_multi(
 	ggml_set_op_params(*result, params, sizeof(params));
 
 	result->op = GGML_OP_ROPE;
-	result->src[0] = a;
-	result->src[1] = b;
-	result->src[2] = c;
+	result->src.push_back(a);
+	result->src.push_back(b);
+	result->src.push_back(c);
 
 	return result;
 }
@@ -679,9 +679,9 @@ static ggml_tensor* ggml_rope_impl(
 	ggml_set_op_params(*result, params, sizeof(params));
 
 	result->op = GGML_OP_ROPE;
-	result->src[0] = a;
-	result->src[1] = b;
-	result->src[2] = c;
+	result->src.push_back(a);
+	result->src.push_back(b);
+	result->src.push_back(c);
 
 	return result;
 }
