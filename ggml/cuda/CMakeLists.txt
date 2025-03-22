@@ -25,6 +25,7 @@ target_sources(libggml
       cu/clamp.cu
       cu/common.cuh
       cu/compute_batched_ptrs.cu
+      cu/concat.cu
       cu/conv-transpose-1d.cu
       cu/convert.cu
       cu/convert.cuh

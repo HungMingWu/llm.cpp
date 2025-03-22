@@ -758,13 +758,13 @@ void ggml_cgraph::visit_parents(ggml_tensor* node)
 
     if (order == GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT) {
         std::for_each(node->src.begin(), node->src.end(), [this](ggml_tensor* src) {
-            visit_parents(src);
-            });
+            if (src) visit_parents(src);
+        });
     }
     else {
         std::for_each(node->src.rbegin(), node->src.rend(), [this](ggml_tensor* src) {
-            visit_parents(src);
-            });
+            if (src) visit_parents(src);
+        });
     }
 
     if (node->op == GGML_OP_NONE && !(node->flags & GGML_TENSOR_FLAG_PARAM)) {

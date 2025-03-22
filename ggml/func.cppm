@@ -133,7 +133,8 @@ ggml_tensor* graph_copy_dup_tensor(std::unordered_map<ggml_tensor*, ggml_tensor*
 
 	// copy src
 	for (auto s : src->src) {
-		dst->src.push_back(graph_copy_dup_tensor(node_copies, ctx_allocated, ctx_unallocated, s));
+		if (!s) dst->src.push_back(nullptr);
+		else dst->src.push_back(graph_copy_dup_tensor(node_copies, ctx_allocated, ctx_unallocated, s));
 	}
 
 	node_copies[src] = dst;
@@ -158,6 +159,7 @@ static void graph_copy_init_tensor(std::unordered_map<ggml_tensor*, ggml_tensor*
 
 	// init src
 	for (auto s : src->src) {
+		if (!s) continue;
 		graph_copy_init_tensor(node_copies, node_init, s);
 	}
 }
@@ -1251,18 +1253,6 @@ export {
 	ggml_tensor* ggml_silu(
 		struct ggml_context* ctx,
 		struct ggml_tensor* a)
-	{
-		// TODO
-		return nullptr;
-	}
-
-	// concat a and b along dim
-	// used in stable-diffusion
-	ggml_tensor* ggml_concat(
-		struct ggml_context* ctx,
-		struct ggml_tensor* a,
-		struct ggml_tensor* b,
-		int                   dim)
 	{
 		// TODO
 		return nullptr;

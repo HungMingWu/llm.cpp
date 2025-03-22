@@ -1215,6 +1215,7 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
 #ifndef NDEBUG
                 assert(node->buffer->get_type() == ggml_backend_cuda_buffer_type(device));
                 for (auto& src : node->src) {
+                    if (!src) continue;
                     assert(src->buffer);
                     assert(src->buffer->get_type() == ggml_backend_cuda_buffer_type(device) ||
                         ggml_backend_buft_is_cuda_split(src->buffer->get_type()));
@@ -1425,9 +1426,11 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     case GGML_OP_GROUP_NORM:
         ggml_cuda_op_group_norm(ctx, dst);
         break;
+#endif
     case GGML_OP_CONCAT:
-        ggml_cuda_op_concat(ctx, dst);
+        op::concat(stream(), dst);
         break;
+#if 0
     case GGML_OP_UPSCALE:
         ggml_cuda_op_upscale(ctx, dst);
         break;

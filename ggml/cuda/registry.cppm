@@ -111,7 +111,9 @@ public:
         // split buffers can only be used with GGML_OP_MUL_MAT
         if (op->op != GGML_OP_MUL_MAT) {
             for (auto &src : op->src) {
-                if (src->buffer && ggml_backend_buft_is_cuda_split(src->buffer->get_type())) {
+                if (!src) continue;
+                if (!src->buffer) continue;
+                if (ggml_backend_buft_is_cuda_split(src->buffer->get_type())) {
                     return false;
                 }
             }
@@ -119,7 +121,9 @@ public:
 
         // check if all the sources are allocated on this device
         for (auto& src : op->src) {
-            if (src->buffer && ggml_backend_buft_is_cuda(src->buffer->get_type())) {
+            if (!src) continue;
+            if (!src->buffer) continue;
+            if (ggml_backend_buft_is_cuda(src->buffer->get_type())) {
 #if 0
                 ggml_backend_cuda_buffer_type_context* buft_ctx = (ggml_backend_cuda_buffer_type_context*)op->src[i]->buffer->buft->context;
                 if (buft_ctx->device != device) {

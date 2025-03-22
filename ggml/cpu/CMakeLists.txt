@@ -20,6 +20,7 @@ target_sources(libggml
     FILE_SET cpu_op_interface
     TYPE CXX_MODULES
     FILES
+      op/concat.cppm
       op/norm.cppm
       op/scale.cppm
       op/unary.cppm

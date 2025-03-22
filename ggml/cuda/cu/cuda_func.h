@@ -334,8 +334,8 @@ struct rope_context {
     const int n_ctx_orig;
     const int64_t nr;
     const int32_t* pos;
-    const float freq_scale;
     const float freq_base;
+    const float freq_scale;
     const float ext_factor;
     const float attn_factor;
     const float beta_fast;
@@ -345,3 +345,19 @@ struct rope_context {
 };
 
 void rope_cuda(const rope_context* ctx, cudaStream_t stream);
+
+// concat
+struct concat_context {
+    const int32_t dim;
+    const bool src0_is_contiguous, src1_is_contiguous;
+	const float* src0_d, * src1_d;
+    float* dst_d;
+    const int64_t ne00, ne01, ne02, ne03;
+    const size_t nb00, nb01, nb02, nb03;
+    const int64_t ne10, ne11, ne12, ne13;
+    const size_t nb10, nb11, nb12, nb13;
+    const int64_t ne0, ne1, ne2, ne3;
+	const size_t nb0, nb1, nb2, nb3;
+    const size_t src0_size, src1_size;
+};
+void concat_cuda(const concat_context* ctx, cudaStream_t stream);

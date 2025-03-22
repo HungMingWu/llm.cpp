@@ -949,36 +949,13 @@ namespace op
         GGML_ASSERT(dst->type == GGML_TYPE_F32 || dst->type == GGML_TYPE_F16);
         GGML_ASSERT(src0->type == dst->type);
 
-        //const int n_past     = ((int32_t *) dst->op_params)[0];
-        const int mode = ((int32_t*)dst->op_params)[2];
-        //const int n_ctx      = ((int32_t *) dst->op_params)[3];
-        const int n_ctx_orig = ((int32_t*)dst->op_params)[4];
-
-        // RoPE alteration for extended context
-        float freq_base;
-        float freq_scale;
-        float ext_factor;
-        float attn_factor;
-        float beta_fast;
-        float beta_slow;
-
-        memcpy(&freq_base, (int32_t*)dst->op_params + 5, sizeof(float));
-        memcpy(&freq_scale, (int32_t*)dst->op_params + 6, sizeof(float));
-        memcpy(&ext_factor, (int32_t*)dst->op_params + 7, sizeof(float));
-        memcpy(&attn_factor, (int32_t*)dst->op_params + 8, sizeof(float));
-        memcpy(&beta_fast, (int32_t*)dst->op_params + 9, sizeof(float));
-        memcpy(&beta_slow, (int32_t*)dst->op_params + 10, sizeof(float));
-
-        const float* freq_factors = nullptr;
-        if (src2 != nullptr) {
-            freq_factors = (const float*)src2->data;
-        }
+        const int mode = std::bit_cast<int>(dst->op_params[2]);
 
         rope_context ctx{
             .forward = forward,
             .is_neox = static_cast<bool>(mode & GGML_ROPE_TYPE_NEOX),
             .is_mrope = static_cast<bool>(mode & GGML_ROPE_TYPE_MROPE),
-            .is_vision = static_cast<bool>(mode & GGML_ROPE_TYPE_VISION),
+            .is_vision = static_cast<bool>(mode == GGML_ROPE_TYPE_VISION),
             .src0_type = src0->type,
             .src0_d = src0->data,
             .dst_d = dst->data,
@@ -988,24 +965,73 @@ namespace op
             .s01 = src0->nb[1] / ggml_type_size(src0->type),
             .s02 = src0->nb[2] / ggml_type_size(src0->type),
             .n_dims = std::bit_cast<int>(dst->op_params[1]),
-            .n_ctx_orig = n_ctx_orig,
+            .n_ctx_orig = std::bit_cast<int>(dst->op_params[4]),
             .nr = ggml_nrows(src0),
             .pos = (const int32_t*)src1->data,
-            .freq_scale = freq_scale,
-            .freq_base = freq_base,
-            .ext_factor = ext_factor,
-            .attn_factor = attn_factor,
-            .beta_fast = beta_fast,
-            .beta_slow = beta_slow,
-            .freq_factors = freq_factors
+            // RoPE alteration for extended context
+            .freq_base = std::bit_cast<float>(dst->op_params[5]),
+            .freq_scale = std::bit_cast<float>(dst->op_params[6]),
+            .ext_factor = std::bit_cast<float>(dst->op_params[7]),
+            .attn_factor = std::bit_cast<float>(dst->op_params[8]),
+            .beta_fast = std::bit_cast<float>(dst->op_params[9]),
+            .beta_slow = std::bit_cast<float>(dst->op_params[10]),
+            .freq_factors = (src2 != nullptr) ? (const float*)src2->data : nullptr
         };
         memcpy(&ctx.sections.v, (int32_t*)dst->op_params + 11, sizeof(int) * 4);
+
         if (ctx.is_mrope) {
             GGML_ASSERT(ctx.sections.v[0] > 0 || ctx.sections.v[1] > 0 || ctx.sections.v[2] > 0);
         }
         if (ctx.is_vision) {
             GGML_ASSERT(ctx.n_dims == ctx.ne00 / 2);
         }
+
         rope_cuda(&ctx, stream);
+    }
+
+    void concat(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(src1->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+
+        concat_context ctx{
+            .dim = dst->op_params[0],
+            .src0_is_contiguous = ggml_is_contiguous(src0),
+			.src1_is_contiguous = ggml_is_contiguous(src1),
+            .src0_d = (const float*)src0->data,
+			.src1_d = (const float*)src1->data,
+			.dst_d = (float*)dst->data,
+            .ne00 = src0->ne[0],
+			.ne01 = src0->ne[1],
+			.ne02 = src0->ne[2],
+            .ne03 = src0->ne[3],
+            .nb00 = src0->nb[0],
+            .nb01 = src0->nb[1],
+            .nb02 = src0->nb[2],
+            .nb03 = src0->nb[3],
+            .ne10 = src1->ne[0],
+            .ne11 = src1->ne[1],
+            .ne12 = src1->ne[2],
+            .ne13 = src1->ne[3],
+            .nb10 = src1->nb[0],
+            .nb11 = src1->nb[1],
+            .nb12 = src1->nb[2],
+            .nb13 = src1->nb[3],
+            .ne0 = dst->ne[0],
+            .ne1 = dst->ne[1],
+			.ne2 = dst->ne[2],
+            .ne3 = dst->ne[3],
+            .nb0 = dst->nb[0],
+            .nb1 = dst->nb[1],
+            .nb2 = dst->nb[2],
+            .nb3 = dst->nb[3],
+			.src0_size = src0->nbytes(),
+			.src1_size = src1->nbytes()
+        };
+
+		concat_cuda(&ctx, stream);
     }
 }

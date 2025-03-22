@@ -187,9 +187,6 @@ export
 				}
 				return std::bit_cast<float>(op->op_params[1]) == 0.0f;
 			}
-
-			case GGML_OP_ROPE_BACK:
-				return op->src[2] == NULL && (op->op_params[2] & 4) == 0;
 			case GGML_OP_IM2COL_BACK:
 				return src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32;
 			case GGML_OP_OUT_PROD:

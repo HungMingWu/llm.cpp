@@ -705,3 +705,32 @@ ggml_tensor* ggml_rope_ext(
 		ext_factor, attn_factor, beta_fast, beta_slow, false
 	);
 }
+
+ggml_tensor* ggml_concat(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	int dim)
+{
+	GGML_ASSERT(dim >= 0 && dim < GGML_MAX_DIMS);
+	GGML_ASSERT(a->type == b->type);
+
+	int64_t ne[GGML_MAX_DIMS];
+	for (int d = 0; d < GGML_MAX_DIMS; ++d) {
+		if (d == dim) {
+			ne[d] = a->ne[d] + b->ne[d];
+			continue;
+		}
+		GGML_ASSERT(a->ne[d] == b->ne[d]);
+		ne[d] = a->ne[d];
+	}
+
+	ggml_tensor* result = ctx->create(a->type, { ne[0], ne[1], ne[2], ne[3] });
+
+	result->op_params[0] = std::bit_cast<uint32_t>(dim);
+	result->op = GGML_OP_CONCAT;
+	result->src.push_back(a);
+	result->src.push_back(b);
+
+	return result;
+}

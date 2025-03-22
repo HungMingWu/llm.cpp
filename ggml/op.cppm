@@ -178,4 +178,10 @@ export {
 		float attn_factor,
 		float beta_fast,
 		float beta_slow);
+
+	ggml_tensor* ggml_concat(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		int dim);
 }

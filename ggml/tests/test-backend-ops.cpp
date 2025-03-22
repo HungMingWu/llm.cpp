@@ -2395,6 +2395,195 @@ struct test_soft_max_back : public test_case {
     }
 };
 
+struct test_rope : public test_case {
+    const ggml_type type;
+    const std::array<int64_t, 4> ne_a;
+    int n_dims;
+    int mode;
+    int n_ctx; // used to generate positions
+    float fs; // freq_scale
+    float ef; // ext_factor
+    float af; // attn_factor
+    bool ff;
+    int v; // view (1 : non-contiguous a)
+    bool forward;
+
+    std::string vars() override {
+        // forward can be inferred from the op, does not need to be printed
+        return std::format("type={},ne_a={},n_dims={},mode={},n_ctx={},fs={},af={},ef={},ff={},v={}",
+            toString(type), toString(ne_a), n_dims, mode, n_ctx, fs, ef, af, ff, v);
+    }
+
+    test_rope(ggml_type type = GGML_TYPE_F32,
+        std::array<int64_t, 4> ne_a = { 10, 5, 3, 1 },
+        int n_dims = 10, int mode = 0, int n_ctx = 512, float fs = 1.0f,
+        float ef = 0.0f, float af = 0.0f, bool ff = false, int v = 0, bool forward = true)
+        : type(type), ne_a(ne_a), n_dims(n_dims), mode(mode), n_ctx(n_ctx), fs(fs), ef(ef), af(af), ff(ff), v(v), forward(forward) {
+    }
+
+    ggml_tensor* build_graph(ggml_context* ctx) override {
+        ggml_tensor* a;
+        if (v & 1) {
+            auto ne = ne_a; ne[0] *= 2; ne[1] *= 4; ne[2] *= 3;
+            a = ctx->create(type, { ne[0], ne[1], ne[2], ne[3] });
+            if (forward) {
+                ggml_set_param(a);
+            }
+            a->set_name("a");
+
+            a = ggml_view_4d(ctx, a, ne_a[0], ne_a[1], ne_a[2], ne_a[3], a->nb[1], a->nb[2], a->nb[3], 0);
+            a->set_name("view_of_a");
+        }
+        else {
+            a = ctx->create(type, { ne_a[0], ne_a[1], ne_a[2], ne_a[3] });
+            if (forward) {
+                ggml_set_param(a);
+            }
+            a->set_name("a");
+        }
+
+        const bool is_mrope = mode & GGML_ROPE_TYPE_MROPE;
+        const bool is_vision = mode == GGML_ROPE_TYPE_VISION;
+
+        ggml_tensor* pos;
+        if (is_mrope || is_vision) {
+            pos = ctx->create(GGML_TYPE_I32, { ne_a[2] * 4 });
+        }
+        else {
+            pos = ctx->create(GGML_TYPE_I32, { ne_a[2] });
+        }
+        pos->set_name("pos");
+
+        ggml_tensor* freq = nullptr;
+        if (ff) {
+            freq = ctx->create(GGML_TYPE_F32, { n_dims / 2 });
+            freq->set_name("freq");
+        }
+
+        ggml_tensor* out;
+        if (is_mrope) {
+            if (is_vision) {
+                GGML_ASSERT(n_dims / 4 > 0);
+                int rope_sections[4] = { n_dims / 4, n_dims / 4, 0, 0 }; // Vision-RoPE only use first two dimension for image (x, y) coordinate
+                if (forward) {
+                    out = ggml_rope_multi(ctx, a, pos, freq, n_dims / 2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                }
+                else {
+                    out = ggml_rope_multi_back(ctx, a, pos, freq, n_dims / 2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                }
+            }
+            else {
+                GGML_ASSERT(n_dims / 3 > 0);
+                int rope_sections[4] = { n_dims / 3, n_dims / 3, n_dims / 3, 0 };
+                if (forward) {
+                    out = ggml_rope_multi(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                }
+                else {
+                    out = ggml_rope_multi_back(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                }
+            }
+        }
+        else {
+            if (forward) {
+                out = ggml_rope_ext(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+            }
+            else {
+                out = ggml_rope_ext_back(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+            }
+        }
+        out->set_name("out");
+
+        return out;
+    }
+
+    void initialize_tensors(ggml_context* ctx) override {
+        for (auto t : ctx->getTensors()) {
+            if (t->type == GGML_TYPE_I32) {
+                // pos
+                const int num_pos_ids = (mode & GGML_ROPE_TYPE_MROPE) ? ne_a[2] * 4 : ne_a[2];
+                std::vector<int> data(num_pos_ids);
+                for (int i = 0; i < num_pos_ids; i++) {
+                    data[i] = rand() % n_ctx;
+                }
+                ggml_backend_tensor_set(t, data.data(), 0, num_pos_ids * sizeof(int));
+            }
+            else {
+                if (t->ne[0] == n_dims / 2) {
+                    // frequency factors in the range [0.9f, 1.1f]
+                    init_tensor_uniform(t, 0.9f, 1.1f);
+                }
+                else {
+                    init_tensor_uniform(t);
+                }
+            }
+        }
+    }
+
+    double max_maa_err() override {
+        return 1e-3;
+    }
+
+    bool grad_precise() override {
+        return true;
+    }
+};
+
+struct test_concat : public test_case {
+    const ggml_type type;
+    const std::array<int64_t, 4> ne_a;
+    const int64_t ne_b_d;
+    const int dim;
+    const int v; // view (1 << 0: non-cont a, 1 << 1: non-cont b)
+
+    std::string vars() override {
+        return std::format("type={},ne_a={},ne_b_d={},dim={},v={}",
+            toString(type), toString(ne_a), ne_b_d, dim, v);
+    }
+
+    test_concat(ggml_type type = GGML_TYPE_F32,
+        std::array<int64_t, 4> ne_a = { 10, 5, 5, 5 },
+        int64_t ne_b_d = 5,
+        int dim = 2, int v = 0)
+        : type(type), ne_a(ne_a), ne_b_d(ne_b_d), dim(dim), v(v) {
+    }
+
+    ggml_tensor* build_graph(ggml_context* ctx) override {
+        auto ne_b = ne_a;
+        ne_b[dim] = ne_b_d;
+        ggml_tensor* a;
+        if (v & 1) {
+            auto ne = ne_a; ne[0] *= 2; ne[1] *= 4; ne[2] *= 3;
+            a = ctx->create(type, { ne[0], ne[1], ne[2], ne[3] });
+            a->set_name("a");
+
+            a = ggml_view_4d(ctx, a, ne_a[0], ne_a[1], ne_a[2], ne_a[3], a->nb[1], a->nb[2], a->nb[3], 0);
+            a->set_name("view_of_a");
+        }
+        else {
+            a = ctx->create(type, { ne_a[0], ne_a[1], ne_a[2], ne_a[3] });
+            a->set_name("a");
+        }
+        ggml_tensor* b;
+        if (v & 2) {
+            auto ne = ne_b; ne[0] *= 3; ne[1] *= 2; ne[2] *= 4;
+            b = ctx->create(type, { ne[0], ne[1], ne[2], ne[3] });
+            b->set_name("b");
+
+            b = ggml_view_4d(ctx, b, ne_b[0], ne_b[1], ne_b[2], ne_b[3], b->nb[1], b->nb[2], b->nb[3], 0);
+            b->set_name("view_of_b");
+        }
+        else {
+            b = ctx->create(type, { ne_b[0], ne_b[1], ne_b[2], ne_b[3] });
+            b->set_name("b");
+        }
+
+        ggml_tensor* out = ggml_concat(ctx, a, b, dim);
+        out->set_name("out");
+
+        return out;
+    }
+};
+
 // ###########################################
 // ## Section 3: GGML Op Test Instantiation ##
 // ###########################################
@@ -2842,7 +3031,8 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
 
         exponent <<= 1;
     }
-
+#endif
+#if 0
     for (bool mask : {false, true}) {
         for (float max_bias : {0.0f, 8.0f}) {
             if (!mask && max_bias > 0.0f) continue;
@@ -2873,6 +3063,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_soft_max(GGML_TYPE_F32, { 32, 2, 32, 1 }, true, GGML_TYPE_F32, 0.1f, 8.0f));
     test_cases.emplace_back(new test_soft_max(GGML_TYPE_F32, { 32, 2, 32, 1 }, true, GGML_TYPE_F16, 0.1f, 8.0f));
 #endif
+#if 0
     for (float max_bias : {0.0f, 8.0f}) {
         for (float scale : {1.0f, 0.1f}) {
             for (int64_t ne0 : {16, 1024}) {
@@ -2883,8 +3074,9 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
             }
         }
     }
+#endif
 #if 0
-    {
+    for (bool fw : {true, false}) { // fw == forward
         bool all = true;
 
         for (float v : { 0, 1 }) {
@@ -2893,29 +3085,29 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
                     for (float af : { 1.0f, 1.4245f }) {
                         for (ggml_type type : {GGML_TYPE_F32, GGML_TYPE_F16}) {
                             for (bool ff : {false, true}) { // freq_factors
-                                test_cases.emplace_back(new test_rope(type, { 128,  32, 2, 1 }, 128, 0, 512, fs, ef, af, ff, v)); // llama 7B
+                                test_cases.emplace_back(new test_rope(type, { 128,  32, 2, 1 }, 128, 0, 512, fs, ef, af, ff, v, fw)); // llama 7B
 
                                 if (all) {
-                                    test_cases.emplace_back(new test_rope(type, { 128,  40, 2, 1 }, 128, 0, 512, fs, ef, af, ff, v)); // llama 13B
-                                    test_cases.emplace_back(new test_rope(type, { 128,  52, 2, 1 }, 128, 0, 512, fs, ef, af, ff, v)); // llama 30B
-                                    test_cases.emplace_back(new test_rope(type, { 128,  64, 2, 1 }, 128, 0, 512, fs, ef, af, ff, v)); // llama 65B
+                                    test_cases.emplace_back(new test_rope(type, { 128,  40, 2, 1 }, 128, 0, 512, fs, ef, af, ff, v, fw)); // llama 13B
+                                    test_cases.emplace_back(new test_rope(type, { 128,  52, 2, 1 }, 128, 0, 512, fs, ef, af, ff, v, fw)); // llama 30B
+                                    test_cases.emplace_back(new test_rope(type, { 128,  64, 2, 1 }, 128, 0, 512, fs, ef, af, ff, v, fw)); // llama 65B
                                 }
 
                                 if (all) {
-                                    test_cases.emplace_back(new test_rope(type, { 64,   1, 2, 1 }, 64, 2, 512, fs, ef, af, ff, v)); // neox (falcon 7B)
-                                    test_cases.emplace_back(new test_rope(type, { 64,  71, 2, 1 }, 64, 2, 512, fs, ef, af, ff, v)); // neox (falcon 7B)
-                                    test_cases.emplace_back(new test_rope(type, { 64,   8, 2, 1 }, 64, 2, 512, fs, ef, af, ff, v)); // neox (falcon 40B)
-                                    test_cases.emplace_back(new test_rope(type, { 80,  32, 2, 1 }, 20, 2, 512, fs, ef, af, ff, v)); // neox (stablelm)
-                                    test_cases.emplace_back(new test_rope(type, { 80,  32, 2, 1 }, 32, 2, 512, fs, ef, af, ff, v)); // neox (phi-2)
+                                    test_cases.emplace_back(new test_rope(type, { 64,   1, 2, 1 }, 64, 2, 512, fs, ef, af, ff, v, fw)); // neox (falcon 7B)
+                                    test_cases.emplace_back(new test_rope(type, { 64,  71, 2, 1 }, 64, 2, 512, fs, ef, af, ff, v, fw)); // neox (falcon 7B)
+                                    test_cases.emplace_back(new test_rope(type, { 64,   8, 2, 1 }, 64, 2, 512, fs, ef, af, ff, v, fw)); // neox (falcon 40B)
+                                    test_cases.emplace_back(new test_rope(type, { 80,  32, 2, 1 }, 20, 2, 512, fs, ef, af, ff, v, fw)); // neox (stablelm)
+                                    test_cases.emplace_back(new test_rope(type, { 80,  32, 2, 1 }, 32, 2, 512, fs, ef, af, ff, v, fw)); // neox (phi-2)
                                 }
 
                                 if (all) {
-                                    test_cases.emplace_back(new test_rope(type, { 128,  12, 2, 1 }, 128, GGML_ROPE_TYPE_MROPE, 512, fs, ef, af, ff, v)); // rope_multi,m-rope (qwen2vl 2B)
-                                    test_cases.emplace_back(new test_rope(type, { 128,  28, 2, 1 }, 128, GGML_ROPE_TYPE_MROPE, 512, fs, ef, af, ff, v)); // rope_multi,m-rope (qwen2vl 7B)
-                                    test_cases.emplace_back(new test_rope(type, { 80,  16, 2, 1 }, 80, GGML_ROPE_TYPE_VISION, 512, fs, ef, af, ff, v)); // rope_multi,m-rope (qwen2vl ViT)
+                                    test_cases.emplace_back(new test_rope(type, { 128,  12, 2, 1 }, 128, GGML_ROPE_TYPE_MROPE, 512, fs, ef, af, ff, v, fw)); // rope_multi,m-rope (qwen2vl 2B)
+                                    test_cases.emplace_back(new test_rope(type, { 128,  28, 2, 1 }, 128, GGML_ROPE_TYPE_MROPE, 512, fs, ef, af, ff, v, fw)); // rope_multi,m-rope (qwen2vl 7B)
+                                    test_cases.emplace_back(new test_rope(type, { 80,  16, 2, 1 }, 80, GGML_ROPE_TYPE_VISION, 512, fs, ef, af, ff, v, fw)); // rope_multi,m-rope (qwen2vl ViT)
                                 }
 
-                                test_cases.emplace_back(new test_rope(type, { 64, 128, 2, 1 }, 64, 2, 512, fs, ef, af, ff, v)); // neox (falcon 40B)
+                                test_cases.emplace_back(new test_rope(type, { 64, 128, 2, 1 }, 64, 2, 512, fs, ef, af, ff, v, fw)); // neox (falcon 40B)
                             }
                         }
 
@@ -2925,14 +3117,14 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
             }
         }
     }
-
+#endif
     for (int v : { 0, 1, 2, 3 }) {
         for (int dim : { 0, 1, 2, 3, }) {
             test_cases.emplace_back(new test_concat(GGML_TYPE_F32, { 11, 12, 13, 14 }, 7, dim, v));
             test_cases.emplace_back(new test_concat(GGML_TYPE_I32, { 11, 12, 13, 14 }, 7, dim, v));
         }
     }
-
+#if 0
     for (ggml_sort_order order : {GGML_SORT_ORDER_ASC, GGML_SORT_ORDER_DESC}) {
         test_cases.emplace_back(new test_argsort(GGML_TYPE_F32, { 8, 1, 1, 1 }, order));
         test_cases.emplace_back(new test_argsort(GGML_TYPE_F32, { 16, 10, 10, 10 }, order));

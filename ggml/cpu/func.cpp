@@ -58,6 +58,7 @@ import :cpu.from_float;
 import :cpu.to_float;
 import :cpu.traits;
 import :cpu.vec_dot;
+import :cpu.op.concat;
 import :cpu.op.norm;
 import :cpu.op.scale;
 import :cpu.op.unary;
@@ -6075,11 +6076,11 @@ static void ggml_compute_forward(
 	{
 		ggml_compute_forward_repeat_back(params, tensor);
 	} break;
+#endif
 	case GGML_OP_CONCAT:
 	{
 		ggml_compute_forward_concat(params, tensor);
 	} break;
-#endif
 	case GGML_OP_SILU_BACK:
 	{
 		ggml_compute_forward_silu_back(params, tensor);
