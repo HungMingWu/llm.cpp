@@ -16,6 +16,16 @@ static __device__ __forceinline__ float get_alibi_slope(
     return powf(base, exph);
 }
 
+template <typename T>
+static __device__ __forceinline__ float t2f32(T val) {
+    return (float)val;
+}
+
+template <>
+__device__ float __forceinline__ t2f32<half>(half val) {
+    return __half2float(val);
+}
+
 // When ncols_template == 0 the bounds for the loops in this function are not known and can't be unrolled.
 // As we want to keep pragma unroll for all other cases we supress the clang transformation warning here.
 #ifdef __clang__
@@ -196,10 +206,12 @@ static void soft_max_f32_cuda(const float* x, const T* mask, float* dst, const i
 void soft_max_f32_cuda(const softmax_context* ctx, cudaStream_t stream)
 {
     if (ctx->use_f16) {
-        //soft_max_f32_cuda(src0_d, (const half*)src1_d, dst_d, ne00, nrows_x, nrows_y, scale, max_bias, stream);
+        soft_max_f32_cuda(ctx->src0_d, (const half*)ctx->src1_d,
+            ctx->dst_d, ctx->ne00, ctx->nrows_x, ctx->nrows_y, ctx->scale, ctx->max_bias, stream);
     }
     else {
-        //soft_max_f32_cuda(src0_d, (const float*)src1_d, dst_d, ne00, nrows_x, nrows_y, scale, max_bias, stream);
+        soft_max_f32_cuda(ctx->src0_d, (const float*)ctx->src1_d,
+            ctx->dst_d, ctx->ne00, ctx->nrows_x, ctx->nrows_y, ctx->scale, ctx->max_bias, stream);
     }
 }
 

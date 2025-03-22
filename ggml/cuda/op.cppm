@@ -904,6 +904,14 @@ namespace op
         const bool use_f16 = (src1 && src1->type == GGML_TYPE_F16);
 
         softmax_context ctx{
+            .src0_d = src0_d,
+			.src1_d = src1_d,
+            .dst_d = dst_d,
+			.ne00 = ne00,
+			.nrows_x = nrows_x,
+			.nrows_y = nrows_y,
+			.scale = scale,
+			.max_bias = max_bias,
             .use_f16 = use_f16
         };
         soft_max_f32_cuda(&ctx, stream);

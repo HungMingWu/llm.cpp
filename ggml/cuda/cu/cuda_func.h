@@ -296,6 +296,12 @@ void diag_mask_inf_f32_cuda(const float* x, float* dst, const int ncols_x, const
 
 // softmax
 struct softmax_context {
+    const float* src0_d;
+    const void* src1_d;
+    float* dst_d;
+    const int64_t ne00;
+    const int64_t nrows_x, nrows_y;
+    const float scale, max_bias;
     bool use_f16;
 };
 
