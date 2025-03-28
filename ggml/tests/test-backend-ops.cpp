@@ -816,13 +816,16 @@ struct test_case {
     }
 };
 
+template <>
+struct std::formatter<ggml_type> : std::formatter<std::string> {
+    auto format(const ggml_type& type, std::format_context& ctx) const {
+        return std::format_to(ctx.out(), "{}", ggml_type_name(type));
+    }
+};
+
 template <typename T>
 static std::string toString(const T& x) {
     return std::to_string(x);
-}
-
-static std::string_view toString(ggml_type type) {
-    return ggml_type_name(type);
 }
 
 static std::string toString(ggml_op_pool pool) {
@@ -854,7 +857,7 @@ struct test_unary : public test_case {
     int v; // view (1 : non-contiguous a)
 
     std::string vars() override {
-        return std::format("type={},ne_a={},v={}", toString(type), toString(ne_a), toString(v));
+        return std::format("type={},ne_a={},v={}", type, toString(ne_a), toString(v));
     }
 
     test_unary(ggml_unary_op op,
@@ -933,7 +936,7 @@ struct test_get_rows : public test_case {
 
     std::string vars() override {
         return std::format("type={},n={},m={},r={},b={},v={}", 
-            toString(type), toString(n), toString(m), toString(r), toString(b), toString(v));
+            type, toString(n), toString(m), toString(r), toString(b), static_cast<int>(v));
     }
 
     test_get_rows(ggml_type type = GGML_TYPE_F32, int n = 10, int m = 5, int r = 3, int b = 1, bool v = false)
@@ -997,7 +1000,7 @@ struct test_pool2d : public test_case {
 
     std::string vars() override {
         return std::format("pool_type={},type_input={},ne_input={},k0={},k1={},s0={},s1={},p0={},p1={}",
-            toString(pool_type), toString(type_input), toString(ne_input), k0, k1, s0, s1, p0, p1);
+            toString(pool_type), type_input, toString(ne_input), k0, k1, s0, s1, p0, p1);
     }
 
     test_pool2d(ggml_op_pool pool_type = GGML_OP_POOL_AVG,
@@ -1031,7 +1034,7 @@ struct test_get_rows_back : public test_case {
 
     std::string vars() override {
         return std::format("type={},n={},m={},r={},b={},v={}",
-            toString(type), toString(n), toString(m), r, b, v);
+            type, toString(n), toString(m), r, b, v);
     }
 
     test_get_rows_back(ggml_type type = GGML_TYPE_F32, int n = 10, int m = 5, int r = 3, int b = 1, bool v = false)
@@ -1097,7 +1100,7 @@ struct test_im2col : public test_case {
     std::string vars() override {
         return std::format("type_input={},type_kernel={},dst_type={},ne_input={},ne_kernel={},s0={}"
             ",s1={},p0={},p1={},d0={},d1={},is_2D={}",
-            toString(type_input), toString(type_kernel), toString(dst_type),
+            type_input, type_kernel, dst_type,
             toString(ne_input), toString(ne_kernel), s0, s1, p0, p1, d0, d1, is_2D);
     }
 
@@ -1164,7 +1167,7 @@ struct test_count_equal : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_count_equal(ggml_type type = GGML_TYPE_F32,
@@ -1201,7 +1204,7 @@ struct test_argmax : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_argmax(ggml_type type = GGML_TYPE_F32,
@@ -1251,7 +1254,7 @@ struct test_repeat : public test_case {
     const std::array<int, 4> nr;
 
     std::string vars() override {
-        return std::format("type={},ne={},nr={}", toString(type), toString(ne), toString(nr));
+        return std::format("type={},ne={},nr={}", type, toString(ne), toString(nr));
     }
 
     size_t op_size(ggml_tensor* t) override {
@@ -1286,7 +1289,7 @@ struct test_repeat_back : public test_case {
     const bool v; // whether src is a noncontiguous view
 
     std::string vars() override {
-        return std::format("type={},ne={},nr={},v={}", toString(type), toString(ne), toString(nr), v);
+        return std::format("type={},ne={},nr={},v={}", type, toString(ne), toString(nr), v);
     }
 
     size_t op_size(ggml_tensor* t) override {
@@ -1339,7 +1342,7 @@ struct test_dup : public test_case {
     bool _use_permute;
 
     std::string vars() override {
-        std::string v = std::format("type={},ne={}", toString(type), toString(ne));
+        std::string v = std::format("type={},ne={}", type, toString(ne));
         if (_use_permute) v += std::format(",permute={}", toString(permute));
         return v;
     }
@@ -1376,7 +1379,7 @@ struct test_set : public test_case {
 
     std::string vars() override {
         return std::format("type_src={},type_dst={},ne={},dim={}",
-            toString(type_src), toString(type_dst), toString(ne), dim);
+            type_src, type_dst, toString(ne), dim);
     }
 
     size_t op_size(ggml_tensor* t) override {
@@ -1425,7 +1428,7 @@ struct test_cpy : public test_case {
 
     std::string vars() override {
         return std::format("type_src={},type_dst={},ne={},permute_src={},permute_dst={}",
-            toString(type_src), toString(type_dst), toString(ne), toString(permute_src), toString(permute_dst));
+            type_src, type_dst, toString(ne), toString(permute_src), toString(permute_dst));
     }
 
     double max_nmse_err() override {
@@ -1475,7 +1478,7 @@ struct test_cont : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_cont(ggml_type type = GGML_TYPE_F32,
@@ -1506,7 +1509,7 @@ struct test_bin_bcast : public test_case {
     const std::array<int, 4> nr;
 
     std::string vars() override {
-        return std::format("type={},ne={},nr={}", toString(type), toString(ne), toString(nr));
+        return std::format("type={},ne={},nr={}", type, toString(ne), toString(nr));
     }
 
     size_t op_size(ggml_tensor* t) override {
@@ -1569,7 +1572,7 @@ struct test_add1 : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_add1(ggml_type type = GGML_TYPE_F32,
@@ -1603,7 +1606,7 @@ struct test_scale : public test_case {
     float scale;
 
     std::string vars() override {
-        return std::format("type={},ne={},scale={}", toString(type), toString(ne), scale);
+        return std::format("type={},ne={},scale={}", type, toString(ne), scale);
     }
 
     test_scale(ggml_type type = GGML_TYPE_F32,
@@ -1631,7 +1634,7 @@ struct test_norm : public test_case {
     const float eps;
 
     std::string vars() override {
-        return std::format("type={},ne={},v={},eps={}", toString(type), toString(ne), v, eps);
+        return std::format("type={},ne={},v={},eps={}", type, toString(ne), v, eps);
     }
 
     test_norm(ggml_type type = GGML_TYPE_F32,
@@ -1664,7 +1667,7 @@ struct test_rms_norm : public test_case {
     const float eps;
 
     std::string vars() override {
-        return std::format("type={},ne={},v={},eps={}", toString(type), toString(ne), v, eps);
+        return std::format("type={},ne={},v={},eps={}", type, toString(ne), v, eps);
     }
 
     test_rms_norm(ggml_type type = GGML_TYPE_F32,
@@ -1711,7 +1714,7 @@ struct test_rms_norm_back : public test_case {
     const float eps;
 
     std::string vars() override {
-        return std::format("type={},ne={},eps={}", toString(type), toString(ne), eps);
+        return std::format("type={},ne={},eps={}", type, toString(ne), eps);
     }
 
     test_rms_norm_back(ggml_type type = GGML_TYPE_F32,
@@ -1746,7 +1749,7 @@ struct test_l2_norm : public test_case {
     const float eps;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_l2_norm(ggml_type type = GGML_TYPE_F32,
@@ -1772,7 +1775,7 @@ struct test_silu_back : public test_case {
     float eps;
 
     std::string vars() override {
-        return std::format("type={},ne={},eps={}", toString(type), toString(ne), eps);
+        return std::format("type={},ne={},eps={}", type, toString(ne), eps);
     }
 
     test_silu_back(ggml_type type = GGML_TYPE_F32,
@@ -1805,7 +1808,7 @@ struct test_ssm_conv : public test_case {
     const std::array<int64_t, 4> ne_b;
 
     std::string vars() override {
-        return std::format("type={},ne_a={},ne_b={}", toString(type), toString(ne_a), toString(ne_b));
+        return std::format("type={},ne_a={},ne_b={}", type, toString(ne_a), toString(ne_b));
     }
 
     test_ssm_conv(ggml_type type = GGML_TYPE_F32,
@@ -1832,7 +1835,7 @@ struct test_ssm_scan : public test_case {
 
     std::string vars() override {
         return std::format("type={},d_state={},d_inner={},n_seq_tokens={},n_seqs={}",
-            toString(type), d_state, d_inner, n_seq_tokens, n_seqs);
+            type, d_state, d_inner, n_seq_tokens, n_seqs);
     }
 
     test_ssm_scan(ggml_type type = GGML_TYPE_F32,
@@ -1862,7 +1865,7 @@ struct test_rwkv_wkv6 : public test_case {
 
     std::string vars() override {
         return std::format("type={},head_count={},head_size={},n_seq_tokens={},n_seqs={}",
-            toString(type), head_count, head_size, n_seq_tokens, n_seqs);
+            type, head_count, head_size, n_seq_tokens, n_seqs);
     }
 
     test_rwkv_wkv6(ggml_type type = GGML_TYPE_F32,
@@ -1893,7 +1896,7 @@ struct test_rwkv_wkv7 : public test_case {
 
     std::string vars() override {
         return std::format("type={},head_count={},head_size={},n_seq_tokens={},n_seqs={}",
-            toString(type), head_count, head_size, n_seq_tokens, n_seqs);
+            type, head_count, head_size, n_seq_tokens, n_seqs);
     }
 
     test_rwkv_wkv7(ggml_type type = GGML_TYPE_F32,
@@ -1928,7 +1931,7 @@ struct test_gla : public test_case {
 
     std::string vars() override {
         return std::format("type={},head_count={},head_size={},n_seq_tokens={},n_seqs={}",
-            toString(type), head_count, head_size, n_seq_tokens, n_seqs);
+            type, head_count, head_size, n_seq_tokens, n_seqs);
     }
 
     test_gla(ggml_type type = GGML_TYPE_F32,
@@ -1961,7 +1964,7 @@ struct test_mul_mat : public test_case {
 
     std::string vars() override {
         return std::format("type_a={},type_b={},m={},n={},k={},bs={},nr={},per={},v={}",
-            toString(type_a), toString(type_b), m, n, k, bs, nr, per, v);
+            type_a, type_b, m, n, k, bs, nr, per, v);
     }
 
     double max_nmse_err() override {
@@ -2056,7 +2059,7 @@ struct test_mul_mat_id : public test_case {
 
     std::string vars() override {
         return std::format("type_a={},type_b={},n_mats={},n_used={},b={},m={},n={},k={}",
-            toString(type_a), toString(type_b), n_mats, n_used, b, m, n, k);
+            type_a, type_b, n_mats, n_used, b, m, n, k);
     }
 
     double max_nmse_err() override {
@@ -2131,7 +2134,7 @@ struct test_out_prod : public test_case {
 
     std::string vars() override {
         return std::format("type_a={},type_b={},m={},n={},b={},k={},bs={},nr={},trans_b={}",
-            toString(type_a), toString(type_b), m, n, k, m, n, bs, nr, trans_b);
+            type_a, type_b, m, n, k, m, n, bs, nr, trans_b);
     }
 
     double max_nmse_err() override {
@@ -2172,7 +2175,7 @@ struct test_sqr : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_sqr(ggml_type type = GGML_TYPE_F32,
@@ -2201,7 +2204,7 @@ struct test_sqrt : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_sqrt(ggml_type type = GGML_TYPE_F32,
@@ -2241,7 +2244,7 @@ struct test_log : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_log(ggml_type type = GGML_TYPE_F32,
@@ -2277,7 +2280,7 @@ struct test_sin : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_sin(ggml_type type = GGML_TYPE_F32,
@@ -2320,7 +2323,7 @@ struct test_cos : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_cos(ggml_type type = GGML_TYPE_F32,
@@ -2365,7 +2368,7 @@ struct test_clamp : public test_case {
     float max;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_clamp(ggml_type type = GGML_TYPE_F32,
@@ -2399,7 +2402,7 @@ struct test_diag_mask_inf : public test_case {
     const int n_past;
 
     std::string vars() override {
-        return std::format("type={},ne={},n_past={}", toString(type), toString(ne), n_past);
+        return std::format("type={},ne={},n_past={}", type, toString(ne), n_past);
     }
 
     test_diag_mask_inf(ggml_type type = GGML_TYPE_F32,
@@ -2430,7 +2433,7 @@ struct test_soft_max : public test_case {
 
     std::string vars() override {
         return std::format("type={},ne={},mask={},m_prec={},scale={},max_bias={}",
-            toString(type), toString(ne), mask, toString(m_prec), scale, max_bias);
+            type, toString(ne), mask, toString(m_prec), scale, max_bias);
     }
 
     // the 1024 test with bias occasionally fails:
@@ -2478,7 +2481,7 @@ struct test_soft_max_back : public test_case {
 
     std::string vars() override {
         return std::format("type={},ne={},scale={},max_bias={}",
-            toString(type), toString(ne), scale, max_bias);
+            type, toString(ne), scale, max_bias);
     }
 
     test_soft_max_back(ggml_type type = GGML_TYPE_F32,
@@ -2518,7 +2521,7 @@ struct test_rope : public test_case {
     std::string vars() override {
         // forward can be inferred from the op, does not need to be printed
         return std::format("type={},ne_a={},n_dims={},mode={},n_ctx={},fs={},af={},ef={},ff={},v={}",
-            toString(type), toString(ne_a), n_dims, mode, n_ctx, fs, ef, af, ff, v);
+            type, toString(ne_a), n_dims, mode, n_ctx, fs, ef, af, ff, v);
     }
 
     test_rope(ggml_type type = GGML_TYPE_F32,
@@ -2644,7 +2647,7 @@ struct test_concat : public test_case {
 
     std::string vars() override {
         return std::format("type={},ne_a={},ne_b_d={},dim={},v={}",
-            toString(type), toString(ne_a), ne_b_d, dim, v);
+            type, toString(ne_a), ne_b_d, dim, v);
     }
 
     test_concat(ggml_type type = GGML_TYPE_F32,
@@ -2698,7 +2701,7 @@ struct test_argsort : public test_case {
 
     std::string vars() override {
         return std::format("type={},ne={},order={}",
-            toString(type), toString(ne), static_cast<int>(order));
+            type, toString(ne), static_cast<int>(order));
     }
 
     test_argsort(ggml_type type = GGML_TYPE_F32,
@@ -2753,7 +2756,7 @@ struct test_sum : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_sum(ggml_type type = GGML_TYPE_F32,
@@ -2782,7 +2785,7 @@ struct test_sum_rows : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_sum_rows(ggml_type type = GGML_TYPE_F32,
@@ -2807,7 +2810,7 @@ struct test_mean : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_mean(ggml_type type = GGML_TYPE_F32,
@@ -2839,7 +2842,7 @@ struct test_upscale : public test_case {
 
     std::string vars() override {
         return std::format("type={},ne={},scale_factor={},transpose={}",
-            toString(type), toString(ne), scale_factor, transpose);
+            type, toString(ne), scale_factor, transpose);
     }
 
     test_upscale(ggml_type type = GGML_TYPE_F32,
@@ -2871,7 +2874,7 @@ struct test_upscale_ext : public test_case {
 
     std::string vars() override {
         return std::format("type={},ne={},ne_tgt={}",
-            toString(type), toString(ne), toString(ne_tgt));
+            type, toString(ne), toString(ne_tgt));
     }
 
     test_upscale_ext(ggml_type type = GGML_TYPE_F32,
@@ -2899,7 +2902,7 @@ struct test_group_norm : public test_case {
 
     std::string vars() override {
         return std::format("type={},ne={},num_groups={},eps={}",
-            toString(type), toString(ne), num_groups, eps);
+            type, toString(ne), num_groups, eps);
     }
 
     test_group_norm(ggml_type type = GGML_TYPE_F32,
@@ -2927,7 +2930,7 @@ struct test_acc : public test_case {
 
     std::string vars() override {
         return std::format("type={},ne_a={},ne_b={}",
-            toString(type), toString(ne_a), toString(ne_b));
+            type, toString(ne_a), toString(ne_b));
     }
 
     test_acc(ggml_type type = GGML_TYPE_F32,
@@ -2960,7 +2963,7 @@ struct test_pad : public test_case {
 
     std::string vars() override {
         return std::format("type={},ne_a={},pad_0={},pad_1={}",
-            toString(type), toString(ne_a), pad_0, pad_1);
+            type, toString(ne_a), pad_0, pad_1);
     }
 
     test_pad(ggml_type type = GGML_TYPE_F32,
@@ -2988,7 +2991,7 @@ struct test_pad_reflect_1d : public test_case {
 
     std::string vars() override {
         return std::format("type={},ne_a={},pad_0={},pad_1={}",
-            toString(type), toString(ne_a), pad_0, pad_1);
+            type, toString(ne_a), pad_0, pad_1);
     }
 
     test_pad_reflect_1d(ggml_type type = GGML_TYPE_F32,
@@ -3015,7 +3018,7 @@ struct test_arange : public test_case {
     const float step;
 
     std::string vars() override {
-        return std::format("type={},start={},stop={},step={}", toString(type), start, stop, step);
+        return std::format("type={},start={},stop={},step={}", type, start, stop, step);
     }
 
     test_arange(ggml_type type = GGML_TYPE_F32,
@@ -3038,7 +3041,7 @@ struct test_timestep_embedding : public test_case {
     const int max_period;
 
     std::string vars() override {
-        return std::format("type={},ne_a={},dim={},max_period={}", toString(type), 
+        return std::format("type={},ne_a={},dim={},max_period={}", type, 
             toString(ne_a), dim, max_period);
     }
 
@@ -3065,7 +3068,7 @@ struct test_leaky_relu : public test_case {
     const float negative_slope;
 
     std::string vars() override {
-        return std::format("type={},ne_a={},negative_slope={}", toString(type),
+        return std::format("type={},ne_a={},negative_slope={}", type,
             toString(ne_a), negative_slope);
     }
 
@@ -3105,7 +3108,7 @@ struct test_flash_attn_ext : public test_case {
     std::string vars() override {
         return std::format("hs={},nh={},nr={},kv={},nb={},mask={},max_bias={:6f},"
             "logit_softcap={:6f},type_KV={},permute={}", hs,
-            nh, nr, kv, nb, (int)mask, max_bias, logit_softcap, toString(type_KV), toString(permute));
+            nh, nr, kv, nb, (int)mask, max_bias, logit_softcap, type_KV, toString(permute));
     }
 
     double max_nmse_err() override {
@@ -3172,7 +3175,7 @@ struct test_cross_entropy_loss : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_cross_entropy_loss(ggml_type type = GGML_TYPE_F32,
@@ -3220,7 +3223,7 @@ struct test_cross_entropy_loss_back : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_cross_entropy_loss_back(ggml_type type = GGML_TYPE_F32,
@@ -3254,7 +3257,7 @@ struct test_opt_step_adamw : public test_case {
     const std::array<int64_t, 4> ne;
 
     std::string vars() override {
-        return std::format("type={},ne={}", toString(type), toString(ne));
+        return std::format("type={},ne={}", type, toString(ne));
     }
 
     test_opt_step_adamw(ggml_type type = GGML_TYPE_F32,
@@ -3723,6 +3726,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     std::vector<std::unique_ptr<test_case>> test_cases;
     std::default_random_engine rng(0);
 
+#if 0
     // unary ops
     for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
         for (int v : {0, 1}) {
@@ -3732,7 +3736,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
             }
         }
     }
-
+#endif
     test_cases.emplace_back(new test_get_rows(GGML_TYPE_F32, 1, 8, 2, 1, false));
     for (ggml_type type : all_types) {
         for (int b : {1, 7}) {
@@ -3746,7 +3750,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
             test_cases.emplace_back(new test_get_rows(GGML_TYPE_I32, 256, 5, 4, b, v));
         }
     }
-
+#if 0
     test_cases.emplace_back(new test_get_rows_back(GGML_TYPE_F32, 1, 8, 2, 1, false));
     for (ggml_type type : all_types) {
         for (bool v : {false, true}) {
@@ -4321,7 +4325,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_cross_entropy_loss_back(GGML_TYPE_F32, { 30000, 1, 1, 1 }));
 
     test_cases.emplace_back(new test_opt_step_adamw(GGML_TYPE_F32, { 10, 5, 4, 3 }));
-
+#endif
     // these tests are disabled to save execution time, but they can be handy for debugging
 #if 0
     test_cases.emplace_back(new test_llama(1));

@@ -311,6 +311,7 @@ namespace op
         GGML_ASSERT(dst->nb[0] == ggml_type_size(dst->type));
 
         get_row_context context{
+            .stream = stream,
             .type = src0->type,
             .src0_d = src0->data,
             .src1_d = (const int32_t*)src1->data,
@@ -335,7 +336,7 @@ namespace op
             .s12 = src1->nb[2] / ggml_element_size(src1)
         };
 
-        get_rows_cuda(&context, stream);
+        get_rows_cuda(&context);
     }
 
     void get_rows_back(cudaStream_t stream, ggml_tensor* dst) {

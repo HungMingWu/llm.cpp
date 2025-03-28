@@ -6,7 +6,6 @@
 #include "common.cuh"
 
 static constexpr size_t CUDA_GET_ROWS_BLOCK_SIZE = 256;
-using dequantize_kernel_t = void (*)(const void* vx, const int64_t ib, const int iqs, dfloat2& v);
 
 template<typename src0_t, typename dst_t>
 static __global__ void k_get_rows_float(
@@ -35,14 +34,14 @@ static __global__ void k_get_rows_float(
 }
 
 template<typename src0_t>
-static void get_rows_cuda_float(const get_row_context* ctx, cudaStream_t stream) {
+static void get_rows_cuda_float(const get_row_context* ctx) {
     GGML_ASSERT(ctx->ne13 == 1);
 
     const dim3 block_dims(CUDA_GET_ROWS_BLOCK_SIZE, 1, 1);
     const int block_num_x = (ctx->ne00 + CUDA_GET_ROWS_BLOCK_SIZE - 1) / CUDA_GET_ROWS_BLOCK_SIZE;
     const dim3 block_nums(block_num_x, ctx->ne10, ctx->ne11 * ctx->ne12);
 
-    k_get_rows_float<src0_t> << <block_nums, block_dims, 0, stream >> > (
+    k_get_rows_float<src0_t> << <block_nums, block_dims, 0, ctx->stream >> > (
         (const src0_t*)ctx->src0_d, ctx->src1_d, ctx->dst_d,
         ctx->ne00, /*ne01, ne02, ne03,*/
         /*ne10, ne11,*/ ctx->ne12, /*ne13,*/
@@ -51,29 +50,24 @@ static void get_rows_cuda_float(const get_row_context* ctx, cudaStream_t stream)
         ctx->s10, ctx->s11, ctx->s12/*, s13*/);
 }
 
-template<int qk, int qr, dequantize_kernel_t dequantize_kernel, typename dst_t>
-static __global__ void k_get_rows(
-    const void* __restrict__ src0, const int32_t* __restrict__ src1, dst_t* __restrict__ dst,
-    const int64_t ne00, /*const int64_t ne01, const int64_t ne02, const int64_t ne03,*/
-    /*const int64_t ne10, const int64_t ne11,*/ const int64_t ne12, /*const int64_t ne13,*/
-    /*const size_t s0,*/ const size_t s1, const size_t s2, const size_t s3,
-    /*const size_t nb00,*/ const size_t nb01, const size_t nb02, const size_t nb03,
-    const size_t s10, const size_t s11, const size_t s12/*, const size_t s13*/) {
+template <typename block_type, int qr>
+static __global__ void k_get_rows(get_row_context ctx) {
 
     const int i00 = (blockIdx.x * blockDim.x + threadIdx.x) * 2;
     const int i10 = blockDim.y * blockIdx.y + threadIdx.y;
-    const int i11 = (blockIdx.z * blockDim.z + threadIdx.z) / ne12;
-    const int i12 = (blockIdx.z * blockDim.z + threadIdx.z) % ne12;
+    const int i11 = (blockIdx.z * blockDim.z + threadIdx.z) / ctx.ne12;
+    const int i12 = (blockIdx.z * blockDim.z + threadIdx.z) % ctx.ne12;
 
-    if (i00 >= ne00) {
+    if (i00 >= ctx.ne00) {
         return;
     }
 
-    const int i01 = src1[i10 * s10 + i11 * s11 + i12 * s12];
+    const int i01 = ctx.src1_d[i10 * ctx.s10 + i11 * ctx.s11 + i12 * ctx.s12];
 
-    dst_t* dst_row = dst + i10 * s1 + i11 * s2 + i12 * s3;
-    const void* src0_row = (const char*)src0 + i01 * nb01 + i11 * nb02 + i12 * nb03;
+    float* dst_row = ctx.dst_d + i10 * ctx.s1 + i11 * ctx.s2 + i12 * ctx.s3;
+    const void* src0_row = (const char*)ctx.src0_d + i01 * ctx.nb01 + i11 * ctx.nb02 + i12 * ctx.nb03;
 
+    static constexpr size_t qk = block_type::block_size;
     const int ib = i00 / qk;      // block index
     const int iqs = (i00 % qk) / qr;  // quant index
     const int iybs = i00 - i00 % qk; // dst block start index
@@ -81,32 +75,24 @@ static __global__ void k_get_rows(
 
     // dequantize
     dfloat2 v;
-    dequantize_kernel(src0_row, ib, iqs, v);
+    dequantize(static_cast<const block_type*>(src0_row), ib, iqs, v);
 
     dst_row[iybs + iqs + 0] = v.x;
     dst_row[iybs + iqs + y_offset] = v.y;
 }
 
-template<int qk, int qr, dequantize_kernel_t dq>
-static void get_rows_cuda(const get_row_context* ctx, cudaStream_t stream) {
+template <typename block_type, int qr>
+static void get_rows_cuda(const get_row_context* ctx) {
     const dim3 block_dims(CUDA_GET_ROWS_BLOCK_SIZE, 1, 1);
     const int block_num_x = (ctx->ne00 + 2 * CUDA_GET_ROWS_BLOCK_SIZE - 1) / (2 * CUDA_GET_ROWS_BLOCK_SIZE);
     const dim3 block_nums(block_num_x, ctx->ne10, ctx->ne11 * ctx->ne12);
 
     GGML_ASSERT(ctx->ne00 % 2 == 0);
 
-    k_get_rows<qk, qr, dq> << <block_nums, block_dims, 0, stream >> > (
-        ctx->src0_d, ctx->src1_d, ctx->dst_d,
-        ctx->ne00, /*ne01, ne02, ne03,*/
-        /*ne10, ne11,*/ ctx->ne12, /*ne13,*/
-        /* s0,*/ ctx->s1, ctx->s2, ctx->s3,
-        /* nb00,*/ ctx->nb01, ctx->nb02, ctx->nb03,
-        ctx->s10, ctx->s11, ctx->s12/*, s13*/);
+    k_get_rows<block_type, qr> << <block_nums, block_dims, 0, ctx->stream >> > (*ctx);
 }
 
-static __device__ __forceinline__ void dequantize_q4_0(const void* vx, const int64_t ib, const int iqs, dfloat2& v) {
-    const block_q4_0* x = (const block_q4_0*)vx;
-
+static __device__ __forceinline__ void dequantize(const block_q4_0* x, const int64_t ib, const int iqs, dfloat2& v) {
     const dfloat d = std::bit_cast<half>(x[ib].d);
 
     const int vui = x[ib].qs[iqs];
@@ -123,9 +109,7 @@ static __device__ __forceinline__ void dequantize_q4_0(const void* vx, const int
 #endif // GGML_CUDA_F16
 }
 
-static __device__ __forceinline__ void dequantize_q4_1(const void* vx, const int64_t ib, const int iqs, dfloat2& v) {
-    const block_q4_1* x = (const block_q4_1*)vx;
-
+static __device__ __forceinline__ void dequantize(const block_q4_1* x, const int64_t ib, const int iqs, dfloat2& v) {
     const auto dm = std::bit_cast<std::array<half, 2>>(x[ib].dm);
     const dfloat d = dm[0];
     const dfloat m = dm[1];
@@ -144,9 +128,7 @@ static __device__ __forceinline__ void dequantize_q4_1(const void* vx, const int
 #endif // GGML_CUDA_F16
 }
 
-static __device__ __forceinline__ void dequantize_q5_0(const void* vx, const int64_t ib, const int iqs, dfloat2& v) {
-    const block_q5_0* x = (const block_q5_0*)vx;
-
+static __device__ __forceinline__ void dequantize(const block_q5_0* x, const int64_t ib, const int iqs, dfloat2& v) {
     const dfloat d = std::bit_cast<half>(x[ib].d);
 
     uint32_t qh;
@@ -167,9 +149,7 @@ static __device__ __forceinline__ void dequantize_q5_0(const void* vx, const int
 #endif // GGML_CUDA_F16
 }
 
-static __device__ __forceinline__ void dequantize_q5_1(const void* vx, const int64_t ib, const int iqs, dfloat2& v) {
-    const block_q5_1* x = (const block_q5_1*)vx;
-
+static __device__ __forceinline__ void dequantize(const block_q5_1* x, const int64_t ib, const int iqs, dfloat2& v) {
     const auto dm = std::bit_cast<std::array<half, 2>>(x[ib].dm);
     const dfloat d = dm[0];
     const dfloat m = dm[1];
@@ -192,9 +172,7 @@ static __device__ __forceinline__ void dequantize_q5_1(const void* vx, const int
 #endif // GGML_CUDA_F16
 }
 
-static __device__ __forceinline__ void dequantize_q8_0(const void* vx, const int64_t ib, const int iqs, dfloat2& v) {
-    const block_q8_0* x = (const block_q8_0*)vx;
-
+static __device__ __forceinline__ void dequantize(const block_q8_0* x, const int64_t ib, const int iqs, dfloat2& v) {
     const dfloat d = std::bit_cast<half>(x[ib].d);
 
     v.x = x[ib].qs[iqs + 0];
@@ -231,29 +209,29 @@ static __global__ void k_get_rows_back_float(
     dst[dst_row * ncols + col] = sum;
 }
 
-void get_rows_cuda(const get_row_context* ctx, cudaStream_t stream)
+void get_rows_cuda(const get_row_context* ctx)
 {
     switch (ctx->type) {
     case GGML_TYPE_F16:
-        get_rows_cuda_float<const half>(ctx, stream);
+        get_rows_cuda_float<const half>(ctx);
         break;
     case GGML_TYPE_F32:
-        get_rows_cuda_float<const float>(ctx, stream);
+        get_rows_cuda_float<const float>(ctx);
         break;
     case GGML_TYPE_Q4_0:
-        get_rows_cuda<block_q4_0::block_size, QR4_0, dequantize_q4_0>(ctx, stream);
+        get_rows_cuda<block_q4_0, QR4_0>(ctx);
         break;
     case GGML_TYPE_Q4_1:
-        get_rows_cuda<block_q4_1::block_size, QR4_1, dequantize_q4_1>(ctx, stream);
+        get_rows_cuda<block_q4_1, QR4_1>(ctx);
         break;
     case GGML_TYPE_Q5_0:
-        get_rows_cuda<block_q5_0::block_size, QR5_0, dequantize_q5_0>(ctx, stream);
+        get_rows_cuda<block_q5_0, QR5_0>(ctx);
         break;
     case GGML_TYPE_Q5_1:
-        get_rows_cuda<block_q5_1::block_size, QR5_1, dequantize_q5_1>(ctx, stream);
+        get_rows_cuda<block_q5_1, QR5_1>(ctx);
         break;
     case GGML_TYPE_Q8_0:
-        get_rows_cuda<block_q8_0::block_size, QR8_0, dequantize_q8_0>(ctx, stream);
+        get_rows_cuda<block_q8_0, QR8_0>(ctx);
         break;
     default:
         // TODO: k-quants
