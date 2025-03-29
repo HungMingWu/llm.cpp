@@ -59,12 +59,7 @@ import :cpu.from_float;
 import :cpu.to_float;
 import :cpu.traits;
 import :cpu.vec_dot;
-import :cpu.op.argsort;
-import :cpu.op.concat;
-import :cpu.op.norm;
-import :cpu.op.scale;
-import :cpu.op.unary;
-import :cpu.op.upscale;
+import :cpu.op;
 
 // ggml_compute_forward_mul_mat
 
@@ -2735,7 +2730,8 @@ static void ggml_compute_forward_get_rows_q(
 	}
 }
 
-static void ggml_compute_forward_get_rows_f16(
+template <typename block_type>
+static void ggml_compute_forward_get_rows_q(
 	const struct ggml_compute_params* params,
 	struct ggml_tensor* dst) {
 
@@ -2749,7 +2745,7 @@ static void ggml_compute_forward_get_rows_f16(
 
 	assert(ne0 == nc);
 	assert(ne02 == ne11);
-	assert(nb00 == sizeof(ggml_fp16_t));
+	assert(nb00 == sizeof(block_type));
 	assert(ggml_nrows(dst) == nr);
 
 	const int ith = params->ith;
@@ -2770,8 +2766,50 @@ static void ggml_compute_forward_get_rows_f16(
 
 		GGML_ASSERT(i01 >= 0 && i01 < ne01);
 
-		to_float<ggml_fp16_t>(
-			(const ggml_fp16_t*)((char*)src0->data + i01 * nb01 + i11 * nb02 + i12 * nb03),
+		dequantize_row(
+			(const block_type*)((char*)src0->data + i01 * nb01 + i11 * nb02 + i12 * nb03),
+			(float*)((char*)dst->data + i10 * nb1 + i11 * nb2 + i12 * nb3), nc);
+	}
+}
+
+template <typename T>
+static void ggml_compute_forward_get_rows(
+	const ggml_compute_params* params,
+	ggml_tensor* dst) {
+
+	const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src1 = dst->src[1];
+
+	GGML_TENSOR_BINARY_OP_LOCALS
+
+	const int64_t nc = ne00;
+	const int64_t nr = src1->nelements();
+
+	assert(ne0 == nc);
+	assert(ne02 == ne11);
+	assert(nb00 == sizeof(T));
+	assert(ggml_nrows(dst) == nr);
+
+	const int ith = params->ith;
+	const int nth = params->nth;
+
+	// rows per thread
+	const int dr = (nr + nth - 1) / nth;
+
+	// row range for this thread
+	const int64_t ir0 = dr * ith;
+	const int64_t ir1 = std::min(ir0 + dr, nr);
+
+	for (int64_t i = ir0; i < ir1; ++i) {
+		const int64_t i12 = i / (ne11 * ne10);
+		const int64_t i11 = (i - i12 * ne11 * ne10) / ne10;
+		const int64_t i10 = (i - i12 * ne11 * ne10 - i11 * ne10);
+		const int64_t i01 = *(int32_t*)((char*)src1->data + i10 * nb10 + i11 * nb11 + i12 * nb12);
+
+		GGML_ASSERT(i01 >= 0 && i01 < ne01);
+
+		to_float<T>(
+			(const T*)((char*)src0->data + i01 * nb01 + i11 * nb02 + i12 * nb03),
 			(float*)((char*)dst->data + i10 * nb1 + i11 * nb2 + i12 * nb3), nc);
 	}
 }
@@ -2828,7 +2866,7 @@ static void ggml_compute_forward_get_rows_f32(
 
 	GGML_TENSOR_BINARY_OP_LOCALS
 
-	const int64_t nc = ne00;
+	const size_t nc = ne00;
 	const int64_t nr = src1->nelements();
 
 	assert(ne0 == nc);
@@ -2854,9 +2892,9 @@ static void ggml_compute_forward_get_rows_f32(
 
 		GGML_ASSERT(i01 >= 0 && i01 < ne01);
 
-		ggml_vec_cpy(nc,
-			(float*)((char*)dst->data + i10 * nb1 + i11 * nb2 + i12 * nb3),
-			(float*)((char*)src0->data + i01 * nb01 + i11 * nb02 + i12 * nb03));
+		std::span<float> dst_span{ (float*)((char*)dst->data + i10 * nb1 + i11 * nb2 + i12 * nb3), nc };
+		std::span<const float> src0_span{ (float*)((char*)src0->data + i01 * nb01 + i11 * nb02 + i12 * nb03), nc };
+		std::ranges::copy(src0_span, dst_span.begin());
 	}
 }
 
@@ -2867,11 +2905,21 @@ static void ggml_compute_forward_get_rows(
 	const struct ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
-	case GGML_TYPE_Q4_0:
-	case GGML_TYPE_Q4_1:
-	case GGML_TYPE_Q5_0:
-	case GGML_TYPE_Q5_1:
-	case GGML_TYPE_Q8_0:
+	case GGML_TYPE_Q4_0: {
+		ggml_compute_forward_get_rows_q<block_q4_0>(params, dst);
+	} break;
+	case GGML_TYPE_Q4_1: {
+		ggml_compute_forward_get_rows_q<block_q4_1>(params, dst);
+	} break;
+	case GGML_TYPE_Q5_0: {
+		ggml_compute_forward_get_rows_q<block_q5_0>(params, dst);
+	} break;
+	case GGML_TYPE_Q5_1: {
+		ggml_compute_forward_get_rows_q<block_q5_1>(params, dst);
+	} break;
+	case GGML_TYPE_Q8_0: {
+		ggml_compute_forward_get_rows_q<block_q8_0>(params, dst);
+	} break;
 	case GGML_TYPE_Q8_1:
 	case GGML_TYPE_Q2_K:
 	case GGML_TYPE_Q3_K:
@@ -2894,7 +2942,7 @@ static void ggml_compute_forward_get_rows(
 	} break;
 	case GGML_TYPE_F16:
 	{
-		ggml_compute_forward_get_rows_f16(params, dst);
+		ggml_compute_forward_get_rows<ggml_fp16_t>(params, dst);
 	} break;
 	case GGML_TYPE_BF16:
 	{

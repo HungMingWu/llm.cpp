@@ -23,6 +23,7 @@ target_sources(libggml
       op/argsort.cppm
       op/concat.cppm
       op/norm.cppm
+      op/op.cppm
       op/scale.cppm
       op/unary.cppm
       op/upscale.cppm
