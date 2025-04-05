@@ -2,6 +2,8 @@ module;
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
+
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
 module ggml;
