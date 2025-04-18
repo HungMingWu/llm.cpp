@@ -313,12 +313,12 @@ struct test_case {
     bool eval(ggml_backend_t backend1, ggml_backend_t backend2, const char* op_name) {
         mode = MODE_TEST;
 
-        std::unique_ptr<ggml_context> ctx = ggml_init();
+        ggml_context ctx;
 
         // pre-graph sentinel
-        add_sentinel(ctx.get());
+        add_sentinel(&ctx);
 
-        ggml_tensor* out = build_graph(ctx.get());
+        ggml_tensor* out = build_graph(&ctx);
 
         if (op_name != nullptr && op_desc(out) != op_name) {
             //printf("  %s: skipping\n", op_desc(out).c_str());
@@ -330,7 +330,7 @@ struct test_case {
         // check if the backends support the ops
         bool supported = true;
         for (ggml_backend_t backend : {backend1, backend2}) {
-            for (auto& t : ctx->getTensors()) {
+            for (auto& t : ctx.getTensors()) {
                 if (!backend->get_device()->supports_op(t)) {
                     std::print("not supported [{}] ", backend->get_name());
                     supported = false;
@@ -344,10 +344,10 @@ struct test_case {
         }
 
         // post-graph sentinel
-        add_sentinel(ctx.get());
+        add_sentinel(&ctx);
 
         // allocate
-        auto buf = ggml_backend_alloc_ctx_tensors(ctx.get(), backend1);
+        auto buf = ggml_backend_alloc_ctx_tensors(&ctx, backend1);
         if (buf == NULL) {
             std::print("failed to allocate tensors [{}] ", backend1->get_name());
             return false;
@@ -362,7 +362,7 @@ struct test_case {
         }
 
         // randomize tensors
-        initialize_tensors(ctx.get());
+        initialize_tensors(&ctx);
 
         // compare
         double max_err = max_nmse_err();

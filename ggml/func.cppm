@@ -1792,8 +1792,8 @@ export {
 
 	 struct ggml_backend_graph_copy {
 		 ggml_backend_buffer* buffer;
-		 std::unique_ptr<ggml_context> ctx_allocated;
-		 std::unique_ptr<ggml_context> ctx_unallocated;
+		 ggml_context ctx_allocated;
+		 ggml_context ctx_unallocated;
 		 ggml_cgraph graph;
 	 };
 
@@ -1801,16 +1801,15 @@ export {
 		 std::unordered_map<ggml_tensor*, ggml_tensor*> node_copies;
 		 std::unordered_map<ggml_tensor*, bool> node_init;
 
-		 std::unique_ptr<ggml_context> ctx_allocated = ggml_init();
-		 std::unique_ptr<ggml_context> ctx_unallocated = ggml_init();
+		 ggml_context ctx_allocated, ctx_unallocated;
 
 		 // dup nodes
 		 for (auto node : graph->nodes) {
-			 graph_copy_dup_tensor(node_copies, ctx_allocated.get(), ctx_unallocated.get(), node);
+			 graph_copy_dup_tensor(node_copies, &ctx_allocated, &ctx_unallocated, node);
 		 }
 
 		 // allocate nodes
-		 ggml_backend_buffer_t buffer = ggml_backend_alloc_ctx_tensors(ctx_allocated.get(), backend);
+		 ggml_backend_buffer_t buffer = ggml_backend_alloc_ctx_tensors(&ctx_allocated, backend);
 
 		 //printf("copy buffer size: %zu MB\n", ggml_backend_buffer_get_size(buffer) / 1024 / 1024);
 
