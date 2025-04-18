@@ -40,8 +40,8 @@ int main(int /*argc*/, const char** /*argv*/)
     }
 
     // create context
-    std::unique_ptr<ggml_context> ctx = ggml_init();
-    ggml_tensor* t = ggml_arange(ctx.get(), 0, 3, 1);
+    ggml_context ctx;
+    ggml_tensor* t = ggml_arange(&ctx, 0, 3, 1);
 
     assert(t->ne[0] == 3);
 

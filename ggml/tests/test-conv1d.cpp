@@ -23,7 +23,7 @@ struct test_model {
     ggml_tensor* b;
     std::unique_ptr<ggml_backend> backend;
     std::unique_ptr<ggml_backend_buffer> buffer;
-    std::unique_ptr<ggml_context> ctx;
+    ggml_context ctx;
 };
 
 void load_model(test_model& model, bool use_gpu = false) {
@@ -91,12 +91,9 @@ void load_model(test_model& model, bool use_gpu = false) {
 
     model.buffer = model.backend->get_default_buffer_type()->alloc_buffer(buffer_size);
 
-    // create context
-    model.ctx = ggml_init();
-
     // create tensors
-    model.a = model.ctx->create(GGML_TYPE_F16, { K, IC, OC });
-    model.b = model.ctx->create(GGML_TYPE_F32, { IL, IC, N });
+    model.a = model.ctx.create(GGML_TYPE_F16, { K, IC, OC });
+    model.b = model.ctx.create(GGML_TYPE_F32, { IL, IC, N });
 
     // create a allocator
     ggml_tallocr alloc(model.buffer.get());
@@ -113,7 +110,7 @@ void load_model(test_model& model, bool use_gpu = false) {
     ggml_backend_tensor_set(model.b, bdata.data(), 0, model.b->nbytes());
 }
 
-ggml_cgraph build_graph(const test_model& model) {
+ggml_cgraph build_graph(test_model& model) {
     ggml_cgraph gf;
 
     int s0 = 1;
@@ -121,11 +118,11 @@ ggml_cgraph build_graph(const test_model& model) {
     int d0 = 1;
 
     // split conv1d in fundamental methods for test unit
-    ggml_tensor* im2col_0 = ggml_im2col(model.ctx.get(), model.a, model.b, s0, 0, p0, 0, d0, 0, false, GGML_TYPE_F16);
+    ggml_tensor* im2col_0 = ggml_im2col(&model.ctx, model.a, model.b, s0, 0, p0, 0, d0, 0, false, GGML_TYPE_F16);
     im2col_0->set_name("im2col_res");
     gf.build_forward_expand(im2col_0);
 
-    ggml_tensor* conv1d_res = ggml_conv_1d(model.ctx.get(), model.a, model.b, s0, p0, d0);
+    ggml_tensor* conv1d_res = ggml_conv_1d(&model.ctx, model.a, model.b, s0, p0, d0);
     conv1d_res->set_name("conv1d_res");
     gf.build_forward_expand(conv1d_res);
 

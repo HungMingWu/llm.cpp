@@ -15,7 +15,7 @@ struct test_model {
     ggml_tensor* b;
     std::unique_ptr<ggml_backend> backend;
     std::unique_ptr<ggml_backend_buffer> buffer;
-    std::unique_ptr<ggml_context> ctx;
+    ggml_context ctx;
 };
 
 void load_model(test_model& model, float* a, float* b, int M, int N, int K, bool use_gpu = false) {
@@ -59,13 +59,10 @@ void load_model(test_model& model, float* a, float* b, int M, int N, int K, bool
 
     model.buffer = model.backend->get_default_buffer_type()->alloc_buffer(buffer_size);
 
-    // create context
-    model.ctx = ggml_init();
-
     // create tensors
-    model.a = model.ctx->create(GGML_TYPE_F32, { K, M });
+    model.a = model.ctx.create(GGML_TYPE_F32, { K, M });
     printf("Matrix A: [%i, %i]\n", K, M);
-    model.b = model.ctx->create(GGML_TYPE_F32, { K, N });
+    model.b = model.ctx.create(GGML_TYPE_F32, { K, N });
     printf("Matrix B: [%i, %i]\n", K, N);
 
     // create a allocator
@@ -83,10 +80,10 @@ void load_model(test_model& model, float* a, float* b, int M, int N, int K, bool
     ggml_backend_tensor_set(model.b, b, 0, model.b->nbytes());  // cuda requires copy the data directly to device
 }
 
-ggml_cgraph build_graph(const test_model& model) {
+ggml_cgraph build_graph(test_model& model) {
     ggml_cgraph gf;
 
-    auto ctx = model.ctx.get();
+    auto ctx = &model.ctx;
 
     // zT = x @ yT
     ggml_tensor* result = ggml_mul_mat(ctx, model.a, ggml_cont(ctx, model.b));

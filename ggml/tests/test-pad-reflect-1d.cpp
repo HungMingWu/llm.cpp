@@ -16,10 +16,6 @@ static void ggml_log_callback_default(ggml_log_level level, const char* text, vo
 }
 #endif
 
-std::unique_ptr<ggml_context> make_ctx() {
-    return ggml_init();
-}
-
 void check_tensor(ggml_tensor* t, float* expected_t_d, int ne0, int ne1, int ne2) {
     GGML_ASSERT(t->type == GGML_TYPE_F32);
     GGML_ASSERT(t->ne[0] == ne0);
@@ -72,13 +68,13 @@ void test_pad_reflect_1d(bool use_gpu) {
     {
         //ggml_log_set(ggml_log_callback_default, nullptr);
 
-        std::unique_ptr<ggml_context> ctx = ggml_init();
+        ggml_context ctx;
         std::unique_ptr<ggml_backend_buffer> buffer = backend->get_device()->get_buffer_type()->alloc_buffer(16 * 1024 * 1024);
         ggml_tallocr tallocr(buffer.get());
         ggml_gallocr gallocr(backend->get_default_buffer_type());
 
         // Create a simple 1D input tensor [1, 2, 3, 4]
-        ggml_tensor* t = ctx->create(GGML_TYPE_F32, { 4 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 4 });
         float input_data[] = { 1.0f, 2.0f, 3.0f, 4.0f };
         tallocr.alloc(t);
 
@@ -88,17 +84,17 @@ void test_pad_reflect_1d(bool use_gpu) {
         // Test case 1: pad left=1, right=1
         // Expected: [2, 1, 2, 3, 4, 3]
         float expected_1[] = { 2.0f, 1.0f, 2.0f, 3.0f, 4.0f, 3.0f };
-        ggml_tensor* out_1 = ggml_pad_reflect_1d(ctx.get(), t, 1, 1);
+        ggml_tensor* out_1 = ggml_pad_reflect_1d(&ctx, t, 1, 1);
 
         // Test case 2: pad left=2, right=1
         // Expected: [3, 2, 1, 2, 3, 4, 3]
         float expected_2[] = { 3.0f, 2.0f, 1.0f, 2.0f, 3.0f, 4.0f, 3.0f };
-        ggml_tensor* out_2 = ggml_pad_reflect_1d(ctx.get(), t, 2, 1);
+        ggml_tensor* out_2 = ggml_pad_reflect_1d(&ctx, t, 2, 1);
 
         // Test case 3: pad left=1, right=2
         // Expected: [2, 1, 2, 3, 4, 3, 2]
         float expected_3[] = { 2.0f, 1.0f, 2.0f, 3.0f, 4.0f, 3.0f, 2.0f };
-        ggml_tensor* out_3 = ggml_pad_reflect_1d(ctx.get(), t, 1, 2);
+        ggml_tensor* out_3 = ggml_pad_reflect_1d(&ctx, t, 1, 2);
 
         ggml_cgraph gf;
         gf.build_forward_expand(out_1);
@@ -117,13 +113,13 @@ void test_pad_reflect_1d(bool use_gpu) {
     {
         //ggml_log_set(ggml_log_callback_default, nullptr);
 
-        std::unique_ptr<ggml_context> ctx = ggml_init();
+        ggml_context ctx;
         std::unique_ptr<ggml_backend_buffer> buffer = backend->get_device()->get_buffer_type()->alloc_buffer(16 * 1024 * 1024);
         ggml_tallocr tallocr(buffer.get());
         ggml_gallocr gallocr(backend->get_default_buffer_type());
 
         // Create a 2D input tensor (5 columns กั 4 rows)
-        ggml_tensor* t = ctx->create(GGML_TYPE_F32, { 5, 4 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 5, 4 });
         float input_data[] = {
             1.0f, 2.0f, 3.0f, 4.0f, 5.0f,  // row 1
             6.0f, 7.0f, 8.0f, 9.0f, 10.0f, // row 2
@@ -143,7 +139,7 @@ void test_pad_reflect_1d(bool use_gpu) {
             14.0f, 13.0f, 12.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 14.0f, 13.0f, // row 3
             19.0f, 18.0f, 17.0f, 16.0f, 17.0f, 18.0f, 19.0f, 20.0f, 19.0f, 18.0f  // row 4
         };
-        ggml_tensor* out_4 = ggml_pad_reflect_1d(ctx.get(), t, 3, 2);
+        ggml_tensor* out_4 = ggml_pad_reflect_1d(&ctx, t, 3, 2);
 
         ggml_cgraph gf;
         gf.build_forward_expand(out_4);

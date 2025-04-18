@@ -9,10 +9,6 @@
 import ggml;
 import test;
 
-std::unique_ptr<ggml_context> make_ctx() {
-    return ggml_init();
-}
-
 int main(int argc, const char** argv) {
 
     float buf_f32[1024];
@@ -24,10 +20,10 @@ int main(int argc, const char** argv) {
 
     // avg pool 1d - Float 32
     {
-        std::unique_ptr<ggml_context> ctx = make_ctx();
-        ggml_tensor* t = ctx->create(GGML_TYPE_F32, { 10, 2 });
+        ggml_context ctx;
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 10, 2 });
 
-        ggml_tensor* t_pooled = ggml_pool_1d(ctx.get(), t, GGML_OP_POOL_AVG, 3, 3, 0);
+        ggml_tensor* t_pooled = ggml_pool_1d(&ctx, t, GGML_OP_POOL_AVG, 3, 3, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
         GGML_ASSERT(t_pooled->ne[1] == 2);
         GGML_ASSERT(t_pooled->ne[2] == 1);
@@ -35,7 +31,7 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(ctx.get(), graph, [&](ggml_tensor* tensor) {
+        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f32, 0, t->nbytes());
             }
@@ -54,10 +50,10 @@ int main(int argc, const char** argv) {
 
     // avg pool 1d - Float 16
     {
-        std::unique_ptr<ggml_context> ctx = make_ctx();
-        ggml_tensor* t = ctx->create(GGML_TYPE_F16, { 10, 2 });
+        ggml_context ctx;
+        ggml_tensor* t = ctx.create(GGML_TYPE_F16, { 10, 2 });
 
-        ggml_tensor* t_pooled = ggml_pool_1d(ctx.get(), t, GGML_OP_POOL_AVG, 3, 3, 0);
+        ggml_tensor* t_pooled = ggml_pool_1d(&ctx, t, GGML_OP_POOL_AVG, 3, 3, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
         GGML_ASSERT(t_pooled->ne[1] == 2);
         GGML_ASSERT(t_pooled->ne[2] == 1);
@@ -65,7 +61,7 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(ctx.get(), graph, [&](ggml_tensor* tensor) {
+        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f16, 0, t->nbytes());
             }
@@ -84,10 +80,10 @@ int main(int argc, const char** argv) {
 
     // max pool 1d - Float 32
     {
-        std::unique_ptr<ggml_context> ctx = make_ctx();
-        ggml_tensor* t = ctx->create(GGML_TYPE_F32, { 10, 2 });
+        ggml_context ctx;
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 10, 2 });
 
-        ggml_tensor* t_pooled = ggml_pool_1d(ctx.get(), t, GGML_OP_POOL_MAX, 3, 3, 0);
+        ggml_tensor* t_pooled = ggml_pool_1d(&ctx, t, GGML_OP_POOL_MAX, 3, 3, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
         GGML_ASSERT(t_pooled->ne[1] == 2);
         GGML_ASSERT(t_pooled->ne[2] == 1);
@@ -95,7 +91,7 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(ctx.get(), graph, [&](ggml_tensor* tensor) {
+        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f32, 0, t->nbytes());
             }
@@ -113,10 +109,10 @@ int main(int argc, const char** argv) {
 
     // max pool 1d - Float 16
     {
-        std::unique_ptr<ggml_context> ctx = make_ctx();
-        ggml_tensor* t = ctx->create(GGML_TYPE_F16, { 10, 2 });
+        ggml_context ctx;
+        ggml_tensor* t = ctx.create(GGML_TYPE_F16, { 10, 2 });
 
-        ggml_tensor* t_pooled = ggml_pool_1d(ctx.get(), t, GGML_OP_POOL_MAX, 3, 3, 0);
+        ggml_tensor* t_pooled = ggml_pool_1d(&ctx, t, GGML_OP_POOL_MAX, 3, 3, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
         GGML_ASSERT(t_pooled->ne[1] == 2);
         GGML_ASSERT(t_pooled->ne[2] == 1);
@@ -124,7 +120,7 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(ctx.get(), graph, [&](ggml_tensor* tensor) {
+        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f16, 0, t->nbytes());
             }
@@ -142,10 +138,10 @@ int main(int argc, const char** argv) {
 
     // avg pool 2d - Float 32
     {
-        std::unique_ptr<ggml_context> ctx = make_ctx();
-        ggml_tensor* t = ctx->create(GGML_TYPE_F32, { 10, 10, 2 });
+        ggml_context ctx;
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 10, 10, 2 });
 
-        ggml_tensor* t_pooled = ggml_pool_2d(ctx.get(), t, GGML_OP_POOL_AVG, 3, 4, 3, 4, 0, 0);
+        ggml_tensor* t_pooled = ggml_pool_2d(&ctx, t, GGML_OP_POOL_AVG, 3, 4, 3, 4, 0, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
         GGML_ASSERT(t_pooled->ne[1] == 2);
         GGML_ASSERT(t_pooled->ne[2] == 2);
@@ -154,7 +150,7 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(ctx.get(), graph, [&](ggml_tensor* tensor) {
+        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f32, 0, t->nbytes());
             }
@@ -178,10 +174,10 @@ int main(int argc, const char** argv) {
 
     // avg pool 2d - Float 16
     {
-        std::unique_ptr<ggml_context> ctx = make_ctx();
-        ggml_tensor* t = ctx->create(GGML_TYPE_F16, { 10, 10, 2 });
+        ggml_context ctx;
+        ggml_tensor* t = ctx.create(GGML_TYPE_F16, { 10, 10, 2 });
 
-        ggml_tensor* t_pooled = ggml_pool_2d(ctx.get(), t, GGML_OP_POOL_AVG, 3, 4, 3, 4, 0, 0);
+        ggml_tensor* t_pooled = ggml_pool_2d(&ctx, t, GGML_OP_POOL_AVG, 3, 4, 3, 4, 0, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
         GGML_ASSERT(t_pooled->ne[1] == 2);
         GGML_ASSERT(t_pooled->ne[2] == 2);
@@ -190,7 +186,7 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(ctx.get(), graph, [&](ggml_tensor* tensor) {
+        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f16, 0, t->nbytes());
             }
@@ -214,10 +210,10 @@ int main(int argc, const char** argv) {
 
     // max pool 2d - Float 32
     {
-        std::unique_ptr<ggml_context> ctx = make_ctx();
-        ggml_tensor* t = ctx->create(GGML_TYPE_F32, { 10, 10, 2 });
+        ggml_context ctx;
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 10, 10, 2 });
 
-        ggml_tensor* t_pooled = ggml_pool_2d(ctx.get(), t, GGML_OP_POOL_MAX, 3, 4, 3, 4, 0, 0);
+        ggml_tensor* t_pooled = ggml_pool_2d(&ctx, t, GGML_OP_POOL_MAX, 3, 4, 3, 4, 0, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
         GGML_ASSERT(t_pooled->ne[1] == 2);
         GGML_ASSERT(t_pooled->ne[2] == 2);
@@ -226,7 +222,7 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(ctx.get(), graph, [&](ggml_tensor* tensor) {
+        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f32, 0, t->nbytes());
             }
@@ -250,10 +246,10 @@ int main(int argc, const char** argv) {
 
     // max pool 2d - Float 16
     {
-        std::unique_ptr<ggml_context> ctx = make_ctx();
-        ggml_tensor* t = ctx->create(GGML_TYPE_F16, { 10, 10, 2 });
+        ggml_context ctx;
+        ggml_tensor* t = ctx.create(GGML_TYPE_F16, { 10, 10, 2 });
 
-        ggml_tensor* t_pooled = ggml_pool_2d(ctx.get(), t, GGML_OP_POOL_MAX, 3, 4, 3, 4, 0, 0);
+        ggml_tensor* t_pooled = ggml_pool_2d(&ctx, t, GGML_OP_POOL_MAX, 3, 4, 3, 4, 0, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
         GGML_ASSERT(t_pooled->ne[1] == 2);
         GGML_ASSERT(t_pooled->ne[2] == 2);
@@ -262,7 +258,7 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(ctx.get(), graph, [&](ggml_tensor* tensor) {
+        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f16, 0, t->nbytes());
             }

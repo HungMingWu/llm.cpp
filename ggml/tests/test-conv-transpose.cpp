@@ -10,10 +10,6 @@
 import ggml;
 import test;
 
-std::unique_ptr<ggml_context> make_ctx() {
-    return ggml_init();
-}
-
 void printf_tensor(ggml_tensor* t) {
 
     if (t->type == GGML_TYPE_F32) {
@@ -90,12 +86,12 @@ void test_conv_transpose_1d(void) {
 
     // conv transpose 1d with stride 1, 2 & 3
     {
-        std::unique_ptr<ggml_context> ctx = make_ctx();
-        ggml_tensor* t = ctx->create(GGML_TYPE_F32, { 3, 2 }); // l x cin
-        ggml_tensor* k = ctx->create(GGML_TYPE_F16, { 2, 3, 2 }); // k x cout x cin
-        ggml_tensor* out_1 = ggml_conv_transpose_1d(ctx.get(), k, t, 1 /* s0 */, 0 /* p0 */, 1 /* d0 */);
-        ggml_tensor* out_2 = ggml_conv_transpose_1d(ctx.get(), k, t, 2 /* s0 */, 0 /* p0 */, 1 /* d0 */);
-        ggml_tensor* out_3 = ggml_conv_transpose_1d(ctx.get(), k, t, 3 /* s0 */, 0 /* p0 */, 1 /* d0 */);
+        ggml_context ctx;
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 3, 2 }); // l x cin
+        ggml_tensor* k = ctx.create(GGML_TYPE_F16, { 2, 3, 2 }); // k x cout x cin
+        ggml_tensor* out_1 = ggml_conv_transpose_1d(&ctx, k, t, 1 /* s0 */, 0 /* p0 */, 1 /* d0 */);
+        ggml_tensor* out_2 = ggml_conv_transpose_1d(&ctx, k, t, 2 /* s0 */, 0 /* p0 */, 1 /* d0 */);
+        ggml_tensor* out_3 = ggml_conv_transpose_1d(&ctx, k, t, 3 /* s0 */, 0 /* p0 */, 1 /* d0 */);
         ggml_cgraph gf_1, gf_2, gf_3;
         std::unordered_map<ggml_tensor*, bool> visited;
         auto fillTensor = [&](ggml_tensor* tensor) {
@@ -111,9 +107,9 @@ void test_conv_transpose_1d(void) {
         gf_1.build_forward_expand(out_1);
         gf_2.build_forward_expand(out_2);
         gf_3.build_forward_expand(out_3);
-        auto result_1 = run_graph_in_cpu(ctx.get(), gf_1, fillTensor);
-        auto result_2 = run_graph_in_cpu(ctx.get(), gf_2, fillTensor);
-        auto result_3 = run_graph_in_cpu(ctx.get(), gf_3, fillTensor);
+        auto result_1 = run_graph_in_cpu(&ctx, gf_1, fillTensor);
+        auto result_2 = run_graph_in_cpu(&ctx, gf_2, fillTensor);
+        auto result_3 = run_graph_in_cpu(&ctx, gf_3, fillTensor);
 
         check_tensor(result_1.data(), (float*)expected_out_1, 4, 3, 1);
         check_tensor(result_2.data(), (float*)expected_out_2, 6, 3, 1);
@@ -197,12 +193,12 @@ void test_conv_transpose_2d(void) {
 
     // conv transpose 2d with stride 1, 2 & 3
     {
-        std::unique_ptr<ggml_context> ctx = make_ctx();
-        ggml_tensor* t = ctx->create(GGML_TYPE_F32, { 3, 2, 2, 1 }); // w x h x cin
-        ggml_tensor* k = ctx->create(GGML_TYPE_F16, { 2, 2, 3, 2 }); // w x h cin x cout
-        ggml_tensor* out_1 = ggml_conv_transpose_2d_p0(ctx.get(), k, t, 1);
-        ggml_tensor* out_2 = ggml_conv_transpose_2d_p0(ctx.get(), k, t, 2);
-        ggml_tensor* out_3 = ggml_conv_transpose_2d_p0(ctx.get(), k, t, 3);
+        ggml_context ctx;
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 3, 2, 2, 1 }); // w x h x cin
+        ggml_tensor* k = ctx.create(GGML_TYPE_F16, { 2, 2, 3, 2 }); // w x h cin x cout
+        ggml_tensor* out_1 = ggml_conv_transpose_2d_p0(&ctx, k, t, 1);
+        ggml_tensor* out_2 = ggml_conv_transpose_2d_p0(&ctx, k, t, 2);
+        ggml_tensor* out_3 = ggml_conv_transpose_2d_p0(&ctx, k, t, 3);
         ggml_cgraph gf_1;
         ggml_cgraph gf_2;
         ggml_cgraph gf_3;
@@ -221,9 +217,9 @@ void test_conv_transpose_2d(void) {
             }
             visited[tensor] = true;
         };
-        auto result_1 = run_graph_in_cpu(ctx.get(), gf_1, fillTensor);
-        auto result_2 = run_graph_in_cpu(ctx.get(), gf_2, fillTensor);
-        auto result_3 = run_graph_in_cpu(ctx.get(), gf_3, fillTensor);
+        auto result_1 = run_graph_in_cpu(&ctx, gf_1, fillTensor);
+        auto result_2 = run_graph_in_cpu(&ctx, gf_2, fillTensor);
+        auto result_3 = run_graph_in_cpu(&ctx, gf_3, fillTensor);
 
         // printf("in\n");
         // printf_tensor(t);

@@ -80,8 +80,8 @@ bool test_conv_2d_dw(
     const int knl_w = kernel_size;
     const int knl_h = kernel_size;
 
-    std::unique_ptr<ggml_context> ctx_ptr = ggml_init();
-    ggml_context* ctx = ctx_ptr.get();
+    ggml_context ctx_instance;
+    ggml_context* ctx = &ctx_instance;
     ggml_cgraph gf;
 
     // Build graph
