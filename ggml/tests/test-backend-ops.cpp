@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
 #include <future>
@@ -118,6 +119,39 @@ static std::vector<float> tensor_to_float(const ggml_tensor* t) {
     return tv;
 }
 
+// maximum absolute asymmetry between a and b
+// asymmetry: (a - b) / (a + b)
+// This is more stable than relative error if one of the values fluctuates towards zero.
+// n: number of values to compare.
+// expected_vals: optional vector of expected values for a. If expected_vals is not empty, filter out all comparisons where
+//     a does not match any of the expected values. Needed for noncontinuous gradients where the numerical calculation can fail.
+static double mean_abs_asymm(const float* a, const float* b, const size_t n, const std::vector<float>& expected_vals) {
+    double sum = 0.0f;
+
+    size_t nvalid = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (!expected_vals.empty()) {
+            bool matches_any = false;
+            for (const float& ev : expected_vals) {
+                if (fabsf(a[i] - ev) < 1e-3f) {
+                    matches_any = true;
+                    break;
+                }
+            }
+            if (!matches_any) {
+                continue;
+            }
+        }
+
+        const float asymm = (a[i] - b[i]) / (a[i] + b[i]);
+
+        sum += fabsf(asymm);
+        nvalid++;
+    }
+
+    return sum / nvalid;
+}
+
 static void init_tensor_uniform(ggml_tensor* tensor, float min = -1.0f, float max = 1.0f) {
     size_t nels = tensor->nelements();
     std::vector<float> data(nels);
@@ -132,7 +166,7 @@ static void init_tensor_uniform(ggml_tensor* tensor, float min = -1.0f, float ma
             //for (size_t i = 0; i < n_threads; i++) { vec.emplace_back(1234 + i); } // fixed seed
             for (size_t i = 0; i < n_threads; i++) { vec.emplace_back(rd()); }
             return vec;
-            }();
+        }();
 
         auto init_thread = [&](size_t ith, size_t start, size_t end) {
             std::uniform_real_distribution<float> distribution(min, max);
@@ -599,131 +633,122 @@ struct test_case {
     }
 
     bool eval_grad(ggml_backend_t backend, const char* op_name) {
-#if 0
         mode = MODE_GRAD;
         const std::vector<float> expect = grad_expect();
 
-        std::unique_ptr<ggml_context> ctx = ggml_init();
+        ggml_context ctx;
 
-        gf = ggml_new_graph_custom(ctx, GGML_DEFAULT_GRAPH_SIZE, true);
-        gb = ggml_new_graph_custom(ctx, GGML_DEFAULT_GRAPH_SIZE, true);
-
-        ggml_tensor* out = build_graph(ctx);
+        ggml_tensor* out = build_graph(&ctx);
 
         if ((op_name != nullptr && op_desc(out) != op_name) || out->op == GGML_OP_OPT_STEP_ADAMW) {
-            //printf("  %s: skipping\n", op_desc(out).c_str());
+            //std::print("  {}: skipping\n", op_desc(out));
             return true;
         }
 
-        printf("  %s(%s): ", op_desc(out).c_str(), vars().c_str());
+        std::print("  {}({}): ", op_desc(out), vars());
         fflush(stdout);
 
         if (out->type != GGML_TYPE_F32) {
-            printf("not supported [%s->type != FP32]\n", out->name);
+            std::print("not supported [{}->type != FP32]\n", out->name);
             return true;
         }
 
         // check if the backend supports the ops
         bool supported = true;
         bool any_params = false;
-        for (ggml_tensor* t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
-            if (!ggml_backend_supports_op(backend, t)) {
-                printf("not supported [%s] ", ggml_backend_name(backend));
+        for (auto t : ctx.getTensors()) {
+            if (!backend->get_device()->supports_op(t)) {
+                std::print("not supported [{}] ", backend->get_name());
                 supported = false;
                 break;
             }
             if ((t->flags & GGML_TENSOR_FLAG_PARAM)) {
                 any_params = true;
                 if (t->type != GGML_TYPE_F32) {
-                    printf("not supported [%s->type != FP32] ", t->name);
+                    std::print("not supported [{}->type != FP32] ", t->name);
                     supported = false;
                     break;
                 }
             }
         }
         if (!any_params) {
-            printf("not supported [%s] \n", op_name);
+            std::print("not supported [{}] \n", op_name);
             supported = false;
         }
         if (!supported) {
-            printf("\n");
-            ggml_free(ctx);
+            std::println();
             return true;
         }
 
         int64_t ngrads = 0;
-        for (ggml_tensor* t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
+        for (auto t : ctx.getTensors()) {
             if (t->flags & GGML_TENSOR_FLAG_PARAM) {
                 ngrads += t->nelements();
             }
         }
         if (ngrads > grad_nmax()) {
             printf("skipping large tensors for speed \n");
-            ggml_free(ctx);
             return true;
         }
 
-
         if (!ggml_is_scalar(out)) {
-            out = ggml_sum(ctx, out);
-            ggml_set_name(out, "sum_of_out");
+            out = ggml_sum(&ctx, out);
+            out->set_name("sum_of_out");
         }
         ggml_set_loss(out);
 
-        ggml_build_forward_expand(gf, out);
-        ggml_graph_cpy(gf, gb);
-        ggml_build_backward_expand(ctx, ctx, gb, false);
+        gf.build_forward_expand(out);
+        gb = gf;
+        gb.build_backward_expand(&ctx, &ctx, false);
         if (expect.size() != 1 || expect[0] != 0.0f) {
             GGML_ASSERT(ggml_graph_n_nodes(gb) > ggml_graph_n_nodes(gf));
-            for (ggml_tensor* t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
+            for (auto t : ctx.getTensors()) {
                 GGML_ASSERT(!(t->flags & GGML_TENSOR_FLAG_PARAM) || ggml_graph_get_grad(gb, t)->op != GGML_OP_NONE);
             }
         }
 
-        for (ggml_tensor* t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
-            if (!ggml_backend_supports_op(backend, t)) {
-                printf("not supported [%s] ", ggml_backend_name(backend));
+        for (auto t : ctx.getTensors()) {
+            if (!backend->get_device()->supports_op(t)) {
+                std::print("not supported [{}] ", backend->get_name());
                 supported = false;
                 break;
             }
             if ((t->flags & GGML_TENSOR_FLAG_PARAM) && t->type != GGML_TYPE_F32) {
-                printf("not supported [%s->type != FP32] ", t->name);
+                std::print("not supported [{}->type != FP32] ", t->name);
                 supported = false;
                 break;
             }
         }
         if (!supported) {
-            printf("\n");
-            ggml_free(ctx);
+            std::println();
             return true;
         }
 
         // allocate
-        ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors(ctx, backend);
+        ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors(&ctx, backend);
         if (buf == NULL) {
-            printf("failed to allocate tensors [%s] ", ggml_backend_name(backend));
-            ggml_free(ctx);
+            std::print("failed to allocate tensors [{}] ", backend->get_name());
             return false;
         }
 
 
-        initialize_tensors(ctx); // Randomizes all tensors (including gradients).
-        ggml_graph_reset(gb);    // Sets gradients to 1 if loss, 0 otherwise.
+        initialize_tensors(&ctx); // Randomizes all tensors (including gradients).
+        gb.reset();    // Sets gradients to 1 if loss, 0 otherwise.
 
-        ggml_backend_graph_compute(backend, gf);
-        ggml_backend_graph_compute(backend, gb);
+        backend->graph_compute(&gf);
+        backend->graph_compute(&gb);
 
         bool ok = true;
-        for (struct ggml_tensor* t = ggml_get_first_tensor(ctx); t != nullptr; t = ggml_get_next_tensor(ctx, t)) {
+        for (auto t : ctx.getTensors()) {
             if (!(t->flags & GGML_TENSOR_FLAG_PARAM)) {
                 continue;
             }
 
-            const char* bn = ggml_backend_name(backend);
-            const int64_t ne = ggml_nelements(t);
+            const char* bn = backend->get_name();
+            const int64_t ne = t->nelements();
 
             std::vector<float> ga;
-            struct ggml_tensor* grad = ggml_graph_get_grad(gb, t);
+            struct ggml_tensor* grad = ggml_graph_get_grad(&gb, t);
             if (grad) {
                 ga = tensor_to_float(grad);
             }
@@ -734,7 +759,7 @@ struct test_case {
             for (int64_t i = 0; i < ne; ++i) { // gradient algebraic
                 // check for nans
                 if (!std::isfinite(ga[i])) {
-                    printf("[%s] nonfinite gradient at index %" PRId64 " (%s=%f) ", ggml_op_desc(t), i, bn, ga[i]);
+                    std::print("[{}] nonfinite gradient at index {} ({}={}) ", ggml_op_desc(t), i, bn, ga[i]);
                     ok = false;
                     break;
                 }
@@ -760,21 +785,21 @@ struct test_case {
                 float fu, fuh, fdh, fd; // output values for xiu, xiuh, xid, xidh
 
                 ggml_backend_tensor_set(t, &xiu, i * sizeof(float), sizeof(float));
-                ggml_backend_graph_compute(backend, gf);
-                ggml_backend_tensor_get(out, &fu, 0, ggml_nbytes(out));
+                backend->graph_compute(&gf);
+                ggml_backend_tensor_get(out, &fu, 0, out->nbytes());
 
                 ggml_backend_tensor_set(t, &xid, i * sizeof(float), sizeof(float));
-                ggml_backend_graph_compute(backend, gf);
-                ggml_backend_tensor_get(out, &fd, 0, ggml_nbytes(out));
+                backend->graph_compute(&gf);
+                ggml_backend_tensor_get(out, &fd, 0, out->nbytes());
 
                 if (grad_precise()) {
                     ggml_backend_tensor_set(t, &xiuh, i * sizeof(float), sizeof(float));
-                    ggml_backend_graph_compute(backend, gf);
-                    ggml_backend_tensor_get(out, &fuh, 0, ggml_nbytes(out));
+                    backend->graph_compute(&gf);
+                    ggml_backend_tensor_get(out, &fuh, 0, out->nbytes());
 
                     ggml_backend_tensor_set(t, &xidh, i * sizeof(float), sizeof(float));
-                    ggml_backend_graph_compute(backend, gf);
-                    ggml_backend_tensor_get(out, &fdh, 0, ggml_nbytes(out));
+                    backend->graph_compute(&gf);
+                    ggml_backend_tensor_get(out, &fdh, 0, out->nbytes());
 
                     gn[i] = (8.0 * (double)fuh + (double)fd - (8.0 * (double)fdh + (double)fu)) / (6.0 * (double)eps);
                 }
@@ -782,7 +807,7 @@ struct test_case {
                     gn[i] = (fu - fd) / (2.0f * eps);
                 }
 
-                ggml_backend_tensor_set(t, x0.data(), 0, ggml_nbytes(t));
+                ggml_backend_tensor_set(t, x0.data(), 0, t->nbytes());
             }
 
             const double err = mean_abs_asymm(gn.data(), ga.data(), gn.size(), expect);
@@ -800,17 +825,13 @@ struct test_case {
             printf("compare failed ");
         }
 
-        ggml_backend_buffer_free(buf);
-
-        ggml_free(ctx);
-
         if (ok) {
             printf("\033[1;32mOK\033[0m\n");
             return true;
         }
 
         printf("\033[1;31mFAIL\033[0m\n");
-#endif
+
         return false;
     }
 };

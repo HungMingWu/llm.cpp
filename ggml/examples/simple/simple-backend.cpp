@@ -31,7 +31,7 @@ struct simple_model {
     std::unique_ptr<ggml_backend_buffer> buffer;
 
     // the context to define the tensor information (dimensions, size, memory address)
-    std::unique_ptr<ggml_context> ctx;
+    ggml_context ctx;
 };
 
 // initialize the tensors of the model in this case two matrices 2x2
@@ -63,15 +63,12 @@ void load_model(simple_model& model, float* a, float* b, int rows_A, int cols_A,
 
     int num_tensors = 2;
 
-    // create context
-    model.ctx = ggml_init();
-
     // create tensors
-    model.a = model.ctx->create(GGML_TYPE_F32, { cols_A, rows_A });
-    model.b = model.ctx->create(GGML_TYPE_F32, { cols_B, rows_B });
+    model.a = model.ctx.create(GGML_TYPE_F32, { cols_A, rows_A });
+    model.b = model.ctx.create(GGML_TYPE_F32, { cols_B, rows_B });
 
     // create a backend buffer (backend memory) and alloc the tensors from the context
-    model.buffer.reset(ggml_backend_alloc_ctx_tensors(model.ctx.get(), model.backend.get()));
+    model.buffer.reset(ggml_backend_alloc_ctx_tensors(&model.ctx, model.backend.get()));
 
     // load data from cpu memory to backend buffer
     ggml_backend_tensor_set(model.a, a, 0, model.a->nbytes());
@@ -79,11 +76,11 @@ void load_model(simple_model& model, float* a, float* b, int rows_A, int cols_A,
 }
 
 // build the compute graph to perform a matrix multiplication
-ggml_cgraph build_graph(const simple_model& model) {
+ggml_cgraph build_graph(simple_model& model) {
     ggml_cgraph gf{};
 
     // result = a*b^T
-    ggml_tensor* result = ggml_mul_mat(model.ctx.get(), model.a, model.b);
+    ggml_tensor* result = ggml_mul_mat(&model.ctx, model.a, model.b);
 
     // build operations nodes
     gf.build_forward_expand(result);
