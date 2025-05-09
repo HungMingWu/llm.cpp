@@ -1,4 +1,5 @@
 module;
+#include <algorithm>
 #include <fstream>
 #include <map>
 #include <print>
@@ -478,10 +479,10 @@ void gpt_print_usage(int /*argc*/, char** argv, const gpt_params& params) {
     std::println(stderr, "                        test tokenization");
     std::println(stderr, "  -n N, --n_predict N   number of tokens to predict (default: {})", params.n_predict);
     std::println(stderr, "  --top_k N             top-k sampling (default: {})", params.top_k);
-    std::println(stderr, "  --top_p N             top-p sampling (default: {.1f})", params.top_p);
-    std::println(stderr, "  --temp N              temperature (default: {.1f})", params.temp);
+    std::println(stderr, "  --top_p N             top-p sampling (default: {:.1})", params.top_p);
+    std::println(stderr, "  --temp N              temperature (default: {:.1})", params.temp);
     std::println(stderr, "  --repeat-last-n N     last n tokens to consider for penalize (default: {}, 0 = disabled)", params.repeat_last_n);
-    std::println(stderr, "  --repeat-penalty N    penalize repeat sequence of tokens (default: {.2f}, 1.0 = disabled)", (double)params.repeat_penalty);
+    std::println(stderr, "  --repeat-penalty N    penalize repeat sequence of tokens (default: {:.2}, 1.0 = disabled)", (double)params.repeat_penalty);
     std::println(stderr, "  -b N, --batch_size N  batch size for prompt processing (default: {})", params.n_batch);
     std::println(stderr, "  -c N, --context N     context / KV cache size (default: {})", params.n_ctx);
     std::println(stderr, "  --ignore-eos          ignore EOS token during generation");
