@@ -5,6 +5,7 @@ module;
 #include <stdio.h>
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <mutex>
 #include <span>
 #include <vector>

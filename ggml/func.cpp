@@ -222,7 +222,7 @@ static bool ggml_is_view_op(enum ggml_op op) {
 
 bool ggml_backend_compare_graph_backend(ggml_backend_t backend1, ggml_backend_t backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback) {
     graph_copy copy = ggml_backend_graph_copy(backend2, graph);
-    assert(copy.buffer != nullptr);
+    assert(copy.buffer);
 
     ggml_cgraph* g1 = graph;
     ggml_cgraph* g2 = &copy.graph;

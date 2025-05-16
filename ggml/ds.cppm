@@ -671,6 +671,7 @@ export {
     private:
         int get_backend_id(ggml_backend_t backend);
         void split_graph(ggml_cgraph* graph);
+        void print_assignments(const ggml_cgraph &graph);
     public:
         ggml_backend_sched(std::unique_ptr<ggml_backend>* backends,
             ggml_backend_buffer_type_t* bufts,
