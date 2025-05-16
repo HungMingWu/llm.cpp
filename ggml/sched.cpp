@@ -7,6 +7,7 @@ module;
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_LOG_DEBUG(...)
+#define GGML_LOG_ERROR(...)
 
 #ifndef GGML_SCHED_MAX_BACKENDS
 #define GGML_SCHED_MAX_BACKENDS 16
@@ -97,11 +98,8 @@ void ggml_backend_sched::reset()
 {
     // reset state for the next run
     if (!is_reset) {
-#if 0
-        ggml_hash_set_reset(&sched->hash_set);
-        memset(hv_tensor_backend_ids, -1, hash_set.size * sizeof(sched->hv_tensor_backend_ids[0]));
-        memset(hv_tensor_copies, 0, hash_set.size * sched->n_backends * sched->n_copies * sizeof(struct ggml_tensor*));
-#endif
+        hv_tensor_backend_ids.clear();
+        hv_tensor_copies.clear();
         is_reset = true;
     }
     is_alloc = false;
@@ -726,9 +724,6 @@ void ggml_backend_sched::split_graph(ggml_cgraph* graph) {
 
 bool ggml_backend_sched::reserve(ggml_cgraph* measure_graph)
 {
-#if 0
-    GGML_ASSERT((int)sched->hash_set.size >= measure_graph->n_nodes + measure_graph->n_leafs);
-#endif
     split_graph(measure_graph);
 
     synchronize();
@@ -742,27 +737,175 @@ bool ggml_backend_sched::reserve(ggml_cgraph* measure_graph)
     return true;
 }
 
-enum ggml_status ggml_backend_sched_graph_compute_async(ggml_backend_sched_t sched, struct ggml_cgraph* graph) {
-#if 0
-    if (!sched->is_reset && !sched->is_alloc) {
-        ggml_backend_sched_reset(sched);
+bool ggml_backend_sched::alloc_splits() {
+    bool backend_ids_changed = false;
+    for (size_t i = 0; i < graph.nodes.size(); i++) {
+        if (node_backend_ids[i] != prev_node_backend_ids[i] &&
+            bufts[node_backend_ids[i]] != bufts[prev_node_backend_ids[i]]) {
+            backend_ids_changed = true;
+            break;
+        }
     }
-
-    if (!sched->is_alloc) {
-        if (!ggml_backend_sched_alloc_graph(sched, graph)) {
-            return GGML_STATUS_ALLOC_FAILED;
+    if (!backend_ids_changed) {
+        for (size_t i = 0; i < graph.leafs.size(); i++) {
+            if (leaf_backend_ids[i] != prev_leaf_backend_ids[i] &&
+                bufts[leaf_backend_ids[i]] != bufts[prev_leaf_backend_ids[i]]) {
+                backend_ids_changed = true;
+                break;
+            }
         }
     }
 
-    return ggml_backend_sched_compute_splits(sched);
-#else
-    return {};
+    // allocate graph
+    if (backend_ids_changed || !galloc->alloc_graph(&graph)) {
+        // the re-allocation may cause the split inputs to be moved to a different address
+        synchronize();
+#ifndef NDEBUG
+        GGML_LOG_DEBUG("%s: failed to allocate graph, reserving (backend_ids_changed = %d)\n", __func__, backend_ids_changed);
 #endif
+        galloc->reserve_n(&graph, node_backend_ids, leaf_backend_ids);
+        if (!galloc->alloc_graph(&graph)) {
+            GGML_LOG_ERROR("%s: failed to allocate graph\n", __func__);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool ggml_backend_sched::alloc_graph(ggml_cgraph* graph) {
+    split_graph(graph);
+
+    if (!alloc_splits()) {
+        return false;
+    }
+    is_alloc = true;
+    return true;
+}
+
+static ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t sched) {
+    for (auto &split : sched->splits) {
+        int split_backend_id = split.backend_id;
+        ggml_backend_t split_backend = sched->backends[split_backend_id];
+
+        // copy the input tensors to the split backend
+        for (int j = 0; j < split.n_inputs; j++) {
+            ggml_backend_t input_backend = ggml_backend_sched_get_tensor_backend(sched, split.inputs[j]);
+            ggml_tensor* input = split.inputs[j];
+            ggml_tensor* input_cpy = sched->hv_tensor_copies[input][split_backend_id][sched->cur_copy];
+
+            if (input->flags & GGML_TENSOR_FLAG_INPUT) {
+                // inputs from the user must be copied immediately to prevent the user overwriting the data before the copy is done
+                if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
+                    // TODO
+#if 0
+                    ggml_backend_event_synchronize(sched->events[split_backend_id][sched->cur_copy]);
+#endif
+                }
+                else {
+                    split_backend->synchronize();
+                }
+                ggml_backend_tensor_copy(input, input_cpy);
+            }
+            else {
+                // wait for the split backend to finish using the input before overwriting it
+                if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
+                    // TODO
+#if 0
+                    ggml_backend_event_wait(split_backend, sched->events[split_backend_id][sched->cur_copy]);
+#endif
+                }
+                else {
+                    split_backend->synchronize();
+                }
+                // try async copy, but if not possible, we can still use a sync copy without synchronizing the dst backend, since we handle the synchronization here with multiple copies and events
+                // TODO: add public function to facilitate this, since applications do not have direct access to the backend interface
+                if (0) { //!split_backend->iface.cpy_tensor_async || !split_backend->iface.cpy_tensor_async(input_backend, split_backend, input, input_cpy)) {
+                    input_backend->synchronize();
+                    if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
+#if 0
+                        ggml_backend_event_synchronize(sched->events[split_backend_id][sched->cur_copy]);
+#endif
+                    }
+                    else {
+                        split_backend->synchronize();
+                    }
+                    ggml_backend_tensor_copy(input, input_cpy);
+                }
+            }
+        }
+
+        if (!sched->callback_eval) {
+            ggml_status ec = split_backend->graph_compute(&split.graph);
+            if (ec != GGML_STATUS_SUCCESS) {
+                return ec;
+            }
+        }
+        else {
+            // similar to ggml_backend_compare_graph_backend
+            for (size_t j0 = 0; j0 < split.graph.nodes.size(); j0++) {
+                ggml_tensor* t = split.graph.nodes[j0];
+
+                // check if the user needs data from this node
+                bool need = sched->callback_eval(t, true, sched->callback_eval_user_data);
+
+                int j1 = j0;
+
+                // determine the range [j0, j1] of nodes that can be computed together
+                while (!need && j1 < split.graph.nodes.size() - 1) {
+                    t = split.graph.nodes[++j1];
+                    need = sched->callback_eval(t, true, sched->callback_eval_user_data);
+                }
+
+                ggml_cgraph gv = ggml_graph_view(split.graph, j0, j1 + 1);
+
+                ggml_status ec = split_backend->graph_compute(&gv);
+                if (ec != GGML_STATUS_SUCCESS) {
+                    return ec;
+                }
+
+                // TODO: pass backend to the callback, then the user can decide if they want to synchronize
+                split_backend->synchronize();
+
+                if (need && !sched->callback_eval(t, false, sched->callback_eval_user_data)) {
+                    break;
+                }
+
+                j0 = j1;
+            }
+        }
+
+#if 0
+        // record the event of this copy
+        if (split->n_inputs > 0) {
+            if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
+                ggml_backend_event_record(sched->events[split_backend_id][sched->cur_copy], split_backend);
+            }
+        }
+#endif
+    }
+
+    sched->cur_copy = (sched->cur_copy + 1) % sched->n_copies;
+
+    return GGML_STATUS_SUCCESS;
+}
+
+ggml_status ggml_backend_sched::graph_compute_async(ggml_cgraph* graph) {
+    if (!is_reset && !is_alloc) {
+        reset();
+    }
+
+    if (!is_alloc) {
+        if (!alloc_graph(graph)) {
+            return GGML_STATUS_ALLOC_FAILED;
+        }
+    }
+    return ggml_backend_sched_compute_splits(this);
 }
 
 ggml_status ggml_backend_sched::graph_compute(ggml_cgraph* graph)
 {
-    enum ggml_status err = ggml_backend_sched_graph_compute_async(this, graph);
+    ggml_status err = graph_compute_async(graph);
     synchronize();
     return err;
 }

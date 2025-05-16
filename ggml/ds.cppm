@@ -680,6 +680,9 @@ export {
         void split_graph(ggml_cgraph* graph);
         void print_assignments(const ggml_cgraph &graph);
         void synchronize();
+        bool alloc_graph(ggml_cgraph* graph);
+        ggml_status graph_compute_async(ggml_cgraph* graph);
+        bool alloc_splits();
     public:
         ggml_backend_sched(std::unique_ptr<ggml_backend>* backends,
             ggml_backend_buffer_type_t* bufts,
