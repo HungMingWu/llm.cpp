@@ -622,6 +622,13 @@ export {
         ggml_cgraph graph;
     };
 
+    enum ggml_status {
+        GGML_STATUS_ALLOC_FAILED = -2,
+        GGML_STATUS_FAILED = -1,
+        GGML_STATUS_SUCCESS = 0,
+        GGML_STATUS_ABORTED = 1,
+    };
+
     struct ggml_backend_sched {
         bool is_reset; // true if the scheduler has been reset since the last graph split
         bool is_alloc;
@@ -672,6 +679,7 @@ export {
         int get_backend_id(ggml_backend_t backend);
         void split_graph(ggml_cgraph* graph);
         void print_assignments(const ggml_cgraph &graph);
+        void synchronize();
     public:
         ggml_backend_sched(std::unique_ptr<ggml_backend>* backends,
             ggml_backend_buffer_type_t* bufts,
@@ -683,6 +691,7 @@ export {
         void reset();
         size_t get_buffer_size(ggml_backend_t backend);
         bool reserve(ggml_cgraph* measure_graph);
+        ggml_status graph_compute(ggml_cgraph* graph);
     };
 
     // GUID types
@@ -690,13 +699,6 @@ export {
     using ggml_guid_t = ggml_guid*;
 
     using ggml_backend_graph_plan_t = void*;
-
-    enum ggml_status {
-        GGML_STATUS_ALLOC_FAILED = -2,
-        GGML_STATUS_FAILED = -1,
-        GGML_STATUS_SUCCESS = 0,
-        GGML_STATUS_ABORTED = 1,
-    };
 
     //
     // Backend (stream)

@@ -294,6 +294,12 @@ void ggml_backend_sched::print_assignments(const ggml_cgraph& graph) {
     }
 }
 
+void ggml_backend_sched::synchronize() {
+    for (int i = 0; i < n_backends; i++) {
+        backends[i]->synchronize();
+    }
+}
+
 ggml_cgraph ggml_graph_view(const ggml_cgraph& cgraph0, int i0, int i1) {
     ggml_cgraph view_graph = cgraph0;
     // ignore i0 ~ i1 now
@@ -687,45 +693,35 @@ void ggml_backend_sched::split_graph(ggml_cgraph* graph) {
             graph_copy.nodes.push_back(graph->nodes[j]);
         }
     }
-#if 0
-    if (sched->n_copies > 1) {
+
+    if (n_copies > 1) {
         // add input copies as leafs so that they are allocated first
-        for (int i = 0; i < sched->n_graph_inputs; i++) {
-            struct ggml_tensor* input = sched->graph_inputs[i];
-            size_t id = hash_id(input);
-            int backend_id = tensor_backend_id(input);
-            for (int c = 0; c < sched->n_copies; c++) {
-                struct ggml_tensor* input_cpy = tensor_id_copy(id, backend_id, c);
-                sched->leaf_backend_ids[graph_copy->n_leafs] = backend_id;
-                assert(graph_copy->size > graph_copy->n_leafs);
-                graph_copy->leafs[graph_copy->n_leafs++] = input_cpy;
+        for (int i = 0; i < n_graph_inputs; i++) {
+            ggml_tensor* input = graph_inputs[i];
+            int backend_id = hv_tensor_backend_ids.at(input);
+            for (int c = 0; c < n_copies; c++) {
+                ggml_tensor* input_cpy = hv_tensor_copies[input][backend_id][c];
+                leaf_backend_ids[graph_copy.leafs.size()] = backend_id;
+                graph_copy.leafs.push_back(input_cpy);
             }
         }
-
-        for (int i = 0; i < sched->n_splits; i++) {
-            struct ggml_backend_sched_split* split = &sched->splits[i];
-            int backend_id = split->backend_id;
-            for (int j = 0; j < split->n_inputs; j++) {
-                struct ggml_tensor* input = split->inputs[j];
-                size_t id = hash_id(input);
-                for (int c = 0; c < sched->n_copies; c++) {
-                    struct ggml_tensor* input_cpy = tensor_id_copy(id, backend_id, c);
-                    sched->leaf_backend_ids[graph_copy->n_leafs] = backend_id;
-                    assert(graph_copy->size > graph_copy->n_leafs);
-                    graph_copy->leafs[graph_copy->n_leafs++] = input_cpy;
+        for (auto &split : splits) {
+            int backend_id = split.backend_id;
+            for (int j = 0; j < split.n_inputs; j++) {
+                ggml_tensor* input = split.inputs[j];
+                for (int c = 0; c < n_copies; c++) {
+                    ggml_tensor* input_cpy = hv_tensor_copies[input][backend_id][c];
+                    leaf_backend_ids[graph_copy.leafs.size()] = backend_id;
+                    graph_copy.leafs.push_back(input_cpy);
                 }
             }
         }
     }
-
     // add leafs from the original graph
-    for (int i = 0; i < graph->n_leafs; i++) {
-        struct ggml_tensor* leaf = graph->leafs[i];
-        sched->leaf_backend_ids[graph_copy->n_leafs] = tensor_backend_id(leaf);
-        assert(graph_copy->size > graph_copy->n_leafs);
-        graph_copy->leafs[graph_copy->n_leafs++] = leaf;
+    for (auto leaf : graph->leafs) {
+        leaf_backend_ids[graph_copy.leafs.size()] = hv_tensor_backend_ids.at(leaf);
+        graph_copy.leafs.push_back(leaf);
     }
-#endif
 }
 
 bool ggml_backend_sched::reserve(ggml_cgraph* measure_graph)
@@ -735,16 +731,38 @@ bool ggml_backend_sched::reserve(ggml_cgraph* measure_graph)
 #endif
     split_graph(measure_graph);
 
-#if 0
-    ggml_backend_sched_synchronize(sched);
+    synchronize();
 
-    if (!ggml_gallocr_reserve_n(sched->galloc, &sched->graph, sched->node_backend_ids, sched->leaf_backend_ids)) {
+    if (!galloc->reserve_n(&graph, node_backend_ids, leaf_backend_ids)) {
         return false;
     }
-
-    ggml_backend_sched_reset(sched);
+    
+    reset();
 
     return true;
+}
+
+enum ggml_status ggml_backend_sched_graph_compute_async(ggml_backend_sched_t sched, struct ggml_cgraph* graph) {
+#if 0
+    if (!sched->is_reset && !sched->is_alloc) {
+        ggml_backend_sched_reset(sched);
+    }
+
+    if (!sched->is_alloc) {
+        if (!ggml_backend_sched_alloc_graph(sched, graph)) {
+            return GGML_STATUS_ALLOC_FAILED;
+        }
+    }
+
+    return ggml_backend_sched_compute_splits(sched);
+#else
+    return {};
 #endif
-    return false;
+}
+
+ggml_status ggml_backend_sched::graph_compute(ggml_cgraph* graph)
+{
+    enum ggml_status err = ggml_backend_sched_graph_compute_async(this, graph);
+    synchronize();
+    return err;
 }

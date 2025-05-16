@@ -1837,11 +1837,6 @@ export {
 
 	 ggml_type ggml_ftype_to_ggml_type(ggml_ftype ftype);
 
-	 ggml_status ggml_backend_sched_graph_compute(ggml_backend_sched_t sched, struct ggml_cgraph* graph)
-	 {
-		 return {};
-	 }
-
 	 void ggml_backend_tensor_copy(ggml_tensor* src, ggml_tensor* dst);
 
 	 // creates a copy of the tensor with the same memory layout
