@@ -13,8 +13,6 @@
 import ggml;
 import gpt.common;
 
-#define GPT2_MAX_NODES 4096
-
 #if 0
 static void ggml_log_callback_default(ggml_log_level level, const char* text, void* user_data) {
     (void)level;
@@ -842,7 +840,7 @@ bool gpt2_eval(
 
     // run the computation
     sched->reset();
-    sched->graph_compute(&gf);
+    sched->graph_compute(gf);
 
     //if (n_past%100 == 0) {
     //    ggml_graph_print   (&gf);
@@ -909,7 +907,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<ggml_backend_sched> sched;
     {
         // initialize the scheduler
-        sched = std::make_unique<ggml_backend_sched>(model.backends.data(), nullptr, model.backends.size(), GPT2_MAX_NODES, false, true);
+        sched = std::make_unique<ggml_backend_sched>(model.backends.data(), nullptr, model.backends.size(), false, true);
 
         // create the worst case graph for memory usage estimation
         int n_tokens = std::min(model.hparams.n_ctx, params.n_batch);

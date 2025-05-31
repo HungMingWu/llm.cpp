@@ -676,10 +676,10 @@ export {
         bool buffer_supported(ggml_tensor* t, int backend_id);
         ggml_backend_t get_tensor_backend(ggml_tensor* node);
         std::optional<int> get_backend_id(ggml_backend_t backend);
-        void split_graph(const ggml_cgraph* graph);
-        void print_assignments(const ggml_cgraph &graph);
+        void split_graph(const ggml_cgraph& graph);
+        void print_assignments(const ggml_cgraph& graph);
         void synchronize();
-        bool alloc_graph(const ggml_cgraph* graph);
+        bool alloc_graph(const ggml_cgraph& graph);
         ggml_status graph_compute_async(const ggml_cgraph& graph);
         bool alloc_splits();
         ggml_status compute_splits();
@@ -687,13 +687,12 @@ export {
         ggml_backend_sched(std::unique_ptr<ggml_backend>* backends,
             ggml_backend_buffer_type_t* bufts,
             int n_backends,
-            size_t graph_size,
             bool parallel,
             bool op_offload);
         void reset();
         size_t get_buffer_size(ggml_backend_t backend);
         bool reserve(const ggml_cgraph* measure_graph);
-        ggml_status graph_compute(ggml_cgraph* graph);
+        ggml_status graph_compute(const ggml_cgraph& graph);
     };
 
     // GUID types

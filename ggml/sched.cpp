@@ -34,7 +34,6 @@ module ggml;
 ggml_backend_sched::ggml_backend_sched(std::unique_ptr<ggml_backend>* backends,
     ggml_backend_buffer_type_t* bufts,
     int n_backends,
-    size_t graph_size,
     bool parallel,
     bool op_offload)
 {
@@ -290,7 +289,7 @@ ggml_cgraph ggml_graph_view(const ggml_cgraph& cgraph0, int i0, int i1) {
 }
 
 // assigns backends to ops and splits the graph into subgraphs that can be computed on the same backend
-void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
+void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
     // reset splits
     splits.clear();
     graph_inputs.clear();
@@ -302,7 +301,7 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
     }
 
     // pass 1: assign backends to ops with pre-allocated inputs
-    for (auto leaf : graph->leafs) {
+    for (auto leaf : graph.leafs) {
         auto it = hv_tensor_backend_ids.find(leaf);
         // do not overwrite user assignments
         if (it == end(hv_tensor_backend_ids)) {
@@ -312,7 +311,7 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
         }
     }
 
-    for (auto node : graph->nodes) {
+    for (auto node : graph.nodes) {
         auto it = hv_tensor_backend_ids.find(node);
         // do not overwrite user assignments
         if (it == end(hv_tensor_backend_ids)) {
@@ -354,7 +353,7 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
     // thus, cpu will never be used unless weights are on cpu, or there are no gpu ops between cpu ops
     // ops unsupported by the backend being expanded will be left unassigned so that they can be assigned later when the locations of its inputs are known
     // expand gpu down
-    for (int cur_backend_id = -1; auto node : graph->nodes) {
+    for (int cur_backend_id = -1; auto node : graph.nodes) {
         if (ggml_is_view_op(node->op)) {
             continue;
         }
@@ -375,8 +374,8 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
         }
     }
     // expand gpu up
-    for (int cur_backend_id = -1, i = graph->nodes.size() - 1; i >= 0; i--) {
-        ggml_tensor* node = graph->nodes[i];
+    for (int cur_backend_id = -1, i = graph.nodes.size() - 1; i >= 0; i--) {
+        ggml_tensor* node = graph.nodes[i];
         if (ggml_is_view_op(node->op)) {
             continue;
         }
@@ -397,7 +396,7 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
         }
     }
     // expand rest down
-    for (int cur_backend_id = -1; auto node : graph->nodes) {
+    for (int cur_backend_id = -1; auto node : graph.nodes) {
         if (ggml_is_view_op(node->op)) {
             continue;
         }
@@ -412,8 +411,8 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
         }
     }
     // expand rest up
-    for (int cur_backend_id = -1, i = graph->nodes.size() - 1; i >= 0; i--) {
-        ggml_tensor* node = graph->nodes[i];
+    for (int cur_backend_id = -1, i = graph.nodes.size() - 1; i >= 0; i--) {
+        ggml_tensor* node = graph.nodes[i];
         if (ggml_is_view_op(node->op)) {
             continue;
         }
@@ -435,7 +434,7 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
     // this is not uncommon since multiple backends can use host memory, with the same buffer type (eg. BLAS and CPU)
     // additionally, set remaining unassigned nodes to the backend with the most supported inputs
     // only nodes that could not be assigned during expansion due to the backend not supporting the op should be unassigned at this point
-    for (auto node : graph->nodes) {
+    for (auto node : graph.nodes) {
         if (ggml_is_view_op(node->op)) {
             continue;
         }
@@ -483,7 +482,7 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
         }
     }
     // pass 4: assign backends to remaining src from dst and view_src
-    for (auto node : graph->nodes) {
+    for (auto node : graph.nodes) {
         auto it = hv_tensor_backend_ids.find(node);
         if (node->view_src != nullptr && it == hv_tensor_backend_ids.end()) {
             auto it2 = hv_tensor_backend_ids.find(node->view_src);
@@ -515,8 +514,8 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
         cur_split->i_start = 0;
         // find the backend of the first split, skipping view ops
         int i = 0;
-        for (; i < graph->nodes.size(); i++) {
-            ggml_tensor* node = graph->nodes[i];
+        for (; i < graph.nodes.size(); i++) {
+            ggml_tensor* node = graph.nodes[i];
             if (!ggml_is_view_op(node->op)) {
                 cur_split->backend_id = hv_tensor_backend_ids.at(node);
                 break;
@@ -525,8 +524,8 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
 
         int cur_backend_id = cur_split->backend_id;
 
-        for (; i < graph->nodes.size(); i++) {
-            ggml_tensor* node = graph->nodes[i];
+        for (; i < graph.nodes.size(); i++) {
+            ggml_tensor* node = graph.nodes[i];
 
             if (ggml_is_view_op(node->op)) {
                 continue;
@@ -621,11 +620,11 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
                 }
             }
         }
-        cur_split->i_end = graph->nodes.size();
+        cur_split->i_end = graph.nodes.size();
     }
 
     if (debug) {
-        print_assignments(*graph);
+        print_assignments(graph);
     }
     // swap node_backend_ids and leaf _backend_ids with prevs
     {
@@ -639,7 +638,7 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
     ggml_cgraph& graph_copy = this->graph;
 
     for (auto &split : splits) {
-        split.graph = ggml_graph_view(*graph, split.i_start, split.i_end);
+        split.graph = ggml_graph_view(graph, split.i_start, split.i_end);
 
         // add inputs to the graph copy so that they are allocated by ggml-alloc at the start of the split
         for (auto input : split.inputs) {
@@ -657,8 +656,8 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
         }
 
         for (int j = split.i_start; j < split.i_end; j++) {
-            map_node_backend_ids[graph_copy.nodes.size()] = hv_tensor_backend_ids[graph->nodes[j]];
-            graph_copy.nodes.push_back(graph->nodes[j]);
+            map_node_backend_ids[graph_copy.nodes.size()] = hv_tensor_backend_ids[graph.nodes[j]];
+            graph_copy.nodes.push_back(graph.nodes[j]);
         }
     }
 
@@ -684,7 +683,7 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
         }
     }
     // add leafs from the original graph
-    for (auto leaf : graph->leafs) {
+    for (auto leaf : graph.leafs) {
         map_leaf_backend_ids[graph_copy.leafs.size()] = hv_tensor_backend_ids.at(leaf);
         graph_copy.leafs.push_back(leaf);
     }
@@ -700,7 +699,7 @@ void ggml_backend_sched::split_graph(const ggml_cgraph* graph) {
 
 bool ggml_backend_sched::reserve(const ggml_cgraph* measure_graph)
 {
-    split_graph(measure_graph);
+    split_graph(*measure_graph);
 
     synchronize();
 
@@ -758,7 +757,7 @@ bool ggml_backend_sched::alloc_splits() {
     return true;
 }
 
-bool ggml_backend_sched::alloc_graph(const ggml_cgraph* graph) {
+bool ggml_backend_sched::alloc_graph(const ggml_cgraph& graph) {
     split_graph(graph);
 
     if (!alloc_splits()) {
@@ -870,16 +869,16 @@ ggml_status ggml_backend_sched::graph_compute_async(const ggml_cgraph& graph) {
     }
 
     if (!is_alloc) {
-        if (!alloc_graph(&graph)) {
+        if (!alloc_graph(graph)) {
             return GGML_STATUS_ALLOC_FAILED;
         }
     }
     return compute_splits();
 }
 
-ggml_status ggml_backend_sched::graph_compute(ggml_cgraph* graph)
+ggml_status ggml_backend_sched::graph_compute(const ggml_cgraph& graph)
 {
-    ggml_status err = graph_compute_async(*graph);
+    ggml_status err = graph_compute_async(graph);
     synchronize();
     return err;
 }
