@@ -169,7 +169,7 @@ template <typename Iter>
 static bool alloc_tensor_range(ggml_context* ctx,
 	Iter first, Iter last,
 	ggml_backend_buffer_type_t buft, size_t size,
-	std::vector<ggml_backend_buffer_t> *buffers) {
+	std::vector<std::unique_ptr<ggml_backend_buffer>> *buffers) {
 
 	std::unique_ptr<ggml_backend_buffer> buffer = buft->alloc_buffer(size);
 #
@@ -200,7 +200,7 @@ static bool alloc_tensor_range(ggml_context* ctx,
 		}
 	}
 
-	buffers->push_back(buffer.release());
+	buffers->push_back(std::move(buffer));
 	return true;
 }
 
@@ -512,11 +512,6 @@ static ggml_backend_registry& get_reg() {
 }
 
 export {
-	void ggml_backend_dev_memory(ggml_backend_dev_t device, size_t* free, size_t* total)
-	{
-
-	}
-
 	size_t ggml_backend_dev_count()
 	{
 		return get_reg().devices.size();
@@ -862,19 +857,14 @@ export {
 	 }
 
 	 struct multi_backend_buffer : public ggml_backend_buffer {
-		 std::vector<ggml_backend_buffer_t> buffers;
+		 std::vector<std::unique_ptr<ggml_backend_buffer>> buffers;
 	 public:
 		 multi_backend_buffer(
-			 ggml_backend_buffer_type_t buft, size_t size, std::span<ggml_backend_buffer_t> buffers)
+			 ggml_backend_buffer_type_t buft, size_t size, std::vector<std::unique_ptr<ggml_backend_buffer>> buffers)
 			 : ggml_backend_buffer(buft, size), 
-			   buffers(buffers.begin(), buffers.end())
+			   buffers(std::move(buffers))
 		 {
 
-		 }
-		 ~multi_backend_buffer() override {
-			 for (auto& buffer : buffers) {
-				 delete buffer;
-			 }
 		 }
 		 void clear(uint8_t value) override {
 			 for (auto& buffer : buffers)
@@ -882,20 +872,11 @@ export {
 		 }
 	 };
 
-	 ggml_backend_buffer_t ggml_backend_multi_buffer_alloc_buffer(std::span<ggml_backend_buffer_t> buffers) {
-		 size_t total_size = 0;
-		 for (const auto &buffer : buffers) {
-			 total_size += buffer->get_size();
-		 }
-
-		 return new multi_backend_buffer(buffers[0]->get_type(), total_size, buffers);
-	 }
-
 	 ggml_backend_buffer_t ggml_backend_alloc_ctx_tensors_from_buft(ggml_context* ctx, ggml_backend_buffer_type_t buft) {
 		 size_t alignment = buft->get_alignment();
 		 size_t max_size = buft->get_max_size();
 
-		 std::vector<ggml_backend_buffer_t> buffers;
+		 std::vector<std::unique_ptr<ggml_backend_buffer>> buffers;
 
 		 size_t cur_buf_size = 0;
 		 auto first = ctx->getTensors().begin();
@@ -911,11 +892,7 @@ export {
 					 __func__, t->name,
 					 ggml_backend_buft_name(buft),
 					 this_size, max_size);
-				 for (size_t i = 0; i < n_buffers; i++) {
-					 ggml_backend_buffer_free(buffers[i]);
-				 }
-				 free(buffers);
-				 return NULL;
+				 return nullptr;
 			 }
 #endif
 			 if ((cur_buf_size + this_size) > max_size) {
@@ -934,7 +911,7 @@ export {
 		 // allocate remaining tensors
 		 if (cur_buf_size > 0) {
 			 if (!alloc_tensor_range(ctx, first, ctx->getTensors().end(), buft, cur_buf_size, &buffers)) {
-				 return NULL;
+				 return nullptr;
 			 }
 		 }
 
@@ -942,17 +919,21 @@ export {
 #ifndef NDEBUG
 			 GGML_LOG_DEBUG("%s: all tensors in the context are already allocated\n", __func__);
 #endif
-			 return NULL;
+			 return nullptr;
 		 }
 
-		 ggml_backend_buffer_t buffer;
+		 std::unique_ptr<ggml_backend_buffer> buffer;
 		 if (buffers.size() == 1) {
-			 buffer = buffers[0];
+			 buffer = std::move(buffers[0]);
 		 }
 		 else {
-			 buffer = ggml_backend_multi_buffer_alloc_buffer(std::span{ buffers });
+			 size_t total_size = 0;
+			 for (const auto& buffer : buffers) {
+				 total_size += buffer->get_size();
+			 }
+			 buffer = std::make_unique<multi_backend_buffer>(buffers[0]->get_type(), total_size, std::move(buffers));
 		 }
-		 return buffer;
+		 return buffer.release();
 	 }
 
 	 void ggml_backend_tensor_set(ggml_tensor* tensor, const void* data, size_t offset, size_t size) {

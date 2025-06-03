@@ -7360,7 +7360,7 @@ static bool llm_load_tensors(
             ggml_backend_dev_t dev = model.devices[i];
             size_t total;
             size_t free;
-            ggml_backend_dev_memory(dev, &free, &total);
+            dev->get_memory(&free, &total);
             splits[i] = free;
         }
     }
@@ -9403,19 +9403,19 @@ static bool llm_load_tensors(
             }
         }
         else {
-            ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx, buft);
+            std::unique_ptr<ggml_backend_buffer> buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx, buft);
             if (buf == nullptr) {
                 throw make_format_runtime_error("unable to allocate {} buffer", ggml_backend_buft_name(buft));
             }
-            model.bufs.emplace_back(buf);
+            model.bufs.emplace_back(buf.get());
             if (use_mlock && buf->is_host()) {
                 model.mlock_bufs.emplace_back(new llama_mlock);
                 auto& mlock_buf = model.mlock_bufs.back();
-                mlock_buf->init(ggml_backend_buffer_get_base(buf));
+                mlock_buf->init(ggml_backend_buffer_get_base(buf.get()));
                 mlock_buf->grow_to(buf->get_size());
             }
             for (uint32_t idx = 0; idx < ml.files.size(); idx++) {
-                bufs.emplace(idx, buf);
+                bufs.emplace(idx, buf.get());
             }
         }
 
@@ -9668,7 +9668,7 @@ llama_model* llama_load_model_from_file(
 
     for (auto* dev : model->devices) {
         size_t free, total; // NOLINT
-        ggml_backend_dev_memory(dev, &free, &total);
+        dev->get_memory(&free, &total);
         LLAMA_LOG_INFO("%s: using device %s (%s) - %zu MiB free\n", __func__, ggml_backend_dev_name(dev), ggml_backend_dev_description(dev), free / 1024 / 1024);
     }
 
@@ -10469,14 +10469,14 @@ static bool llama_kv_cache_init(
         auto* buft = it.first;
         auto* ctx = it.second;
 
-        ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx, buft);
+        std::unique_ptr<ggml_backend_buffer> buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx, buft);
         if (!buf) {
             LLAMA_LOG_ERROR("%s: failed to allocate buffer for kv cache\n", __func__);
             return false;
         }
-        ggml_backend_buffer_clear(buf, 0);
+        ggml_backend_buffer_clear(buf.get(), 0);
         LLAMA_LOG_INFO("%s: %10s KV buffer size = %8.2f MiB\n", __func__, ggml_backend_buffer_name(buf), ggml_backend_buffer_get_size(buf) / 1024.0 / 1024.0);
-        cache.bufs.emplace_back(buf);
+        cache.bufs.emplace_back(buf.release());
     }
 
     return true;
