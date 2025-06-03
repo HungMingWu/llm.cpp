@@ -1,3 +1,6 @@
+module;
+#include <vector>
+
 module ggml;
 
 ggml_backend_registry::ggml_backend_registry() {
