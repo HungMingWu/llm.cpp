@@ -4,19 +4,15 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <print>
 #include <string>
 #include <vector>
 
 import ggml;
 
-#if 0
-static void ggml_log_callback_default(ggml_log_level level, const char* text, void* user_data) {
-    (void)level;
-    (void)user_data;
-    fputs(text, stderr);
-    fflush(stderr);
+static void ggml_log_callback_default(ggml_log_level level, std::string_view text) {
+    std::println("{}", text);
 }
-#endif
 
 struct test_model {
     ggml_tensor* a;
@@ -59,9 +55,7 @@ void load_model(test_model& model, bool use_gpu = false) {
 
     int num_tensors = 2;
 
-#if 0
-    ggml_log_set(ggml_log_callback_default, nullptr);
-#endif
+    ggml_log_set(ggml_log_callback_default);
 
     // initialize the backend
 #ifdef GGML_USE_CUDA

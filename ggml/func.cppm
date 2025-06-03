@@ -1256,7 +1256,7 @@ export {
 		 size_t                offset) {
 
 		 assert(nb.size() + 1 == ne.size());
-		 struct ggml_tensor* result = ggml_view_impl(ctx, a, ne, offset);
+		 ggml_tensor* result = ggml_view_impl(ctx, a, ne, offset);
 
 		 if (nb.size() == 1) {
 			 auto it = nb.begin();
@@ -1264,26 +1264,18 @@ export {
 			 result->nb[2] = result->nb[1] * result->ne[1];
 			 result->nb[3] = result->nb[2];
 		 }
-
-		 return result;
-	 }
-
-	 ggml_tensor* ggml_view_4d(
-		 ggml_context* ctx,
-		 ggml_tensor* a,
-		 int64_t               ne0,
-		 int64_t               ne1,
-		 int64_t               ne2,
-		 int64_t               ne3,
-		 size_t                nb1,
-		 size_t                nb2,
-		 size_t                nb3,
-		 size_t                offset) {
-		 ggml_tensor* result = ggml_view_impl(ctx, a, { ne0, ne1, ne2, ne3 }, offset);
-
-		 result->nb[1] = nb1;
-		 result->nb[2] = nb2;
-		 result->nb[3] = nb3;
+		 else if (nb.size() == 2) {
+			 auto it = nb.begin();
+			 result->nb[1] = *it++;
+			 result->nb[2] = *it++;
+			 result->nb[3] = result->nb[2] * result->ne[2];
+		 }
+		 else if (nb.size() == 3) {
+			 auto it = nb.begin();
+			 result->nb[1] = *it++;
+			 result->nb[2] = *it++;
+			 result->nb[3] = *it++;
+		 }
 
 		 return result;
 	 }

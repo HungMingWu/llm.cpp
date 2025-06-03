@@ -13,14 +13,9 @@
 import ggml;
 import gpt.common;
 
-#if 0
-static void ggml_log_callback_default(ggml_log_level level, const char* text, void* user_data) {
-    (void)level;
-    (void)user_data;
-    fputs(text, stderr);
-    fflush(stderr);
+static void ggml_log_callback_default(ggml_log_level, std::string_view text) {
+    std::println("{}", text);
 }
-#endif
 
 // default hparams (GPT-2 117M)
 struct gpt2_hparams {
@@ -91,7 +86,7 @@ struct gpt2_model {
 void init_backends(gpt2_model& model, const gpt_params& params) {
     std::unique_ptr<ggml_backend> gpu_backend;
 
-    //ggml_log_set(ggml_log_callback_default, nullptr);
+    ggml_log_set(ggml_log_callback_default);
 
     // initialize the backends
 #ifdef GGML_USE_CUDA

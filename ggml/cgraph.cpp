@@ -302,9 +302,9 @@ static void ggml_compute_backward(
             const size_t nb3 = ((int32_t*)tensor->op_params)[2];
             const size_t offset = ((int32_t*)tensor->op_params)[3];
 
-            struct ggml_tensor* tensor_grad_view = ggml_view_4d(ctx,
-                grad, src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3],
-                nb1, nb2, nb3, offset);
+            ggml_tensor* tensor_grad_view = ggml_view(ctx,
+                grad, { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+                { nb1, nb2, nb3 }, offset);
 
             ggml_add_or_set(ctx, cgraph, src1, ggml_reshape(ctx, ggml_cont(ctx, tensor_grad_view), src1));
         }
@@ -426,7 +426,7 @@ static void ggml_compute_backward(
                 const size_t nb2 = tmp->nb[2] * nr2;
                 const size_t nb3 = tmp->nb[2];
 
-                tmp = ggml_view_4d(ctx, tmp, src0->ne[0], src0->ne[1], src0->ne[2], nr2, tmp->nb[1], nb2, nb3, 0);
+                tmp = ggml_view(ctx, tmp, { src0->ne[0], src0->ne[1], src0->ne[2], nr2 }, { tmp->nb[1], nb2, nb3 }, 0);
                 tmp = ggml_repeat_back(ctx, tmp, src0);
             }
             ggml_add_or_set(ctx, cgraph, src0, tmp);
@@ -467,9 +467,9 @@ static void ggml_compute_backward(
             GGML_ASSERT(!cgraph->grads[isrc0] || cgraph->grads[isrc0]->type == grad->type);
             GGML_ASSERT(!cgraph->grads[isrc1] || !src1_needs_grads || cgraph->grads[isrc1]->type == grad->type);
 
-            tensor_grad_view = ggml_view_4d(ctx,
-                grad, src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3],
-                nb1, nb2, nb3, offset);
+            tensor_grad_view = ggml_view(ctx,
+                grad, { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+                { nb1, nb2, nb3 }, offset);
         }
 
         if (src0_needs_grads) {

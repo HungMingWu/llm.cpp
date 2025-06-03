@@ -15,16 +15,9 @@
 import ggml;
 import gpt.common;
 
-#define GPT2_MAX_NODES 4096
-
-#if 0
-static void ggml_log_callback_default(ggml_log_level level, const char* text, void* user_data) {
-    (void)level;
-    (void)user_data;
-    fputs(text, stderr);
-    fflush(stderr);
+static void ggml_log_callback_default(ggml_log_level, std::string_view text) {
+    std::println("{}", text);
 }
-#endif
 
 using gpt2_pos = int32_t;
 using gpt2_seq_id = int32_t;
@@ -263,7 +256,7 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
         std::println("{}: backend buffer size = {:6.2f} MB", __func__, buffer_size / (1024.0 * 1024.0));
     }
 
-    //ggml_log_set(ggml_log_callback_default, nullptr);
+    ggml_log_set(ggml_log_callback_default);
 
     // initialize the backend
 #ifdef GGML_USE_CUDA

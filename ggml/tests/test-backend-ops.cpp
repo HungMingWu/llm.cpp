@@ -895,7 +895,7 @@ struct test_unary : public test_case {
             }
             a->set_name("a");
 
-            a = ggml_view_4d(ctx, a, ne_a[0], ne_a[1], ne_a[2], ne_a[3], a->nb[1], a->nb[2], a->nb[3], 0);
+            a = ggml_view(ctx, a, { ne_a[0], ne_a[1], ne_a[2], ne_a[3] }, { a->nb[1], a->nb[2], a->nb[3] }, 0);
 
             a->set_name("view_of_a");
         }
@@ -1379,7 +1379,7 @@ struct test_repeat_back : public test_case {
             const int64_t ne02 = nr[2] == 1 ? src->ne[2] : src->ne[2] / 2;
             const int64_t ne03 = nr[3] == 1 ? src->ne[3] : src->ne[3] / 2;
 
-            src = ggml_view_4d(ctx, src, ne00, ne01, ne02, ne03, src->nb[1], src->nb[2], src->nb[3], 0);
+            src = ggml_view(ctx, src, { ne00, ne01, ne02, ne03 }, { src->nb[1], src->nb[2], src->nb[3] }, 0);
         }
 
         ggml_tensor* target = ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
@@ -1706,7 +1706,7 @@ struct test_norm : public test_case {
         a->set_name("a");
 
         if (v) {
-            a = ggml_view_4d(ctx, a, a->ne[0] / 2, a->ne[1] / 2, a->ne[2] / 2, a->ne[3] / 2, a->nb[1], a->nb[2], a->nb[3], 0);
+            a = ggml_view(ctx, a, { a->ne[0] / 2, a->ne[1] / 2, a->ne[2] / 2, a->ne[3] / 2 }, { a->nb[1], a->nb[2], a->nb[3] }, 0);
             a->set_name("view of a");
         }
 
@@ -1740,7 +1740,7 @@ struct test_rms_norm : public test_case {
         a->set_name("a");
 
         if (v) {
-            a = ggml_view_4d(ctx, a, a->ne[0] / 2, a->ne[1] / 2, a->ne[2] / 2, a->ne[3] / 2, a->nb[1], a->nb[2], a->nb[3], 0);
+            a = ggml_view(ctx, a, { a->ne[0] / 2, a->ne[1] / 2, a->ne[2] / 2, a->ne[3] / 2 }, { a->nb[1], a->nb[2], a->nb[3] }, 0);
             a->set_name("view of a");
         }
 
@@ -2083,8 +2083,8 @@ struct test_mul_mat : public test_case {
                 a = ggml_new_tensor(ctx, type_a, { k * 2, m, bs[0], bs[1] });
                 b = ggml_new_tensor(ctx, type_b, { k * 2, n, bs[0] * nr[0], bs[1] * nr[1] });
 
-                a = ggml_view_4d(ctx, a, k, m, bs[0], bs[1], a->nb[1], a->nb[2], a->nb[3], 0);
-                b = ggml_view_4d(ctx, b, k, n, bs[0] * nr[0], bs[1] * nr[1], b->nb[1], b->nb[2], b->nb[3], 0);
+                a = ggml_view(ctx, a, { k, m, bs[0], bs[1] }, { a->nb[1], a->nb[2], a->nb[3] }, 0);
+                b = ggml_view(ctx, b, { k, n, bs[0] * nr[0], bs[1] * nr[1] }, { b->nb[1], b->nb[2], b->nb[3] }, 0);
             }
             else {
                 a = ggml_new_tensor(ctx, type_a, { k, m, bs[0], bs[1] });
@@ -2600,7 +2600,7 @@ struct test_rope : public test_case {
             }
             a->set_name("a");
 
-            a = ggml_view_4d(ctx, a, ne_a[0], ne_a[1], ne_a[2], ne_a[3], a->nb[1], a->nb[2], a->nb[3], 0);
+            a = ggml_view(ctx, a, { ne_a[0], ne_a[1], ne_a[2], ne_a[3] }, { a->nb[1], a->nb[2], a->nb[3] }, 0);
             a->set_name("view_of_a");
         }
         else {
@@ -2727,7 +2727,7 @@ struct test_concat : public test_case {
             a = ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
             a->set_name("a");
 
-            a = ggml_view_4d(ctx, a, ne_a[0], ne_a[1], ne_a[2], ne_a[3], a->nb[1], a->nb[2], a->nb[3], 0);
+            a = ggml_view(ctx, a, { ne_a[0], ne_a[1], ne_a[2], ne_a[3] }, { a->nb[1], a->nb[2], a->nb[3] }, 0);
             a->set_name("view_of_a");
         }
         else {
@@ -2740,7 +2740,7 @@ struct test_concat : public test_case {
             b = ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
             b->set_name("b");
 
-            b = ggml_view_4d(ctx, b, ne_b[0], ne_b[1], ne_b[2], ne_b[3], b->nb[1], b->nb[2], b->nb[3], 0);
+            b = ggml_view(ctx, b, { ne_b[0], ne_b[1], ne_b[2], ne_b[3] }, { b->nb[1], b->nb[2], b->nb[3] }, 0);
             b->set_name("view_of_b");
         }
         else {

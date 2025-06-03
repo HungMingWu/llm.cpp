@@ -62,7 +62,7 @@ void test_pad_reflect_1d(bool use_gpu) {
 
     // Test cases for different padding configurations
     {
-        //ggml_log_set(ggml_log_callback_default, nullptr);
+        ggml_log_set(ggml_log_callback_default);
 
         ggml_context ctx;
         std::unique_ptr<ggml_backend_buffer> buffer = backend->get_device()->get_buffer_type()->alloc_buffer(16 * 1024 * 1024);
