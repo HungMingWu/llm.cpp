@@ -89,6 +89,11 @@ struct cuda_backend_buffer : public ggml_backend_buffer {
 	int device;
 	void* dev_ptr = nullptr;
 	std::string name;
+private:
+	void* get_base_impl() override
+	{
+		return dev_ptr;
+	}
 public:
 	cuda_backend_buffer(
 		ggml_backend_buffer_type_t type,
@@ -105,11 +110,6 @@ public:
 	~cuda_backend_buffer() override
 	{
 		CUDA_CHECK(cudaFree(dev_ptr));
-	}
-
-	void* get_base() override
-	{
-		return dev_ptr;
 	}
 
 	void init_tensor(ggml_tensor* tensor) override
@@ -193,15 +193,14 @@ struct ggml_tensor_extra_gpu {
 
 struct cuda_split_backend_buffer : public ggml_backend_buffer {
 	std::map<ggml_tensor*, ggml_tensor_extra_gpu> tensor_extras;
-public:
-	using ggml_backend_buffer::ggml_backend_buffer;
-
-	void* get_base() override
+private:
+	void* get_base_impl() override
 	{
 		// the pointers are stored in the tensor extras, this is just a dummy address and never dereferenced
 		return (void*)0x1000;
 	}
-
+public:
+	using ggml_backend_buffer::ggml_backend_buffer;
 	void init_tensor(ggml_tensor* tensor) override;
 	void set_tensor(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
 	void get_tensor(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;

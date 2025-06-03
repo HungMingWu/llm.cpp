@@ -28,7 +28,6 @@ module;
 #define GGML_LOG_DEBUG(...)
 #define GGML_LOG_ERROR(...)
 #define GGML_LOG_INFO(...)
-#define AT_PRINTF(...)
 #include <assert.h>
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_ABORT(...)
@@ -172,7 +171,7 @@ static bool alloc_tensor_range(ggml_context* ctx,
 	std::vector<std::unique_ptr<ggml_backend_buffer>> *buffers) {
 
 	std::unique_ptr<ggml_backend_buffer> buffer = buft->alloc_buffer(size);
-#
+
 	if (buffer == NULL) {
 #ifndef NDEBUG
 		GGML_LOG_DEBUG("%s: failed to allocate %s buffer of size %zu\n", __func__, ggml_backend_buft_name(buft), size);
@@ -553,16 +552,6 @@ export {
 	ggml_backend_buffer_t         ggml_backend_dev_buffer_from_host_ptr(ggml_backend_dev_t device, void* ptr, size_t size, size_t max_tensor_size)
 	{
 		return {};
-	}
-
-	void* ggml_backend_buffer_get_base(ggml_backend_buffer_t buffer)
-	{
-		return nullptr;
-	}
-
-	const char* ggml_backend_buft_name(ggml_backend_buffer_type_t buft)
-	{
-		return nullptr;
 	}
 
 	void                          ggml_backend_dev_get_props(ggml_backend_dev_t device, struct ggml_backend_dev_props* props)

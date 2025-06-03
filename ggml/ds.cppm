@@ -315,12 +315,22 @@ export {
         ggml_backend_buffer_type_t buft;
         size_t size;
         ggml_backend_buffer_usage usage = GGML_BACKEND_BUFFER_USAGE_ANY;
+        // base address of the buffer
+        virtual void* get_base_impl() { return nullptr; }
     public:
         ggml_backend_buffer(ggml_backend_buffer_type_t buft,
             size_t size) : buft(buft), size(size) {}
         virtual ~ggml_backend_buffer() = default;
-        // base address of the buffer
-        virtual void* get_base() { return nullptr; }
+        void* get_base() {
+            // get_base is optional if the buffer is zero-sized
+            if (size == 0) {
+                return nullptr;
+            }
+
+            void* base = get_base_impl();
+            //GGML_ASSERT(base != nullptr && "backend buffer base cannot be nullptr");
+            return base;
+        }
         // (optional) initialize a tensor in the buffer (eg. add tensor extras)
         virtual void init_tensor(ggml_tensor* tensor) {}
         // tensor data access

@@ -9396,7 +9396,7 @@ static bool llm_load_tensors(
                 const size_t max_size = ggml_get_max_tensor_size(ctx);
                 ggml_backend_buffer_t buf = ggml_backend_dev_buffer_from_host_ptr(dev, (char*)addr + first, last - first, max_size);
                 if (buf == nullptr) {
-                    throw make_format_runtime_error("unable to allocate {} buffer", ggml_backend_buft_name(buft));
+                    throw make_format_runtime_error("unable to allocate {} buffer", buft->get_name());
                 }
                 model.bufs.emplace_back(buf);
                 bufs.emplace(idx, buf);
@@ -9405,13 +9405,13 @@ static bool llm_load_tensors(
         else {
             std::unique_ptr<ggml_backend_buffer> buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx, buft);
             if (buf == nullptr) {
-                throw make_format_runtime_error("unable to allocate {} buffer", ggml_backend_buft_name(buft));
+                throw make_format_runtime_error("unable to allocate {} buffer", buft->get_name());
             }
             model.bufs.emplace_back(buf.get());
             if (use_mlock && buf->is_host()) {
                 model.mlock_bufs.emplace_back(new llama_mlock);
                 auto& mlock_buf = model.mlock_bufs.back();
-                mlock_buf->init(ggml_backend_buffer_get_base(buf.get()));
+                mlock_buf->init(buf->get_base());
                 mlock_buf->grow_to(buf->get_size());
             }
             for (uint32_t idx = 0; idx < ml.files.size(); idx++) {
@@ -10536,7 +10536,7 @@ static size_t llama_output_reserve(llama_context& lctx, size_t n_outputs) {
         }
     }
 
-    float* output_base = (float*)ggml_backend_buffer_get_base(lctx.buf_output.get());
+    float* output_base = (float*)lctx.buf_output->get_base();
 
     lctx.logits = has_logits ? output_base : nullptr;
     lctx.embd = has_embd ? output_base + logits_size : nullptr;

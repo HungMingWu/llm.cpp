@@ -9,6 +9,17 @@ import :func;
 template <auto free_func>
 struct host_backend_buffer : public ggml_backend_buffer {
 	void* context;
+private:
+	void* get_base_impl() override {
+		uintptr_t data = (uintptr_t)context;
+
+		// align the buffer
+		if (data % TENSOR_ALIGNMENT != 0) {
+			data = GGML_PAD(data, TENSOR_ALIGNMENT);
+		}
+
+		return (void*)data;
+	}
 public:
 	host_backend_buffer(ggml_backend_buffer_type_t type, size_t size, void* context)
 		: ggml_backend_buffer(type, size), context(context)
@@ -18,17 +29,6 @@ public:
 
 	~host_backend_buffer() override {
 		free_func(context);
-	}
-
-	void* get_base() override {
-		uintptr_t data = (uintptr_t)context;
-
-		// align the buffer
-		if (data % TENSOR_ALIGNMENT != 0) {
-			data = GGML_PAD(data, TENSOR_ALIGNMENT);
-		}
-
-		return (void*)data;
 	}
 
 	void memset_tensor(ggml_tensor* tensor, uint8_t value, size_t offset, size_t size) override
