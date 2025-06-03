@@ -535,13 +535,13 @@ ggml_cgraph gpt2_graph(
 
     ggml_cgraph gf;
 
-    ggml_tensor* embd = ggml_view(&ctx, model.embd, { N }, 0);
+    ggml_tensor* embd = ggml_view(&ctx, model.embd, { N }, {}, 0);
 
     // set inputs
     // TODO: move to gpt2_eval
     ggml_backend_tensor_set(model.embd, embd_inp.data(), 0, N * ggml_element_size(embd));
 
-    ggml_tensor* position = ggml_view(&ctx, model.position, { N }, 0);
+    ggml_tensor* position = ggml_view(&ctx, model.position, { N }, {}, 0);
     for (int i = 0; i < N; ++i) {
         int32_t v = n_past + i;
         ggml_backend_tensor_set(model.position, &v, i * sizeof(int32_t), sizeof(v));
@@ -610,8 +610,8 @@ ggml_cgraph gpt2_graph(
 
             // store key and value to memory
             if (N >= 1) {
-                ggml_tensor* k = ggml_view(&ctx, model.memory_k, { N * n_embd }, (ggml_element_size(model.memory_k) * n_embd) * (il * n_ctx + n_past));
-                ggml_tensor* v = ggml_view(&ctx, model.memory_v, { N * n_embd }, (ggml_element_size(model.memory_v) * n_embd) * (il * n_ctx + n_past));
+                ggml_tensor* k = ggml_view(&ctx, model.memory_k, { N * n_embd }, {}, (ggml_element_size(model.memory_k) * n_embd) * (il * n_ctx + n_past));
+                ggml_tensor* v = ggml_view(&ctx, model.memory_v, { N * n_embd }, {}, (ggml_element_size(model.memory_v) * n_embd) * (il * n_ctx + n_past));
 
                 gf.build_forward_expand(ggml_cpy(&ctx, Kcur, k));
                 gf.build_forward_expand(ggml_cpy(&ctx, Vcur, v));
@@ -630,7 +630,7 @@ ggml_cgraph gpt2_graph(
             ggml_tensor* K =
                 ggml_permute(&ctx,
                     ggml_reshape(&ctx,
-                        ggml_view(&ctx, model.memory_k, { (n_past + N) * n_embd }, il * n_ctx * ggml_element_size(model.memory_k) * n_embd),
+                        ggml_view(&ctx, model.memory_k, { (n_past + N) * n_embd }, {}, il * n_ctx * ggml_element_size(model.memory_k) * n_embd),
                         { n_embd / n_head, n_head, n_past + N }),
                     0, 2, 1, 3);
             K->set_name("l{}.K", il);
@@ -673,7 +673,7 @@ ggml_cgraph gpt2_graph(
                 ggml_cont(&ctx,
                     ggml_permute(&ctx,
                         ggml_reshape(&ctx,
-                            ggml_view(&ctx, model.memory_v, { (n_past + N) * n_embd }, il * n_ctx * ggml_element_size(model.memory_v) * n_embd),
+                            ggml_view(&ctx, model.memory_v, { (n_past + N) * n_embd }, {}, il * n_ctx * ggml_element_size(model.memory_v) * n_embd),
                             { n_embd / n_head, n_head, n_past + N }),
                         1, 2, 0, 3),
                     { n_past + N, n_embd / n_head, n_head });

@@ -3432,7 +3432,7 @@ public:
         // compute the transposed [n_tokens, n_embd] V matrix
         ggml_tensor* v_cur_t = ggml_transpose(ctx, ggml_reshape(ctx, v_cur, { hp.n_embd_gqa(), hp.n_tokens }));
 
-        ggml_tensor* k_cache_view = ggml_view(ctx, k_l, { hp.n_tokens * hp.n_embd_gqa() },
+        ggml_tensor* k_cache_view = ggml_view(ctx, k_l, { hp.n_tokens * hp.n_embd_gqa() }, {},
             (ggml_row_size(k_l->type, hp.n_embd_gqa())) * hp.kv_head);
 
         ggml_tensor* v_cache_view = ggml_view(ctx, v_l, { hp.n_tokens, hp.n_embd_gqa() },

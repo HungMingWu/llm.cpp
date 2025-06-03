@@ -85,13 +85,13 @@ void test_dup(ggml_type src_type, ggml_type dst_type)
     ggml_tensor* dst = ctx.create(dst_type, { 10, 11 });
 
     // 2nd-row: [20, 21, ..., 29]
-    ggml_tensor* src_cont = ggml_view(&ctx, src, { 10 }, src->nb[1] * 2);
+    ggml_tensor* src_cont = ggml_view(&ctx, src, { 10 }, {}, src->nb[1] * 2);
 
     // 3rd-col: [03, 13, ..., 93]
     ggml_tensor* src_stride = ggml_view(&ctx, src, { 1, 10 }, { src->nb[1] }, src->nb[0] * 3);
 
-    ggml_tensor* dst_cont_1 = ggml_view(&ctx, dst, { 10 }, dst->nb[1] * 5); // 5nd-row
-    ggml_tensor* dst_cont_2 = ggml_view(&ctx, dst, { 10 }, dst->nb[1] * 6); // 6rd-row
+    ggml_tensor* dst_cont_1 = ggml_view(&ctx, dst, { 10 }, {}, dst->nb[1] * 5); // 5nd-row
+    ggml_tensor* dst_cont_2 = ggml_view(&ctx, dst, { 10 }, {}, dst->nb[1] * 6); // 6rd-row
 
     ggml_tensor* dst_stride_1 = ggml_view(&ctx, dst, { 1, 10 }, { dst->nb[1] }, dst->nb[0] * 7); // 7th-col
     ggml_tensor* dst_stride_2 = ggml_view(&ctx, dst, { 1, 10 }, { dst->nb[1] }, dst->nb[0] * 8); // 8th-col

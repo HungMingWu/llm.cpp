@@ -872,7 +872,7 @@ export {
 		 }
 	 };
 
-	 ggml_backend_buffer_t ggml_backend_alloc_ctx_tensors_from_buft(ggml_context* ctx, ggml_backend_buffer_type_t buft) {
+	 std::unique_ptr<ggml_backend_buffer> ggml_backend_alloc_ctx_tensors_from_buft(ggml_context* ctx, ggml_backend_buffer_type_t buft) {
 		 size_t alignment = buft->get_alignment();
 		 size_t max_size = buft->get_max_size();
 
@@ -922,18 +922,16 @@ export {
 			 return nullptr;
 		 }
 
-		 std::unique_ptr<ggml_backend_buffer> buffer;
 		 if (buffers.size() == 1) {
-			 buffer = std::move(buffers[0]);
+			 return std::move(buffers[0]);
 		 }
 		 else {
 			 size_t total_size = 0;
 			 for (const auto& buffer : buffers) {
 				 total_size += buffer->get_size();
 			 }
-			 buffer = std::make_unique<multi_backend_buffer>(buffers[0]->get_type(), total_size, std::move(buffers));
+			 return std::make_unique<multi_backend_buffer>(buffers[0]->get_type(), total_size, std::move(buffers));
 		 }
-		 return buffer.release();
 	 }
 
 	 void ggml_backend_tensor_set(ggml_tensor* tensor, const void* data, size_t offset, size_t size) {
@@ -954,8 +952,7 @@ export {
 	 }
 
 	 std::unique_ptr<ggml_backend_buffer> ggml_backend_alloc_ctx_tensors(ggml_context* ctx, ggml_backend_t backend) {
-		 ggml_backend_buffer_t buffer = ggml_backend_alloc_ctx_tensors_from_buft(ctx, backend->get_default_buffer_type());
-		 return std::unique_ptr<ggml_backend_buffer>(buffer);
+		 return ggml_backend_alloc_ctx_tensors_from_buft(ctx, backend->get_default_buffer_type());
 	 }
 
 	 void ggml_backend_tensor_get(const ggml_tensor* tensor, void* data, size_t offset, size_t size) {
@@ -1249,17 +1246,6 @@ export {
 		 }
 
 		 return tensor;
-	 }
-
-
-	 ggml_tensor* ggml_view(
-		 ggml_context* ctx,
-		 ggml_tensor* a,
-		 std::initializer_list<int64_t> ne,
-		 size_t                offset) {
-		 ggml_tensor* result = ggml_view_impl(ctx, a, ne, offset);
-
-		 return result;
 	 }
 
 	 ggml_tensor* ggml_view(

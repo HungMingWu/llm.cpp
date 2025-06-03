@@ -10666,7 +10666,7 @@ static void llm_build_kv_store(
 
     GGML_ASSERT(kv.size == n_ctx);
 
-    struct ggml_tensor* k_cache_view = ggml_view(ctx, kv.k_l[il], { n_tokens * n_embd_k_gqa }, ggml_row_size(kv.k_l[il]->type, n_embd_k_gqa) * kv_head);
+    ggml_tensor* k_cache_view = ggml_view(ctx, kv.k_l[il], { n_tokens * n_embd_k_gqa }, {}, ggml_row_size(kv.k_l[il]->type, n_embd_k_gqa) * kv_head);
     cb(k_cache_view, "k_cache_view", il);
 
     // note: storing RoPE-ed version of K in the KV cache
@@ -10677,7 +10677,7 @@ static void llm_build_kv_store(
     struct ggml_tensor* v_cache_view = nullptr;
 
     if (cparams.flash_attn) {
-        v_cache_view = ggml_view(ctx, kv.v_l[il], { n_tokens * n_embd_v_gqa }, ggml_row_size(kv.v_l[il]->type, n_embd_v_gqa) * kv_head);
+        v_cache_view = ggml_view(ctx, kv.v_l[il], { n_tokens * n_embd_v_gqa }, {}, ggml_row_size(kv.v_l[il]->type, n_embd_v_gqa) * kv_head);
     }
     else {
         // note: the V cache is transposed when not using flash attention
@@ -11140,8 +11140,8 @@ static ggml_tensor* llm_build_copy_mask_state(
     // copy states which won't be changed further (between n_seqs and n_kv)
     graph->build_forward_expand(
         ggml_cpy(ctx,
-            ggml_view(ctx, states, { n_state * (n_kv - n_seqs) }, n_seqs * n_state * ggml_element_size(states)),
-            ggml_view(ctx, s, { n_state * (n_kv - n_seqs) }, (kv_head + n_seqs) * n_state * ggml_element_size(s))));
+            ggml_view(ctx, states, { n_state * (n_kv - n_seqs) }, {}, n_seqs * n_state * ggml_element_size(states)),
+            ggml_view(ctx, s, { n_state * (n_kv - n_seqs) }, {}, (kv_head + n_seqs) * n_state * ggml_element_size(s))));
 
     // the part of the states that will be used and modified
     return ggml_view(ctx, states, { n_state, n_seqs }, { states->nb[1] }, 0);
@@ -11213,7 +11213,7 @@ static ggml_tensor* llm_build_mamba(
         graph->build_forward_expand(
             ggml_cpy(ctx, last_conv,
                 ggml_view(ctx, conv_states_all,
-                    { (d_conv - 1) * (d_inner) * (n_seqs) },
+                    { (d_conv - 1) * (d_inner) * (n_seqs) }, {},
                     kv_head * (d_conv - 1) * (d_inner)*ggml_element_size(conv_states_all))));
 
         // 1D convolution
@@ -11261,8 +11261,8 @@ static ggml_tensor* llm_build_mamba(
         // store last states
         graph->build_forward_expand(
             ggml_cpy(ctx,
-                ggml_view(ctx, y_ssm, { d_state * d_inner * n_seqs }, x->nb[3]),
-                ggml_view(ctx, ssm_states_all, { d_state * d_inner * n_seqs }, kv_head * d_state * d_inner * ggml_element_size(ssm_states_all))));
+                ggml_view(ctx, y_ssm, { d_state * d_inner * n_seqs }, {}, x->nb[3]),
+                ggml_view(ctx, ssm_states_all, { d_state * d_inner * n_seqs }, {}, kv_head * d_state * d_inner * ggml_element_size(ssm_states_all))));
 
         ggml_tensor* y = ggml_view(ctx, y_ssm, { d_inner, n_seq_tokens, n_seqs }, { x->nb[1], x->nb[2] }, 0);
 
@@ -11409,8 +11409,8 @@ static ggml_tensor* llm_build_rwkv6_time_mix(
     r = ggml_transpose(ctx, r);
 
     struct ggml_tensor* wkv_output = ggml_rwkv_wkv6(ctx, k, v, r, layer->time_mix_first, w, *wkv_state);
-    cur = ggml_view(ctx, wkv_output, { (int64_t)(n_embd * n_tokens) }, 0);
-    *wkv_state = ggml_view(ctx, wkv_output, { (int64_t)(n_embd * head_size * n_seqs) }, n_embd * n_tokens * sizeof(float));
+    cur = ggml_view(ctx, wkv_output, { (int64_t)(n_embd * n_tokens) }, {}, 0);
+    *wkv_state = ggml_view(ctx, wkv_output, { (int64_t)(n_embd * head_size * n_seqs) }, {}, n_embd * n_tokens * sizeof(float));
 
     // group norm with head_count groups
     cur = ggml_reshape(ctx, cur, { (int64_t)(n_embd / head_count), (int64_t)head_count, (int64_t)n_tokens });
@@ -11885,10 +11885,10 @@ struct llm_build_context {
     }
 
     ggml_tensor* llm_build_pos_bias(ggml_tensor* pos_bucket, ggml_tensor* attn_rel_b) {
-        struct ggml_tensor* pos_bucket_1d = ggml_view(ctx0, pos_bucket, { pos_bucket->ne[0] * pos_bucket->ne[1] }, 0);
+        ggml_tensor* pos_bucket_1d = ggml_view(ctx0, pos_bucket, { pos_bucket->ne[0] * pos_bucket->ne[1] }, {}, 0);
         cb(pos_bucket_1d, "pos_bucket_1d", -1);
 
-        struct ggml_tensor* pos_bias = ggml_get_rows(ctx0, attn_rel_b, pos_bucket_1d);
+        ggml_tensor* pos_bias = ggml_get_rows(ctx0, attn_rel_b, pos_bucket_1d);
         cb(pos_bias, "pos_bias", -1);
 
         pos_bias = ggml_view(ctx0, pos_bias, { pos_bias->ne[0], lctx.inp_pos_bucket->ne[0], lctx.inp_pos_bucket->ne[1] }, { ggml_element_size(pos_bias) * pos_bias->ne[0], ggml_element_size(pos_bias) * pos_bias->ne[0] * lctx.inp_pos_bucket->ne[0] }, 0);
@@ -13085,7 +13085,7 @@ struct llm_build_context {
         inpL = llm_build_inp_embd(ctx0, lctx, hparams, ubatch, model.tok_embd, cb);
 
         // token types are hardcoded to zero ("Sentence A")
-        struct ggml_tensor* type_row0 = ggml_view(ctx0, model.type_embd, { n_embd }, 0);
+        ggml_tensor* type_row0 = ggml_view(ctx0, model.type_embd, { n_embd }, {}, 0);
         inpL = ggml_add(ctx0, inpL, type_row0);
         if (model.arch == LLM_ARCH_BERT) {
             inpL = ggml_add(ctx0, ggml_get_rows(ctx0, model.pos_embd, inp_pos), inpL);
@@ -17896,7 +17896,7 @@ struct llm_build_context {
                     ggml_view(
                         ctx0,
                         kv_self.v_l[il],
-                        { hparams.n_embd_v_s() * n_seqs },
+                        { hparams.n_embd_v_s() * n_seqs }, {},
                         hparams.n_embd_v_s() * kv_head * ggml_element_size(kv_self.v_l[il])
                     )
                 )
@@ -17920,8 +17920,8 @@ struct llm_build_context {
             gf->build_forward_expand(
                 ggml_cpy(
                     ctx0,
-                    ggml_view(ctx0, token_shift, { n_embd * n_seqs * 2 }, 0),
-                    ggml_view(ctx0, kv_self.k_l[il], { hparams.n_embd_k_s() * n_seqs }, hparams.n_embd_k_s() * kv_head * ggml_element_size(kv_self.k_l[il]))
+                    ggml_view(ctx0, token_shift, { n_embd * n_seqs * 2 }, {}, 0),
+                    ggml_view(ctx0, kv_self.k_l[il], { hparams.n_embd_k_s() * n_seqs }, {}, hparams.n_embd_k_s() * kv_head * ggml_element_size(kv_self.k_l[il]))
                 )
             );
 

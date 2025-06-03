@@ -607,8 +607,8 @@ ggml_cgraph gpt2_graph(
 
             // store key and value to memory
             if (n_tokens >= 1) {
-                ggml_tensor* k = ggml_view(&ctx, model.kv_cache.k, { n_tokens * n_embd }, (ggml_element_size(model.kv_cache.k) * n_embd) * (il * n_ctx + kv_head));
-                ggml_tensor* v = ggml_view(&ctx, model.kv_cache.v, { n_tokens * n_embd }, (ggml_element_size(model.kv_cache.v) * n_embd) * (il * n_ctx + kv_head));
+                ggml_tensor* k = ggml_view(&ctx, model.kv_cache.k, { n_tokens * n_embd }, {}, (ggml_element_size(model.kv_cache.k) * n_embd) * (il * n_ctx + kv_head));
+                ggml_tensor* v = ggml_view(&ctx, model.kv_cache.v, { n_tokens * n_embd }, {}, (ggml_element_size(model.kv_cache.v) * n_embd) * (il * n_ctx + kv_head));
 
                 gf.build_forward_expand(ggml_cpy(&ctx, Kcur, k));
                 gf.build_forward_expand(ggml_cpy(&ctx, Vcur, v));
@@ -628,7 +628,7 @@ ggml_cgraph gpt2_graph(
             ggml_tensor* K =
                 ggml_permute(&ctx,
                     ggml_reshape(&ctx,
-                        ggml_view(&ctx, model.kv_cache.k, { n_kv * n_embd }, il * n_ctx * ggml_element_size(model.kv_cache.k) * n_embd),
+                        ggml_view(&ctx, model.kv_cache.k, { n_kv * n_embd }, {}, il * n_ctx * ggml_element_size(model.kv_cache.k) * n_embd),
                         { n_embd / n_head, n_head, n_kv }),
                     0, 2, 1, 3);
 
@@ -669,7 +669,7 @@ ggml_cgraph gpt2_graph(
                 ggml_cont(&ctx,
                     ggml_permute(&ctx,
                         ggml_reshape(&ctx,
-                            ggml_view(&ctx, model.kv_cache.v, { n_kv * n_embd }, il * n_ctx * ggml_element_size(model.kv_cache.v) * n_embd),
+                            ggml_view(&ctx, model.kv_cache.v, { n_kv * n_embd }, {}, il * n_ctx * ggml_element_size(model.kv_cache.v) * n_embd),
                             { n_embd / n_head, n_head, n_kv }),
                         1, 2, 0, 3),
                     { n_kv, n_embd / n_head, n_head });
