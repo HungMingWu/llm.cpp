@@ -12,15 +12,14 @@ export
 	struct cuda_backend_buffer_type : public ggml_backend_buffer_type {
 		int device;
 		std::string name;
+	protected:
+		std::unique_ptr<ggml_backend_buffer> alloc_buffer_impl(size_t size) override;
 	public:
 		using ggml_backend_buffer_type::ggml_backend_buffer_type;
 		const char* get_name() override
 		{
 			return name.c_str();
 		}
-
-		std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size) override;
-
 		size_t get_alignment() override
 		{
 			return 128;
@@ -33,14 +32,13 @@ export
 		std::string name;
 		int device;
 		std::array<float, GGML_CUDA_MAX_DEVICES> tensor_split;
+	protected:
+		std::unique_ptr<ggml_backend_buffer> alloc_buffer_impl(size_t size) override;
 	public:
 		const char* get_name() override
 		{
 			return name.c_str();
 		}
-
-		std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size) override;
-
 		size_t get_alignment() override
 		{
 			return 128;
@@ -50,9 +48,10 @@ export
 	};
 
 	struct cuda_host_backend_buffer_type : public cpu_backend_buffer_type {
+	protected:
+		std::unique_ptr<ggml_backend_buffer> alloc_buffer_impl(size_t size) override;
 	public:
 		const char* get_name() override { return GGML_CUDA_NAME "_Host"; }
-		std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size) override;
 	};
 
 	bool buffer_type_from_device(ggml_backend_buffer_type_t buft, int device);

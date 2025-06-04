@@ -32,7 +32,7 @@ static void ggml_cuda_host_free(void* ptr) {
 	CUDA_CHECK(cudaFreeHost(ptr));
 }
 
-std::unique_ptr<ggml_backend_buffer> cuda_backend_buffer_type::alloc_buffer(size_t size)
+std::unique_ptr<ggml_backend_buffer> cuda_backend_buffer_type::alloc_buffer_impl(size_t size)
 {
 	ggml_cuda_set_device(device);
 
@@ -63,7 +63,7 @@ size_t cuda_backend_buffer_type::get_alloc_size(const ggml_tensor* tensor)
 	return size;
 }
 
-std::unique_ptr<ggml_backend_buffer> cuda_split_backend_buffer_type::alloc_buffer(size_t size)
+std::unique_ptr<ggml_backend_buffer> cuda_split_backend_buffer_type::alloc_buffer_impl(size_t size)
 {
 	// since we don't know the exact split after rounding, we cannot allocate the device buffers at this point
 	// instead, we allocate them for each tensor separately in init_tensor
@@ -100,7 +100,7 @@ size_t cuda_split_backend_buffer_type::get_alloc_size(const ggml_tensor* tensor)
 	return total_size;
 }
 
-std::unique_ptr<ggml_backend_buffer> cuda_host_backend_buffer_type::alloc_buffer(size_t size)
+std::unique_ptr<ggml_backend_buffer> cuda_host_backend_buffer_type::alloc_buffer_impl(size_t size)
 {
 	void* ptr = ggml_cuda_host_malloc(size);
 

@@ -7,9 +7,10 @@ import :ds;
 export
 {
 	struct cpu_backend_buffer_type : public ggml_backend_buffer_type {
+	protected:
+		std::unique_ptr<ggml_backend_buffer> alloc_buffer_impl(size_t size) override;
 	public:
 		const char* get_name() override { return "CPU"; }
-		std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size) override;
 		size_t get_alignment() override {
 			return TENSOR_ALIGNMENT;
 		}

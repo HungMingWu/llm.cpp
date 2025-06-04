@@ -1151,7 +1151,7 @@ void ggml_backend_cuda::op_mul_mat(
     }
 }
 
-void ggml_backend_cuda::set_tensor_async(ggml_tensor* tensor, const void* data, size_t offset, size_t size)
+void ggml_backend_cuda::set_tensor_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size)
 {
     ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 
@@ -1160,7 +1160,7 @@ void ggml_backend_cuda::set_tensor_async(ggml_tensor* tensor, const void* data, 
     CUDA_CHECK(cudaMemcpyAsync((char*)tensor->data + offset, data, size, cudaMemcpyHostToDevice, stream()));
 }
 
-void ggml_backend_cuda::get_tensor_async(const ggml_tensor* tensor, void* data, size_t offset, size_t size)
+void ggml_backend_cuda::get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size)
 {
     ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 

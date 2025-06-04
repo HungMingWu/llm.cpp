@@ -242,6 +242,7 @@ static ggml_tensor* ggml_norm_impl(
 	bool inplace) {
 	ggml_tensor* result = build(inplace, ctx, a, GGML_OP_NORM, a);
 	result->op_params[0] = std::bit_cast<uint32_t>(eps);
+	result->src.push_back(a);
 	return result;
 }
 
@@ -261,6 +262,7 @@ static ggml_tensor* ggml_rms_norm_impl(
 	bool inplace) {
 	ggml_tensor* result = build(inplace, ctx, a, GGML_OP_RMS_NORM, a);
 	result->op_params[0] = std::bit_cast<uint32_t>(eps);
+	result->src.push_back(a);
 	return result;
 }
 
@@ -1397,6 +1399,385 @@ ggml_tensor* ggml_permute(
 
 	int32_t params[] = { axis0, axis1, axis2, axis3 };
 	ggml_set_op_params(*result, params, sizeof(params));
+
+	return result;
+}
+
+static ggml_tensor* ggml_unary_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	enum ggml_unary_op op) {
+	return ggml_unary_impl(ctx, a, op, true);
+}
+
+ggml_tensor* ggml_gelu_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a)
+{
+	return ggml_unary_inplace(ctx, a, GGML_UNARY_OP_GELU);
+}
+
+ggml_tensor* ggml_silu_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_unary_inplace(ctx, a, GGML_UNARY_OP_SILU);
+}
+
+ggml_tensor* ggml_tanh_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_unary_inplace(ctx, a, GGML_UNARY_OP_TANH);
+}
+
+ggml_tensor* ggml_relu_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_unary_inplace(ctx, a, GGML_UNARY_OP_RELU);
+}
+
+static ggml_tensor* ggml_sqr_impl(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	bool inplace) {
+	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+	result->op = GGML_OP_SQR;
+	result->src.push_back(a);
+
+	return result;
+}
+
+ggml_tensor* ggml_sqr_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_sqr_impl(ctx, a, true);
+}
+
+ggml_tensor* ggml_scale_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	float s) {
+	return ggml_scale_impl(ctx, a, s, true);
+}
+
+ggml_tensor* ggml_add_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b) {
+	return ggml_add_impl(ctx, a, b, true);
+}
+
+static ggml_tensor* ggml_sub_impl(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	bool inplace) {
+	GGML_ASSERT(ggml_can_repeat(*b, *a));
+
+	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+	result->op = GGML_OP_SUB;
+	result->src.push_back(a);
+	result->src.push_back(b);
+
+	return result;
+}
+
+ggml_tensor* ggml_sub_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b) {
+	return ggml_sub_impl(ctx, a, b, true);
+}
+
+ggml_tensor* ggml_norm_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	float eps) {
+	return ggml_norm_impl(ctx, a, eps, true);
+}
+
+ggml_tensor* ggml_rms_norm_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	float eps) {
+	return ggml_rms_norm_impl(ctx, a, eps, true);
+}
+
+ggml_tensor* ggml_soft_max_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_soft_max_impl(ctx, a, nullptr, 1.0f, 0.0f, true);
+}
+
+ggml_tensor* ggml_abs(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_unary(ctx, a, GGML_UNARY_OP_ABS);
+}
+
+ggml_tensor* ggml_rope(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	int n_dims,
+	int mode) {
+	return ggml_rope_impl(
+		ctx, a, b, NULL, n_dims, mode, 0, 10000.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, false
+	);
+}
+
+ggml_tensor* ggml_rope_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	int n_dims,
+	int mode) {
+	return ggml_rope_impl(
+		ctx, a, b, NULL, n_dims, mode, 0, 10000.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, true
+	);
+}
+
+ggml_tensor* ggml_mul_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b) {
+	return ggml_mul_impl(ctx, a, b, true);
+}
+
+static ggml_tensor* ggml_diag_mask_inf_impl(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	int n_past,
+	bool inplace) {
+	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+	int32_t params[] = { n_past };
+	ggml_set_op_params(*result, params, sizeof(params));
+
+	result->op = GGML_OP_DIAG_MASK_INF;
+	result->src.push_back(a);
+
+	return result;
+}
+
+ggml_tensor* ggml_diag_mask_inf_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	int n_past) {
+	return ggml_diag_mask_inf_impl(ctx, a, n_past, true);
+}
+
+ggml_tensor* ggml_conv_2d_dw(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	int s0,
+	int s1,
+	int p0,
+	int p1,
+	int d0,
+	int d1) {
+	ggml_tensor* new_a = ggml_reshape(ctx, a, { a->ne[0], a->ne[1], 1, a->ne[2] * a->ne[3] });
+	ggml_tensor* im2col = ggml_im2col(ctx, new_a,
+		ggml_reshape(ctx, b, { b->ne[0], b->ne[1], 1, b->ne[2] * b->ne[3] }),
+		s0, s1, p0, p1, d0, d1, true, GGML_TYPE_F16); // [N * IC, OH, OW, KH * KW]
+	ggml_tensor* new_b = ggml_reshape(ctx, im2col, { im2col->ne[0], im2col->ne[2] * im2col->ne[1], b->ne[2], b->ne[3] }); // [N * IC, OH, OW, KH * KW] => [N, IC, OH * OW, KH * KW]
+
+	new_a = ggml_reshape(ctx, new_a, { (new_a->ne[0] * new_a->ne[1]), new_a->ne[2], new_a->ne[3], 1 });                       // [OC¡A1, KH, KW] => [1, OC, 1, KH * KW]
+	ggml_tensor* result = ggml_mul_mat(ctx, new_a, new_b);
+	result = ggml_reshape(ctx, result, { im2col->ne[1], im2col->ne[2], b->ne[2], b->ne[3] }); // [N, OC, OH, OW]
+
+	return result;
+}
+
+ggml_tensor* ggml_conv_1d_dw(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	int s0,
+	int p0,
+	int d0) {
+	ggml_tensor* new_a = ggml_reshape(ctx, a, { a->ne[0], 1, a->ne[1], a->ne[2] });
+	ggml_tensor* new_b = ggml_reshape(ctx, b, { b->ne[0], 1, b->ne[1], b->ne[2] });
+
+	ggml_tensor* im2col = ggml_im2col(ctx, new_a, new_b, s0, 0, p0, 0, d0, 0, false, GGML_TYPE_F16);
+
+	ggml_tensor* result = ggml_mul_mat(ctx, im2col, a);
+
+	result = ggml_reshape(ctx, result, { b->ne[0], b->ne[1], 1 });
+
+	return result;
+}
+
+#define GGML_N_TASKS_MAX (-1)
+
+static ggml_tensor* ggml_map_custom1_impl(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	const ggml_custom1_op_t   fun,
+	int n_tasks,
+	void* userdata,
+	bool inplace) {
+	GGML_ASSERT(n_tasks == GGML_N_TASKS_MAX || n_tasks > 0);
+
+	struct ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+	struct ggml_map_custom1_op_params params = {
+		/*.fun      =*/ fun,
+		/*.n_tasks  =*/ n_tasks,
+		/*.userdata =*/ userdata
+	};
+	ggml_set_op_params(*result, &params, sizeof(params));
+
+	result->op = GGML_OP_MAP_CUSTOM1;
+	result->src.push_back(a);
+
+	return result;
+}
+
+ggml_tensor* ggml_map_custom1(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	const ggml_custom1_op_t fun,
+	int n_tasks,
+	void* userdata) {
+	return ggml_map_custom1_impl(ctx, a, fun, n_tasks, userdata, false);
+}
+
+ggml_tensor* ggml_map_custom1_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	 ggml_custom1_op_t fun,
+	int n_tasks,
+	void* userdata) {
+	return ggml_map_custom1_impl(ctx, a, fun, n_tasks, userdata, true);
+}
+
+static struct ggml_tensor* ggml_map_custom2_impl(
+	struct ggml_context* ctx,
+	struct ggml_tensor* a,
+	struct ggml_tensor* b,
+	const  ggml_custom2_op_t   fun,
+	int n_tasks,
+	void* userdata,
+	bool inplace) {
+	GGML_ASSERT(n_tasks == GGML_N_TASKS_MAX || n_tasks > 0);
+
+	struct ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+	struct ggml_map_custom2_op_params params = {
+		/*.fun      =*/ fun,
+		/*.n_tasks  =*/ n_tasks,
+		/*.userdata =*/ userdata
+	};
+	ggml_set_op_params(*result, &params, sizeof(params));
+
+	result->op = GGML_OP_MAP_CUSTOM2;
+	result->src.push_back(a);
+	result->src.push_back(b);
+
+	return result;
+}
+
+ggml_tensor* ggml_map_custom2(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	const ggml_custom2_op_t fun,
+	int n_tasks,
+	void* userdata) {
+	return ggml_map_custom2_impl(ctx, a, b, fun, n_tasks, userdata, false);
+}
+
+ggml_tensor* ggml_map_custom2_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	const ggml_custom2_op_t fun,
+	int n_tasks,
+	void* userdata) {
+	return ggml_map_custom2_impl(ctx, a, b, fun, n_tasks, userdata, true);
+}
+
+static struct ggml_tensor* ggml_map_custom3_impl(
+	struct ggml_context* ctx,
+	struct ggml_tensor* a,
+	struct ggml_tensor* b,
+	struct ggml_tensor* c,
+	const  ggml_custom3_op_t   fun,
+	int n_tasks,
+	void* userdata,
+	bool inplace) {
+	GGML_ASSERT(n_tasks == GGML_N_TASKS_MAX || n_tasks > 0);
+
+	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+	struct ggml_map_custom3_op_params params = {
+		/*.fun      =*/ fun,
+		/*.n_tasks  =*/ n_tasks,
+		/*.userdata =*/ userdata
+	};
+	ggml_set_op_params(*result, &params, sizeof(params));
+
+	result->op = GGML_OP_MAP_CUSTOM3;
+	result->src.push_back(a);
+	result->src.push_back(b);
+	result->src.push_back(c);
+
+	return result;
+}
+
+ggml_tensor* ggml_map_custom3(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	ggml_tensor* c,
+	const ggml_custom3_op_t fun,
+	int n_tasks,
+	void* userdata) {
+	return ggml_map_custom3_impl(ctx, a, b, c, fun, n_tasks, userdata, false);
+}
+
+ggml_tensor* ggml_map_custom3_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	ggml_tensor* c,
+	const ggml_custom3_op_t fun,
+	int n_tasks,
+	void* userdata) {
+	return ggml_map_custom3_impl(ctx, a, b, c, fun, n_tasks, userdata, true);
+}
+
+ggml_tensor* ggml_custom_4d(
+	ggml_context* ctx,
+	enum ggml_type type,
+	int64_t               ne0,
+	int64_t               ne1,
+	int64_t               ne2,
+	int64_t               ne3,
+	ggml_tensor** args,
+	int n_args,
+	ggml_custom_op_t fun,
+	int n_tasks,
+	void* userdata) {
+
+	GGML_ASSERT(n_args < GGML_MAX_SRC);
+
+	ggml_tensor* result = ctx->create(type, { ne0, ne1, ne2, ne3 });
+
+	struct ggml_custom_op_params params = {
+		/*.fun      =*/ fun,
+		/*.n_tasks  =*/ n_tasks,
+		/*.userdata =*/ userdata
+	};
+	ggml_set_op_params(*result, &params, sizeof(params));
+
+	result->op = GGML_OP_CUSTOM;
+	for (int i = 0; i < n_args; i++) {
+		result->src.push_back(args[i]);
+	}
 
 	return result;
 }

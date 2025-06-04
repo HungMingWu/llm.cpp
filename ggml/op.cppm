@@ -382,4 +382,190 @@ export {
 		int axis1,
 		int axis2,
 		int axis3);
+
+	ggml_tensor* ggml_gelu_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_silu_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_tanh_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_relu_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_sqr_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_scale_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		float s);
+
+	ggml_tensor* ggml_add_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b);
+
+	ggml_tensor* ggml_sub_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b);
+
+	ggml_tensor* ggml_norm_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		float eps);
+
+	ggml_tensor* ggml_rms_norm_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		float eps);
+
+	ggml_tensor* ggml_soft_max_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_abs(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_rope(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		int n_dims,
+		int mode);
+
+	ggml_tensor* ggml_rope_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		int n_dims,
+		int mode);
+
+	ggml_tensor* ggml_mul_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b);
+
+	ggml_tensor* ggml_diag_mask_inf_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		int n_past);
+
+	ggml_tensor* ggml_conv_2d_dw(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		int s0,
+		int s1,
+		int p0,
+		int p1,
+		int d0,
+		int d1);
+
+	ggml_tensor* ggml_conv_1d_dw(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		int s0,
+		int p0,
+		int d0);
+
+	typedef void (*ggml_custom_op_t)(struct ggml_tensor* dst, int ith, int nth, void* userdata);
+	typedef void (*ggml_custom1_op_t)(struct ggml_tensor* dst, const struct ggml_tensor* a, int ith, int nth, void* userdata);
+	typedef void (*ggml_custom2_op_t)(struct ggml_tensor* dst, const struct ggml_tensor* a, const struct ggml_tensor* b, int ith, int nth, void* userdata);
+	typedef void (*ggml_custom3_op_t)(struct ggml_tensor* dst, const struct ggml_tensor* a, const struct ggml_tensor* b, const struct ggml_tensor* c, int ith, int nth, void* userdata);
+
+	struct ggml_custom_op_params {
+		ggml_custom_op_t fun;
+		int              n_tasks;
+		void* userdata;
+	};
+
+	struct ggml_map_custom1_op_params {
+		ggml_custom1_op_t  fun;
+		int                n_tasks;
+		void* userdata;
+	};
+
+	struct ggml_map_custom2_op_params {
+		ggml_custom2_op_t   fun;
+		int                 n_tasks;
+		void* userdata;
+	};
+
+	struct ggml_map_custom3_op_params {
+		ggml_custom3_op_t fun;
+		int n_tasks;
+		void* userdata;
+	};
+
+	ggml_tensor* ggml_map_custom1(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		const ggml_custom1_op_t fun,
+		int n_tasks,
+		void* userdata);
+
+	ggml_tensor* ggml_map_custom1_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_custom1_op_t fun,
+		int n_tasks,
+		void* userdata);
+
+	ggml_tensor* ggml_map_custom2(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		const ggml_custom2_op_t fun,
+		int n_tasks,
+		void* userdata);
+
+	ggml_tensor* ggml_map_custom2_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		const ggml_custom2_op_t fun,
+		int n_tasks,
+		void* userdata);
+
+	ggml_tensor* ggml_map_custom3(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		ggml_tensor* c,
+		const ggml_custom3_op_t fun,
+		int n_tasks,
+		void* userdata);
+
+	ggml_tensor* ggml_map_custom3_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		ggml_tensor* c,
+		const ggml_custom3_op_t fun,
+		int n_tasks,
+		void* userdata);
+
+	ggml_tensor* ggml_custom_4d(
+		ggml_context* ctx,
+		enum ggml_type type,
+		int64_t               ne0,
+		int64_t               ne1,
+		int64_t               ne2,
+		int64_t               ne3,
+		ggml_tensor** args,
+		int n_args,
+		ggml_custom_op_t fun,
+		int n_tasks,
+		void* userdata);
 }

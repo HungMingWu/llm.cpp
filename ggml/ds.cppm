@@ -211,10 +211,15 @@ export {
     struct tensor_traits;
 
     struct ggml_backend_buffer_type {
+    protected:
+        // allocate a buffer of this type
+        virtual std::unique_ptr<ggml_backend_buffer> alloc_buffer_impl(size_t size) = 0;
+    public:
         virtual ~ggml_backend_buffer_type() = default;
         virtual const char* get_name() = 0;
-        // allocate a buffer of this type
-        virtual std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size) = 0;
+
+        std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size);
+
         // tensor alignment
         virtual size_t get_alignment() = 0;
         // (optional) max buffer size that can be allocated (defaults to SIZE_MAX)
@@ -691,8 +696,6 @@ export {
         std::optional<int> get_backend_id(ggml_backend_t backend);
         void split_graph(const ggml_cgraph& graph);
         void print_assignments(const ggml_cgraph& graph);
-        void synchronize();
-        bool alloc_graph(const ggml_cgraph& graph);
         ggml_status graph_compute_async(const ggml_cgraph& graph);
         bool alloc_splits();
         ggml_status compute_splits();
@@ -706,6 +709,12 @@ export {
         size_t get_buffer_size(ggml_backend_t backend);
         bool reserve(const ggml_cgraph* measure_graph);
         ggml_status graph_compute(const ggml_cgraph& graph);
+        void set_eval_callback(ggml_backend_sched_eval_callback callback) {
+            callback_eval = callback;
+        }
+        // not sure move to public is right direction
+        bool alloc_graph(const ggml_cgraph& graph);
+        void synchronize();
     };
 
     // GUID types
@@ -722,14 +731,16 @@ export {
         ggml_backend_dev_t device;
     public:
         ggml_guid_t guid;
+    protected:
+        virtual void set_tensor_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size);
+        virtual void get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size);
     public:
         ggml_backend(ggml_backend_dev_t device) : device(device) {}
         virtual ~ggml_backend() = default;
         virtual const char* get_name() = 0;
 
-        // (optional) asynchronous tensor data access
-        virtual void set_tensor_async(ggml_tensor* tensor, const void* data, size_t offset, size_t size) {}
-        virtual void get_tensor_async(const ggml_tensor* tensor, void* data, size_t offset, size_t size) {}
+        void set_tensor_async(ggml_tensor* tensor, const void* data, size_t offset, size_t size);
+        void get_tensor_async(const ggml_tensor* tensor, void* data, size_t offset, size_t size);
         virtual bool cpy_tensor_async(ggml_backend_t backend_src, const ggml_tensor* src, ggml_tensor* dst) { return false; }
 
         // (optional) complete all pending operations (required if the backend supports async operations)

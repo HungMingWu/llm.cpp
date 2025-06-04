@@ -68,7 +68,9 @@ target_sources(libggml
       os/os.cppm
   PRIVATE
       allocator.cpp
+      backend.cpp
       backend_registry.cpp
+      buffer_type.cpp
       cgraph.cpp
       context.cpp
       func.cpp

@@ -187,10 +187,6 @@ int ggml_backend_sched::backend_id_from_cur(ggml_tensor* tensor) {
     return -1;
 }
 
-static bool ggml_is_view_op(ggml_op op) {
-    return op == GGML_OP_VIEW || op == GGML_OP_RESHAPE || op == GGML_OP_PERMUTE || op == GGML_OP_TRANSPOSE;
-}
-
 bool ggml_backend_sched::buffer_supported(ggml_tensor* t, int backend_id) {
     ggml_backend_buffer_t buf = t->view_src ? t->view_src->buffer : t->buffer;
     ggml_backend_buffer_type_t buft = nullptr;

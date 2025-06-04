@@ -21,10 +21,7 @@ struct ggml_type_traits {
     size_t                   type_size;
     bool                     is_quantized;
     ggml_to_float_t          to_float;
-    // TODO
-#if 0
     ggml_from_float_t        from_float_ref;
-#endif
 };
 
 static std::unordered_map<ggml_type, ggml_type_traits> type_traits {

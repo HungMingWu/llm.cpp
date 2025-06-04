@@ -34,10 +34,6 @@ static void usage(char** argv) {
     printf("    op names for -o are as given by ggml_op_desc() (e.g. ADD, MUL_MAT, etc)\n");
 }
 
-static bool ggml_is_view_op(enum ggml_op op) {
-    return op == GGML_OP_VIEW || op == GGML_OP_RESHAPE || op == GGML_OP_PERMUTE || op == GGML_OP_TRANSPOSE;
-}
-
 #ifdef GGML_USE_SYCL
 static bool inline _isinf(float f) {
     return (*(uint32_t*)&f & 0x7fffffff) == 0x7f800000;

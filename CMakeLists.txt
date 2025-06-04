@@ -16,3 +16,5 @@ target_link_libraries(tutorial
   PRIVATE
     libllm
 )
+
+add_subdirectory(chatllm)

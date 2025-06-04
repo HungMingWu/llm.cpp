@@ -150,4 +150,13 @@ export
 	bool ggml_is_contiguously_allocated(const ggml_tensor* tensor) {
 		return tensor->nbytes() == tensor->nelements() * ggml_type_size(tensor->type) / ggml_blck_size(tensor->type);
 	}
+
+	int ggml_n_dims(const ggml_tensor* tensor) {
+		for (int i = GGML_MAX_DIMS - 1; i >= 1; --i) {
+			if (tensor->ne[i] > 1) {
+				return i + 1;
+			}
+		}
+		return 1;
+	}
 }

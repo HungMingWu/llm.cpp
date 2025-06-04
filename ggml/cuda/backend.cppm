@@ -119,6 +119,9 @@ export
         cudaStream_t stream);
 	class ggml_backend_cuda : public ggml_backend
 	{
+    protected:
+        void set_tensor_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
+        void get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
     private:
         void evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
             std::vector<void*>&, bool&, bool&, bool&);
@@ -186,9 +189,6 @@ export
 		{
 			return name.c_str();
 		}
-
-        void set_tensor_async(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
-        void get_tensor_async(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
         bool cpy_tensor_async(ggml_backend_t backend_src, const ggml_tensor* src, ggml_tensor* dst) override;
         void synchronize() override;
         enum ggml_status graph_compute(ggml_cgraph* cgraph) override;

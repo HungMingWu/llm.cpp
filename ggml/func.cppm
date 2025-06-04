@@ -147,19 +147,6 @@ static bool ggml_is_contiguous_n(const struct ggml_tensor* tensor, int n) {
 	return true;
 }
 
-void ggml_backend_tensor_alloc(ggml_backend_buffer_t buffer, struct ggml_tensor* tensor, void* addr) {
-	GGML_ASSERT(tensor->buffer == NULL);
-	GGML_ASSERT(tensor->data == NULL);
-	GGML_ASSERT(tensor->view_src == NULL);
-	GGML_ASSERT(addr >= buffer->get_base());
-	GGML_ASSERT((char*)addr + buffer->get_alloc_size(tensor) <=
-		(char*)buffer->get_base() + buffer->get_size());
-
-	tensor->buffer = buffer;
-	tensor->data = addr;
-	buffer->init_tensor(tensor);
-}
-
 export {
 std::unique_ptr<ggml_backend_buffer> ggml_backend_alloc_ctx_tensors(ggml_context* ctx, ggml_backend_t backend);
 }
@@ -202,28 +189,6 @@ static bool alloc_tensor_range(ggml_context* ctx,
 	buffers->push_back(std::move(buffer));
 	return true;
 }
-
-typedef void (*ggml_custom1_op_t)(struct ggml_tensor* dst, const struct ggml_tensor* a, int ith, int nth, void* userdata);
-typedef void (*ggml_custom2_op_t)(struct ggml_tensor* dst, const struct ggml_tensor* a, const struct ggml_tensor* b, int ith, int nth, void* userdata);
-typedef void (*ggml_custom3_op_t)(struct ggml_tensor* dst, const struct ggml_tensor* a, const struct ggml_tensor* b, const struct ggml_tensor* c, int ith, int nth, void* userdata);
-
-struct ggml_map_custom1_op_params {
-	ggml_custom1_op_t  fun;
-	int                n_tasks;
-	void* userdata;
-};
-
-struct ggml_map_custom2_op_params {
-	ggml_custom2_op_t   fun;
-	int                 n_tasks;
-	void* userdata;
-};
-
-struct ggml_map_custom3_op_params {
-	ggml_custom3_op_t fun;
-	int n_tasks;
-	void* userdata;
-};
 
 static std::string utf16_to_utf8(const std::wstring& str) {
 	std::string result;
@@ -296,6 +261,19 @@ export
 {
 	constexpr size_t GGML_PAD(size_t x, size_t n) {
 		return (x + n - 1) & ~(n - 1);
+	}
+
+	void ggml_backend_tensor_alloc(ggml_backend_buffer_t buffer, struct ggml_tensor* tensor, void* addr) {
+		GGML_ASSERT(tensor->buffer == NULL);
+		GGML_ASSERT(tensor->data == NULL);
+		GGML_ASSERT(tensor->view_src == NULL);
+		GGML_ASSERT(addr >= buffer->get_base());
+		GGML_ASSERT((char*)addr + buffer->get_alloc_size(tensor) <=
+			(char*)buffer->get_base() + buffer->get_size());
+
+		tensor->buffer = buffer;
+		tensor->data = addr;
+		buffer->init_tensor(tensor);
 	}
 
 	std::unique_ptr<ggml_context> ggml_init()
@@ -398,11 +376,6 @@ struct ggml_backend_reg_entry {
 	ggml_backend_reg_t reg;
 	dl_handle_ptr handle;
 };
-
-const char* ggml_backend_reg_name(ggml_backend_reg_t reg)
-{
-	return nullptr;
-}
 
 struct ggml_backend_registry {
 	std::vector<ggml_backend_reg_entry> backends;
@@ -1501,5 +1474,35 @@ export {
 			 dup->nb[i] = tensor->nb[i];
 		 }
 		 return dup;
+	 }
+
+	 bool ggml_is_view_op(enum ggml_op op) {
+		 return op == GGML_OP_VIEW || op == GGML_OP_RESHAPE || op == GGML_OP_PERMUTE || op == GGML_OP_TRANSPOSE;
+	 }
+
+	 // Remove later
+	 size_t ggml_backend_reg_count() {
+		 return 0;
+	 }
+
+	 ggml_backend_reg_t ggml_backend_reg_get(size_t index) {
+		 return nullptr;
+	 }
+
+	 const char* ggml_backend_reg_name(ggml_backend_reg_t reg)
+	 {
+		 return nullptr;
+	 }
+
+	 ggml_backend_t ggml_backend_dev_init(ggml_backend_dev_t device, const char* params) {
+		 return nullptr;
+	 }
+
+	 size_t ggml_get_mem_size(const struct ggml_context* ctx) {
+		 return 0;
+	 }
+
+	 size_t ggml_used_mem(const struct ggml_context* ctx) {
+		 return 0;
 	 }
 }
