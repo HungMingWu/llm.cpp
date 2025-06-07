@@ -527,10 +527,8 @@ export {
 
 	}
 
-	ggml_backend_buffer_type_t ggml_backend_cpu_buffer_type()
-	{
-		return {};
-	}
+	// implementation at cpu side
+	ggml_backend_buffer_type_t ggml_backend_cpu_buffer_type();
 
 	// check if t1 can be represented as a repeatition of t0
 	bool ggml_can_repeat(const ggml_tensor &t0, const ggml_tensor &t1) {

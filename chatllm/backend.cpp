@@ -322,7 +322,7 @@ namespace chatllm
     {
         ggml_backend_allocator allocator = nullptr;
 
-        if (gpu_id >= 0)
+        if (0) // gpu_id >= 0), TO FIX
         {
             auto dev = ggml_backend_dev_get(gpu_id);
             if (dev)
