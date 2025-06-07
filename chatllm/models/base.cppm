@@ -214,11 +214,11 @@ namespace chatllm
         }
 
         struct ggml_context* get_ctx() override { return gctx.get(); }
-        ggml_cgraph* get_cgraph(void) override { return gf; }
+        ggml_cgraph* get_cgraph(void) override { return &gf; }
 
     public:
         GGMLContext gctx;
-        ggml_cgraph* gf;
+        ggml_cgraph gf;
     };
 
     ModelPurpose get_model_purpose(ModelType model_type)
@@ -767,7 +767,6 @@ namespace chatllm
 
             ForwardContext ctx(&backend_context);
             ctx.gctx = GGMLContext();
-            ctx.gf = ggml::new_graph_custom(&ctx, GRAPH_SIZE, false);
 
             ggml::tensor* input_ids_tensor = ggml::new_tensor_1d(&ctx, GGML_TYPE_I32, ids_count);
 
@@ -812,7 +811,6 @@ namespace chatllm
             ctx.user_options = w_ctx_.user_options;
 
             ctx.gctx = GGMLContext();
-            ctx.gf = ggml::new_graph_custom(&ctx, GRAPH_SIZE, false);
 
             dbg_ctx = &ctx;
 

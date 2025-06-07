@@ -949,8 +949,7 @@ void chat(Args& args, chatllm::Pipeline& pipeline, TextStreamer& streamer)
             }
         };
 
-    // DEF_GenerationConfig(gen_config, args);
-    chatllm::GenerationConfig gen_config;// (args.max_length, args.max_context_length, args.temp > 0, args.reversed_role, args.top_k, args.top_p, args.temp, args.num_threads, args.sampling, args.presence_penalty, args.tfs_z); gen_config.set_ai_prefix(args.ai_prefix); gen_config.dump_dot = args.dump_dot; gen_config.emb_rank_query_sep = args.emb_rank_query_sep; gen_config.repeat_penalty = args.repeat_penalty; gen_config.frequency_penalty = args.frequency_penalty; gen_config.penalty_window = args.penalty_window;;
+    DEF_GenerationConfig(gen_config, args);
     chatllm::Messages history(args.multimedia_file_tags[0], args.multimedia_file_tags[1]);
 
     show_banner(pipeline, args.interactive && args.show_banner, &streamer);
@@ -1176,8 +1175,7 @@ static int init_vector_store(Args& args)
     chatllm::Pipeline pipeline(args.embedding_model_path);
     args.max_length = pipeline.model->get_max_length();
 
-    //DEF_GenerationConfig(gen_config, args);
-    chatllm::GenerationConfig gen_config; // (args.max_length, args.max_context_length, args.temp > 0, args.reversed_role, args.top_k, args.top_p, args.temp, args.num_threads, args.sampling, args.presence_penalty, args.tfs_z); gen_config.set_ai_prefix(args.ai_prefix); gen_config.dump_dot = args.dump_dot; gen_config.emb_rank_query_sep = args.emb_rank_query_sep; gen_config.repeat_penalty = args.repeat_penalty; gen_config.frequency_penalty = args.frequency_penalty; gen_config.penalty_window = args.penalty_window;;
+    DEF_GenerationConfig(gen_config, args);
     std::vector<float> r;
 
     CVectorStore vs(args.vc, pipeline.get_text_embedding_dim(),

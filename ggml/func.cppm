@@ -595,25 +595,6 @@ export {
 		return nullptr;
 	}
 
-	struct ggml_tensor* ggml_rope_ext_inplace(
-		struct ggml_context* ctx,
-		struct ggml_tensor* a,
-		struct ggml_tensor* b,
-		struct ggml_tensor* c,
-		int                   n_dims,
-		int                   mode,
-		int                   n_ctx_orig,
-		float                 freq_base,
-		float                 freq_scale,
-		float                 ext_factor,
-		float                 attn_factor,
-		float                 beta_fast,
-		float                 beta_slow)
-	{
-		// TODO
-		return nullptr;
-	}
-
 	ggml_tensor* ggml_view_tensor(
 		ggml_context* ctx,
 		ggml_tensor* src) {

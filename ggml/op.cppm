@@ -568,4 +568,19 @@ export {
 		ggml_custom_op_t fun,
 		int n_tasks,
 		void* userdata);
+
+	ggml_tensor* ggml_rope_ext_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		ggml_tensor* c,
+		int n_dims,
+		int mode,
+		int n_ctx_orig,
+		float freq_base,
+		float freq_scale,
+		float ext_factor,
+		float attn_factor,
+		float beta_fast,
+		float beta_slow);
 }
