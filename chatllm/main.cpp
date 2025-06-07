@@ -36,7 +36,7 @@ struct Args
     std::string vector_store_in = "";
     std::string merge_vs = "";
     std::string system = "";
-    std::string prompt = "§A¦n";
+    std::string prompt = "ä½ å¥½";
     std::string ai_prefix = "";
     std::string sampling = "top_p";
     chatllm::Pipeline::ExtendingMethod extending = chatllm::Pipeline::ExtendingMethod::Restart;
@@ -165,7 +165,7 @@ void usage(const std::string& prog)
         << "Basic options:\n"
         << "  -h, --help              show this help message and exit                                                         [*]\n"
         << "  -m, --model PATH        model path\n"
-        << "  -p, --prompt PROMPT     prompt to start generation with (default: §A¦n)\n"
+        << "  -p, --prompt PROMPT     prompt to start generation with (default: Â§AÂ¦n)\n"
         << "      --prompt_file FN    prompt from file\n"
         << "  -s, --system SYSTEM     system prompt (instruction) (default: model specific)\n"
         << "      --sys_file FN       system prompt (instruction) from file\n"
