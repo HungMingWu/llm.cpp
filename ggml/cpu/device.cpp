@@ -4,6 +4,7 @@ module;
 
 module ggml;
 import os;
+import :cpu.device;
 
 ggml_backend_buffer_type_t ggml_backend_cpu_buffer_type()
 {
