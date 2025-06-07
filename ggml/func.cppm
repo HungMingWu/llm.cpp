@@ -394,9 +394,8 @@ struct ggml_backend_registry {
 			__func__, ggml_backend_reg_name(reg), ggml_backend_reg_dev_count(reg));
 #endif
 		backends.push_back({ reg, std::move(handle) });
-		for (size_t i = 0; i < reg->get_device_count(); i++) {
-			register_device(reg->get_device(i));
-		}
+		for (auto dev : reg->get_devices())
+			register_device(dev);
 	}
 
 	void register_device(ggml_backend_dev_t device) {
@@ -1482,16 +1481,12 @@ export {
 
 	 // Remove later
 	 size_t ggml_backend_reg_count() {
-		 return 0;
+		 return get_reg().backends.size();
 	 }
 
 	 ggml_backend_reg_t ggml_backend_reg_get(size_t index) {
-		 return nullptr;
-	 }
-
-	 const char* ggml_backend_reg_name(ggml_backend_reg_t reg)
-	 {
-		 return nullptr;
+		 GGML_ASSERT(index < ggml_backend_reg_count());
+		 return get_reg().backends[index].reg;
 	 }
 
 	 ggml_backend_t ggml_backend_dev_init(ggml_backend_dev_t device, const char* params) {

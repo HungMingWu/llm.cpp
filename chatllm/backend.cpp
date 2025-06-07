@@ -295,7 +295,7 @@ namespace chatllm
         for (int i = 0; i < (int)ggml_backend_reg_count(); i++)
         {
             auto reg = ggml_backend_reg_get(i);
-            if (std::string(ggml_backend_reg_name(reg)) == "RPC")
+            if (reg->get_name() == "RPC")
             {
                 ComputeManager::backend_rpc = reg;
                 break;
@@ -388,7 +388,7 @@ namespace chatllm
         ggml_backend_dev_props props;
         ggml_backend_dev_get_props(dev, &props);
         info.type = (DeviceType)props.type;
-        info.backend_name = ggml_backend_reg_name(dev->get_backend_reg());
+        info.backend_name = dev->get_backend_reg()->get_name();
         info.name = dev->get_name();
         info.description = utils::trim(dev->get_description());
         info.total_memory = props.memory_total;
@@ -710,7 +710,6 @@ namespace chatllm
             auto dev = ggml_backend_dev_get(device);
             CHATLLM_CHECK(dev != nullptr) << __func__ << ": failed to found CPU device: #" << device;
             CHATLLM_CHECK(dev->get_type() == GGML_BACKEND_DEVICE_TYPE_CPU) << __func__ << ": device #" << device << " is not CPU, but " << dev->get_type();
-
             init_device(device, dev, n_layers - n_gpu_layers);
 
             backend_cpu = backends[backends.size() - 1].backend;

@@ -27,6 +27,7 @@ json::JSON json::JSON::_null = json::JSON();
 module chatllm;
 import ggml;
 import :models.base;
+import :models.qwen;
 
 namespace chatllm
 {
@@ -1303,7 +1304,6 @@ namespace chatllm
 
     bool ModelFactory::load(int model_type, int version, ModelLoader& loader, Result& result, const ModelObject::extra_args& args)
     {
-        int a = 1;
 #define CASE(TYPE, ns, ver)         \
             case MODEL_TYPE_ ##TYPE:        \
             {                               \
@@ -1321,7 +1321,10 @@ namespace chatllm
 #endif
         case MODEL_TYPE_QWEN2TIE:
             {
-                return false;
+                CHATLLM_CHECK(version == 1) << "only support version 1 for now but got " << version;
+                return load_model<qwen::v2_tie::Config,
+                    qwen::v2_tie::Tokenizer,
+                    qwen::v2_tie::ConditionalGeneration>(loader, result, args);
             }
         default:
             CHATLLM_THROW << "invalid model type " << model_type;

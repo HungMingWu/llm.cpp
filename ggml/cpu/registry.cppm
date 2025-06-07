@@ -1,4 +1,6 @@
 module;
+#include <array>
+#include <span>
 #include <string_view>
 #define GGML_ASSERT(...)
 #define GGML_BACKEND_API_VERSION 1
@@ -10,18 +12,15 @@ import :cpu.device;
 class backend_cpu_reg : public ggml_backend_reg {
 public:
 	using ggml_backend_reg::ggml_backend_reg;
-	const char* get_name() override {
-		return "CPU";
-	}
-	size_t get_device_count() override {
-		return 1;
-	}
-	ggml_backend_dev_t get_device(size_t index) override {
-		GGML_ASSERT(index == 0);
 
+	std::string_view get_name() override { return "CPU"; }
+
+	std::span<ggml_backend_dev_t> get_devices() override {
 		static ggml_backend_cpu_device cpu_device(this);
-		return &cpu_device;
+		static std::array<ggml_backend_dev_t, 1> backends{ &cpu_device };
+		return backends;
 	}
+
 	void* get_proc_address(std::string_view name) override {
 #if 0
 		if (strcmp(name, "ggml_backend_set_n_threads") == 0) {

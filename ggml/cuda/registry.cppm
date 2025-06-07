@@ -446,7 +446,8 @@ public:
 };
 
 class backend_cuda_reg : public ggml_backend_reg {
-	std::vector<ggml_backend_cuda_device*> devices;
+    std::vector<ggml_backend_cuda_device*> devices;
+    std::vector<ggml_backend_device*> devices_span;
 public:
     backend_cuda_reg(int api_version, void* context)
         : ggml_backend_reg(api_version, context)
@@ -461,19 +462,18 @@ public:
             CUDA_CHECK(cudaGetDeviceProperties(&prop, i));
             dev->description = prop.name;
             devices.push_back(dev);
+            devices_span.push_back(dev);
         }
     }
 
-	const char* get_name() override {
-		return GGML_CUDA_NAME;
-	}
-	size_t get_device_count() override {
-		return devices.size();
-	}
-	ggml_backend_dev_t get_device(size_t index) override {
-        GGML_ASSERT(index < devices.size());
-        return devices[index];
-	}
+    std::string_view get_name() override {
+        return GGML_CUDA_NAME;
+    }
+
+    std::span<ggml_backend_dev_t> get_devices() override {
+        return devices_span;
+    }
+
 	void* get_proc_address(std::string_view name) override {
 #if 0
         if (strcmp(name, "ggml_backend_split_buffer_type") == 0) {
@@ -510,8 +510,8 @@ export
 			GGML_LOG_ERROR("%s: invalid device %d\n", __func__, device);
 			return nullptr;
 		}
-        // There is a bug in VC Module, modify when it fixes
-        auto backend = std::make_unique<ggml_backend_cuda>(ggml_backend_cuda_reg()->get_device(device));
+        auto cuda_device = ggml_backend_cuda_reg()->get_devices()[device];
+        auto backend = std::make_unique<ggml_backend_cuda>(cuda_device);
         backend->device = device;
         backend->name = GGML_CUDA_NAME + std::to_string(device);
         return backend;

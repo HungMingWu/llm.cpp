@@ -242,9 +242,8 @@ export {
     public:
         ggml_backend_reg(int api_version, void* context) : api_version(api_version), context(context) {}
         virtual ~ggml_backend_reg() = default;
-        virtual const char* get_name() = 0;
-        virtual size_t get_device_count() = 0;
-        virtual ggml_backend_dev_t get_device(size_t index) = 0;
+        virtual std::string_view get_name() = 0;
+        virtual std::span<ggml_backend_dev_t> get_devices() = 0;
         // (optional) get a pointer to a function in the backend
         // backends can add custom functions that are not part of the standard ggml-backend interface
         virtual void* get_proc_address(std::string_view name) { return nullptr; }
