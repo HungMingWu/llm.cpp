@@ -509,10 +509,6 @@ export {
 	{
 		return {};
 	}
-	ggml_backend_buffer_type_t    ggml_backend_dev_host_buffer_type(ggml_backend_dev_t device)
-	{
-		return {};
-	}
 	ggml_tensor* ggml_get_tensor(struct ggml_context* ctx, const char* name)
 	{
 		return nullptr;
@@ -1487,10 +1483,6 @@ export {
 	 ggml_backend_reg_t ggml_backend_reg_get(size_t index) {
 		 GGML_ASSERT(index < ggml_backend_reg_count());
 		 return get_reg().backends[index].reg;
-	 }
-
-	 ggml_backend_t ggml_backend_dev_init(ggml_backend_dev_t device, const char* params) {
-		 return nullptr;
 	 }
 
 	 size_t ggml_get_mem_size(const struct ggml_context* ctx) {

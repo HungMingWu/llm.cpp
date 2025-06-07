@@ -140,14 +140,9 @@ struct ggml_backend_cpu_device : public ggml_backend_device {
 		};
 #endif
 	}
-	ggml_backend_t init_backend(const char* params) override
-	{
-#if 0
-		return ggml_backend_cpu_init();
-#else
-		return {};
-#endif
-	}
+
+	ggml_backend_t init_backend(const char* params) override;
+
 	ggml_backend_buffer_type_t get_buffer_type() override
 	{
 		static cpu_backend_buffer_type type;

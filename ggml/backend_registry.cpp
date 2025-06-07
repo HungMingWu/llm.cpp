@@ -1,5 +1,6 @@
 module;
 #include <vector>
+#define GGML_USE_CPU
 
 module ggml;
 

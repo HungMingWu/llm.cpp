@@ -1247,7 +1247,7 @@ struct llm_model_loader {
                 return nullptr;
             }
 
-            auto* host_buft = ggml_backend_dev_host_buffer_type(dev);
+            auto* host_buft = dev->get_host_buffer_type();
             if (!host_buft) {
                 LLAMA_LOG_DEBUG("%s: no host buffer type found for device %s\n", func,
                     ggml_backend_dev_name(dev));
@@ -5864,7 +5864,7 @@ static llama_model::buft_list_t make_cpu_buft_list(llama_model& model) {
     // a better approach would be to handle this on a weight-by-weight basis using the offload_op
     // function of the device to determine if it would benefit from being stored in a host buffer
     for (auto* dev : model.devices) {
-        ggml_backend_buffer_type_t buft = ggml_backend_dev_host_buffer_type(dev);
+        ggml_backend_buffer_type_t buft = dev->get_host_buffer_type();
         if (buft) {
             buft_list.emplace_back(dev, buft);
             break;
@@ -7514,7 +7514,7 @@ static bool llm_load_tensors(
 
             // avoid using a host buffer when using mmap
             auto* buft_dev = ggml_backend_buft_get_device(buft);
-            if (ml.use_mmap && buft_dev && buft == ggml_backend_dev_host_buffer_type(buft_dev)) {
+            if (ml.use_mmap && buft_dev && buft == buft_dev->get_host_buffer_type()) {
                 auto* cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
                 buft = cpu_dev->get_buffer_type();
             }
@@ -10525,7 +10525,7 @@ static size_t llama_output_reserve(llama_context& lctx, size_t n_outputs) {
         auto* buft = ggml_backend_cpu_buffer_type();
         // try to use the host buffer of the device where the output tensor is allocated for faster transfer to system memory
         auto* output_dev = lctx.model.dev_output.dev;
-        auto* output_dev_host_buft = output_dev ? ggml_backend_dev_host_buffer_type(output_dev) : nullptr;
+        auto* output_dev_host_buft = output_dev ? output_dev->get_host_buffer_type() : nullptr;
         if (output_dev_host_buft) {
             buft = output_dev_host_buft;
         }
@@ -18794,7 +18794,7 @@ llama_context* llama_new_context_with_model(
                 if (backend_type == GGML_BACKEND_DEVICE_TYPE_CPU && !model->devices.empty()) {
                     // use the host buffer of the first device CPU for faster transfer of the intermediate state
                     auto* dev = model->devices[0];
-                    auto* host_buft = ggml_backend_dev_host_buffer_type(dev);
+                    auto* host_buft = dev->get_host_buffer_type();
                     if (host_buft) {
                         buft = host_buft;
                     }

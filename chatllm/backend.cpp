@@ -326,7 +326,7 @@ namespace chatllm
         {
             auto dev = ggml_backend_dev_get(gpu_id);
             if (dev)
-                allocator = ggml_backend_dev_host_buffer_type(dev);
+                allocator = dev->get_host_buffer_type();
         }
 
         if (allocator == nullptr)
@@ -349,7 +349,7 @@ namespace chatllm
     ggml_backend_t ComputeManager::init_backend_device(int index, const char* param)
     {
         auto dev = ggml_backend_dev_get(index);
-        return dev ? ggml_backend_dev_init(dev, param) : nullptr;
+        return dev ? dev->init_backend(param) : nullptr;
     }
 
     ggml_backend_allocator ComputeManager::get_default_allocator_offload(int device)
