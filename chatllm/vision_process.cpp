@@ -2,6 +2,8 @@
 #include <regex>
 #include <sstream>
 #include <cmath>
+#include <filesystem>
+#include "basics.h"
 
 #if defined(_MSC_VER)
 #define popen  _popen
@@ -10,8 +12,13 @@
 
 namespace vision
 {
+    namespace fs = std::filesystem;
+
     struct Params
     {
+        int pre_max_width;
+        int pre_max_height;
+
         bool do_resize;
         int resize_width;
         int resize_height;
@@ -24,6 +31,8 @@ namespace vision
     };
 
     static Params params{
+        .pre_max_width = -1,
+        .pre_max_height = -1,
         .do_resize = false,
         .resize_width = 0,
         .resize_height = 0,
@@ -94,6 +103,44 @@ namespace vision
         params.merge_kernel_size[1] = 0;
     }
 
+    PreMaxImageSize::PreMaxImageSize(int width, int height)
+    {
+        params.pre_max_width = width;
+        params.pre_max_height = height;
+    }
+
+    PreMaxImageSize::~PreMaxImageSize()
+    {
+        params.pre_max_width = -1;
+        params.pre_max_height = -1;
+    }
+
+    bool PreMaxImageSize::PreScale(int& width, int& height)
+    {
+        double ratio = (double)width / height;
+        int target_w = width;
+        int target_h = height;
+        if ((params.pre_max_width > 0) && (width > params.pre_max_width))
+            target_w = params.pre_max_width;
+        if ((params.pre_max_height > 0) && (height > params.pre_max_height))
+            target_h = params.pre_max_height;
+        if ((target_h != height) || (target_w != width)) return false;
+
+        if ((double)width / target_w > (double)height / target_h)
+        {
+            target_h = (int)(target_w / ratio);
+        }
+        else
+        {
+            target_w = (int)(target_h * ratio);
+        }
+
+        bool r = (target_h != height) || (target_w != width);
+        height = target_h;
+        width = target_w;
+        return r;
+    }
+
     void image_dimension(const char* fn, int& width, int& height)
     {
         width = -1;
@@ -121,6 +168,83 @@ namespace vision
         }
 
         pclose(pp);
+    }
+
+    static void run_cmd(std::ostringstream& oss, image_pixels_t& image)
+    {
+        oss << " rgb:-";
+        // oss << " rgb:c:\\tmp\\img.raw";
+
+        //printf("%s\n", oss.str().c_str());
+
+        FILE* pp = popen(oss.str().c_str(), "rb");
+
+        while (!feof(pp))
+        {
+            uint8_t buffer[1024];
+            size_t cnt = fread(buffer, 1, sizeof(buffer), pp);
+            if (cnt > 0)
+                image.insert(image.end(), buffer, buffer + cnt);
+        }
+
+        pclose(pp);
+    }
+
+    void image_load_split(const char* fn, std::vector<image_pixels_t>& splits, bool do_split, const int split_width, const int split_height, int& splits_cols_num, int& splits_rows_num)
+    {
+        splits.clear();
+        splits_cols_num = 0;
+        splits_rows_num = 0;
+
+        int width = -1;
+        int height = -1;
+        image_dimension(fn, width, height);
+        if (width <= 0) return;
+
+        std::ostringstream base;
+        base << "magick -depth 8 \"" << std::string(fn) << "\"";
+        if (PreMaxImageSize::PreScale(width, height))
+            base << " -resize " << width << "x" << height << "!";
+
+        splits_rows_num = (height + split_height - 1) / split_height;
+        splits_cols_num = (width + split_width - 1) / split_width;
+        if (do_split && ((splits_rows_num > 1) || (splits_cols_num > 1)))
+        {
+            const int optimal_height = (height + splits_rows_num - 1) / splits_rows_num;
+            const int optimal_width = (width + splits_cols_num - 1) / splits_cols_num;
+
+            for (int r = 0; r < splits_rows_num; r++)
+            {
+                for (int c = 0; c < splits_cols_num; c++)
+                {
+                    const int start_x = c * optimal_width;
+                    const int start_y = r * optimal_height;
+                    const int end_x = std::min(start_x + optimal_width, width);
+                    const int end_y = std::min(start_y + optimal_height, height);
+
+                    std::ostringstream oss;
+                    oss << base.str();
+                    oss << " -crop " << optimal_width << "x" << optimal_height << "+" << start_x << "+" << start_y;
+
+                    splits.emplace_back(image_pixels_t());
+                    auto& image = splits.back();
+                    run_cmd(oss, image);
+                }
+            }
+        }
+        else
+        {
+            splits_rows_num = 0;
+            splits_cols_num = 0;
+        }
+
+        // resize the global one
+        std::ostringstream oss;
+        oss << "magick -depth 8 \"" << std::string(fn) << "\"";
+        oss << " -resize " << split_width << "x" << split_height << "!";
+        splits.emplace_back(image_pixels_t());
+        auto& image = splits.back();
+        run_cmd(oss, image);
     }
 
     void image_load(const char* fn, std::vector<uint8_t>& rgb_pixels, int& width, int& height, int patch_size, PaddingMode pad)
@@ -203,22 +327,7 @@ namespace vision
             oss << " -crop " << aligned_width << "x" << aligned_height << "+" << (width - aligned_width) / 2 << "+" << (height - aligned_height) / 2;
         }
 
-        oss << " rgb:-";
-        // oss << " rgb:c:\\tmp\\img.raw";
-
-        //printf("%s\n", oss.str().c_str());
-
-        FILE* pp = popen(oss.str().c_str(), "rb");
-
-        while (!feof(pp))
-        {
-            uint8_t buffer[1024];
-            size_t cnt = fread(buffer, 1, sizeof(buffer), pp);
-            if (cnt > 0)
-                rgb_pixels.insert(rgb_pixels.end(), buffer, buffer + cnt);
-        }
-
-        pclose(pp);
+        run_cmd(oss, rgb_pixels);
 
         width = aligned_width;
         height = aligned_height;
@@ -337,6 +446,44 @@ namespace vision
         default:
             throw new std::invalid_argument("invalid format");
         }
+    }
+
+    VideoLoader::VideoLoader(const char* fn, float fps, const int max_frames, const int resize_width, const int resize_height)
+    {
+        if (!fs::exists(fn))
+            return;
+
+        tmp_dir = std::tmpnam(nullptr);
+        fs::create_directories(tmp_dir);
+
+        char cmd[1024];
+        if ((resize_height <= 0) || (resize_height <= 0))
+        {
+            sprintf(cmd, "ffmpeg -loglevel error -i \"%s\" -vf \"fps=%f\" -frames:v %d \"%s\"",
+                fn, fps, max_frames, (fs::path(tmp_dir) / "%04d.jpg").string().c_str());
+        }
+        else
+        {
+            sprintf(cmd, "ffmpeg -loglevel error -i \"%s\" -vf \"scale=w=%d:h=%d:force_original_aspect_ratio=1,pad=%d:%d:(ow-iw)/2:(oh-ih)/2,fps=%f\" -frames:v %d \"%s\"",
+                fn, resize_width, resize_height, resize_width, resize_height,
+                fps, max_frames, (fs::path(tmp_dir) / "%04d.jpg").string().c_str());
+        }
+
+        int ret = std::system(cmd);
+
+        for (const auto& entry : fs::directory_iterator(tmp_dir))
+        {
+            if (entry.path().extension() == ".jpg") {
+                frames.push_back(entry.path().string());
+            }
+        }
+
+        std::sort(frames.begin(), frames.end());
+    }
+
+    VideoLoader::~VideoLoader()
+    {
+        fs::remove_all(tmp_dir);
     }
 
     static void print_data(const std::vector<float>& pixels, const int group_size = 10, int max_elem = 100)

@@ -179,6 +179,14 @@ export namespace chatllm
         ggml::tensor* map_custom2_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, const ggml_custom2_op_t fun, int n_tasks, void* userdata);
         ggml::tensor* map_custom3_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, ggml::tensor* c, const ggml_custom3_op_t fun, int n_tasks, void* userdata);
 
+        struct merge_patch_param
+        {
+            int grid_h;
+            int grid_w;
+            int merge_kernel_size[2];
+        };
+        ggml::tensor* merge_patch(ComputeContext* ctx, ggml::tensor* x, const merge_patch_param* param);
+
         ggml::tensor* custom(ComputeContext* ctx, ggml_custom_op_t fun, int n_tasks, void* userdata, std::vector<ggml::tensor*>inputs, ggml::type type, int64_t ne0, int64_t ne1 = 1, int64_t ne2 = 1, int64_t ne3 = 1);
 
         void mul_mat_set_prec(ggml::tensor* a, ggml::prec prec);
