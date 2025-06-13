@@ -84,6 +84,8 @@ export namespace chatllm
             return *this;
         }
 
+        static Type type_parse(const char* s);
+
     public:
         std::string content;
         Type type;
@@ -162,6 +164,7 @@ export namespace chatllm
         Messages(const std::string& opening, const std::string& closing);
 
         void push_back(const std::string& content, MsgRole role);
+        void push_back(const Content& content, MsgRole role);
         void push_back(const Message& m);
         void clear(void);
 
@@ -1297,7 +1300,7 @@ export namespace chatllm
         void set_extending_method(ExtendingMethod method);
         virtual void set_additional_args(const std::map<std::string, std::string>& args);
 
-        void text_embedding(const std::string& input, const GenerationConfig& gen_config, std::vector<float>& result);
+        void text_embedding(const std::string& input, const GenerationConfig& gen_config, std::vector<float>& result, BaseTokenizer::EmbeddingPurpose purpose = BaseTokenizer::EmbeddingPurpose::Document);
         void text_tokenize(const std::string& input, const GenerationConfig& gen_config, std::vector<int>& result);
         float qa_rank(const std::string& q, const std::string& a, const GenerationConfig& gen_config);
 

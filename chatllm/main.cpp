@@ -165,7 +165,7 @@ void usage(const std::string& prog)
         << "Basic options:\n"
         << "  -h, --help              show this help message and exit                                                         [*]\n"
         << "  -m, --model PATH        model path\n"
-        << "  -p, --prompt PROMPT     prompt to start generation with (default: §A¦n)\n"
+        << "  -p, --prompt PROMPT     prompt to start generation with (default: 你好)\n"
         << "      --prompt_file FN    prompt from file\n"
         << "  -s, --system SYSTEM     system prompt (instruction) (default: model specific)\n"
         << "      --sys_file FN       system prompt (instruction) from file\n"
@@ -815,17 +815,18 @@ static void run_tts(Args& args, chatllm::Pipeline& pipeline, TextStreamer& strea
 static void run_text_embedding(Args& args, chatllm::Pipeline& pipeline, TextStreamer& streamer, const chatllm::GenerationConfig& gen_config)
 {
     std::vector<float> result;
+    chatllm::BaseTokenizer::EmbeddingPurpose purpose = chatllm::BaseTokenizer::EmbeddingPurpose::Document;
 
     if (!args.interactive)
     {
-        pipeline.text_embedding(args.prompt, gen_config, result);
+        pipeline.text_embedding(args.prompt, gen_config, result, purpose);
         print_embedding(result, streamer.cout);
         return;
     }
 
     while (1)
     {
-        streamer.cout << "Input > " << std::flush;
+        streamer.cout << "Input " << (purpose == chatllm::BaseTokenizer::EmbeddingPurpose::Document ? "Doc" : "Query") << " > " << std::flush;
         std::string input;
         if (!get_utf8_line(input, args.multi_line))
         {
@@ -835,11 +836,13 @@ static void run_text_embedding(Args& args, chatllm::Pipeline& pipeline, TextStre
         if (input.empty()) continue;
 
         result.clear();
-        pipeline.text_embedding(input, gen_config, result);
+        pipeline.text_embedding(input, gen_config, result, purpose);
         streamer.cout << "      > ";
 
         print_embedding(result, streamer.cout);
 
+        purpose = purpose == chatllm::BaseTokenizer::EmbeddingPurpose::Document ?
+            chatllm::BaseTokenizer::EmbeddingPurpose::Query : chatllm::BaseTokenizer::EmbeddingPurpose::Document;
     }
     streamer.cout << "Bye\n";
 }
@@ -1277,11 +1280,9 @@ int main(int argc, const char** argv)
         return 0;
     }
 
-    // TO FIX
-#if 0
     chatllm::ComputeManager::init(args.ggml_dir);
     prepare_rpc_devices(args);
-#endif
+
     if (args.show_devices)
     {
         show_devices();
@@ -1375,7 +1376,7 @@ static int chatllm_do_init(const std::vector<std::string> *p_obj_params = nullpt
     initialized = true;
 
     // it's ok to call this multiple times
-    ggml_log_set(_ggml_log_callback, nullptr);
+    ggml_log_set(_ggml_log_callback);
 
     if (p_obj_params && (init_params.size() == 0))
     {
@@ -1406,6 +1407,7 @@ class Chat
 public:
     Chat() :
         streamer(nullptr), pipeline(nullptr),
+        content_scratch(&history, ""),
         sess_n_past(-1), sess_hist_len(-1), is_rag(false),
         is_async_busy(false), async_result_int(0)
     {
@@ -1417,12 +1419,26 @@ public:
         params.push_back(utf8_str);
     }
 
+    std::string new_tmp_file(void)
+    {
+        tmp_files.push_back(utils::tmpname());
+        return tmp_files.back();
+    }
+
+    ~Chat()
+    {
+        for (auto& s : tmp_files)
+            std::filesystem::remove(s);
+    }
+
 public:
     std::vector<std::string> params;
     chatllm::Messages history;
     std::unique_ptr<chatllm::BaseStreamer> streamer;
     std::unique_ptr<chatllm::Pipeline> pipeline;
     chatllm::GenerationConfig gen_config;
+    chatllm::Content content_scratch;
+    std::vector<std::string> tmp_files;
     int sess_n_past;
     int sess_hist_len;
     Args args;
@@ -1504,7 +1520,7 @@ struct chatllm_obj* chatllm_create(void)
     chat_objects.emplace_back(chat);
     if (chat_objects.size() == 1) {
         // it's ok to call this multiple times
-        ggml_log_set(_ggml_log_callback, nullptr);
+        ggml_log_set(_ggml_log_callback);
     }
     return (chatllm_obj*)chat;
 }
@@ -1531,6 +1547,35 @@ void chatllm_append_param(struct chatllm_obj* obj, const char* utf8_str)
     DEF_CHAT();
 
     chat->append_param(utf8_str);
+}
+
+void chatllm_multimedia_msg_prepare(struct chatllm_obj* obj)
+{
+    DEF_CHAT();
+    chat->content_scratch.pieces.clear();
+}
+
+int chatllm_multimedia_msg_append(struct chatllm_obj* obj, const char* type, const char* utf8_str)
+{
+    DEF_CHAT();
+    if (strcmp(type, "text") == 0)
+    {
+        chat->content_scratch.push_back(std::string(utf8_str), chatllm::ContentPiece::Type::Text);
+        return 0;
+    }
+
+    auto t = chatllm::ContentPiece::type_parse(type);
+    if (chatllm::ContentPiece::Type::Text == t) return -1;
+
+    auto data = base64::decode(utf8_str);
+    auto fn = chat->new_tmp_file();
+    auto f = std::fopen(fn.c_str(), "wb");
+    std::fwrite(data.data(), 1, data.size(), f);
+    std::fclose(f);
+
+    chat->content_scratch.push_back(fn, t);
+
+    return 0;
 }
 
 static void emit_model_info(Chat * chat, const Args & args, chatllm::Pipeline & pipeline)
@@ -1626,6 +1671,7 @@ int chatllm_start(struct chatllm_obj* obj, f_chatllm_print f_print, f_chatllm_en
     args.interactive = true;
     chat->streamer = std::unique_ptr<chatllm::BaseStreamer>(new FFIStreamer(nullptr, f_print, f_end, user_data));
     chat->streamer->log_level = init_args.log_level;
+    chat->history.set_mm_tags(args.multimedia_file_tags[0], args.multimedia_file_tags[1]);
 
     try
     {
@@ -1734,6 +1780,13 @@ static void chatllm_continue_chat(Chat * chat)
 
 int chatllm_user_input(struct chatllm_obj* obj, const char* utf8_str)
 {
+    chatllm_multimedia_msg_prepare(obj);
+    chatllm_multimedia_msg_append(obj, "text", utf8_str);
+    return chatllm_user_input_multimedia_msg(obj);
+}
+
+int chatllm_user_input_multimedia_msg(struct chatllm_obj* obj)
+{
     int r = 0;
     DEF_CHAT_STREAMER();
     auto role_user = chat->gen_config.reversed_role ? chatllm::MsgRole::Assistant : chatllm::MsgRole::User;
@@ -1744,7 +1797,7 @@ int chatllm_user_input(struct chatllm_obj* obj, const char* utf8_str)
     if (chat->pipeline->is_loaded() && (chat->pipeline->model->get_purpose() != chatllm::ModelPurpose::Chat))
         return -1;
 
-    chat->history.push_back(utf8_str, role_user);
+    chat->history.push_back(chat->content_scratch, role_user);
 
 generate:
     std::string output = chat->pipeline->chat(chat->history, chat->gen_config, streamer);
@@ -1772,6 +1825,11 @@ generate:
 int chatllm_async_user_input(struct chatllm_obj* obj, const char* utf8_str)
 {
     ASYNC_FUN_BODY(chatllm_user_input(obj, utf8_str));
+}
+
+int chatllm_async_user_input_multimedia_msg(struct chatllm_obj* obj)
+{
+    ASYNC_FUN_BODY(chatllm_user_input_multimedia_msg(obj));
 }
 
 int chatllm_ai_continue(struct chatllm_obj* obj, const char* utf8_str)
@@ -1830,7 +1888,7 @@ int chatllm_async_tool_completion(struct chatllm_obj* obj, const char* utf8_str)
     ASYNC_FUN_BODY(chatllm_tool_completion(obj, utf8_str));
 }
 
-int chatllm_text_embedding(struct chatllm_obj* obj, const char* utf8_str)
+int chatllm_text_embedding(struct chatllm_obj* obj, const char* utf8_str, int purpose)
 {
     int r = 0;
     DEF_CHAT_STREAMER();
@@ -1838,9 +1896,11 @@ int chatllm_text_embedding(struct chatllm_obj* obj, const char* utf8_str)
     if (!chat->pipeline->is_loaded() || (chat->pipeline->model->get_purpose() != chatllm::ModelPurpose::TextEmbedding))
         return -1;
 
+    chatllm::BaseTokenizer::EmbeddingPurpose purp = (chatllm::BaseTokenizer::EmbeddingPurpose)purpose;
+
     std::vector<float> result;
     std::string input(utf8_str);
-    chat->pipeline->text_embedding(input, chat->gen_config, result);
+    chat->pipeline->text_embedding(input, chat->gen_config, result, purp);
 
     std::ostringstream oss;
     for (size_t i = 0; i < result.size() - 1; i++)
@@ -1855,9 +1915,9 @@ int chatllm_text_embedding(struct chatllm_obj* obj, const char* utf8_str)
     return r;
 }
 
-int chatllm_async_text_embedding(struct chatllm_obj* obj, const char* utf8_str)
+int chatllm_async_text_embedding(struct chatllm_obj* obj, const char* utf8_str, int purpose)
 {
-    ASYNC_FUN_BODY(chatllm_text_embedding(obj, utf8_str));
+    ASYNC_FUN_BODY(chatllm_text_embedding(obj, utf8_str, purpose));
 }
 
 int chatllm_text_tokenize(struct chatllm_obj* obj, const char* utf8_str)
