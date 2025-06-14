@@ -3,6 +3,7 @@ module;
 #include <bit>
 #include <memory>
 #include <span>
+#include <vector>
 #include "block.h"
 #include "common.h"
 #include "cuda_pool.h"

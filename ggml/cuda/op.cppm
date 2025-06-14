@@ -1,6 +1,7 @@
 module;
 #include <assert.h>
 #include <bit>
+#include <vector>
 #include "common.h"
 #include "cu/cuda_func.h"
 #include "vendor_constant.h"

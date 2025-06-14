@@ -1,5 +1,7 @@
 module;
 #include <cstring>
+#include <map>
+#include <memory>
 #include <set>
 #include <stdarg.h>
 

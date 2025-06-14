@@ -1,6 +1,7 @@
 module;
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 #include <algorithm>
 #include <bit>
 #include <memory>
@@ -9,6 +10,7 @@ module;
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <vector>
 #include "inplace_vector.hpp"
 
 #ifdef _WIN32

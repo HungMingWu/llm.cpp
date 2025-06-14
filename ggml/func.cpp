@@ -3,6 +3,7 @@ module;
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 

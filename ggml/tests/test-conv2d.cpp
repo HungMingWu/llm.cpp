@@ -4,6 +4,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <print>
 #include <string>
 #include <vector>

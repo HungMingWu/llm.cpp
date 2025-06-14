@@ -2,6 +2,7 @@ module;
 #include <assert.h>
 #include <float.h>
 #include <math.h>
+#include <string.h>
 #include <algorithm>
 #include <bit>
 #include <barrier>

@@ -1,6 +1,7 @@
 module;
 #include <cstdlib>
 #include <numeric>
+#include <span>
 #include <string_view>
 #include "inplace_vector.hpp"
 #define GGML_ASSERT(...)

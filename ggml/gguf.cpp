@@ -1,6 +1,7 @@
 module;
-#include <stdio.h>
 #include <assert.h>
+#include <stdio.h>
+#include <string.h>
 #include <optional>
 #include <print>
 #include <string_view>

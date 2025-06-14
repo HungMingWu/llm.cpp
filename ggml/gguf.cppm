@@ -1,6 +1,7 @@
 module;
 #include <assert.h>
 #include <stdint.h>
+#include <string.h>
 #include <map>
 #include <optional>
 #include <span>

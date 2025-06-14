@@ -1,8 +1,10 @@
 module;
+#include <string.h>
 #include <functional>
 #include <memory>
 #include <random>
 #include <ranges>
+#include <set>
 #include <span>
 #include "../basics.h"
 #include "../tokenizer.h"

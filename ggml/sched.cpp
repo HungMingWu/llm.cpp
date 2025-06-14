@@ -6,6 +6,7 @@ module;
 #include <optional>
 #include <ranges>
 #include <string>
+#include <unordered_map>
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_LOG_ERROR(...)

@@ -733,7 +733,7 @@ void ggml_compute_forward_bicubic(ggml_tensor* dst, int ith, int nth, void* user
     }
 }
 
-void ggml_custom_merge_patch(struct ggml_tensor* dst, const struct ggml_tensor* src, int ith, int nth, const ggml::merge_patch_param* param)
+void ggml_custom_merge_patch(ggml_tensor* dst, const ggml_tensor* src, int ith, int nth, const ggml::merge_patch_param* param)
 {
     const int kernel_height = param->merge_kernel_size[0];
     const int kernel_width = param->merge_kernel_size[1];
@@ -773,7 +773,7 @@ void ggml_custom_merge_patch(struct ggml_tensor* dst, const struct ggml_tensor* 
     }
 }
 
-void ggml_custom_merge_patch(struct ggml_tensor* dst, int ith, int nth, void* userdata)
+void ggml_custom_merge_patch(ggml_tensor* dst, int ith, int nth, void* userdata)
 {
     const ggml::merge_patch_param* param = (const ggml::merge_patch_param*)userdata;
 

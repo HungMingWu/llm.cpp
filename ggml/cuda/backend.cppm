@@ -1,6 +1,7 @@
 module;
 #include <memory>
 #include <string>
+#include <vector>
 #include "common.h"
 #include "cuda_pool.h"
 

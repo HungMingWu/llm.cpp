@@ -10,6 +10,7 @@ module;
 #include <locale>
 #include <random>
 #include <regex>
+#include <set>
 #include <string>
 #include <functional>
 

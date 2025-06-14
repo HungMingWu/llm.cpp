@@ -1,6 +1,7 @@
 module;
-#include <bit>
 #include <assert.h>
+#include <stdint.h>
+#include <bit>
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
 module ggml;

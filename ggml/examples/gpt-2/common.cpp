@@ -1,5 +1,6 @@
 module;
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <map>
 #include <print>

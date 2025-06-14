@@ -1,7 +1,9 @@
 module;
 #include <bit>
 #include <memory>
+#include <span>
 #include <string>
+#include <vector>
 #include "common.h"
 #include "vendors/cuda.h"
 #define GGML_ASSERT(...)

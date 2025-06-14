@@ -1,5 +1,6 @@
 module;
 #include <assert.h>
+#include <stdint.h>
 #include <array>
 #include <string_view>
 #define GGML_ASSERT(...) assert(__VA_ARGS__)

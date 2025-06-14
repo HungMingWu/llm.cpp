@@ -1,7 +1,9 @@
 module;
 #include <assert.h>
+#include <stdint.h>
 #include <algorithm>
 #include <ranges>
+#include <vector>
 #define AT_PRINTF(...)
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_LOG_DEBUG(...)

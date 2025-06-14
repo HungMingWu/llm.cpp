@@ -1,6 +1,9 @@
 ﻿module;
 #include <assert.h>
 #include <float.h>
+#include <math.h>
+#include <string.h>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <forward_list>

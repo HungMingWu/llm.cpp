@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <memory>
 #include <numeric>
 #include <print>
 #include <stdexcept>

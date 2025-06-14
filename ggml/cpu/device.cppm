@@ -1,4 +1,5 @@
 module;
+#include <string.h>
 #include <bit>
 #include <span>
 #include <string>
