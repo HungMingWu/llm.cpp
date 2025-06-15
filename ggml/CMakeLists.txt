@@ -112,5 +112,12 @@ target_link_libraries(libggml
     STDEXEC::stdexec
 )
 
+if (LINUX)
+target_link_libraries(libggml
+  PRIVATE
+    m
+)
+endif()
+
 add_subdirectory(examples)
 add_subdirectory(tests)
