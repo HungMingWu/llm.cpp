@@ -8,6 +8,16 @@ module;
 #include <bit>
 #include "block.h"
 #include "table.h"
+
+#if __has_include(<experimental/simd>)
+#include <ranges>
+#include <experimental/simd>
+namespace stdx = std::experimental;
+namespace stdv = std::views;
+namespace stdr = std::ranges;
+#define EXPERIMENTAL_SIMD
+#endif
+
 #define UNUSED(x) (void)(x)
 
 export module ggml:cpu.vec_dot;
@@ -16,14 +26,38 @@ import :types;
 
 using ggml_float = double;
 
+#ifdef EXPERIMENTAL_SIMD
+template <typename T>
+struct underlying_type {
+        using type = T;
+};
+
+template <>
+struct underlying_type<ggml_fp16_t> {
+        using type = uint16_t;
+};
+
+template <>
+struct underlying_type<ggml_bf16_t> {
+        using type = uint16_t;
+};
+
+template <typename T>
+using underlying_t = typename underlying_type<T>::type;
+#endif
+
 export
 {
     template <typename T>
     float ggml_vec_dot(int n, const T* x, const T* y, int nrc)
     {
         assert(nrc == 1);
+	ggml_float sumf = 0.0;
+#ifdef EXPERIMENTAL_SIMD
+	using simd_t = stdx::native_simd<underlying_t<T>>;
+	simd_t temp(reinterpret_cast<const underlying_t<T>*>(x), stdx::element_aligned);
+#endif
         // Waiting for C++26 SIMD
-        ggml_float sumf = 0.0;
         for (int i = 0; i < n; ++i) {
             sumf += ggml_float(toFloat32(x[i])) * ggml_float(toFloat32(y[i]));
         }
