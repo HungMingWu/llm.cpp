@@ -1556,39 +1556,19 @@ namespace chatllm
         return ModelFactory::load_model_again(*loader, args);
     }
 
-    ModelSessionMemory::ModelSessionMemory() : n_past(0), n_past_offset(0)
-    {
-    }
-
-    void ModelSessionMemory::prepare(int id)
-    {
-        while (id >= (int)buffers.size())
-        {
-            buffers.push_back(std::vector<uint8_t>());
-        }
-    }
-
-    void* ModelSessionMemory::prepare_buffer(int id, size_t size)
+    std::span<std::byte> ModelSessionMemory::prepare_buffer(int id, size_t size)
     {
         if (id >= 0)
         {
-            prepare(id);
             buffers[id].resize(size);
-            return get_buffer(id);
+            return buffers[id];
         }
-        return nullptr;
+        return std::span<std::byte>{};
     }
 
-    void* ModelSessionMemory::get_buffer(int id, size_t* size)
+    std::span<std::byte> ModelSessionMemory::get_buffer(int id)
     {
-        if (id >= 0)
-        {
-            prepare(id);
-            if (size)
-                *size = buffers[id].size();
-            return buffers[id].data();
-        }
-        return nullptr;
+        return (id >= 0) ? buffers[id] : std::span<std::byte>{};
     }
 
     void ModelSessionMemory::set_n_past(int n_past)
@@ -1609,17 +1589,6 @@ namespace chatllm
     int ModelSessionMemory::get_n_past_offset(void) const
     {
         return n_past_offset;
-    }
-
-    void ModelSessionMemory::copy_from(const ModelSessionMemory& sess)
-    {
-        if (this == &sess) return;
-
-        n_past = sess.n_past;
-        n_past_offset = sess.n_past_offset;
-
-        for (int i = 0; i < (int)buffers.size(); i++)
-            memcpy(buffers[i].data(), sess.buffers[i].data(), buffers[i].size());
     }
 
     void ModelSessionMemory::dump(const char* fn)
@@ -2687,7 +2656,7 @@ namespace chatllm
 
                 beams[i].clear(selected_traces[selection]);
                 beams[i].add(tok_id, beams[beam_id].scores[tok_id]);
-                beams[i].session.copy_from(beams[beam_id].session);
+                beams[i].session = beams[beam_id].session;
             }
 
             int selection = (int)remaining_beams.size();
@@ -2703,7 +2672,7 @@ namespace chatllm
 
                 beams[i].clear(selected_traces[selection]);
                 beams[i].add(tok_id, beams[beam_id].scores[tok_id]);
-                beams[i].session.copy_from(beams[beam_id].session);
+                beams[i].session = beams[beam_id].session;
 
                 selection++;
             }

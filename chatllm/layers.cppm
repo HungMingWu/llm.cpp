@@ -261,8 +261,8 @@ export namespace chatllm
 
         virtual size_t get_cache_size(void) const { return 0; }
         virtual void   set_cache_buffer(BackendBuffer* buf) {}
-        virtual size_t read_cache_data(void* buffer, size_t buffer_size) const { return 0; }
-        virtual size_t write_cache_data(const void* buffer, size_t buffer_size) { return 0; }
+        virtual size_t read_cache_data(std::span<std::byte> buffer) const { return 0; }
+        virtual size_t write_cache_data(std::span<const std::byte> buffer) { return 0; }
 
         virtual void load(const std::string& path, TensorLoader* loader) {}
 
@@ -823,14 +823,14 @@ export namespace chatllm
             return attention.set_cache_buffer(buffer);
         }
 
-        size_t read_cache_data(void* buffer, size_t buffer_size) const override
+        size_t read_cache_data(std::span<std::byte> buffer) const override
         {
-            return attention.read_cache_data(buffer, buffer_size);
+            return attention.read_cache_data(buffer);
         }
 
-        size_t write_cache_data(const void* buffer, size_t buffer_size) override
+        size_t write_cache_data(std::span<const std::byte> buffer) override
         {
-            return attention.write_cache_data(buffer, buffer_size);
+            return attention.write_cache_data(buffer);
         }
 
         void load(const std::string& path, TensorLoader* loader) override
@@ -1303,8 +1303,8 @@ export namespace chatllm
             }
         }
 
-        size_t read_cache_data(void* buffer, size_t buffer_size) const override;
-        size_t write_cache_data(const void* buffer, size_t buffer_size) override;
+        size_t read_cache_data(std::span<std::byte> buffer) const override;
+        size_t write_cache_data(std::span<const std::byte> buffer) override;
 
     protected:
         virtual void before_forward(ComputeContext* ctx, const int n_past, const int qlen);
@@ -1972,14 +1972,14 @@ export namespace chatllm
             return attention.set_cache_buffer(buffer);
         }
 
-        size_t read_cache_data(void* buffer, size_t buffer_size) const override
+        size_t read_cache_data(std::span<std::byte> buffer) const override
         {
-            return attention.read_cache_data(buffer, buffer_size);
+            return attention.read_cache_data(buffer);
         }
 
-        size_t write_cache_data(const void* buffer, size_t buffer_size) override
+        size_t write_cache_data(std::span<const std::byte> buffer) override
         {
-            return attention.write_cache_data(buffer, buffer_size);
+            return attention.write_cache_data(buffer);
         }
 
     public:

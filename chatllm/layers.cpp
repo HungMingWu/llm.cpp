@@ -1738,43 +1738,39 @@ namespace chatllm
         prepare_pos_tensor(ctx, n_past, qlen);
     }
 
-    size_t KVCacheAttention::read_cache_data(void* buffer, size_t buffer_size) const
+    size_t KVCacheAttention::read_cache_data(std::span<std::byte> buffer) const
     {
         size_t r = 0;
-        uint8_t* p = (uint8_t*)buffer;
         if (k_cache)
         {
-            size_t s = ggml::nbytes(k_cache) <= buffer_size ? ggml::nbytes(k_cache) : buffer_size;
-            Backend::read_tensor_data(k_cache, p, 0, s);
+            size_t s = ggml::nbytes(k_cache) <= buffer.size() ? ggml::nbytes(k_cache) : buffer.size();
+            Backend::read_tensor_data(k_cache, buffer.data(), 0, s);
             r += s;
-            buffer_size -= s;
-            p += s;
+            buffer = buffer.subspan(s);
         }
-        if (v_cache && (buffer_size > 0))
+        if (v_cache && (buffer.size() > 0))
         {
-            size_t s = ggml::nbytes(v_cache) <= buffer_size ? ggml::nbytes(v_cache) : buffer_size;
-            Backend::read_tensor_data(v_cache, p, 0, s);
+            size_t s = ggml::nbytes(v_cache) <= buffer.size() ? ggml::nbytes(v_cache) : buffer.size();
+            Backend::read_tensor_data(v_cache, buffer.data(), 0, s);
             r += s;
         }
         return r;
     }
 
-    size_t KVCacheAttention::write_cache_data(const void* buffer, size_t buffer_size)
+    size_t KVCacheAttention::write_cache_data(std::span<const std::byte> buffer)
     {
         size_t r = 0;
-        const uint8_t* p = (const uint8_t*)buffer;
         if (k_cache)
         {
-            size_t s = ggml::nbytes(k_cache) <= buffer_size ? ggml::nbytes(k_cache) : buffer_size;
-            Backend::write_tensor_data(k_cache, p, 0, s);
+            size_t s = ggml::nbytes(k_cache) <= buffer.size() ? ggml::nbytes(k_cache) : buffer.size();
+            Backend::write_tensor_data(k_cache, buffer.data(), 0, s);
             r += s;
-            buffer_size -= s;
-            p += s;
+            buffer = buffer.subspan(s);
         }
-        if (v_cache && (buffer_size > 0))
+        if (v_cache && (buffer.size() > 0))
         {
-            size_t s = ggml::nbytes(v_cache) <= buffer_size ? ggml::nbytes(v_cache) : buffer_size;
-            Backend::write_tensor_data(v_cache, p, 0, s);
+            size_t s = ggml::nbytes(v_cache) <= buffer.size() ? ggml::nbytes(v_cache) : buffer.size();
+            Backend::write_tensor_data(v_cache, buffer.data(), 0, s);
             r += s;
         }
         return r;

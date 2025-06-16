@@ -102,12 +102,12 @@ namespace chatllm
         if (fwrite(&state, sizeof(state), 1, f) != 1)
             return -1;
 
-        std::vector<uint8_t> buffer;
+        std::vector<std::byte> buffer;
 
         for (const auto &layer : layers)
         {
             buffer.resize(layer->get_cache_size());
-            size_t size = layer->read_cache_data(buffer.data(), buffer.size());
+            size_t size = layer->read_cache_data(buffer);
             if (size != buffer.size())
                 return -4;
             if (fwrite(buffer.data(), 1, size, f) != size)
@@ -125,14 +125,14 @@ namespace chatllm
         if (state.cache_size != cache_size)
             return -1;
 
-        std::vector<uint8_t> buffer;
+        std::vector<std::byte> buffer;
 
         for (const auto &layer : layers)
         {
             buffer.resize(layer->get_cache_size());
             if (fread(buffer.data(), 1, buffer.size(), f) != buffer.size())
                 return -4;
-            size_t size = layer->write_cache_data(buffer.data(), buffer.size());
+            size_t size = layer->write_cache_data(buffer);
             if (size != buffer.size())
                 return -3;
         }
@@ -146,8 +146,8 @@ namespace chatllm
         {
             const auto &layer = layers[layer_id];
             const size_t size = layer->get_cache_size();
-            void* buf = session.prepare_buffer(layer_id, size);
-            if (layer->read_cache_data(buf, size) != size)
+            std::span<std::byte> buf = session.prepare_buffer(layer_id, size);
+            if (layer->read_cache_data(buf) != size)
                 return -1;
         }
 
@@ -159,10 +159,9 @@ namespace chatllm
         for (size_t layer_id = 0; layer_id < layers.size(); layer_id++)
         {
             const auto &layer = layers[layer_id];
-            size_t size = 0;
-            void* buf = session.get_buffer(layer_id, &size);
-            if (size != layer->get_cache_size()) return -1;
-            if (layer->write_cache_data(buf, size) != size)
+            std::span<std::byte> buf = session.get_buffer(layer_id);
+            if (buf.size() != layer->get_cache_size()) return -1;
+            if (layer->write_cache_data(buf) != buf.size())
                 return -3;
         }
 

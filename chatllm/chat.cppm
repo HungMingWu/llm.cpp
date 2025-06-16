@@ -822,10 +822,8 @@ export namespace chatllm
     class ModelSessionMemory
     {
     public:
-        ModelSessionMemory();
-
-        void* prepare_buffer(int id, size_t size);
-        void* get_buffer(int id, size_t* size = nullptr);
+        std::span<std::byte> prepare_buffer(int id, size_t size);
+        std::span<std::byte> get_buffer(int id);
 
         void set_n_past(int n_past);
         void set_n_past_offset(int n_past_offset);
@@ -833,15 +831,12 @@ export namespace chatllm
         int get_n_past(void) const;
         int get_n_past_offset(void) const;
 
-        void copy_from(const ModelSessionMemory& sess);
-
         void dump(const char* fn);
 
     private:
-        void prepare(int id);
-        std::vector<std::vector<uint8_t>> buffers;
-        int n_past;
-        int n_past_offset;
+        std::unordered_map<int, std::vector<std::byte>> buffers;
+        int n_past = 0;
+        int n_past_offset = 0;
     };
 
     class AbstractModel
