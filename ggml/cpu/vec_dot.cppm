@@ -26,16 +26,39 @@ import :types;
 
 using ggml_float = double;
 
+#ifdef EXPERIMENTAL_SIMD
+//template <>
+//  struct std::experimental:__is_vectorizable<ggml_fp16_t> : public std::true_type {};
+namespace std::experimental {
+	template <>
+	inline constexpr bool __is_vectorizable_v<ggml_fp16_t> = true;
+	template <>
+	inline constexpr bool __is_vectorizable_v<ggml_bf16_t> = true;
+
+#if 0
+	template <typename _Abi>
+	  struct _SimdTraits<ggml_fp16_t, _Abi, void_t<typename _Abi::template _IsValid<uint16_t>>>
+	  : _Abi::template __traits<uint16_t> {};
+
+	template <typename _Abi>
+	  struct _SimdTraits<ggml_bf16_t, _Abi, void_t<typename _Abi::template _IsValid<uint16_t>>>
+	  : _Abi::template __traits<uint16_t> {};
+#endif
+}
+#endif
+
 export
 {
     template <typename T>
     float ggml_vec_dot(int n, const T* x, const T* y, int nrc)
     {
         assert(nrc == 1);
+	ggml_float sumf = 0.0;
 #ifdef EXPERIMENTAL_SIMD
+	using simd_t = stdx::native_simd<T>;
+	simd_t temp(x, stdx::element_aligned);
 #endif
         // Waiting for C++26 SIMD
-        ggml_float sumf = 0.0;
         for (int i = 0; i < n; ++i) {
             sumf += ggml_float(toFloat32(x[i])) * ggml_float(toFloat32(y[i]));
         }
