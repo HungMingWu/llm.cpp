@@ -8,6 +8,16 @@ module;
 #include <bit>
 #include "block.h"
 #include "table.h"
+
+#if __has_include(<experimental/simd>)
+#include <ranges>
+#include <experimental/simd>
+namespace stdx = std::experimental;
+namespace stdv = std::views;
+namespace stdr = std::ranges;
+#define EXPERIMENTAL_SIMD
+#endif
+
 #define UNUSED(x) (void)(x)
 
 export module ggml:cpu.vec_dot;
@@ -22,6 +32,8 @@ export
     float ggml_vec_dot(int n, const T* x, const T* y, int nrc)
     {
         assert(nrc == 1);
+#ifdef EXPERIMENTAL_SIMD
+#endif
         // Waiting for C++26 SIMD
         ggml_float sumf = 0.0;
         for (int i = 0; i < n; ++i) {
