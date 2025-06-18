@@ -12,6 +12,7 @@ endfunction()
 add_library(libggml OBJECT)
 
 add_subdirectory(cpu)
+add_subdirectory(rpc)
 add_subdirectory(stdexec)
 find_package(CUDAToolkit)
 
@@ -112,7 +113,12 @@ target_link_libraries(libggml
     STDEXEC::stdexec
 )
 
-if (LINUX)
+if (WIN32)
+target_link_libraries(libggml
+  PRIVATE
+    Ws2_32
+)
+elseif (LINUX)
 target_link_libraries(libggml
   PRIVATE
     m

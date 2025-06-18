@@ -112,11 +112,11 @@ public:
 		CUDA_CHECK(cudaFree(dev_ptr));
 	}
 
-	void init_tensor(ggml_tensor* tensor) override
+	ggml_status init_tensor(ggml_tensor* tensor) override
 	{
 		if (tensor->view_src != nullptr) {
 			assert(tensor->view_src->buffer->get_type() == get_type());
-			return;
+			return GGML_STATUS_SUCCESS;
 		}
 
 		if (ggml_is_quantized(tensor->type) && tensor->view_src == nullptr && usage != GGML_BACKEND_BUFFER_USAGE_COMPUTE) {
@@ -129,6 +129,7 @@ public:
 				CUDA_CHECK(cudaMemset((char*)tensor->data + original_size, 0, padded_size - original_size));
 			}
 		}
+		return GGML_STATUS_SUCCESS;
 	}
 
 	void memset_tensor(ggml_tensor* tensor, uint8_t value, size_t offset, size_t size) override
@@ -200,7 +201,7 @@ private:
 	}
 public:
 	using ggml_backend_buffer::ggml_backend_buffer;
-	void init_tensor(ggml_tensor* tensor) override;
+	ggml_status init_tensor(ggml_tensor* tensor) override;
 	void set_tensor(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
 	void get_tensor(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
 

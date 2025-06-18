@@ -64,7 +64,7 @@ bool ggml_is_numa()
 export {
 void ggml_set_op_params(ggml_tensor& tensor, const void* params, size_t params_size);
 ggml_tensor* ggml_dup_tensor(ggml_context* ctx, const ggml_tensor* src);
-void ggml_backend_view_init(ggml_tensor* tensor);
+ggml_status ggml_backend_view_init(ggml_tensor* tensor);
 ggml_tensor* ggml_dup_tensor_layout(ggml_context* ctx, const ggml_tensor* tensor);
 }
 
@@ -265,7 +265,7 @@ export
 		return (x + n - 1) & ~(n - 1);
 	}
 
-	void ggml_backend_tensor_alloc(ggml_backend_buffer_t buffer, struct ggml_tensor* tensor, void* addr) {
+	ggml_status ggml_backend_tensor_alloc(ggml_backend_buffer_t buffer, ggml_tensor* tensor, void* addr) {
 		GGML_ASSERT(tensor->buffer == NULL);
 		GGML_ASSERT(tensor->data == NULL);
 		GGML_ASSERT(tensor->view_src == NULL);
@@ -275,7 +275,7 @@ export
 
 		tensor->buffer = buffer;
 		tensor->data = addr;
-		buffer->init_tensor(tensor);
+		return buffer->init_tensor(tensor);
 	}
 
 	std::unique_ptr<ggml_context> ggml_init()

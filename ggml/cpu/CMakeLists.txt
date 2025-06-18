@@ -29,7 +29,8 @@ target_sources(libggml
       op/upscale.cppm
   PRIVATE
       backend.cpp
+      buffer_type.cpp
       device.cpp
       func.cpp
       plan.cpp
- "buffer_type.cpp")
+)
