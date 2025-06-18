@@ -135,28 +135,6 @@ static std::string show_default_thought_tags(void)
     return tags;
 }
 
-static bool is_same_command_option(const char* a, const char* b)
-{
-    while (*a && *b)
-    {
-        char ca = *a;
-        char cb = *b;
-        if (ca == '-') ca = '_';
-        if (cb == '-') cb = '_';
-        if (ca != cb)
-            return false;
-        a++;
-        b++;
-    }
-
-    return *a == *b;
-}
-
-bool is_same_command_option(const std::string& a, const std::string& b)
-{
-    return is_same_command_option(a.c_str(), b.c_str());
-}
-
 void usage(const std::string& prog)
 {
     Args args;
@@ -312,7 +290,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
     const size_t argc = argv.size();
 
 #define handle_para0(fmt1, field, f)        \
-        else if ((is_same_command_option(arg, fmt1)))      \
+        else if ((utils::is_same_command_option(arg, fmt1)))      \
         {                                                                   \
             c++;                                                            \
             if (c < argc)                                                   \
@@ -320,7 +298,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
         }
 
 #define handle_param(fmt1, fmt2, field, f)    \
-        else if ((is_same_command_option(arg, fmt1)) || (is_same_command_option(arg, fmt2)))      \
+        else if ((utils::is_same_command_option(arg, fmt1)) || (utils::is_same_command_option(arg, fmt2)))      \
         {                                                                   \
             c++;                                                            \
             if (c < argc)                                                   \
@@ -328,7 +306,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
         }
 
 #define append_param(fmt1, field, f)        \
-        else if ((is_same_command_option(arg, fmt1)))      \
+        else if ((utils::is_same_command_option(arg, fmt1)))      \
         {                                                                   \
             c++;                                                            \
             if (c < argc)                                                   \
@@ -336,7 +314,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
         }
 
 #define handle_flag(field)    \
-        else if ((is_same_command_option(arg, "+" #field)) || (is_same_command_option(arg, "--" #field))) \
+        else if ((utils::is_same_command_option(arg, "+" #field)) || (utils::is_same_command_option(arg, "--" #field))) \
         {                                                                   \
             args.field = true;                                              \
         }
@@ -348,7 +326,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
         while (c < argc)
         {
             const char* arg = argv[c].c_str();
-            if ((is_same_command_option(arg, "--help")) || (is_same_command_option(arg, "-h")) || (is_same_command_option(arg, "-?")))
+            if ((utils::is_same_command_option(arg, "--help")) || (utils::is_same_command_option(arg, "-h")) || (utils::is_same_command_option(arg, "-?")))
             {
                 args.show_help = true;
             }
@@ -356,11 +334,11 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
             {
                 args.interactive = true;
             }
-            else if (is_same_command_option(arg, "--multi"))
+            else if (utils::is_same_command_option(arg, "--multi"))
             {
                 args.multi_line = true;
             }
-            else if (is_same_command_option(arg, "--hide_banner"))
+            else if (utils::is_same_command_option(arg, "--hide_banner"))
             {
                 args.show_banner = false;
             }
@@ -373,7 +351,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
                 handle_flag(rerank_rewrite)
                 handle_flag(moe_on_cpu)
                 handle_flag(detect_thoughts)
-            else if (is_same_command_option(arg, "--format"))
+            else if (utils::is_same_command_option(arg, "--format"))
             {
                 c++;
                 if (c < argc)
@@ -386,7 +364,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
                         args.format = chatllm::ChatFormat::CHAT;
                 }
             }
-            else if (is_same_command_option(arg, "--save_session"))
+            else if (utils::is_same_command_option(arg, "--save_session"))
             {
                 c++;
                 if (c + 1 < argc)
@@ -396,7 +374,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
                     c++;
                 }
             }
-            else if (is_same_command_option(arg, "--kv"))
+            else if (utils::is_same_command_option(arg, "--kv"))
             {
                 while (c + 2 < argc)
                 {
@@ -404,7 +382,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
                     c += 2;
                 }
             }
-            else if (is_same_command_option(arg, "--vector_store"))
+            else if (utils::is_same_command_option(arg, "--vector_store"))
             {
                 c++;
                 if (c < argc)
@@ -417,7 +395,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
                     args.vector_stores.at(args.cur_vs_name).push_back(argv[c]);
                 }
             }
-            else if (is_same_command_option(arg, "--thought_tags"))
+            else if (utils::is_same_command_option(arg, "--thought_tags"))
             {
                 if (c + 2 < argc)
                 {
@@ -427,7 +405,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
                     args.detect_thoughts = true;
                 }
             }
-            else if (is_same_command_option(arg, "--multimedia_file_tags"))
+            else if (utils::is_same_command_option(arg, "--multimedia_file_tags"))
             {
                 if (c + 2 < argc)
                 {
@@ -436,7 +414,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
                     c += 2;
                 }
             }
-            else if (is_same_command_option(arg, "--set"))
+            else if (utils::is_same_command_option(arg, "--set"))
             {
                 if (c + 2 < argc)
                 {
@@ -444,7 +422,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
                     c += 2;
                 }
             }
-            else if (is_same_command_option(arg, "-mgl") || is_same_command_option(arg, "--model_gpu_layers"))
+            else if (utils::is_same_command_option(arg, "-mgl") || utils::is_same_command_option(arg, "--model_gpu_layers"))
             {
                 if (c + 2 < argc)
                 {
@@ -452,7 +430,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
                     c += 2;
                 }
             }
-            else if (is_same_command_option(arg, "-ngl") || is_same_command_option(arg, "--n_gpu_layers"))
+            else if (utils::is_same_command_option(arg, "-ngl") || utils::is_same_command_option(arg, "--n_gpu_layers"))
             {
                 c++;
                 if (c < argc)

@@ -577,4 +577,61 @@ namespace utils
         // Note: theoretically unsafe!
         return std::tmpnam(nullptr);
     }
+
+    bool is_same_command_option(const char* a, const char* b)
+    {
+        while (*a && *b)
+        {
+            char ca = *a;
+            char cb = *b;
+            if (ca == '-') ca = '_';
+            if (cb == '-') cb = '_';
+            if (ca != cb)
+                return false;
+            a++;
+            b++;
+        }
+
+        return *a == *b;
+    }
+
+    bool is_same_command_option(const std::string& a, const std::string& b)
+    {
+        return is_same_command_option(a.c_str(), b.c_str());
+    }
+
+    int         get_opt(const std::map<std::string, std::string>& options, const char* key, int def)
+    {
+        auto s = get_opt(options, key, "");
+        return s == "" ? def : std::atoi(s.c_str());
+    }
+
+    double      get_opt(const std::map<std::string, std::string>& options, const char* key, double def)
+    {
+        auto s = get_opt(options, key, "");
+        return s == "" ? def : std::atof(s.c_str());
+    }
+
+    bool        get_opt(const std::map<std::string, std::string>& options, const char* key, const bool def)
+    {
+        auto s = get_opt(options, key, "");
+        if (s == "") return def;
+        if (s == "0") return false;
+        if (s == "false") return false;
+        return true;
+    }
+
+    std::string get_opt(const std::map<std::string, std::string>& options, const char* key, const std::string& def)
+    {
+        return get_opt(options, key, def.c_str());
+    }
+
+    std::string get_opt(const std::map<std::string, std::string>& options, const char* key, const char* def)
+    {
+        for (auto k : options)
+        {
+            if (is_same_command_option(k.first, key)) return k.second;
+        }
+        return def;
+    }
 }

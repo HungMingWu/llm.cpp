@@ -1255,7 +1255,9 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
                     assert(src->buffer);
                     assert(buffer_type_from_device(src->buffer->get_type(), device));
                 }
-#endif
+#else
+                GGML_UNUSED(integrated);
+#endif // NDEBUG
 
                 bool ok = compute_forward(node);
                 if (!ok) {

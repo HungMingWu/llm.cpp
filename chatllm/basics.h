@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <sstream>
 #include <ranges>
+#include <map>
 
 namespace chatllm
 {
@@ -87,6 +88,15 @@ namespace utils
 
     // create a unique temp file name (full path)
     std::string tmpname(void);
+
+    bool is_same_command_option(const char* a, const char* b);
+    bool is_same_command_option(const std::string& a, const std::string& b);
+
+    int         get_opt(const std::map<std::string, std::string>& options, const char* key, int def);
+    double      get_opt(const std::map<std::string, std::string>& options, const char* key, double def);
+    bool        get_opt(const std::map<std::string, std::string>& options, const char* key, const bool def);
+    std::string get_opt(const std::map<std::string, std::string>& options, const char* key, const char* def);
+    std::string get_opt(const std::map<std::string, std::string>& options, const char* key, const std::string& def);
 
     //#define TIME_STAMP (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
 }
