@@ -121,7 +121,7 @@ export
 		return true;
 	}
 
-	void ggml_backend_view_init(ggml_tensor* tensor) {
+	ggml_status ggml_backend_view_init(ggml_tensor* tensor) {
 		GGML_ASSERT(tensor->buffer == NULL);
 		GGML_ASSERT(tensor->view_src != NULL);
 		GGML_ASSERT(tensor->view_src->buffer != NULL);
@@ -129,7 +129,7 @@ export
 
 		tensor->buffer = tensor->view_src->buffer;
 		tensor->data = (char*)tensor->view_src->data + tensor->view_offs;
-		tensor->buffer->init_tensor(tensor);
+		return tensor->buffer->init_tensor(tensor);
 	}
 
 	bool ggml_are_same_shape(const ggml_tensor* t0, const struct ggml_tensor* t1) {

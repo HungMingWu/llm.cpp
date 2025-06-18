@@ -19,7 +19,7 @@ ggml_tensor_extra_gpu::~ggml_tensor_extra_gpu()
 	}
 }
 
-void cuda_split_backend_buffer::init_tensor(ggml_tensor* tensor)
+ggml_status cuda_split_backend_buffer::init_tensor(ggml_tensor* tensor)
 {
 	GGML_ASSERT(tensor->view_src == nullptr); // views of split tensors are not supported
 
@@ -62,6 +62,7 @@ void cuda_split_backend_buffer::init_tensor(ggml_tensor* tensor)
 			CUDA_CHECK(cudaEventCreateWithFlags(&it->second.events[id][is], cudaEventDisableTiming));
 		}
 	}
+	return GGML_STATUS_SUCCESS;
 }
 
 void cuda_split_backend_buffer::set_tensor(ggml_tensor* tensor, const void* data, size_t offset, size_t size)

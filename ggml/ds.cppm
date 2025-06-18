@@ -315,6 +315,13 @@ export {
         GGML_BACKEND_BUFFER_USAGE_COMPUTE = 2,
     };
 
+    enum ggml_status {
+        GGML_STATUS_ALLOC_FAILED = -2,
+        GGML_STATUS_FAILED = -1,
+        GGML_STATUS_SUCCESS = 0,
+        GGML_STATUS_ABORTED = 1,
+    };
+
     struct ggml_backend_buffer {
     protected:
         ggml_backend_buffer_type_t buft;
@@ -337,7 +344,9 @@ export {
             return base;
         }
         // (optional) initialize a tensor in the buffer (eg. add tensor extras)
-        virtual void init_tensor(ggml_tensor* tensor) {}
+        virtual ggml_status init_tensor(ggml_tensor* tensor) {
+            return GGML_STATUS_SUCCESS;
+        }
         // tensor data access
         virtual void memset_tensor(ggml_tensor* tensor, uint8_t value, size_t offset, size_t size) {};
         virtual void set_tensor(ggml_tensor* tensor, const void* data, size_t offset, size_t size) {};
@@ -634,13 +643,6 @@ export {
         cpp26::inplace_vector<ggml_tensor*, GGML_SCHED_MAX_SPLIT_INPUTS> inputs;
         // graph view of this split
         ggml_cgraph graph;
-    };
-
-    enum ggml_status {
-        GGML_STATUS_ALLOC_FAILED = -2,
-        GGML_STATUS_FAILED = -1,
-        GGML_STATUS_SUCCESS = 0,
-        GGML_STATUS_ABORTED = 1,
     };
 
     struct ggml_backend_sched {
