@@ -1812,3 +1812,30 @@ ggml_tensor* ggml_rope_ext_inplace(
 		ext_factor, attn_factor, beta_fast, beta_slow, true
 	);
 }
+
+ggml_tensor* ggml_roll(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	int                   shift0,
+	int                   shift1,
+	int                   shift2,
+	int                   shift3)
+{
+	GGML_ASSERT(a->nb[0] == ggml_type_size(a->type));
+	GGML_ASSERT(abs(shift0) < a->ne[0]);
+	GGML_ASSERT(abs(shift1) < a->ne[1]);
+	GGML_ASSERT(abs(shift2) < a->ne[2]);
+	GGML_ASSERT(abs(shift3) < a->ne[3]);
+
+	ggml_tensor* result = ggml_dup_tensor(ctx, a);
+
+	result->op_params[0] = std::bit_cast<int32_t>(shift0);
+	result->op_params[1] = std::bit_cast<int32_t>(shift1);
+	result->op_params[2] = std::bit_cast<int32_t>(shift2);
+	result->op_params[3] = std::bit_cast<int32_t>(shift3);
+
+	result->op = GGML_OP_ROLL;
+	result->src.push_back(a);
+
+	return result;
+}

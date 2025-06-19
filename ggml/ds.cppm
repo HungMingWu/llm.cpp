@@ -119,6 +119,7 @@ export {
         GGML_OP_UPSCALE, // nearest interpolate
         GGML_OP_PAD,
         GGML_OP_PAD_REFLECT_1D,
+        GGML_OP_ROLL,
         GGML_OP_ARANGE,
         GGML_OP_TIMESTEP_EMBEDDING,
         GGML_OP_ARGSORT,

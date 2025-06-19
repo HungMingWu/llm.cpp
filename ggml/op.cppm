@@ -583,4 +583,14 @@ export {
 		float attn_factor,
 		float beta_fast,
 		float beta_slow);
+
+	// Move tensor elements by an offset given for each dimension. Elements that
+	// are shifted beyond the last position are wrapped around to the beginning.
+	ggml_tensor* ggml_roll(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		int                   shift0,
+		int                   shift1,
+		int                   shift2,
+		int                   shift3);
 }
