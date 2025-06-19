@@ -1076,7 +1076,7 @@ extern "C" void test_interp(void)
     exit(0);
 }
 
-void ggml_compute_forward_bicubic(struct ggml_tensor* dst, int ith, int nth, void* userdata)
+void ggml_compute_forward_bicubic(ggml_tensor* dst, int ith, int nth, void* userdata)
 {
     switch (dst->type)
     {
