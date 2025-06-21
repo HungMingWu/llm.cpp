@@ -1,6 +1,7 @@
 module;
 #include <assert.h>
 #include <bit>
+#include <condition_variable>
 #include <memory>
 #include <span>
 #include <vector>
@@ -701,7 +702,7 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
 {
     const ggml_tensor* src0 = dst->src[0];
     const ggml_tensor* src1 = dst->src[1];
-    const bool split = to_cuda_buffer_type(src0->buffer->get_type()) != nullptr;
+    const bool split = to_split_buffer_type(src0->buffer->get_type()) != nullptr;
 
     bool use_mul_mat_vec = src0->type == GGML_TYPE_F16
         && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32
@@ -858,7 +859,7 @@ void ggml_backend_cuda::op_mul_mat(
 
     const int64_t src1_padded_col_size = GGML_PAD(ne10, MATRIX_ROW_PADDING);
 
-    const bool split = to_cuda_buffer_type(src0->buffer->get_type()) != nullptr;
+    const bool split = to_split_buffer_type(src0->buffer->get_type()) != nullptr;
     GGML_ASSERT(!(split && ne02 > 1));
     GGML_ASSERT(!(split && ne03 > 1));
     GGML_ASSERT(!(split && ne02 < ne12));
@@ -1277,6 +1278,11 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
 
                 CUDA_CHECK(cudaStreamEndCapture(cuda_ctx->stream(), &cuda_ctx->cuda_graph->graph));
                 graph_evaluated_or_captured = true; // CUDA graph has been captured
+
+                std::lock_guard<std::mutex> lock(ggml_cuda_lock);
+                if (ggml_cuda_lock_counter.fetch_sub(1, std::memory_order_relaxed) == 1) {
+                    ggml_cuda_lock_cv.notify_all();
+                }
             }
             else {
                 graph_evaluated_or_captured = true; // ggml graph has been directly evaluated
@@ -1363,9 +1369,18 @@ enum ggml_status ggml_backend_cuda::graph_compute(ggml_cgraph* cgraph)
 #endif
             }
         }
+        if (use_cuda_graph && cuda_graph_update_required) {
+            // Start CUDA graph capture
+            {
+                std::lock_guard<std::mutex> lock(ggml_cuda_lock);
+                ggml_cuda_lock_counter.fetch_add(1, std::memory_order_relaxed);
+            }
 
-        if (use_cuda_graph && cuda_graph_update_required) { // Start CUDA graph capture
             CUDA_CHECK(cudaStreamBeginCapture(cuda_ctx->stream(), cudaStreamCaptureModeRelaxed));
+        }
+
+        if (!use_cuda_graph) {
+            cuda_ctx->cuda_graph->use_cpy_indirection = false;
         }
 #endif
     }();
@@ -1403,8 +1418,9 @@ void ggml_backend_cuda::event_wait(ggml_backend_event_t event)
 
 bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     // why is this here instead of mul_mat?
-    if (dst->src[0] != nullptr && to_cuda_buffer_type(dst->src[0]->buffer->get_type())) {
-        ggml_cuda_set_peer_access(dst->src[1]->ne[1], device);
+    if (dst->src.size() > 1 && dst->src[0] != nullptr && to_cuda_buffer_type(dst->src[0]->buffer->get_type())) {
+        const ggml_tensor* src1 = dst->src[1];
+        if (src1) ggml_cuda_set_peer_access(src1->ne[1], device);
     }
 
     switch (dst->op) {
@@ -1542,6 +1558,12 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     case GGML_OP_IM2COL:
         op::im2col(stream(), dst);
         break;
+    case GGML_OP_CONV_2D_DW:
+        op::conv2d_dw(stream(), dst);
+        break;
+    case GGML_OP_CONV_TRANSPOSE_2D:
+        op::conv_2d_transpose_p0(stream(), dst);
+        break;
     case GGML_OP_CONV_TRANSPOSE_1D:
         op::conv_transpose_1d(stream(), dst);
         break;
@@ -1597,8 +1619,18 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     return true;
 }
 
+// destroying a cuBLAS handle while a graph is being captured in a different thread can result in a CUDA error
+// this lock is used to ensure that no cuBLAS handle is destroyed while a graph is being captured
+
+static std::mutex ggml_cuda_lock;
+static std::condition_variable ggml_cuda_lock_cv;
+static std::atomic<int> ggml_cuda_lock_counter;
+
 ggml_backend_cuda::~ggml_backend_cuda()
 {
+    std::unique_lock<std::mutex> lock(ggml_cuda_lock);
+    ggml_cuda_lock_cv.wait(lock, [] { return ggml_cuda_lock_counter.load(std::memory_order_relaxed) == 0; });
+
     if (copy_event != nullptr) {
         CUDA_CHECK(cudaEventDestroy(copy_event));
     }

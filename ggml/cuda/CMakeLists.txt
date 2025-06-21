@@ -33,6 +33,8 @@ target_sources(libggml
       cu/conv-transpose-1d.cu
       cu/convert.cu
       cu/convert.cuh
+      cu/conv2d-dw.cu
+      cu/conv2d-transpose.cu
       cu/count-equal.cu
       cu/cpy.cu
       cu/cross-entropy-loss.cu

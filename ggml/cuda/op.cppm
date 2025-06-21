@@ -1886,4 +1886,71 @@ namespace op
             src1->nb[1], src1->nb[2], src1->nb[3], src2->nb[0], src2->nb[1], src2->nb[2], src3->nb[1],
             src4->nb[1], src4->nb[2], src5->nb[1], src5->nb[2], dst_d, nc, nr, n_t, n_s, stream);
     }
+
+    void conv2d_dw(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* kernel = dst->src[0];
+        const ggml_tensor* input = dst->src[1];
+
+        GGML_ASSERT(kernel->type == GGML_TYPE_F32 && input->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
+
+        conv2d_dw_context ctx{
+			.input_is_contiguous = ggml_is_contiguous(input),
+            .input_is_contiguous_channels = ggml_is_contiguous_channels(input),
+            .in_w = static_cast<int>(input->ne[0]),
+            .in_h = static_cast<int>(input->ne[1]),
+            .kernel_w = static_cast<int>(kernel->ne[0]),
+            .kernel_h = static_cast<int>(kernel->ne[1]),
+            .out_w = static_cast<int>(dst->ne[0]),
+			.out_h = static_cast<int>(dst->ne[1]),
+            .channels = static_cast<int>(dst->ne[2]),
+            .batches = static_cast<int>(dst->ne[3]),
+            .x_d = (const float*)input->data,
+            .y_d = (float*)dst->data,
+            .w_d = (const float*)kernel->data,
+            .stride_x = dst->op_params[0],
+            .stride_y = dst->op_params[1],
+            .padding_x = dst->op_params[2],
+			.padding_y = dst->op_params[3],
+            .dilation_x = dst->op_params[4],
+			.dilation_y = dst->op_params[5]
+        };
+        conv2d_dw_cuda(&ctx, stream);
+    }
+
+    //input is (W, H, C_in, N), Kernel is (W, H, C_out, C_in)
+    void conv_2d_transpose_p0(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* kernel = dst->src[0];
+        const ggml_tensor* input = dst->src[1];
+
+        GGML_ASSERT(kernel->type == GGML_TYPE_F16 && input->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
+
+        const int channels_in = input->ne[2];
+        const int stride = dst->op_params[0];
+        const int batches = input->ne[3];
+
+        GGML_ASSERT(channels_in == kernel->ne[3]);
+        GGML_ASSERT(stride > 0);
+
+        GGML_ASSERT(ggml_is_contiguous(input));
+        GGML_ASSERT(ggml_is_contiguous(kernel));
+        GGML_ASSERT(ggml_is_contiguous(dst));
+
+        conv2d_transpose_context ctx{
+            .input_w = static_cast<int>(input->ne[0]),
+            .input_h = static_cast<int>(input->ne[1]),
+            .output_w = static_cast<int>(dst->ne[0]),
+            .output_h = static_cast<int>(dst->ne[1]),
+            .channels_in = channels_in,
+            .channels_out = static_cast<int>(kernel->ne[2]),
+            .kernel_w = static_cast<int>(kernel->ne[0]),
+            .kernel_h = static_cast<int>(kernel->ne[1]),
+            .stride = stride,
+            .batches = batches,
+            .input_data = (const float*)input->data,
+            .output_data = (float*)dst->data,
+            .kernel_data = (const half*)kernel->data,
+        };
+
+        conv_2d_transpose_p0_cuda(&ctx, stream);
+    }
 }

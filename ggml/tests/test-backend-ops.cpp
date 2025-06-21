@@ -1182,6 +1182,7 @@ struct test_conv_2d_dw : public test_case {
     }
 };
 
+// GGML_OP_CONV_TRANSPOSE_1D
 struct test_conv_transpose_1d : public test_case {
     const std::array<int64_t, 4> ne_input;
     const std::array<int64_t, 4> ne_kernel;
@@ -1209,6 +1210,37 @@ struct test_conv_transpose_1d : public test_case {
         kernel->set_name("kernel");
 
         ggml_tensor* out = ggml_conv_transpose_1d(ctx, kernel, input, s0, p0, d0);
+        out->set_name("out");
+
+        return out;
+    }
+};
+
+// GGML_OP_CONV_TRANSPOSE_2D
+struct test_conv_transpose_2d : public test_case {
+    const std::array<int64_t, 4> ne_input;
+    const std::array<int64_t, 4> ne_kernel;
+    const int stride;
+
+    std::string vars() override {
+        return std::format("ne_input={},ne_kernel={},stride={}",
+            ne_input, ne_kernel, stride);
+    }
+
+    test_conv_transpose_2d(std::array<int64_t, 4> ne_input = { 10, 10, 3, 1 }, // [input_width, input_height, input_channels, 1]
+        std::array<int64_t, 4> ne_kernel = { 3, 3, 3, 1 }, // [kernel_width, kernel_height, input_channels, 1]
+        int stride = 1)
+        : ne_input(ne_input), ne_kernel(ne_kernel), stride(stride) {
+    }
+
+    ggml_tensor* build_graph(ggml_context* ctx) override {
+        ggml_tensor* input = ggml_new_tensor(ctx, GGML_TYPE_F32, { ne_input[0], ne_input[1], ne_input[2], ne_input[3] });
+        input->set_name("input");
+
+        ggml_tensor* kernel = ggml_new_tensor(ctx, GGML_TYPE_F16, { ne_kernel[0], ne_kernel[1], ne_kernel[2], ne_kernel[3] });
+        kernel->set_name("kernel");
+
+        ggml_tensor* out = ggml_conv_transpose_2d_p0(ctx, kernel, input, stride);
         out->set_name("out");
 
         return out;
@@ -3913,6 +3945,9 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_conv_transpose_1d({ 3,2,1,1 }, { 3,2,2,1 }, 1, 0, 1));
     test_cases.emplace_back(new test_conv_transpose_1d({ 3,2,1,1 }, { 3,1,2,1 }, 1, 0, 1));
     test_cases.emplace_back(new test_conv_transpose_1d({ 2,1,1,1 }, { 3,1,1,1 }, 1, 0, 1));
+
+    test_cases.emplace_back(new test_conv_transpose_2d({ 3, 2, 3, 1 }, { 2, 2, 1, 3 }, 1));
+    test_cases.emplace_back(new test_conv_transpose_2d({ 10, 10, 9, 1 }, { 3, 3, 1, 9 }, 2));
 
     test_cases.emplace_back(new test_count_equal(GGML_TYPE_F32, { 4,  500, 1, 1 }));
     test_cases.emplace_back(new test_count_equal(GGML_TYPE_F32, { 4, 5000, 1, 1 }));

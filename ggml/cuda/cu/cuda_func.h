@@ -562,3 +562,32 @@ void ssm_scan_f32_cuda(const float* src0, const float* src1, const float* src2, 
     const int src4_nb1, const int src4_nb2, const int src5_nb1, const int src5_nb2,
     float* dst, const int64_t N, const int64_t D, const int64_t L, const int64_t B,
     cudaStream_t stream);
+
+// conv2d-dw.cu
+struct conv2d_dw_context {
+    bool input_is_contiguous;
+    bool input_is_contiguous_channels;
+    const int in_w, in_h;
+	const int kernel_w, kernel_h;
+    const int out_w, out_h, channels, batches;
+    const float* x_d;
+    float* y_d;
+    const float* w_d;
+    const int stride_x, stride_y;
+    const int padding_x, padding_y;
+    const int dilation_x, dilation_y;
+};
+void conv2d_dw_cuda(conv2d_dw_context* ctx, cudaStream_t stream);
+
+// conv2d-transpose.cu
+struct conv2d_transpose_context {
+    const int input_w, input_h;
+    const int output_w, output_h;
+    const int channels_in, channels_out;
+    const int kernel_w, kernel_h;
+    const int stride, batches;
+    const float* input_data;
+    float* output_data;
+    const half* kernel_data;
+};
+void conv_2d_transpose_p0_cuda(conv2d_transpose_context* ctx, cudaStream_t stream);
