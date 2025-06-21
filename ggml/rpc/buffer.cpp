@@ -44,18 +44,6 @@ ggml_status rpc_backend_buffer::init_tensor(ggml_tensor* tensor)
     return GGML_STATUS_SUCCESS;
 }
 
-// Computes FNV-1a hash of the data
-static uint64_t fnv_hash(const uint8_t* data, size_t len) {
-    const uint64_t fnv_prime = 0x100000001b3ULL;
-    uint64_t hash = 0xcbf29ce484222325ULL;
-
-    for (size_t i = 0; i < len; ++i) {
-        hash ^= data[i];
-        hash *= fnv_prime;
-    }
-    return hash;
-}
-
 void rpc_backend_buffer::set_tensor(ggml_tensor* tensor, const void* data, size_t offset, size_t size)
 {
     rpc_tensor rpc_tensor = serialize_tensor(tensor);
