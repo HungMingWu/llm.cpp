@@ -1,6 +1,7 @@
 module;
 #include <assert.h>
 #include <stdint.h>
+#include <string.h>
 #include <filesystem>
 #include <format>
 #include <fstream>

@@ -2,6 +2,7 @@ module;
 #include <string.h>
 #include <array>
 #include <memory>
+#include <vector>
 
 module ggml;
 import :rpc.buffer;

@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <array>
+#include <memory>
 #include <numeric>
 #include <print>
 #include <vector>
