@@ -6,15 +6,13 @@ module;
 #include <math.h>
 #include <array>
 #include <bit>
+#include <numeric>
 #include "block.h"
 #include "table.h"
 
 #if __has_include(<experimental/simd>)
-#include <ranges>
 #include <experimental/simd>
 namespace stdx = std::experimental;
-namespace stdv = std::views;
-namespace stdr = std::ranges;
 #define EXPERIMENTAL_SIMD
 #endif
 
@@ -55,7 +53,23 @@ export
 	ggml_float sumf = 0.0;
 #ifdef EXPERIMENTAL_SIMD
 	using simd_t = stdx::native_simd<underlying_t<T>>;
-	simd_t temp(reinterpret_cast<const underlying_t<T>*>(x), stdx::element_aligned);
+        constexpr size_t GGML_F32_STEP = 32;
+        constexpr size_t GGML_F32_ARR = GGML_F32_STEP / simd_t::size();
+        const int np = (n & ~(GGML_F32_STEP - 1));
+        std::array<simd_t, GGML_F32_ARR> arrs {};
+        for (int i = 0; i < np; i += GGML_F32_STEP)
+                for (int j = 0; j < GGML_F32_ARR; j++) {
+			simd_t ax(reinterpret_cast<const underlying_t<T>*>(x + i + j * 4), stdx::element_aligned);
+			simd_t ay(reinterpret_cast<const underlying_t<T>*>(y + i + j * 4), stdx::element_aligned);
+//                        arrs[j] += ax * ay;
+		}
+        float value = std::accumulate(arrs.begin(), arrs.end(), 0.0f, [](auto accu, auto simd_value) {
+			return 0.0;
+//                return accu + stdx::reduce(simd_value);
+        });
+        for (int i = np; i < n; i++)
+                value += x[i] * y[i];
+        return value;
 #endif
         // Waiting for C++26 SIMD
         for (int i = 0; i < n; ++i) {
