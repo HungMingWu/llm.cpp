@@ -1,7 +1,9 @@
 module;
+#include <string.h>
 #include <functional>
 #include <memory>
 #include <random>
+#include <set>
 #include <span>
 #include <string>
 #include "../basics.h"
