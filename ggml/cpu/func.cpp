@@ -3004,13 +3004,14 @@ static void ggml_compute_forward_add1(
 }
 
 static void ggml_compute_forward_ssm_conv_f32(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-	const struct ggml_tensor* src0 = dst->src[0]; // conv_x
-	const struct ggml_tensor* src1 = dst->src[1]; // conv1d.weight
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0]; // conv_x
+	const ggml_tensor* src1 = dst->src[1]; // conv1d.weight
 
-	const int ith = params->ith;
-	const int nth = params->nth;
+	const int nth = pool.available_parallelism();
+	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
 	const int nc = src1->ne[0]; // d_conv
 	const int ncs = src0->ne[0]; // d_conv - 1 + n_t
@@ -3027,42 +3028,46 @@ static void ggml_compute_forward_ssm_conv_f32(
 	const int dr = (nr + nth - 1) / nth;
 
 	// row range for this thread
-	const int ir0 = dr * ith;
-	const int ir1 = std::min(ir0 + dr, nr);
-	const int ir = ir1 - ir0;
+	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
+		const int64_t ir1 = std::min<int64_t>(ir0 + dr, nr);
+		const int ir = ir1 - ir0;
+		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+			for (int i3 = 0; i3 < n_s; ++i3) {
+				for (int i2 = 0; i2 < n_t; ++i2) {
+					// {d_conv - 1 + n_t, d_inner, n_seqs}
+					// sliding window
+					const float* s = (const float*)((const char*)src0->data + ir0 * (src0->nb[1]) + i2 * (src0->nb[0]) + i3 * (src0->nb[2])); // {d_conv, d_inner, n_s}
+					const float* c = (const float*)((const char*)src1->data + ir0 * (src1->nb[1])); // {d_conv, d_inner}
+					float* x = (float*)((char*)dst->data + ir0 * (dst->nb[0]) + i2 * (dst->nb[1]) + i3 * (dst->nb[2])); // {d_inner, n_t, n_s}
 
-	for (int i3 = 0; i3 < n_s; ++i3) {
-		for (int i2 = 0; i2 < n_t; ++i2) {
-			// {d_conv - 1 + n_t, d_inner, n_seqs}
-			// sliding window
-			const float* s = (const float*)((const char*)src0->data + ir0 * (src0->nb[1]) + i2 * (src0->nb[0]) + i3 * (src0->nb[2])); // {d_conv, d_inner, n_s}
-			const float* c = (const float*)((const char*)src1->data + ir0 * (src1->nb[1])); // {d_conv, d_inner}
-			float* x = (float*)((char*)dst->data + ir0 * (dst->nb[0]) + i2 * (dst->nb[1]) + i3 * (dst->nb[2])); // {d_inner, n_t, n_s}
+					// TODO: transpose the output for smaller strides for big batches?
+					// d_inner
+					for (int i1 = 0; i1 < ir; ++i1) {
+						// rowwise dot product
+						// NOTE: not using ggml_vec_dot_f32, because its sum is in double precision
+						float sumf = 0.0f;
 
-			// TODO: transpose the output for smaller strides for big batches?
-			// d_inner
-			for (int i1 = 0; i1 < ir; ++i1) {
-				// rowwise dot product
-				// NOTE: not using ggml_vec_dot_f32, because its sum is in double precision
-				float sumf = 0.0f;
-
-				// d_conv
-				for (int i0 = 0; i0 < nc; ++i0) {
-					sumf += s[i0 + i1 * ncs] * c[i0 + i1 * nc];
+						// d_conv
+						for (int i0 = 0; i0 < nc; ++i0) {
+							sumf += s[i0 + i1 * ncs] * c[i0 + i1 * nc];
+						}
+						x[i1] = sumf;
+					}
 				}
-				x[i1] = sumf;
 			}
-		}
+		});
+		scope.spawn(std::move(sender));
 	}
 }
 
 static void ggml_compute_forward_ssm_conv(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 	switch (dst->src[0]->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_ssm_conv_f32(params, dst);
+		ggml_compute_forward_ssm_conv_f32(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -6645,7 +6650,7 @@ static void ggml_compute_forward(
 #endif
 	case GGML_OP_SSM_CONV:
 	{
-		ggml_compute_forward_ssm_conv(params, tensor);
+		ggml_compute_forward_ssm_conv(pool, scope, tensor);
 	} break;
 	case GGML_OP_SSM_SCAN:
 	{
