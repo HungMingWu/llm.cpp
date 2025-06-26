@@ -6159,7 +6159,8 @@ static int64_t ggml_wrap_index(int64_t i, int64_t ne) {
 }
 
 static void ggml_compute_forward_roll_f32(
-	const ggml_compute_params* params,
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
@@ -6174,30 +6175,37 @@ static void ggml_compute_forward_roll_f32(
 	const int s3 = ggml_get_op_params_i32(dst, 3);
 
 	const int64_t total = ne1 * ne2 * ne3;
-	const int64_t per_thread = (total + params->nth) / params->nth;
-	const int64_t start = params->ith * per_thread;
-	const int64_t end = std::min(start + per_thread, total);
+	const int nth = pool.available_parallelism();
+	stdexec::scheduler auto scheduler = pool.get_scheduler();
+	const int64_t per_thread = (total + nth - 1) / nth;
 
-	for (int64_t i = start; i < end; ++i) {
-		const int64_t i1 = i % ne1;
-		const int64_t i2 = (i / ne1) % ne2;
-		const int64_t i3 = i / (ne2 * ne1);
-		float* dst_row = dst_data + (i3 * nb3 + i2 * nb2 + i1 * nb1) / sizeof(float);
+	for (int64_t start = 0; start < total; start += per_thread) {
+		const int64_t end = std::min(start + per_thread, total);
+		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+			for (int64_t i = start; i < end; ++i) {
+				const int64_t i1 = i % ne1;
+				const int64_t i2 = (i / ne1) % ne2;
+				const int64_t i3 = i / (ne2 * ne1);
+				float* dst_row = dst_data + (i3 * nb3 + i2 * nb2 + i1 * nb1) / sizeof(float);
 
-		const int64_t i01 = ggml_wrap_index(i1 - s1, ne01);
-		const int64_t i02 = ggml_wrap_index(i2 - s2, ne02);
-		const int64_t i03 = ggml_wrap_index(i3 - s3, ne03);
-		const float* src_row = src_data + (i03 * nb03 + i02 * nb02 + i01 * nb01) / sizeof(float);
+				const int64_t i01 = ggml_wrap_index(i1 - s1, ne01);
+				const int64_t i02 = ggml_wrap_index(i2 - s2, ne02);
+				const int64_t i03 = ggml_wrap_index(i3 - s3, ne03);
+				const float* src_row = src_data + (i03 * nb03 + i02 * nb02 + i01 * nb01) / sizeof(float);
 
-		const int64_t s = ggml_wrap_index(-s0, ne00);
-		const int64_t n = ne00 - s;
-		ggml_vec_cpy_f32(n, dst_row, src_row + s);
-		ggml_vec_cpy_f32(s, dst_row + n, src_row);
+				const int64_t s = ggml_wrap_index(-s0, ne00);
+				const int64_t n = ne00 - s;
+				ggml_vec_cpy_f32(n, dst_row, src_row + s);
+				ggml_vec_cpy_f32(s, dst_row + n, src_row);
+			}
+		});
+		scope.spawn(std::move(sender));
 	}
 }
 
 void ggml_compute_forward_roll(
-	const ggml_compute_params* params,
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
@@ -6205,7 +6213,7 @@ void ggml_compute_forward_roll(
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_roll_f32(params, dst);
+		ggml_compute_forward_roll_f32(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -6457,7 +6465,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_ROLL:
 	{
-		ggml_compute_forward_roll(params, tensor);
+		ggml_compute_forward_roll(pool, scope, tensor);
 	} break;
 	case GGML_OP_ARANGE:
 	{
