@@ -353,7 +353,6 @@ UseGgmlGemm2:;
 static void ggml_compute_forward_arange_f32(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
-	const ggml_compute_params* params,
 	ggml_tensor* dst) {
 
 	GGML_ASSERT(dst->nb[0] == sizeof(float));
@@ -385,12 +384,11 @@ static void ggml_compute_forward_arange_f32(
 static void ggml_compute_forward_arange(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
-	ggml_compute_params* params,
 	ggml_tensor* dst) {
 	switch (dst->type) {
 		case GGML_TYPE_F32:
 		{
-			ggml_compute_forward_arange_f32(pool, scope, params, dst);
+			ggml_compute_forward_arange_f32(pool, scope, dst);
 		} break;
 		default:
 		{
@@ -6613,7 +6611,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_ARANGE:
 	{
-		ggml_compute_forward_arange(pool, scope, params, tensor);
+		ggml_compute_forward_arange(pool, scope, tensor);
 	} break;
 	case GGML_OP_TIMESTEP_EMBEDDING:
 	{
