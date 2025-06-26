@@ -3072,17 +3072,18 @@ static void ggml_compute_forward_ssm_conv(
 }
 
 static void ggml_compute_forward_ssm_scan_f32(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-	const struct ggml_tensor* src0 = dst->src[0]; // s
-	const struct ggml_tensor* src1 = dst->src[1]; // x
-	const struct ggml_tensor* src2 = dst->src[2]; // dt
-	const struct ggml_tensor* src3 = dst->src[3]; // A
-	const struct ggml_tensor* src4 = dst->src[4]; // B
-	const struct ggml_tensor* src5 = dst->src[5]; // C
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0]; // s
+	const ggml_tensor* src1 = dst->src[1]; // x
+	const ggml_tensor* src2 = dst->src[2]; // dt
+	const ggml_tensor* src3 = dst->src[3]; // A
+	const ggml_tensor* src4 = dst->src[4]; // B
+	const ggml_tensor* src5 = dst->src[5]; // C
 
-	const int ith = params->ith;
-	const int nth = params->nth;
+	const int nth = pool.available_parallelism();
+	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
 	const int64_t nc = src0->ne[0]; // d_state
 	const int64_t nr = src0->ne[1]; // d_inner
@@ -3107,52 +3108,56 @@ static void ggml_compute_forward_ssm_scan_f32(
 	const int dr = (nr + nth - 1) / nth;
 
 	// row range for this thread
-	const int64_t ir0 = dr * ith;
-	const int64_t ir1 = std::min(ir0 + dr, nr);
-	const int64_t ir = ir1 - ir0;
+	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
+		const int64_t ir1 = std::min(ir0 + dr, nr);
+		const int64_t ir = ir1 - ir0;
+		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+			for (int i3 = 0; i3 < n_s; ++i3) {
+				for (int i2 = 0; i2 < n_t; ++i2) {
+					const float* s0 = (const float*)((const char*)src0->data + ir0 * (src0->nb[1]) + i3 * (src0->nb[2])); // {d_state, d_inner, n_s}
+					const float* x = (const float*)((const char*)src1->data + ir0 * (src1->nb[0]) + i2 * (src1->nb[1]) + i3 * (src1->nb[2])); // {d_inner, n_t, n_s}
+					const float* dt = (const float*)((const char*)src2->data + ir0 * (src2->nb[0]) + i2 * (src2->nb[1]) + i3 * (src2->nb[2])); // {d_inner, n_t, n_s}
+					const float* A = (const float*)((const char*)src3->data + ir0 * (src3->nb[1])); // {d_state, d_inner}
+					const float* B = (const float*)((const char*)src4->data + i2 * (src4->nb[1]) + i3 * (src4->nb[2])); // {d_state, n_t, n_s}
+					const float* C = (const float*)((const char*)src5->data + i2 * (src5->nb[1]) + i3 * (src5->nb[2])); // {d_state, n_t, n_s}
+					float* y = (float*)((char*)dst->data + ir0 * (src1->nb[0]) + i2 * (src1->nb[1]) + i3 * (src1->nb[2])); // {d_inner, n_t, n_s}
+					float* s = (float*)((char*)dst->data + ir0 * (src0->nb[1]) + i3 * (src0->nb[2]) + src1->nb[3]);  // {d_state, d_inner, n_s}
 
-	for (int i3 = 0; i3 < n_s; ++i3) {
-		for (int i2 = 0; i2 < n_t; ++i2) {
-			const float* s0 = (const float*)((const char*)src0->data + ir0 * (src0->nb[1]) + i3 * (src0->nb[2])); // {d_state, d_inner, n_s}
-			const float* x = (const float*)((const char*)src1->data + ir0 * (src1->nb[0]) + i2 * (src1->nb[1]) + i3 * (src1->nb[2])); // {d_inner, n_t, n_s}
-			const float* dt = (const float*)((const char*)src2->data + ir0 * (src2->nb[0]) + i2 * (src2->nb[1]) + i3 * (src2->nb[2])); // {d_inner, n_t, n_s}
-			const float* A = (const float*)((const char*)src3->data + ir0 * (src3->nb[1])); // {d_state, d_inner}
-			const float* B = (const float*)((const char*)src4->data + i2 * (src4->nb[1]) + i3 * (src4->nb[2])); // {d_state, n_t, n_s}
-			const float* C = (const float*)((const char*)src5->data + i2 * (src5->nb[1]) + i3 * (src5->nb[2])); // {d_state, n_t, n_s}
-			float* y = (float*)((char*)dst->data + ir0 * (src1->nb[0]) + i2 * (src1->nb[1]) + i3 * (src1->nb[2])); // {d_inner, n_t, n_s}
-			float* s = (float*)((char*)dst->data + ir0 * (src0->nb[1]) + i3 * (src0->nb[2]) + src1->nb[3]);  // {d_state, d_inner, n_s}
+					// use the output as the source for the next token-wise iterations
+					if (i2 > 0) { s0 = s; }
 
-			// use the output as the source for the next token-wise iterations
-			if (i2 > 0) { s0 = s; }
-
-			// d_inner
-			for (int i1 = 0; i1 < ir; ++i1) {
-				// ref: https://github.com/state-spaces/mamba/blob/34076d664838588a3c97727b263478ab9f621a07/mamba_ssm/ops/triton/selective_state_update.py#L78
-				float dt_soft_plus = dt[i1] <= 20.0f ? log1pf(expf(dt[i1])) : dt[i1];
-				float x_dt = x[i1] * dt_soft_plus;
-				float sumf = 0.0f;
-				// d_state
-				for (int i0 = 0; i0 < nc; ++i0) {
-					int i = i0 + i1 * nc;
-					// state = prev_state * dA + dB * x
-					float state = (s0[i] * expf(dt_soft_plus * A[i])) + (B[i0] * x_dt);
-					// y = rowwise_dotprod(state, C)
-					sumf += state * C[i0];
-					s[i] = state;
+					// d_inner
+					for (int i1 = 0; i1 < ir; ++i1) {
+						// ref: https://github.com/state-spaces/mamba/blob/34076d664838588a3c97727b263478ab9f621a07/mamba_ssm/ops/triton/selective_state_update.py#L78
+						float dt_soft_plus = dt[i1] <= 20.0f ? log1pf(expf(dt[i1])) : dt[i1];
+						float x_dt = x[i1] * dt_soft_plus;
+						float sumf = 0.0f;
+						// d_state
+						for (int i0 = 0; i0 < nc; ++i0) {
+							int i = i0 + i1 * nc;
+							// state = prev_state * dA + dB * x
+							float state = (s0[i] * expf(dt_soft_plus * A[i])) + (B[i0] * x_dt);
+							// y = rowwise_dotprod(state, C)
+							sumf += state * C[i0];
+							s[i] = state;
+						}
+						y[i1] = sumf;
+					}
 				}
-				y[i1] = sumf;
 			}
-		}
+		});
+		scope.spawn(std::move(sender));
 	}
 }
 
 static void ggml_compute_forward_ssm_scan(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 	switch (dst->src[0]->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_ssm_scan_f32(params, dst);
+		ggml_compute_forward_ssm_scan_f32(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -6644,7 +6649,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_SSM_SCAN:
 	{
-		ggml_compute_forward_ssm_scan(params, tensor);
+		ggml_compute_forward_ssm_scan(pool, scope, tensor);
 	} break;
 #if 0
 	case GGML_OP_WIN_PART:
