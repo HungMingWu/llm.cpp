@@ -5481,35 +5481,33 @@ static void ggml_compute_forward_cross_entropy_loss_back(
 }
 
 static void ggml_compute_forward_opt_step_adamw_f32(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
-	const struct ggml_tensor* src0_grad = dst->src[1];
-	const struct ggml_tensor* src0_grad_m = dst->src[2];
-	const struct ggml_tensor* src0_grad_v = dst->src[3];
-	const struct ggml_tensor* adamw_params = dst->src[4];
+	const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src0_grad = dst->src[1];
+	const ggml_tensor* src0_grad_m = dst->src[2];
+	const ggml_tensor* src0_grad_v = dst->src[3];
+	const ggml_tensor* adamw_params = dst->src[4];
 
 	GGML_ASSERT(ggml_are_same_shape(src0, src0_grad));
 	GGML_ASSERT(ggml_are_same_shape(src0, src0_grad_m));
 	GGML_ASSERT(ggml_are_same_shape(src0, src0_grad_v));
 	GGML_ASSERT(adamw_params->nelements() == 7);
 
-	const int ith = params->ith;
-	const int nth = params->nth;
+	const int nth = pool.available_parallelism();
+	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
-	const int nr = ggml_nrows(src0);
+	const int64_t nr = ggml_nrows(src0);
 
 	GGML_TENSOR_UNARY_OP_LOCALS
 	GGML_ASSERT(nb00 == sizeof(float));
 
 	// rows per thread
-	const int dr = (nr + nth - 1) / nth;
+	const int64_t dr = (nr + nth - 1) / nth;
 
 	// row range for this thread
-	const int ir0 = dr * ith;
-	const int ir1 = std::min(ir0 + dr, nr);
-
 	const float* adamw_params_ptr = ggml_get_data_f32(adamw_params);
 	const float alpha = adamw_params_ptr[0];
 	const float beta1 = adamw_params_ptr[1];
@@ -5519,43 +5517,50 @@ static void ggml_compute_forward_opt_step_adamw_f32(
 	const float beta1h = adamw_params_ptr[5];
 	const float beta2h = adamw_params_ptr[6];
 
-	for (int ir = ir0; ir < ir1; ++ir) {
-		const int64_t i03 = ir / (ne02 * ne01);
-		const int64_t i02 = (ir - i03 * ne02 * ne01) / ne01;
-		const int64_t i01 = (ir - i03 * ne02 * ne01 - i02 * ne01);
+	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
+		const int64_t ir1 = std::min(ir0 + dr, nr);
+		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+			for (int ir = ir0; ir < ir1; ++ir) {
+				const int64_t i03 = ir / (ne02 * ne01);
+				const int64_t i02 = (ir - i03 * ne02 * ne01) / ne01;
+				const int64_t i01 = (ir - i03 * ne02 * ne01 - i02 * ne01);
 
-		const size_t offset = i03 * nb03 + i02 * nb02 + i01 * nb01;
+				const size_t offset = i03 * nb03 + i02 * nb02 + i01 * nb01;
 
-		float* w = (float*)((char*)src0->data + offset); // weight
-		const float* g = (const float*)((const char*)src0_grad->data + offset); // grad
-		float* m = (float*)((char*)src0_grad_m->data + offset);
-		float* v = (float*)((char*)src0_grad_v->data + offset);
+				float* w = (float*)((char*)src0->data + offset); // weight
+				const float* g = (const float*)((const char*)src0_grad->data + offset); // grad
+				float* m = (float*)((char*)src0_grad_m->data + offset);
+				float* v = (float*)((char*)src0_grad_v->data + offset);
 
-		for (int i00 = 0; i00 < ne00; ++i00) {
-			m[i00] = m[i00] * beta1 + g[i00] * (1.0f - beta1);
-			v[i00] = v[i00] * beta2 + g[i00] * g[i00] * (1.0f - beta2);
+				for (int i00 = 0; i00 < ne00; ++i00) {
+					m[i00] = m[i00] * beta1 + g[i00] * (1.0f - beta1);
+					v[i00] = v[i00] * beta2 + g[i00] * g[i00] * (1.0f - beta2);
 
-			const float mh = m[i00] * beta1h;
-			const float vh = sqrtf(v[i00] * beta2h) + eps;
+					const float mh = m[i00] * beta1h;
+					const float vh = sqrtf(v[i00] * beta2h) + eps;
 
-			// The weight decay is applied independently of the Adam momenta m and v.
-			// This is NOT equivalent to l2 regularization that adds w[i00]*w[i00] to the loss.
-			// See: https://arxiv.org/pdf/1711.05101v3.pdf
-			w[i00] = w[i00] * (1.0f - alpha * wd) - alpha * mh / vh;
-		}
+					// The weight decay is applied independently of the Adam momenta m and v.
+					// This is NOT equivalent to l2 regularization that adds w[i00]*w[i00] to the loss.
+					// See: https://arxiv.org/pdf/1711.05101v3.pdf
+					w[i00] = w[i00] * (1.0f - alpha * wd) - alpha * mh / vh;
+				}
+			}
+		});
+		scope.spawn(std::move(sender));
 	}
 }
 
 static void ggml_compute_forward_opt_step_adamw(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_opt_step_adamw_f32(params, dst);
+		ggml_compute_forward_opt_step_adamw_f32(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -6563,7 +6568,7 @@ static void ggml_compute_forward(
 	break;
 	case GGML_OP_OPT_STEP_ADAMW:
 	{
-		ggml_compute_forward_opt_step_adamw(params, tensor);
+		ggml_compute_forward_opt_step_adamw(pool, scope, tensor);
 	}
 	break;
 	case GGML_OP_NONE:
