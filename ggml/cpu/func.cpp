@@ -5568,85 +5568,6 @@ static void ggml_compute_forward_opt_step_adamw(
 	}
 }
 
-inline static void ggml_vec_acc_f32(const int n, float* y, const float* x) { for (int i = 0; i < n; ++i) y[i] += x[i]; }
-
-static void ggml_compute_forward_repeat_back_f32(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-
-	if (params->ith != 0) {
-		return;
-	}
-
-	GGML_ASSERT(ggml_can_repeat(*dst, *src0));
-
-	GGML_TENSOR_UNARY_OP_LOCALS
-
-	// guaranteed to be an integer due to the check in ggml_can_repeat
-	const int nr0 = (int)(ne00 / ne0);
-	const int nr1 = (int)(ne01 / ne1);
-	const int nr2 = (int)(ne02 / ne2);
-	const int nr3 = (int)(ne03 / ne3);
-
-	// TODO: support for transposed / permuted tensors
-	GGML_ASSERT(nb0 == sizeof(float));
-	GGML_ASSERT(nb00 == sizeof(float));
-
-	if (ggml_is_contiguous(dst)) {
-		ggml_vec_set_f32(ne0 * ne1 * ne2 * ne3, (float*)dst->data, 0);
-	}
-	else {
-		for (int k3 = 0; k3 < ne3; k3++) {
-			for (int k2 = 0; k2 < ne2; k2++) {
-				for (int k1 = 0; k1 < ne1; k1++) {
-					ggml_vec_set_f32(ne0,
-						(float*)((char*)dst->data + k1 * nb1 + k2 * nb2 + k3 * nb3),
-						0);
-				}
-			}
-		}
-	}
-
-	// TODO: maybe this is not optimal?
-	for (int i3 = 0; i3 < nr3; i3++) {
-		for (int k3 = 0; k3 < ne3; k3++) {
-			for (int i2 = 0; i2 < nr2; i2++) {
-				for (int k2 = 0; k2 < ne2; k2++) {
-					for (int i1 = 0; i1 < nr1; i1++) {
-						for (int k1 = 0; k1 < ne1; k1++) {
-							for (int i0 = 0; i0 < nr0; i0++) {
-								ggml_vec_acc_f32(ne0,
-									(float*)((char*)dst->data + (k3)*nb3 + (k2)*nb2 + (k1)*nb1),
-									(float*)((char*)src0->data + (i3 * ne3 + k3) * nb03 + (i2 * ne2 + k2) * nb02 + (i1 * ne1 + k1) * nb01 + (i0 * ne0) * nb00));
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-static void ggml_compute_forward_repeat_back(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-
-	switch (src0->type) {
-	case GGML_TYPE_F32:
-	{
-		ggml_compute_forward_repeat_back_f32(params, dst);
-	} break;
-	default:
-	{
-		GGML_ABORT("fatal error");
-	}
-	}
-}
-
 static void ggml_compute_forward_l2_norm_f32(
 	const struct ggml_compute_params* params,
 	struct ggml_tensor* dst) {
@@ -6382,7 +6303,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_REPEAT_BACK:
 	{
-		ggml_compute_forward_repeat_back(params, tensor);
+		ggml_compute_forward_repeat_back(tensor);
 	} break;
 	case GGML_OP_CONCAT:
 	{
