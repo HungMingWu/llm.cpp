@@ -5569,58 +5569,64 @@ static void ggml_compute_forward_opt_step_adamw(
 }
 
 static void ggml_compute_forward_l2_norm_f32(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src0 = dst->src[0];
 
 	GGML_ASSERT(ggml_are_same_shape(src0, dst));
 
 	GGML_ASSERT(src0->nb[0] == sizeof(float));
 
-	const int ith = params->ith;
-	const int nth = params->nth;
+	const int nth = pool.available_parallelism();
+	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
-	GGML_TENSOR_UNARY_OP_LOCALS
-
-		float eps;
-	memcpy(&eps, dst->op_params, sizeof(float));
-
+	float eps = std::bit_cast<float>(dst->op_params[0]);
 	GGML_ASSERT(eps >= 0.0f);
+	const int64_t dr = (src0->ne[1] + nth - 1) / nth;
 
 	// TODO: optimize
-	for (int64_t i03 = 0; i03 < ne03; i03++) {
-		for (int64_t i02 = 0; i02 < ne02; i02++) {
-			for (int64_t i01 = ith; i01 < ne01; i01 += nth) {
-				const float* x = (float*)((char*)src0->data + i01 * nb01 + i02 * nb02 + i03 * nb03);
+	for (int64_t ir0 = 0; ir0 < src0->ne[1]; ir0 += dr) {
+		const int64_t ir1 = std::min(ir0 + dr, src0->ne[1]);
+		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+			for (int64_t i03 = 0; i03 < src0->ne[3]; i03++) {
+				for (int64_t i02 = 0; i02 < src0->ne[2]; i02++) {
+					for (int64_t i01 = ir0; i01 < ir1; i01++) {
+						const float* x = (float*)((char*)src0->data + i01 * src0->nb[1] + i02 * src0->nb[2] + i03 * src0->nb[3]);
 
-				ggml_float sum = 0.0;
-				for (int64_t i00 = 0; i00 < ne00; i00++) {
-					sum += (ggml_float)(x[i00] * x[i00]);
+						ggml_float sum = 0.0;
+						for (int64_t i00 = 0; i00 < src0->ne[0]; i00++) {
+							sum += (ggml_float)(x[i00] * x[i00]);
+						}
+
+						float* y = (float*)((char*)dst->data + i01 * dst->nb[1] + i02 * dst->nb[2] + i03 * dst->nb[3]);
+
+						memcpy(y, x, src0->ne[0] * sizeof(float));
+
+						const float scale = 1.0f / fmaxf(sqrtf(sum), eps);
+
+						ggml_vec_scale_f32(src0->ne[0], y, scale);
+					}
 				}
-
-				float* y = (float*)((char*)dst->data + i01 * nb1 + i02 * nb2 + i03 * nb3);
-
-				memcpy(y, x, ne00 * sizeof(float));
-
-				const float scale = 1.0f / fmaxf(sqrtf(sum), eps);
-
-				ggml_vec_scale_f32(ne00, y, scale);
 			}
-		}
+		});
+		scope.spawn(std::move(sender));
 	}
+
 }
 
 static void ggml_compute_forward_l2_norm(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_l2_norm_f32(params, dst);
+		ggml_compute_forward_l2_norm_f32(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -6331,7 +6337,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_L2_NORM:
 	{
-		ggml_compute_forward_l2_norm(params, tensor);
+		ggml_compute_forward_l2_norm(pool, scope, tensor);
 	} break;
 	case GGML_OP_MUL_MAT:
 	{
