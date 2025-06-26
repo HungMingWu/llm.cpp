@@ -4968,96 +4968,6 @@ static void ggml_compute_forward_timestep_embedding(
 	}
 }
 
-inline static void ggml_vec_leaky_relu_f32(const int n, float* y, const float* x, const float ns) { for (int i = 0; i < n; ++i) y[i] = ((x[i] > 0.f) ? x[i] : 0.f) + ns * ((x[i] < 0.0f) ? x[i] : 0.f); }
-inline static void ggml_vec_leaky_relu_f16(const int n, ggml_fp16_t* y, const ggml_fp16_t* x, const float ns) {
-	for (int i = 0; i < n; ++i) {
-		float v = toFloat32(x[i]);
-		y[i] = fromFloat32<ggml_fp16_t>(((v > 0.f) ? v : 0.f) + ns * ((v < 0.0f) ? v : 0.f));
-	}
-}
-
-static void ggml_compute_forward_leaky_relu_f32(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-
-	if (params->ith != 0) {
-		return;
-	}
-
-	assert(ggml_is_contiguous_1(src0));
-	assert(ggml_is_contiguous_1(dst));
-	assert(ggml_are_same_shape(src0, dst));
-
-	const int n = ggml_nrows(src0);
-	const int nc = src0->ne[0];
-
-	float negative_slope;
-	memcpy(&negative_slope, dst->op_params, sizeof(float));
-
-	assert(dst->nb[0] == sizeof(float));
-	assert(src0->nb[0] == sizeof(float));
-
-	for (int i = 0; i < n; i++) {
-		ggml_vec_leaky_relu_f32(nc,
-			(float*)((char*)dst->data + i * (dst->nb[1])),
-			(float*)((char*)src0->data + i * (src0->nb[1])), negative_slope);
-	}
-}
-
-static void ggml_compute_forward_leaky_relu_f16(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-
-	if (params->ith != 0) {
-		return;
-	}
-
-	assert(ggml_is_contiguous_1(src0));
-	assert(ggml_is_contiguous_1(dst));
-	assert(ggml_are_same_shape(src0, dst));
-
-	const int n = ggml_nrows(src0);
-	const int nc = src0->ne[0];
-
-	float negative_slope;
-	memcpy(&negative_slope, dst->op_params, sizeof(float));
-
-	assert(dst->nb[0] == sizeof(ggml_fp16_t));
-	assert(src0->nb[0] == sizeof(ggml_fp16_t));
-
-	for (int i = 0; i < n; i++) {
-		ggml_vec_leaky_relu_f16(nc,
-			(ggml_fp16_t*)((char*)dst->data + i * (dst->nb[1])),
-			(ggml_fp16_t*)((char*)src0->data + i * (src0->nb[1])), negative_slope);
-	}
-}
-
-static void ggml_compute_forward_leaky_relu(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-
-	switch (src0->type) {
-	case GGML_TYPE_F32:
-	{
-		ggml_compute_forward_leaky_relu_f32(params, dst);
-	} break;
-	case GGML_TYPE_F16:
-	{
-		ggml_compute_forward_leaky_relu_f16(params, dst);
-	} break;
-	default:
-	{
-		GGML_ABORT("fatal error");
-	}
-	}
-}
-
 inline static void ggml_vec_scale_f16(const int n, ggml_fp16_t* y, const float v) {
 #if defined(GGML_SIMD)
 	const int np = (n & ~(GGML_F16_STEP - 1));
@@ -6633,7 +6543,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_LEAKY_RELU:
 	{
-		ggml_compute_forward_leaky_relu(params, tensor);
+		ggml_compute_forward_leaky_relu(tensor);
 	} break;
 	case GGML_OP_FLASH_ATTN_EXT:
 	{

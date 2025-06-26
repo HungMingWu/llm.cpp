@@ -22,6 +22,7 @@ target_sources(libggml
     FILES
       op/argsort.cppm
       op/concat.cppm
+      op/leaky_relu.cppm
       op/norm.cppm
       op/op.cppm
       op/scale.cppm
