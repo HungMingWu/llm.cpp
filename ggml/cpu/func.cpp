@@ -4657,7 +4657,6 @@ static void ggml_compute_forward_sum_rows(
 static void ggml_compute_forward_rope_back(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
-	const ggml_compute_params* params,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
@@ -6418,7 +6417,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_ROPE_BACK:
 	{
-		ggml_compute_forward_rope_back(pool, scope, params, tensor);
+		ggml_compute_forward_rope_back(pool, scope, tensor);
 	} break;
 	case GGML_OP_CLAMP:
 	{
