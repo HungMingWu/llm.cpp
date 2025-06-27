@@ -4182,11 +4182,12 @@ static void ggml_vec_scale_f321(const int n, float* y, const float   v) {
 }
 
 static void ggml_compute_forward_soft_max_ext_back_f32(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
-	const struct ggml_tensor* src1 = dst->src[1];
+	const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src1 = dst->src[1];
 
 	GGML_ASSERT(ggml_is_contiguous(src0));
 	GGML_ASSERT(ggml_is_contiguous(src1));
@@ -4201,77 +4202,81 @@ static void ggml_compute_forward_soft_max_ext_back_f32(
 
 	// TODO: handle transposed/permuted matrices
 
-	const int ith = params->ith;
-	const int nth = params->nth;
+	const int nth = pool.available_parallelism();
+	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
 	const int nc = src0->ne[0];
-	const int nr = ggml_nrows(src0);
+	const int64_t nr = ggml_nrows(src0);
 
 	// rows per thread
-	const int dr = (nr + nth - 1) / nth;
+	const int64_t dr = (nr + nth - 1) / nth;
 
 	// row range for this thread
-	const int ir0 = dr * ith;
-	const int ir1 = std::min(ir0 + dr, nr);
-
-	for (int i1 = ir0; i1 < ir1; i1++) {
-		float* dy = (float*)((char*)src0->data + i1 * src0->nb[1]);
-		float* y = (float*)((char*)src1->data + i1 * src1->nb[1]);
-		float* dx = (float*)((char*)dst->data + i1 * dst->nb[1]);
-
-#ifndef NDEBUG
-		for (int i = 0; i < nc; ++i) {
-			//printf("p[%d] = %f\n", i, p[i]);
-			assert(!isnan(dy[i]));
-			assert(!isnan(y[i]));
-		}
-#endif
-		// Jii = yi - yi*yi
-		// Jij = -yi*yj
-		// J = diag(y)-y.T*y
-		// dx = J * dy
-		// dxk = sum_i(Jki * dyi)
-		// dxk = sum_i(-yk*yi * dyi) - (-yk*yk)*dyk + (yk - yk*yk)*dyk
-		// dxk = sum_i(-yk*yi * dyi) + yk*yk*dyk + yk*dyk - yk*yk*dyk
-		// dxk = sum_i(-yk*yi * dyi) + yk*dyk
-		// dxk = -yk * sum_i(yi * dyi) + yk*dyk
-		// dxk = -yk * dot(y, dy) + yk*dyk
-		// dxk = yk * (- dot(y, dy) + dyk)
-		// dxk = yk * (dyk - dot(y, dy))
-		//
-		// post-order:
-		// dot_y_dy := dot(y, dy)
-		// dx := dy
-		// dx := dx - dot_y_dy
-		// dx := dx * y
-
-		// linear runtime, no additional memory
-		float dot_y_dy = 0;
-		ggml_vec_dot_f32(nc, &dot_y_dy, 0, y, 0, dy, 0, 1);
-		ggml_vec_cpy_f321(nc, dx, dy);
-		ggml_vec_acc1_f32(nc, dx, -dot_y_dy);
-		ggml_vec_mul_f32(nc, dx, dx, y);
-		ggml_vec_scale_f321(nc, dx, scale);
+	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
+		const int64_t ir1 = std::min(ir0 + dr, nr);
+		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+			for (int i1 = ir0; i1 < ir1; i1++) {
+				float* dy = (float*)((char*)src0->data + i1 * src0->nb[1]);
+				float* y = (float*)((char*)src1->data + i1 * src1->nb[1]);
+				float* dx = (float*)((char*)dst->data + i1 * dst->nb[1]);
 
 #ifndef NDEBUG
-		for (int i = 0; i < nc; ++i) {
-			assert(!isnan(dx[i]));
-			assert(!isinf(dx[i]));
-		}
+				for (int i = 0; i < nc; ++i) {
+					//printf("p[%d] = %f\n", i, p[i]);
+					assert(!isnan(dy[i]));
+					assert(!isnan(y[i]));
+				}
 #endif
+				// Jii = yi - yi*yi
+				// Jij = -yi*yj
+				// J = diag(y)-y.T*y
+				// dx = J * dy
+				// dxk = sum_i(Jki * dyi)
+				// dxk = sum_i(-yk*yi * dyi) - (-yk*yk)*dyk + (yk - yk*yk)*dyk
+				// dxk = sum_i(-yk*yi * dyi) + yk*yk*dyk + yk*dyk - yk*yk*dyk
+				// dxk = sum_i(-yk*yi * dyi) + yk*dyk
+				// dxk = -yk * sum_i(yi * dyi) + yk*dyk
+				// dxk = -yk * dot(y, dy) + yk*dyk
+				// dxk = yk * (- dot(y, dy) + dyk)
+				// dxk = yk * (dyk - dot(y, dy))
+				//
+				// post-order:
+				// dot_y_dy := dot(y, dy)
+				// dx := dy
+				// dx := dx - dot_y_dy
+				// dx := dx * y
+
+				// linear runtime, no additional memory
+				float dot_y_dy = 0;
+				ggml_vec_dot_f32(nc, &dot_y_dy, 0, y, 0, dy, 0, 1);
+				ggml_vec_cpy_f321(nc, dx, dy);
+				ggml_vec_acc1_f32(nc, dx, -dot_y_dy);
+				ggml_vec_mul_f32(nc, dx, dx, y);
+				ggml_vec_scale_f321(nc, dx, scale);
+
+#ifndef NDEBUG
+				for (int i = 0; i < nc; ++i) {
+					assert(!isnan(dx[i]));
+					assert(!isinf(dx[i]));
+				}
+#endif
+			}
+		});
+		scope.spawn(std::move(sender));
 	}
 }
 
 static void ggml_compute_forward_soft_max_ext_back(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_soft_max_ext_back_f32(params, dst);
+		ggml_compute_forward_soft_max_ext_back_f32(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -6409,7 +6414,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_SOFT_MAX_BACK:
 	{
-		ggml_compute_forward_soft_max_ext_back(params, tensor);
+		ggml_compute_forward_soft_max_ext_back(pool, scope, tensor);
 	} break;
 	case GGML_OP_ROPE:
 	{
