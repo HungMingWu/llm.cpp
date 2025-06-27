@@ -6125,7 +6125,6 @@ static void ggml_compute_forward_conv_2d_dw_cwhn(
 void ggml_compute_forward_conv_2d_dw(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
-	const ggml_compute_params* params,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* kernel = dst->src[0];
@@ -6449,7 +6448,7 @@ static void ggml_compute_forward(
 #endif
 	case GGML_OP_CONV_2D_DW:
 	{
-		ggml_compute_forward_conv_2d_dw(pool, scope, params, tensor);
+		ggml_compute_forward_conv_2d_dw(pool, scope, tensor);
 	} break;
 	case GGML_OP_CONV_TRANSPOSE_2D:
 	{
