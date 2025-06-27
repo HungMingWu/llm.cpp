@@ -5414,7 +5414,8 @@ static void ggml_compute_forward_cross_entropy_loss(
 inline static void ggml_vec_sub_f32(const int n, float* z, const float* x, const float* y) { for (int i = 0; i < n; ++i) z[i] = x[i] - y[i]; }
 
 static void ggml_compute_forward_cross_entropy_loss_back_f32(
-	const ggml_compute_params* params,
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* grad = dst->src[0]; // gradient of forward pass output
@@ -5427,8 +5428,8 @@ static void ggml_compute_forward_cross_entropy_loss_back_f32(
 	GGML_ASSERT(ggml_is_contiguous(grad));
 	GGML_ASSERT(ggml_are_same_shape(src0f, src1f) && ggml_are_same_shape(src0f, dst));
 
-	const int64_t ith = params->ith;
-	const int64_t nth = params->nth;
+	const int nth = pool.available_parallelism();
+	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
 	// TODO: handle transposed/permuted matrices
 	const int64_t nc = src0f->ne[0];
@@ -5438,54 +5439,58 @@ static void ggml_compute_forward_cross_entropy_loss_back_f32(
 	const int64_t dr = (nr + nth - 1) / nth;
 
 	// row range for this thread
-	const int64_t ir0 = dr * ith;
-	const int64_t ir1 = std::min(ir0 + dr, nr);
+	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
+		const int64_t ir1 = std::min(ir0 + dr, nr);
+		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+			const float d_by_nr = ((const float*)grad->data)[0] / (float)nr;
 
-	const float d_by_nr = ((const float*)grad->data)[0] / (float)nr;
-
-	for (int64_t i1 = ir0; i1 < ir1; i1++) {
-		float* ds0 = (float*)((char*)dst->data + i1 * dst->nb[1]);
-		const float* s0 = (const float*)((const char*)src0f->data + i1 * src0f->nb[1]);
-		const float* s1 = (const float*)((const char*)src1f->data + i1 * src1f->nb[1]);
-
-#ifndef NDEBUG
-		for (int64_t i = 0; i < nc; ++i) {
-			//printf("p[%d] = %f\n", i, p[i]);
-			assert(!isnan(s0[i]));
-			assert(!isnan(s1[i]));
-		}
-#endif
-
-		// soft_max
-		float max = -INFINITY;
-		ggml_vec_max_f32(nc, &max, s0);
-		const ggml_float sum = ggml_vec_soft_max_f32(nc, ds0, s0, max);
-		assert(sum > 0.0);
-		ggml_vec_scale_f32(nc, ds0, 1.0 / sum);
-
-		// grad(src0f) = (softmax(src0f) - src1f) * grad(cross_entropy_loss(src0f, src1f)) / nr
-		ggml_vec_sub_f32(nc, ds0, ds0, s1);
-		ggml_vec_scale_f32(nc, ds0, d_by_nr);
+			for (int64_t i1 = ir0; i1 < ir1; i1++) {
+				float* ds0 = (float*)((char*)dst->data + i1 * dst->nb[1]);
+				const float* s0 = (const float*)((const char*)src0f->data + i1 * src0f->nb[1]);
+				const float* s1 = (const float*)((const char*)src1f->data + i1 * src1f->nb[1]);
 
 #ifndef NDEBUG
-		for (int64_t i = 0; i < nc; ++i) {
-			assert(!isnan(ds0[i]));
-			assert(!isinf(ds0[i]));
-		}
+				for (int64_t i = 0; i < nc; ++i) {
+					//printf("p[%d] = %f\n", i, p[i]);
+					assert(!isnan(s0[i]));
+					assert(!isnan(s1[i]));
+				}
 #endif
+
+				// soft_max
+				float max = -INFINITY;
+				ggml_vec_max_f32(nc, &max, s0);
+				const ggml_float sum = ggml_vec_soft_max_f32(nc, ds0, s0, max);
+				assert(sum > 0.0);
+				ggml_vec_scale_f32(nc, ds0, 1.0 / sum);
+
+				// grad(src0f) = (softmax(src0f) - src1f) * grad(cross_entropy_loss(src0f, src1f)) / nr
+				ggml_vec_sub_f32(nc, ds0, ds0, s1);
+				ggml_vec_scale_f32(nc, ds0, d_by_nr);
+
+#ifndef NDEBUG
+				for (int64_t i = 0; i < nc; ++i) {
+					assert(!isnan(ds0[i]));
+					assert(!isinf(ds0[i]));
+				}
+#endif
+			}
+		});
+		scope.spawn(std::move(sender));
 	}
 }
 
 static void ggml_compute_forward_cross_entropy_loss_back(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_cross_entropy_loss_back_f32(params, dst);
+		ggml_compute_forward_cross_entropy_loss_back_f32(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -6585,7 +6590,7 @@ static void ggml_compute_forward(
 	break;
 	case GGML_OP_CROSS_ENTROPY_LOSS_BACK:
 	{
-		ggml_compute_forward_cross_entropy_loss_back(params, tensor);
+		ggml_compute_forward_cross_entropy_loss_back(pool, scope, tensor);
 	}
 	break;
 	case GGML_OP_OPT_STEP_ADAMW:
