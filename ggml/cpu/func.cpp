@@ -4588,7 +4588,6 @@ static void ggml_compute_forward_rope(
 static void ggml_compute_forward_rope(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
-	const ggml_compute_params* params,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
@@ -6422,7 +6421,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_ROPE:
 	{
-		ggml_compute_forward_rope(pool, scope, params, tensor);
+		ggml_compute_forward_rope(pool, scope, tensor);
 	} break;
 	case GGML_OP_ROPE_BACK:
 	{
