@@ -65,51 +65,20 @@ static double nmse(const float* a, const float* b, size_t n) {
 
 static std::vector<float> tensor_to_float(const ggml_tensor* t) {
     std::vector<float> tv;
-    tv.reserve(t->nbytes());
+    tv.reserve(t->nelements());
 
     std::vector<uint8_t> buf(t->nbytes());
     ggml_backend_tensor_get(t, buf.data(), 0, t->nbytes());
 
-    const auto* tt = ggml_get_type_traits(t->type);
-    size_t bs = ggml_blck_size(t->type);
-    std::vector<float> vq(ggml_blck_size(t->type));
-    bool quantized = ggml_is_quantized(t->type);
+    std::vector<float> tmp(ggml_blck_size(t->type) * t->ne[0]);
 
     // access elements by index to avoid gaps in views
     for (int64_t i3 = 0; i3 < t->ne[3]; i3++) {
         for (int64_t i2 = 0; i2 < t->ne[2]; i2++) {
             for (int64_t i1 = 0; i1 < t->ne[1]; i1++) {
-                for (int64_t i0 = 0; i0 < t->ne[0]; i0 += bs) {
-                    size_t i = i3 * t->nb[3] + i2 * t->nb[2] + i1 * t->nb[1] + i0 / bs * t->nb[0];
-                    if (t->type == GGML_TYPE_F16) {
-                        tv.push_back(toFloat32(*(ggml_fp16_t*)&buf[i]));
-                    }
-                    else if (t->type == GGML_TYPE_BF16) {
-                        tv.push_back(toFloat32(*(ggml_bf16_t*)&buf[i]));
-                    }
-                    else if (t->type == GGML_TYPE_F32) {
-                        tv.push_back(*(float*)&buf[i]);
-                    }
-                    else if (t->type == GGML_TYPE_I64) {
-                        tv.push_back((float)*(int64_t*)&buf[i]);
-                    }
-                    else if (t->type == GGML_TYPE_I32) {
-                        tv.push_back((float)*(int32_t*)&buf[i]);
-                    }
-                    else if (t->type == GGML_TYPE_I16) {
-                        tv.push_back((float)*(int16_t*)&buf[i]);
-                    }
-                    else if (t->type == GGML_TYPE_I8) {
-                        tv.push_back((float)*(int8_t*)&buf[i]);
-                    }
-                    else if (quantized) {
-                        tt->to_float(&buf[i], vq.data(), bs);
-                        tv.insert(tv.end(), vq.begin(), vq.end());
-                    }
-                    else {
-                        GGML_ABORT("fatal error");
-                    }
-                }
+                size_t i = i3 * t->nb[3] + i2 * t->nb[2] + i1 * t->nb[1];
+                to_float(t->type, &buf[i], &tmp[0], t->ne[0]);
+                tv.insert(tv.end(), tmp.begin(), tmp.end());
             }
         }
     }

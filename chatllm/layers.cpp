@@ -311,18 +311,17 @@ namespace chatllm
             auto p = (src)+nth * ne0;
             auto q = ((const char*)dst) + nth * s;
             f(p, (void*)q, ne0);
-            });
+        });
     }
 
     void ggml::to_float(ggml::type type, const void* src, float* dst, const int64_t ne0, const int64_t n_rows)
     {
-        auto f = ggml_get_type_traits(type)->to_float;
         auto s = ggml_row_size(type, ne0);
         utils::parallel_for(0, n_rows, [=](int64_t nth) {
             auto p = ((const char*)src) + nth * s;
             auto q = (dst)+nth * ne0;
-            f((const void*)p, q, ne0);
-            });
+            to_float(type, (const void*)p, q, ne0);
+        });
     }
 
     ggml::tensor* ggml::inplace_act(ComputeContext* ctx, ActFunc act, ggml::tensor* input)

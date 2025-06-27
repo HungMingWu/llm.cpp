@@ -14,4 +14,5 @@ export
             y[i] = toFloat32<T>(x[i]);
         }
     }
+    void to_float(ggml_type type, const void* x, float* y, int64_t n);
 }

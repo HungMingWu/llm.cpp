@@ -85,6 +85,17 @@ constexpr const T* cast_with_offset(const void* ptr, size_t offset)
 	return cast_with_offset_impl<const T>(ptr, offset);
 }
 
+template <typename T>
+void fromFloat(const float* x, T* y, int64_t n)
+{
+	if constexpr (is_quant_type_v<T>) {
+		quantize_row(x, y, n);
+	}
+	else {
+		from_float(x, y, n);
+	}
+}
+
 static void ggml_compute_forward_mul_mat_one_chunk(
 	const ggml_compute_params* params,
 	ggml_tensor* dst,
@@ -174,21 +185,21 @@ static void ggml_compute_forward_mul_mat_one_chunk(
 	}
 }
 
+template <typename src0_t>
 static void ggml_compute_forward_mul_mat(
 	exec::static_thread_pool &pool,
 	exec::async_scope &scope,
 	const ggml_compute_params* params,
 	ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-	const struct ggml_tensor* src1 = dst->src[1];
+	using vec_dot_t = typename vec_dot_trait<src0_t>::type;
+	const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src1 = dst->src[1];
 
 	GGML_TENSOR_BINARY_OP_LOCALS
 
 	const int nth = pool.available_parallelism();
 
 	enum ggml_type           const vec_dot_type = type_traits_cpu[src0->type].vec_dot_type;
-	ggml_from_float_t        const from_float = type_traits_cpu[vec_dot_type].from_float;
 
 	GGML_ASSERT(ne0 == ne01);
 	GGML_ASSERT(ne1 == ne11);
@@ -252,9 +263,9 @@ UseGgmlGemm1:;
 				for (int64_t i13 = 0; i13 < ne13; ++i13) {
 					for (int64_t i12 = 0; i12 < ne12; ++i12) {
 						for (int64_t i11 = start; i11 < end; i11++) {
-							from_float(
+							fromFloat(
 								cast_with_offset<float>(src1->data, i13 * nb13 + i12 * nb12 + i11 * nb11),
-								cast_with_offset<void>(params->wdata, i13 * nbw3 + i12 * nbw2 + i11 * nbw1),
+								cast_with_offset<vec_dot_t>(params->wdata, i13 * nbw3 + i12 * nbw2 + i11 * nbw1),
 								ne10);
 						}
 					}
@@ -347,6 +358,93 @@ UseGgmlGemm2:;
 			ggml_compute_forward_mul_mat_one_chunk(params, dst, src0->type, num_rows_per_vec_dot, ir0_start, ir0_end, ir1_start, ir1_end);
 		});
 		scope.spawn(std::move(sender));
+	}
+}
+
+static void ggml_compute_forward_mul_mat(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	const ggml_compute_params* params,
+	ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+	switch (src0->type) {
+	case GGML_TYPE_F32: {
+		ggml_compute_forward_mul_mat<ggml_fp32_t>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_F16: {
+		ggml_compute_forward_mul_mat<ggml_fp16_t>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_BF16: {
+		ggml_compute_forward_mul_mat<ggml_bf16_t>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_Q4_0: {
+		ggml_compute_forward_mul_mat<block_q4_0>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_Q4_1: {
+		ggml_compute_forward_mul_mat<block_q4_1>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_Q5_0: {
+		ggml_compute_forward_mul_mat<block_q5_0>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_Q5_1: {
+		ggml_compute_forward_mul_mat<block_q5_1>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_Q8_0: {
+		ggml_compute_forward_mul_mat<block_q8_0>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_Q8_1: {
+		ggml_compute_forward_mul_mat<block_q8_1>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_Q2_K: {
+		ggml_compute_forward_mul_mat<block_q2_K>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_Q3_K: {
+		ggml_compute_forward_mul_mat<block_q3_K>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_Q4_K: {
+		ggml_compute_forward_mul_mat<block_q4_K>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_Q5_K: {
+		ggml_compute_forward_mul_mat<block_q5_K>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_Q6_K: {
+		ggml_compute_forward_mul_mat<block_q5_K>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_IQ1_S: {
+		ggml_compute_forward_mul_mat<block_iq1_s>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_IQ1_M: {
+		ggml_compute_forward_mul_mat<block_iq1_m>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_IQ2_XXS: {
+		ggml_compute_forward_mul_mat<block_iq2_xxs>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_IQ2_XS: {
+		ggml_compute_forward_mul_mat<block_iq2_xs>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_IQ2_S: {
+		ggml_compute_forward_mul_mat<block_iq2_s>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_IQ3_XXS: {
+		ggml_compute_forward_mul_mat<block_iq3_xxs>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_IQ3_S: {
+		ggml_compute_forward_mul_mat<block_iq3_s>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_IQ4_NL: {
+		ggml_compute_forward_mul_mat<block_iq4_nl>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_IQ4_XS: {
+		ggml_compute_forward_mul_mat<block_iq4_xs>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_TQ1_0: {
+		ggml_compute_forward_mul_mat<block_tq1_0>(pool, scope, params, dst);
+	} break;
+	case GGML_TYPE_TQ2_0: {
+		ggml_compute_forward_mul_mat<block_tq2_0>(pool, scope, params, dst);
+	} break;
+	default:
+		assert(false);
 	}
 }
 
@@ -1883,6 +1981,7 @@ static void ggml_compute_forward_out_prod_f32(
 	}
 }
 
+template <typename T>
 static void ggml_compute_forward_out_prod_q_f32(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -1895,16 +1994,13 @@ static void ggml_compute_forward_out_prod_q_f32(
 
 	const int nth = pool.available_parallelism();
 
-	const enum ggml_type type = src0->type;
-	ggml_to_float_t const dequantize_row_q = ggml_get_type_traits(type)->to_float;
-
 	GGML_ASSERT(ne02 == ne12);
 	GGML_ASSERT(ne03 == ne13);
 	GGML_ASSERT(ne2 == ne12);
 	GGML_ASSERT(ne3 == ne13);
 
 	// we don't support permuted src0 dim0
-	GGML_ASSERT(nb00 == ggml_type_size(type));
+	GGML_ASSERT(nb00 == sizeof(T));
 
 	// dst dim0 cannot be transposed or permuted
 	GGML_ASSERT(nb0 == sizeof(float));
@@ -1957,11 +2053,11 @@ static void ggml_compute_forward_out_prod_q_f32(
 				for (int64_t i01 = 0; i01 < ne01; ++i01) {
 					const int64_t i11 = i01;
 
-					float* s0 = (float*)((char*)src0->data + (i01 * nb01 + i02 * nb02 + i03 * nb03));
+					T* s0 = (T*)((char*)src0->data + (i01 * nb01 + i02 * nb02 + i03 * nb03));
 					float* s1 = (float*)((char*)src1->data + (i1 * nb10 + i11 * nb11 + i12 * nb12 + i13 * nb13));
 					float* d = (float*)((char*)dst->data + (i1 * nb1 + i2 * nb2 + i3 * nb3));
 
-					dequantize_row_q(s0, wdata.data(), ne0);
+					dequantize_row(s0, wdata.data(), ne0);
 					ggml_vec_mad_f32(ne0, d, wdata.data(), *s1);
 				}
 			}
@@ -1974,32 +2070,71 @@ static void ggml_compute_forward_out_prod(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	ggml_tensor* dst) {
-	const struct ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
-	case GGML_TYPE_Q4_0:
-	case GGML_TYPE_Q4_1:
-	case GGML_TYPE_Q5_0:
-	case GGML_TYPE_Q5_1:
-	case GGML_TYPE_Q8_0:
-	case GGML_TYPE_Q2_K:
-	case GGML_TYPE_Q3_K:
-	case GGML_TYPE_Q4_K:
-	case GGML_TYPE_Q5_K:
-	case GGML_TYPE_Q6_K:
-	case GGML_TYPE_TQ1_0:
-	case GGML_TYPE_TQ2_0:
-	case GGML_TYPE_IQ2_XXS:
-	case GGML_TYPE_IQ2_XS:
-	case GGML_TYPE_IQ3_XXS:
-	case GGML_TYPE_IQ1_S:
-	case GGML_TYPE_IQ1_M:
-	case GGML_TYPE_IQ4_NL:
-	case GGML_TYPE_IQ4_XS:
-	case GGML_TYPE_IQ3_S:
-	case GGML_TYPE_IQ2_S:
-	{
-		ggml_compute_forward_out_prod_q_f32(pool, scope, dst);
+	case GGML_TYPE_Q4_0: {
+		ggml_compute_forward_out_prod_q_f32<block_q4_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q4_1: {
+		ggml_compute_forward_out_prod_q_f32<block_q4_1>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q5_0: {
+		ggml_compute_forward_out_prod_q_f32<block_q5_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q5_1: {
+		ggml_compute_forward_out_prod_q_f32<block_q5_1>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q8_0: {
+		ggml_compute_forward_out_prod_q_f32<block_q8_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q2_K: {
+		ggml_compute_forward_out_prod_q_f32<block_q2_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q3_K: {
+		ggml_compute_forward_out_prod_q_f32<block_q3_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q4_K: {
+		ggml_compute_forward_out_prod_q_f32<block_q4_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q5_K: {
+		ggml_compute_forward_out_prod_q_f32<block_q5_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q6_K: {
+		ggml_compute_forward_out_prod_q_f32<block_q6_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_TQ1_0: {
+		ggml_compute_forward_out_prod_q_f32<block_tq1_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_TQ2_0: {
+		ggml_compute_forward_out_prod_q_f32<block_tq2_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ2_XXS: {
+		ggml_compute_forward_out_prod_q_f32<block_iq2_xxs>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ2_XS: {
+		ggml_compute_forward_out_prod_q_f32<block_iq2_xs>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ3_XXS: {
+		ggml_compute_forward_out_prod_q_f32<block_iq3_xxs>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ1_S: {
+		ggml_compute_forward_out_prod_q_f32<block_iq1_s>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ1_M: {
+		ggml_compute_forward_out_prod_q_f32<block_iq1_m>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ4_NL: {
+		ggml_compute_forward_out_prod_q_f32<block_iq4_nl>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ4_XS: {
+		ggml_compute_forward_out_prod_q_f32<block_iq4_xs>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ3_S: {
+		ggml_compute_forward_out_prod_q_f32<block_iq3_s>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ2_S: {
+		ggml_compute_forward_out_prod_q_f32<block_iq2_s>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_F16:
 	{
@@ -2017,57 +2152,13 @@ static void ggml_compute_forward_out_prod(
 	}
 }
 
+template <typename T>
 static void ggml_compute_forward_get_rows_q(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	const ggml_compute_params* params,
+	ggml_tensor* dst) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
-	const struct ggml_tensor* src1 = dst->src[1];
-
-	GGML_TENSOR_BINARY_OP_LOCALS
-
-	const int64_t nc = ne00;
-	const int64_t nr = src1->nelements();
-
-	const enum ggml_type type = src0->type;
-	ggml_to_float_t const dequantize_row_q = ggml_get_type_traits(type)->to_float;
-
-	assert(ne0 == nc);
-	assert(ne02 == ne11);
-	assert(nb00 == ggml_type_size(type));
-	assert(ggml_nrows(dst) == nr);
-
-	const int ith = params->ith;
-	const int nth = params->nth;
-
-	// rows per thread
-	const int dr = (nr + nth - 1) / nth;
-
-	// row range for this thread
-	const int64_t ir0 = dr * ith;
-	const int64_t ir1 = std::min(ir0 + dr, nr);
-
-	for (int64_t i = ir0; i < ir1; ++i) {
-		const int64_t i12 = i / (ne11 * ne10);
-		const int64_t i11 = (i - i12 * ne11 * ne10) / ne10;
-		const int64_t i10 = (i - i12 * ne11 * ne10 - i11 * ne10);
-		const int64_t i01 = *(int32_t*)((char*)src1->data + i10 * nb10 + i11 * nb11 + i12 * nb12);
-
-		GGML_ASSERT(i01 >= 0 && i01 < ne01);
-
-		dequantize_row_q(
-			(const void*)((char*)src0->data + i01 * nb01 + i11 * nb02 + i12 * nb03),
-			(float*)((char*)dst->data + i10 * nb1 + i11 * nb2 + i12 * nb3), nc);
-	}
-}
-
-template <typename block_type>
-static void ggml_compute_forward_get_rows_q(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-	const struct ggml_tensor* src1 = dst->src[1];
+	const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src1 = dst->src[1];
 
 	GGML_TENSOR_BINARY_OP_LOCALS
 
@@ -2076,7 +2167,7 @@ static void ggml_compute_forward_get_rows_q(
 
 	assert(ne0 == nc);
 	assert(ne02 == ne11);
-	assert(nb00 == sizeof(block_type));
+	assert(nb00 == sizeof(T));
 	assert(ggml_nrows(dst) == nr);
 
 	const int ith = params->ith;
@@ -2098,7 +2189,7 @@ static void ggml_compute_forward_get_rows_q(
 		GGML_ASSERT(i01 >= 0 && i01 < ne01);
 
 		dequantize_row(
-			(const block_type*)((char*)src0->data + i01 * nb01 + i11 * nb02 + i12 * nb03),
+			(const T*)((char*)src0->data + i01 * nb01 + i11 * nb02 + i12 * nb03),
 			(float*)((char*)dst->data + i10 * nb1 + i11 * nb2 + i12 * nb3), nc);
 	}
 }
@@ -2208,25 +2299,53 @@ static void ggml_compute_forward_get_rows(
 	case GGML_TYPE_Q8_0: {
 		ggml_compute_forward_get_rows_q<block_q8_0>(params, dst);
 	} break;
-	case GGML_TYPE_Q8_1:
-	case GGML_TYPE_Q2_K:
-	case GGML_TYPE_Q3_K:
-	case GGML_TYPE_Q4_K:
-	case GGML_TYPE_Q5_K:
-	case GGML_TYPE_Q6_K:
-	case GGML_TYPE_TQ1_0:
-	case GGML_TYPE_TQ2_0:
-	case GGML_TYPE_IQ2_XXS:
-	case GGML_TYPE_IQ2_XS:
-	case GGML_TYPE_IQ3_XXS:
-	case GGML_TYPE_IQ1_S:
-	case GGML_TYPE_IQ1_M:
-	case GGML_TYPE_IQ4_NL:
-	case GGML_TYPE_IQ4_XS:
-	case GGML_TYPE_IQ3_S:
-	case GGML_TYPE_IQ2_S:
-	{
-		ggml_compute_forward_get_rows_q(params, dst);
+	case GGML_TYPE_Q2_K: {
+		ggml_compute_forward_get_rows_q<block_q2_K>(params, dst);
+	} break;
+	case GGML_TYPE_Q3_K: {
+		ggml_compute_forward_get_rows_q<block_q3_K>(params, dst);
+	} break;
+	case GGML_TYPE_Q4_K: {
+		ggml_compute_forward_get_rows_q<block_q4_K>(params, dst);
+	} break;
+	case GGML_TYPE_Q5_K: {
+		ggml_compute_forward_get_rows_q<block_q5_K>(params, dst);
+	} break;
+	case GGML_TYPE_Q6_K: {
+		ggml_compute_forward_get_rows_q<block_q6_K>(params, dst);
+	} break;
+	case GGML_TYPE_TQ1_0: {
+		ggml_compute_forward_get_rows_q<block_tq1_0>(params, dst);
+	} break;
+	case GGML_TYPE_TQ2_0: {
+		ggml_compute_forward_get_rows_q<block_tq2_0>(params, dst);
+	} break;
+	case GGML_TYPE_IQ2_XXS: {
+		ggml_compute_forward_get_rows_q<block_iq2_xxs>(params, dst);
+	} break;
+	case GGML_TYPE_IQ2_XS: {
+		ggml_compute_forward_get_rows_q<block_iq2_xs>(params, dst);
+	} break;
+	case GGML_TYPE_IQ3_XXS: {
+		ggml_compute_forward_get_rows_q<block_iq3_xxs>(params, dst);
+	} break;
+	case GGML_TYPE_IQ1_S: {
+		ggml_compute_forward_get_rows_q<block_iq1_s>(params, dst);
+	} break;
+	case GGML_TYPE_IQ1_M: {
+		ggml_compute_forward_get_rows_q<block_iq1_m>(params, dst);
+	} break;
+	case GGML_TYPE_IQ4_NL: {
+		ggml_compute_forward_get_rows_q<block_iq4_nl>(params, dst);
+	} break;
+	case GGML_TYPE_IQ4_XS: {
+		ggml_compute_forward_get_rows_q<block_iq4_xs>(params, dst);
+	} break;
+	case GGML_TYPE_IQ3_S: {
+		ggml_compute_forward_get_rows_q<block_iq3_s>(params, dst);
+	} break;
+	case GGML_TYPE_IQ2_S: {
+		ggml_compute_forward_get_rows_q<block_iq2_s>(params, dst);
 	} break;
 	case GGML_TYPE_F16:
 	{
@@ -2241,6 +2360,7 @@ static void ggml_compute_forward_get_rows(
 	{
 		ggml_compute_forward_get_rows_f32(params, dst);
 	} break;
+	case GGML_TYPE_Q8_1:
 	default:
 	{
 		GGML_ABORT("fatal error");
@@ -2611,6 +2731,7 @@ static void ggml_compute_forward_set(
 	}
 }
 
+template <typename T>
 static void ggml_compute_forward_add_q_f32(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -2627,13 +2748,10 @@ static void ggml_compute_forward_add_q_f32(
 
 	const int nth = pool.available_parallelism();
 
-	const enum ggml_type type = src0->type;
-	const enum ggml_type dtype = dst->type;
-	ggml_to_float_t const dequantize_row_q = ggml_get_type_traits(type)->to_float;
-	ggml_from_float_t const quantize_row_q = ggml_get_type_traits_cpu(dtype)->from_float;
+	GGML_ASSERT(src0->type == dst->type);
 
 	// we don't support permuted src0 or src1
-	GGML_ASSERT(nb00 == ggml_type_size(type));
+	GGML_ASSERT(nb00 == sizeof(T));
 	GGML_ASSERT(nb10 == sizeof(float));
 
 	// dst cannot be transposed or permuted
@@ -2675,14 +2793,14 @@ static void ggml_compute_forward_add_q_f32(
 				assert(ne00 % 32 == 0);
 
 				// unquantize row from src0 to temp buffer
-				dequantize_row_q(src0_row, wdata.data(), ne00);
+				dequantize_row(static_cast<const T*>(src0_row), wdata.data(), ne00);
 				// add src1
 				std::span<const float> src1_row_span{ src1_row, static_cast<size_t>(ne00) };
 				std::ranges::transform(src1_row_span, wdata, wdata.begin(), std::plus<>());
 
 				// quantize row to dst
-				if (quantize_row_q != NULL) {
-					quantize_row_q(wdata.data(), dst_row, ne00);
+				if constexpr (requires { quantize_row(wdata.data(), static_cast<T*>(dst_row), ne00); }) {
+					quantize_row(wdata.data(), static_cast<T*>(dst_row), ne00);
 				}
 				else {
 					memcpy(dst_row, wdata.data(), ne0 * nb0);
@@ -2755,7 +2873,7 @@ static void ggml_compute_forward_add_non_quantized(
 static void ggml_compute_forward_add(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
-	struct ggml_tensor* dst) {
+	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
 
@@ -2766,29 +2884,68 @@ static void ggml_compute_forward_add(
 	{
 		ggml_compute_forward_add_non_quantized(pool, scope, dst);
 	} break;
-	case GGML_TYPE_Q4_0:
-	case GGML_TYPE_Q4_1:
-	case GGML_TYPE_Q5_0:
-	case GGML_TYPE_Q5_1:
-	case GGML_TYPE_Q8_0:
-	case GGML_TYPE_Q2_K:
-	case GGML_TYPE_Q3_K:
-	case GGML_TYPE_Q4_K:
-	case GGML_TYPE_Q5_K:
-	case GGML_TYPE_Q6_K:
-	case GGML_TYPE_TQ1_0:
-	case GGML_TYPE_TQ2_0:
-	case GGML_TYPE_IQ2_XXS:
-	case GGML_TYPE_IQ2_XS:
-	case GGML_TYPE_IQ3_XXS:
-	case GGML_TYPE_IQ1_S:
-	case GGML_TYPE_IQ1_M:
-	case GGML_TYPE_IQ4_NL:
-	case GGML_TYPE_IQ4_XS:
-	case GGML_TYPE_IQ3_S:
-	case GGML_TYPE_IQ2_S:
-	{
-		ggml_compute_forward_add_q_f32(pool, scope, dst);
+	case GGML_TYPE_Q4_0: {
+		ggml_compute_forward_add_q_f32<block_q4_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q4_1: {
+		ggml_compute_forward_add_q_f32<block_q4_1>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q5_0: {
+		ggml_compute_forward_add_q_f32<block_q5_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q5_1: {
+		ggml_compute_forward_add_q_f32<block_q5_1>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q8_0: {
+		ggml_compute_forward_add_q_f32<block_q8_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q2_K: {
+		ggml_compute_forward_add_q_f32<block_q2_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q3_K: {
+		ggml_compute_forward_add_q_f32<block_q3_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q4_K: {
+		ggml_compute_forward_add_q_f32<block_q4_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q5_K: {
+		ggml_compute_forward_add_q_f32<block_q5_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q6_K: {
+		ggml_compute_forward_add_q_f32<block_q6_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_TQ1_0: {
+		ggml_compute_forward_add_q_f32<block_tq1_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_TQ2_0: {
+		ggml_compute_forward_add_q_f32<block_tq2_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ2_XXS: {
+		ggml_compute_forward_add_q_f32<block_iq2_xxs>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ2_XS: {
+		ggml_compute_forward_add_q_f32<block_iq2_xs>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ3_XXS: {
+		ggml_compute_forward_add_q_f32<block_iq3_xxs>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ1_S: {
+		ggml_compute_forward_add_q_f32<block_iq1_s>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ1_M: {
+		ggml_compute_forward_add_q_f32<block_iq1_m>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ4_NL: {
+		ggml_compute_forward_add_q_f32<block_iq4_nl>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ4_XS: {
+		ggml_compute_forward_add_q_f32<block_iq4_xs>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ3_S: {
+		ggml_compute_forward_add_q_f32<block_iq3_s>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ2_S: {
+		ggml_compute_forward_add_q_f32<block_iq2_s>(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -2864,6 +3021,7 @@ static void ggml_compute_forward_add1(
 
 static void ggml_vec_acc1_f32(const int n, float* y, const float   v) { for (int i = 0; i < n; ++i) y[i] += v; }
 
+template <typename T>
 static void ggml_compute_forward_add1_q_f32(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -2884,12 +3042,8 @@ static void ggml_compute_forward_add1_q_f32(
 
 	GGML_TENSOR_UNARY_OP_LOCALS
 
-	const enum ggml_type type = src0->type;
-	ggml_to_float_t const dequantize_row_q = ggml_get_type_traits(type)->to_float;
-	ggml_from_float_t const quantize_row_q = ggml_get_type_traits_cpu(type)->from_float;
-
 	// we don't support permuted src0
-	GGML_ASSERT(nb00 == ggml_type_size(type));
+	GGML_ASSERT(nb00 == sizeof(T));
 
 	// dst cannot be transposed or permuted
 	GGML_ASSERT(nb0 <= nb1);
@@ -2920,11 +3074,11 @@ static void ggml_compute_forward_add1_q_f32(
 				assert(ne0 % 32 == 0);
 
 				// unquantize row from src0 to temp buffer
-				dequantize_row_q(src0_row, wdata.data(), ne0);
+				dequantize_row(static_cast<const T*>(src0_row), wdata.data(), ne0);
 				// add src1
 				ggml_vec_acc1_f32(ne0, wdata.data(), v);
 				// quantize row to dst
-				quantize_row_q(wdata.data(), dst_row, ne0);
+				quantize_row(wdata.data(), static_cast<T*>(dst_row), ne0);
 			}
 		});
 		scope.spawn(std::move(sender));
@@ -2971,31 +3125,62 @@ static void ggml_compute_forward_add1(
 			GGML_ABORT("fatal error");
 		}
 	} break;
-	case GGML_TYPE_Q4_0:
-	case GGML_TYPE_Q4_1:
-	case GGML_TYPE_Q5_0:
-	case GGML_TYPE_Q5_1:
-	case GGML_TYPE_Q8_0:
-	case GGML_TYPE_Q8_1:
-	case GGML_TYPE_Q2_K:
-	case GGML_TYPE_Q3_K:
-	case GGML_TYPE_Q4_K:
-	case GGML_TYPE_Q5_K:
-	case GGML_TYPE_Q6_K:
-	case GGML_TYPE_TQ1_0:
-	case GGML_TYPE_TQ2_0:
+	case GGML_TYPE_Q4_0: {
+		ggml_compute_forward_add1_q_f32<block_q4_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q4_1: {
+		ggml_compute_forward_add1_q_f32<block_q4_1>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q5_0: {
+		ggml_compute_forward_add1_q_f32<block_q5_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q5_1: {
+		ggml_compute_forward_add1_q_f32<block_q5_1>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q8_0: {
+		ggml_compute_forward_add1_q_f32<block_q8_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q8_1: {
+		// ggml_compute_forward_add1_q_f32<block_q8_1>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q2_K: {
+		ggml_compute_forward_add1_q_f32<block_q2_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q3_K: {
+		ggml_compute_forward_add1_q_f32<block_q3_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q4_K: {
+		ggml_compute_forward_add1_q_f32<block_q4_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q5_K: {
+		ggml_compute_forward_add1_q_f32<block_q5_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q6_K: {
+		ggml_compute_forward_add1_q_f32<block_q6_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_TQ1_0: {
+		ggml_compute_forward_add1_q_f32<block_tq1_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_TQ2_0: {
+		ggml_compute_forward_add1_q_f32<block_tq2_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ4_NL: {
+		ggml_compute_forward_add1_q_f32<block_iq4_nl>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ4_XS: {
+		ggml_compute_forward_add1_q_f32<block_iq4_xs>(pool, scope, dst);
+	} break;
 	case GGML_TYPE_IQ2_XXS:
 	case GGML_TYPE_IQ2_XS:
 	case GGML_TYPE_IQ3_XXS:
+	case GGML_TYPE_IQ3_S:
 	case GGML_TYPE_IQ1_S:
 	case GGML_TYPE_IQ1_M:
-	case GGML_TYPE_IQ4_NL:
-	case GGML_TYPE_IQ4_XS:
-	case GGML_TYPE_IQ3_S:
 	case GGML_TYPE_IQ2_S:
 	{
-		ggml_compute_forward_add1_q_f32(pool, scope, dst);
-	} break;
+		// These types are lack of qutization row functionity
+		[[fallthrough]];
+	}
 	default:
 	{
 		GGML_ABORT("fatal error");
@@ -3642,11 +3827,12 @@ static void ggml_compute_forward_mul_mat_id_one_chunk(
 	scope.spawn(std::move(sender));
 }
 
+template <typename src0_t>
 static void ggml_compute_forward_mul_mat_id(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	ggml_tensor* dst) {
-
+	using vec_dot_t = typename vec_dot_trait<src0_t>::type;
 	const ggml_tensor* src0 = dst->src[0];
 	const ggml_tensor* src1 = dst->src[1];
 	const ggml_tensor* ids = dst->src[2];
@@ -3661,7 +3847,6 @@ static void ggml_compute_forward_mul_mat_id(
 
 	ggml_vec_dot_t    const vec_dot = type_traits_cpu[type].vec_dot;
 	enum ggml_type    const vec_dot_type = type_traits_cpu[type].vec_dot_type;
-	ggml_from_float_t const from_float = type_traits_cpu[vec_dot_type].from_float;
 
 	// we don't support permuted src0 or src1
 	GGML_ASSERT(nb00 == ggml_type_size(type));
@@ -3676,7 +3861,7 @@ static void ggml_compute_forward_mul_mat_id(
 	// row groups
 	const int n_ids = ids->ne[0]; // n_expert_used
 	const int n_as = ne02;       // n_expert
-	
+
 	// initialize matrix_row_counts
 	std::vector<int64_t> matrix_row_counts(n_as, 0); // [n_as]
 	std::vector<mmid_row_mapping> matrix_rows(n_as * ids->ne[0] * ids->ne[1]); // [n_as][ids->ne[0]*ids->ne[1]]
@@ -3700,8 +3885,9 @@ static void ggml_compute_forward_mul_mat_id(
 				for (int64_t i13 = 0; i13 < ne13; ++i13) {
 					for (int64_t i12 = 0; i12 < ne12; ++i12) {
 						for (int64_t i11 = ir0; i11 < ir1; i11++) {
-							from_float((float*)((char*)src1->data + i13 * nb13 + i12 * nb12 + i11 * nb11),
-								(void*)(&wdata_1[i13 * nbw3 + i12 * nbw2 + i11 * nbw1]),
+							fromFloat(
+								cast_with_offset<float>(src1->data, i13 * nb13 + i12 * nb12 + i11 * nb11),
+								cast_with_offset<vec_dot_t>(wdata_1.data(), i13 * nbw3 + i12 * nbw2 + i11 * nbw1),
 								ne10);
 						}
 					}
@@ -3782,6 +3968,92 @@ static void ggml_compute_forward_mul_mat_id(
 		}
 	}
 	stdexec::sync_wait(scope.on_empty());
+}
+
+static void ggml_compute_forward_mul_mat_id(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+	switch (src0->type) {
+	case GGML_TYPE_F32:	{
+		ggml_compute_forward_mul_mat_id<ggml_fp32_t>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_F16: {
+		ggml_compute_forward_mul_mat_id<ggml_fp16_t>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_BF16: {
+		ggml_compute_forward_mul_mat_id<ggml_bf16_t>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q4_0: {
+		ggml_compute_forward_mul_mat_id<block_q4_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q4_1: {
+		ggml_compute_forward_mul_mat_id<block_q4_1>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q5_0: {
+		ggml_compute_forward_mul_mat_id<block_q5_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q5_1: {
+		ggml_compute_forward_mul_mat_id<block_q5_1>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q8_0: {
+		ggml_compute_forward_mul_mat_id<block_q8_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q8_1: {
+		ggml_compute_forward_mul_mat_id<block_q8_1>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q2_K: {
+		ggml_compute_forward_mul_mat_id<block_q2_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q3_K: {
+		ggml_compute_forward_mul_mat_id<block_q3_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q4_K: {
+		ggml_compute_forward_mul_mat_id<block_q4_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q5_K: {
+		ggml_compute_forward_mul_mat_id<block_q5_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q6_K: {
+		ggml_compute_forward_mul_mat_id<block_q5_K>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ1_S: {
+		ggml_compute_forward_mul_mat_id<block_iq1_s>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ1_M: {
+		ggml_compute_forward_mul_mat_id<block_iq1_m>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ2_XXS: {
+		ggml_compute_forward_mul_mat_id<block_iq2_xxs>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ2_XS: {
+		ggml_compute_forward_mul_mat_id<block_iq2_xs>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ2_S: {
+		ggml_compute_forward_mul_mat_id<block_iq2_s>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ3_XXS: {
+		ggml_compute_forward_mul_mat_id<block_iq3_xxs>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ3_S: {
+		ggml_compute_forward_mul_mat_id<block_iq3_s>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ4_NL: {
+		ggml_compute_forward_mul_mat_id<block_iq4_nl>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_IQ4_XS: {
+		ggml_compute_forward_mul_mat_id<block_iq4_xs>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_TQ1_0: {
+		ggml_compute_forward_mul_mat_id<block_tq1_0>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_TQ2_0: {
+		ggml_compute_forward_mul_mat_id<block_tq2_0>(pool, scope, dst);
+	} break;
+	default:
+		assert(false);
+	}
 }
 
 template <typename T>
@@ -5068,6 +5340,7 @@ inline static void ggml_vec_scale_f32(const int n, float* y, const float   v) {
 #endif
 }
 
+template <typename V_TYPE, typename K_TYPE> 
 static void ggml_compute_forward_flash_attn_ext_f16(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -5077,6 +5350,7 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 	const ggml_tensor* mask,
 	ggml_tensor* dst) {
 
+	using q_to_vec_dot_t = typename vec_dot_trait<K_TYPE>::type;
 	GGML_TENSOR_LOCALS(int64_t, neq, q, ne)
 	GGML_TENSOR_LOCALS(size_t, nbq, q, nb)
 	GGML_TENSOR_LOCALS(int64_t, nek, k, ne)
@@ -5142,12 +5416,7 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 	const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
 
 	enum ggml_type    const k_vec_dot_type = type_traits_cpu[k->type].vec_dot_type;
-	ggml_from_float_t const q_to_vec_dot = type_traits_cpu[k_vec_dot_type].from_float;
 	ggml_vec_dot_t    const kq_vec_dot = type_traits_cpu[k->type].vec_dot;
-	ggml_to_float_t   const v_to_float = ggml_get_type_traits(v->type)->to_float;
-
-	GGML_ASSERT(q_to_vec_dot && "fattn: unsupported K-type");
-	GGML_ASSERT(v_to_float && "fattn: unsupported V-type");
 
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
@@ -5158,7 +5427,7 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 			std::vector<float> VKQ32(DV); // FP32 VKQ accumulator
 			std::vector<float> V32(DV); // (temporary) FP32 V buffer
 			std::vector<ggml_fp16_t> VKQ16(DV); // (temporary) FP16 VKQ accumulator
-			std::vector<ggml_fp16_t> Q_q(DK); // (temporary) buffer for Q converted to quantized/FP16
+			std::vector<q_to_vec_dot_t> Q_q(DK); // (temporary) buffer for Q converted to quantized/FP16
 
 			for (int64_t ir = ir0; ir < ir1; ++ir) {
 				// q indices
@@ -5183,7 +5452,7 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 				const int iv2 = iq2 / rv2;
 
 				const float* pq = (const float*)((char*)q->data + (iq1 * nbq1 + iq2 * nbq2 + iq3 * nbq3));
-				q_to_vec_dot(pq, Q_q.data(), DK);
+				fromFloat(pq, Q_q.data(), DK);
 
 				// online softmax / attention
 				// loop over n_kv and n_head_kv
@@ -5212,7 +5481,7 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 					float ms = 1.0f; // upon new higher max val, scale VKQ and KQ sum with this value
 					float vs = 1.0f; // post-softmax KQ value, expf(s - M)
 
-					const char* v_data = ((const char*)v->data + (ic * nbv1 + iv2 * nbv2 + iv3 * nbv3));
+					const void* v_data = ((const char*)v->data + (ic * nbv1 + iv2 * nbv2 + iv3 * nbv3));
 
 					if (v->type == GGML_TYPE_F16) {
 						if (s > M) {
@@ -5245,7 +5514,11 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 							vs = expf(s - M);
 						}
 
-						v_to_float(v_data, V32.data(), DV);
+						if constexpr (is_quant_type_v<V_TYPE>) {
+							dequantize_row(static_cast<const V_TYPE*>(v_data), V32.data(), DV);
+						} else {
+							to_float(static_cast<const V_TYPE*>(v_data), V32.data(), DV);
+						} 
 
 						// V += v*expf(s - M)
 						ggml_vec_mad_f32(DV, VKQ32.data(), V32.data(), vs);
@@ -5277,6 +5550,53 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 			}
 		});
 		scope.spawn(std::move(sender));
+	}
+}
+
+template <typename V_TYPE>
+static void ggml_compute_forward_flash_attn_ext_f16(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	const ggml_tensor* q,
+	const ggml_tensor* k,
+	const ggml_tensor* v,
+	const ggml_tensor* mask,
+	ggml_tensor* dst) {
+	switch (k->type) {
+	case GGML_TYPE_F16: {
+		ggml_compute_forward_flash_attn_ext_f16<V_TYPE, ggml_fp16_t>(pool, scope, q, k, v, mask, dst);
+	} break;
+	case GGML_TYPE_Q4_0: {
+		ggml_compute_forward_flash_attn_ext_f16<V_TYPE, block_q4_0>(pool, scope, q, k, v, mask, dst);
+	} break;
+	case GGML_TYPE_Q8_0: {
+		ggml_compute_forward_flash_attn_ext_f16<V_TYPE, block_q8_0>(pool, scope, q, k, v, mask, dst);
+	} break;
+	default:
+		assert(false);
+	}
+}
+
+static void ggml_compute_forward_flash_attn_ext_f16(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	const ggml_tensor* q,
+	const ggml_tensor* k,
+	const ggml_tensor* v,
+	const ggml_tensor* mask,
+	ggml_tensor* dst) {
+	switch (v->type) {
+	case GGML_TYPE_F16: {
+		ggml_compute_forward_flash_attn_ext_f16<ggml_fp16_t>(pool, scope, q, k, v, mask, dst);
+	} break;
+	case GGML_TYPE_Q4_0: {
+		ggml_compute_forward_flash_attn_ext_f16<block_q4_0>(pool, scope, q, k, v, mask, dst);
+	} break;
+	case GGML_TYPE_Q8_0: {
+		ggml_compute_forward_flash_attn_ext_f16<block_q8_0>(pool, scope, q, k, v, mask, dst);
+	} break;
+	default:
+		GGML_ASSERT(false && "fattn: unsupported V-type");
 	}
 }
 

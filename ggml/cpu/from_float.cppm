@@ -14,10 +14,4 @@ export
             y[i] = fromFloat32<T>(x[i]);
         }
     }
-
-    template <typename T>
-    void from_float_wrapper(const float* x, void* y, int64_t n)
-    {
-        from_float<T>(x, reinterpret_cast<T*>(y), n);
-    }
 }

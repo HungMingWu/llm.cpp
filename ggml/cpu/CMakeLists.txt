@@ -35,4 +35,5 @@ target_sources(libggml
       device.cpp
       func.cpp
       plan.cpp
+      to_float.cpp
 )

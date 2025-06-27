@@ -8,11 +8,8 @@ export module ggml:traits;
 import :ds;
 import :types;
 import :utility;
-import :quants;
-import :cpu.to_float;
 
 using ggml_from_float_t = void (*)(const float*, void*, int64_t);
-using ggml_to_float_t = void (*)(const void*, float*, int64_t);
 
 struct ggml_type_traits {
     std::string_view type_name;
@@ -20,7 +17,6 @@ struct ggml_type_traits {
     int64_t                  blck_size_interleave; // interleave elements in blocks
     size_t                   type_size;
     bool                     is_quantized;
-    ggml_to_float_t          to_float;
     ggml_from_float_t        from_float_ref;
 };
 
@@ -158,7 +154,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = 1,
             .type_size = sizeof(ggml_fp16_t),
             .is_quantized = false,
-            .to_float = (ggml_to_float_t)to_float<ggml_fp16_t>,
             //.from_float_ref = (ggml_from_float_t)ggml_fp32_to_fp16_row,
         }
     },
@@ -169,7 +164,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = block_q4_0::block_size,
             .type_size = sizeof(block_q4_0),
             .is_quantized = true,
-            .to_float = (ggml_to_float_t)dequantize_row_q4_0,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q4_0_ref,
         }
     },
@@ -180,7 +174,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = block_q4_1::block_size,
             .type_size = sizeof(block_q4_1),
             .is_quantized = true,
-            .to_float = (ggml_to_float_t)dequantize_row_q4_1,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q4_1_ref,
         }
     },
@@ -191,7 +184,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = block_q5_0::block_size,
             .type_size = sizeof(block_q5_0),
             .is_quantized = true,
-            .to_float = (ggml_to_float_t)dequantize_row_q5_0,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q5_0_ref,
         }
     },
@@ -202,7 +194,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = block_q5_1::block_size,
             .type_size = sizeof(block_q5_1),
             .is_quantized = true,
-            .to_float = (ggml_to_float_t)dequantize_row_q5_1,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q5_1_ref,
         }
     },
@@ -213,7 +204,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = block_q8_0::block_size,
             .type_size = sizeof(block_q8_0),
             .is_quantized = true,
-            .to_float = (ggml_to_float_t)dequantize_row_q8_0,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q8_0_ref,
         }
     },
@@ -234,7 +224,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_q2_K),
             .is_quantized = true,
-            .to_float = (ggml_to_float_t)dequantize_row_q2_K,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q2_K_ref,
         }
     },
@@ -245,7 +234,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_q3_K),
             .is_quantized = true,
-            .to_float = (ggml_to_float_t)dequantize_row_q3_K,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q3_K_ref,
         }
     },
@@ -256,7 +244,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_q4_K),
             .is_quantized = true,
-            .to_float = (ggml_to_float_t)dequantize_row_q4_K,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q4_K_ref,
         }
     },
@@ -267,7 +254,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_q5_K),
             .is_quantized = true,
-            .to_float = (ggml_to_float_t)dequantize_row_q5_K,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q5_K_ref,
         }
     },
@@ -278,7 +264,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_q6_K),
             .is_quantized = true,
-            .to_float = (ggml_to_float_t)dequantize_row_q6_K,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q6_K_ref,
         }
     },
@@ -289,7 +274,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_iq2_xxs),
             .is_quantized = true,
-            //.to_float = (ggml_to_float_t)dequantize_row_iq2_xxs,
             //.from_float_ref = NULL,
         }
     },
@@ -300,7 +284,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_iq2_xs),
             .is_quantized = true,
-            //.to_float = (ggml_to_float_t)dequantize_row_iq2_xs,
             //.from_float_ref = NULL,
         }
     },
@@ -311,7 +294,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_iq3_xxs),
             .is_quantized = true,
-            //.to_float = (ggml_to_float_t)dequantize_row_iq3_xxs,
             //.from_float_ref = (ggml_from_float_t)quantize_row_iq3_xxs_ref,
         }
     },
@@ -322,7 +304,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_iq3_s),
             .is_quantized = true,
-            //.to_float = (ggml_to_float_t)dequantize_row_iq3_s,
             //.from_float_ref = (ggml_from_float_t)quantize_row_iq3_s_ref
         }
     },
@@ -333,7 +314,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_iq2_s),
             .is_quantized = true,
-            //.to_float = (ggml_to_float_t)dequantize_row_iq2_s,
             //.from_float_ref = (ggml_from_float_t)quantize_row_iq2_s_ref,
         }
     },
@@ -344,7 +324,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_iq1_s),
             .is_quantized = true,
-            //.to_float = (ggml_to_float_t)dequantize_row_iq1_s,
             //.from_float_ref = NULL,
         }
     },
@@ -355,7 +334,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_iq1_m),
             .is_quantized = true,
-            //.to_float = (ggml_to_float_t)dequantize_row_iq1_m,
             //.from_float_ref = NULL,
         }
     },
@@ -366,7 +344,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = block_iq4_nl::block_size,
             .type_size = sizeof(block_iq4_nl),
             .is_quantized = true,
-            .to_float = (ggml_to_float_t)dequantize_row_iq4_nl,
             //.from_float_ref = (ggml_from_float_t)quantize_row_iq4_nl_ref,
         }
     },
@@ -377,7 +354,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_iq4_xs),
             .is_quantized = true,
-            .to_float = (ggml_to_float_t)dequantize_row_iq4_xs,
             //.from_float_ref = (ggml_from_float_t)quantize_row_iq4_xs_ref,
         }
     },
@@ -397,7 +373,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = 1,
             .type_size = sizeof(ggml_bf16_t),
             .is_quantized = false,
-            //.to_float = (ggml_to_float_t)ggml_bf16_to_fp32_row,
             //.from_float_ref = (ggml_from_float_t)ggml_fp32_to_bf16_row_ref,
         }
     },
@@ -408,7 +383,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_tq1_0),
             .is_quantized = true,
-            //.to_float = (ggml_to_float_t)dequantize_row_tq1_0,
             //.from_float_ref = (ggml_from_float_t)quantize_row_tq1_0_ref,
         }
     },
@@ -419,7 +393,6 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = QK_K,
             .type_size = sizeof(block_tq2_0),
             .is_quantized = true,
-            //.to_float = (ggml_to_float_t)dequantize_row_tq2_0,
             //.from_float_ref = (ggml_from_float_t)quantize_row_tq2_0_ref,
         }
     },
@@ -679,4 +652,132 @@ export
         //GGML_ASSERT(type < GGML_TYPE_COUNT);
         return &type_traits[type];
     }
+
+    template <typename type>
+    struct vec_dot_trait;
+
+    template <>
+    struct vec_dot_trait<ggml_fp32_t> {
+        using type = ggml_fp32_t;
+    };
+
+    template <>
+    struct vec_dot_trait<ggml_fp16_t> {
+        using type = ggml_fp16_t;
+    };
+
+    template <>
+    struct vec_dot_trait<ggml_bf16_t> {
+        using type = ggml_bf16_t;
+    };
+
+    template <>
+    struct vec_dot_trait<block_q4_0> {
+        using type = block_q8_0;
+    };
+
+    template <>
+    struct vec_dot_trait<block_q4_1> {
+        using type = block_q8_1;
+    };
+
+    template <>
+    struct vec_dot_trait<block_q5_0> {
+        using type = block_q8_0;
+    };
+
+    template <>
+    struct vec_dot_trait<block_q5_1> {
+        using type = block_q8_1;
+    };
+
+    template <>
+    struct vec_dot_trait<block_q8_0> {
+        using type = block_q8_0;
+    };
+
+    template <>
+    struct vec_dot_trait<block_q8_1> {
+        using type = block_q8_1;
+    };
+
+    template <>
+    struct vec_dot_trait<block_q2_K> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_q3_K> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_q4_K> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_q5_K> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_q6_K> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_iq1_s> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_iq1_m> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_iq2_xxs> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_iq2_xs> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_iq2_s> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_iq3_xxs> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_iq3_s> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_iq4_nl> {
+        using type = block_q8_0;
+    };
+
+    template <>
+    struct vec_dot_trait<block_iq4_xs> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_tq1_0> {
+        using type = block_q8_K;
+    };
+
+    template <>
+    struct vec_dot_trait<block_tq2_0> {
+        using type = block_q8_K;
+    };
 }
