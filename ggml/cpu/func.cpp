@@ -3786,7 +3786,8 @@ static void ggml_compute_forward_mul_mat_id(
 
 template <typename T>
 static void ggml_compute_forward_clamp(
-	const ggml_compute_params* params,
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
@@ -3795,10 +3796,11 @@ static void ggml_compute_forward_clamp(
 	float max = std::bit_cast<float>(dst->op_params[1]);
 	GGML_ASSERT(min <= max);
 
-	const int ith = params->ith;
-	const int nth = params->nth;
+	const int nth = pool.available_parallelism();
+	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
-	const int n = ggml_nrows(src0);
+	const int64_t n = ggml_nrows(src0);
+	const int64_t dr = (n + nth - 1) / nth;
 	const int nc = src0->ne[0];
 
 	const size_t nb00 = src0->nb[0];
@@ -3810,30 +3812,38 @@ static void ggml_compute_forward_clamp(
 	GGML_ASSERT(nb0 == sizeof(T));
 	GGML_ASSERT(nb00 == sizeof(T));
 
-	for (int j = ith; j < n; j += nth) {
-		T* dst_ptr = (T*)((char*)dst->data + j * nb1);
-		T* src0_ptr = (T*)((char*)src0->data + j * nb01);
+	for (int64_t ir0 = 0; ir0 < n; ir0 += dr) {
+		const int64_t ir1 = std::min(ir0 + dr, n);
+		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+			for (int j = ir0; j < ir1; j++) {
+				T* dst_ptr = (T*)((char*)dst->data + j * nb1);
+				T* src0_ptr = (T*)((char*)src0->data + j * nb01);
 
-		for (int i = 0; i < nc; i++) {
-			dst_ptr[i] = fromFloat32<T>(std::clamp(toFloat32(src0_ptr[i]), min, max));
-		}
+				for (int i = 0; i < nc; i++) {
+					dst_ptr[i] = fromFloat32<T>(std::clamp(toFloat32(src0_ptr[i]), min, max));
+				}
+			}
+		});
+		scope.spawn(std::move(sender));
 	}
+
 }
 
 static void ggml_compute_forward_clamp(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_clamp<ggml_fp32_t>(params, dst);
+		ggml_compute_forward_clamp<ggml_fp32_t>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_F16:
 	{
-		ggml_compute_forward_clamp<ggml_fp16_t>(params, dst);
+		ggml_compute_forward_clamp<ggml_fp16_t>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_BF16:
 	case GGML_TYPE_Q4_0:
@@ -6412,7 +6422,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_CLAMP:
 	{
-		ggml_compute_forward_clamp(params, tensor);
+		ggml_compute_forward_clamp(pool, scope, tensor);
 	} break;
 	case GGML_OP_CONV_TRANSPOSE_1D:
 	{
