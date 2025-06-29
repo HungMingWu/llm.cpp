@@ -38,38 +38,14 @@ export
 	using ggml_bf16_t = strong_type<uint16_t, struct bf16>;
 
 	template <typename T>
-	ggml_fp32_t toFloat32(T value);
-
-	template <typename T>
 	T fromFloat32(ggml_fp32_t value);
 
-	template <>
 	ggml_fp32_t toFloat32(ggml_fp32_t value) { return value; }
 
 	template <>
 	ggml_fp32_t fromFloat32(ggml_fp32_t value) { return value; }
 
-	// FP16 <-> FP32
-	// ref: https://github.com/Maratyszcza/FP16
-	template <>
-	constexpr ggml_fp32_t toFloat32(ggml_fp16_t h) {
-		const uint32_t w = (uint32_t)h << 16;
-		const uint32_t sign = w & 0x80000000u;
-		const uint32_t two_w = w + w;
-
-		const uint32_t exp_offset = 0xE0u << 23;
-		const float exp_scale = std::bit_cast<float>(0x7800000u);
-		const float normalized_value = std::bit_cast<float>((two_w >> 4) + exp_offset) * exp_scale;
-
-		const uint32_t magic_mask = 126u << 23;
-		const float magic_bias = 0.5f;
-		const float denormalized_value = std::bit_cast<float>((two_w >> 17) | magic_mask) - magic_bias;
-
-		const uint32_t denormalized_cutoff = 1u << 27;
-		const uint32_t result = sign |
-			std::bit_cast<uint32_t>(two_w < denormalized_cutoff ? denormalized_value : normalized_value);
-		return std::bit_cast<float>(result);
-	}
+	ggml_fp32_t toFloat32(ggml_fp16_t h);
 
 	template <>
 	ggml_fp16_t fromFloat32(ggml_fp32_t f)
@@ -150,7 +126,6 @@ export
 	 *
 	 * @see IEEE 754-2008
 	 */
-	template <>
 	constexpr ggml_fp32_t toFloat32(ggml_bf16_t h) // consider just doing << 16
 	{
 		uint32_t i = (uint32_t)h << 16;

@@ -82,6 +82,7 @@ target_sources(libggml
       quants.cpp
       sched.cpp
       tensor.cpp
+      types.cpp
 )
 
 if (CMAKE_HOST_WIN32)

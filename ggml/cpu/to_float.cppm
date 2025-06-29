@@ -11,7 +11,7 @@ export
     void to_float(const T* x, float* y, int64_t n)
     {
         for (int64_t i = 0; i < n; i++) {
-            y[i] = toFloat32<T>(x[i]);
+            y[i] = toFloat32(x[i]);
         }
     }
     void to_float(ggml_type type, const void* x, float* y, int64_t n);
