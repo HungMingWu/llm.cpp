@@ -408,7 +408,7 @@ static void ggml_compute_forward_mul_mat(
 		ggml_compute_forward_mul_mat<block_q5_K>(pool, scope, params, dst);
 	} break;
 	case GGML_TYPE_Q6_K: {
-		ggml_compute_forward_mul_mat<block_q5_K>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_q6_K>(pool, scope, params, dst);
 	} break;
 	case GGML_TYPE_IQ1_S: {
 		ggml_compute_forward_mul_mat<block_iq1_s>(pool, scope, params, dst);
@@ -4016,7 +4016,7 @@ static void ggml_compute_forward_mul_mat_id(
 		ggml_compute_forward_mul_mat_id<block_q5_K>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q6_K: {
-		ggml_compute_forward_mul_mat_id<block_q5_K>(pool, scope, dst);
+		ggml_compute_forward_mul_mat_id<block_q6_K>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_IQ1_S: {
 		ggml_compute_forward_mul_mat_id<block_iq1_s>(pool, scope, dst);
