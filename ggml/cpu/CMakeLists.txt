@@ -14,12 +14,12 @@ target_sources(libggml
       from_float.cppm
       to_float.cppm
       traits.cppm
-      vec_dot.cppm
       registry.cppm
   PRIVATE
     FILE_SET cpu_op_interface
     TYPE CXX_MODULES
     FILES
+      vec_dot.cppm
       op/argsort.cppm
       op/concat.cppm
       op/leaky_relu.cppm
@@ -36,4 +36,5 @@ target_sources(libggml
       func.cpp
       plan.cpp
       to_float.cpp
+      vec_dot.cpp
 )

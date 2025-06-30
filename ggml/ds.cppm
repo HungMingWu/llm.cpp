@@ -823,8 +823,6 @@ export {
     using ggml_backend_buffer_ptr = std::unique_ptr<ggml_backend_buffer>;
     using ggml_backend_sched_ptr = std::unique_ptr<ggml_backend_sched>;
 
-    using ggml_from_float_t = void (*)(const float*, void*, int64_t);
-
     // Tensor allocator
     struct ggml_tallocr {
         ggml_backend_buffer_t buffer;

@@ -51,8 +51,6 @@ module;
     GGML_TENSOR_LOCALS(int64_t, ne,  dst,  ne) \
     GGML_TENSOR_LOCALS(size_t,  nb,  dst,  nb)
 
-static const size_t CACHE_LINE_SIZE_F32 = std::hardware_destructive_interference_size / sizeof(float);
-
 module ggml;
 import :ds;
 import :quants;
@@ -97,25 +95,25 @@ void fromFloat(const float* x, T* y, int64_t n)
 	}
 }
 
+template <typename src0_t>
 static void ggml_compute_forward_mul_mat_one_chunk(
 	const ggml_compute_params* params,
 	ggml_tensor* dst,
-	const enum ggml_type type,
 	const int64_t num_rows_per_vec_dot,
 	const int64_t ir0_start,
 	const int64_t ir0_end,
 	const int64_t ir1_start,
 	const int64_t ir1_end) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
-	const struct ggml_tensor* src1 = dst->src[1];
+	const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src1 = dst->src[1];
 
 	GGML_TENSOR_BINARY_OP_LOCALS
 
 	const bool src1_cont = ggml_is_contiguous(src1);
 
-	ggml_vec_dot_t const vec_dot = type_traits_cpu[type].vec_dot;
-	enum ggml_type const vec_dot_type = type_traits_cpu[type].vec_dot_type;
+	using vec_dot_t = typename vec_dot_trait<src0_t>::type;
+	enum ggml_type const vec_dot_type = type_traits_cpu[src0->type].vec_dot_type;
 
 	// broadcast factors
 	const int64_t r2 = ne12 / ne02;
@@ -175,7 +173,9 @@ static void ggml_compute_forward_mul_mat_one_chunk(
 				const size_t bx = (num_rows_per_vec_dot > 1 ? nb01 : 0);
 				const size_t by = (num_rows_per_vec_dot > 1 ? src1_col_stride : 0);
 				for (int64_t ir0 = iir0; ir0 < iir0 + blck_0 && ir0 < ir0_end; ir0 += num_rows_per_vec_dot) {
-					vec_dot(ne00, tmp + ir0 - iir0, bs, src0_row + ir0 * nb01, bx, src1_col, by, num_rows_per_vec_dot);
+					ggml_vec_dot<src0_t, vec_dot_t>(ne00, &tmp[ir0 - iir0], bs,
+						cast_with_offset<src0_t>(src0_row, ir0 * nb01), bx,
+						cast_with_offset<vec_dot_t>(src1_col, 0), by, num_rows_per_vec_dot);
 				}
 
 				for (int cn = 0; cn < num_rows_per_vec_dot; ++cn) {
@@ -356,7 +356,7 @@ UseGgmlGemm2:;
 		}();
 
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-			ggml_compute_forward_mul_mat_one_chunk(params, dst, src0->type, num_rows_per_vec_dot, ir0_start, ir0_end, ir1_start, ir1_end);
+			ggml_compute_forward_mul_mat_one_chunk<src0_t>(params, dst, num_rows_per_vec_dot, ir0_start, ir0_end, ir1_start, ir1_end);
 		});
 		scope.spawn(std::move(sender));
 	}
@@ -392,9 +392,6 @@ static void ggml_compute_forward_mul_mat(
 	} break;
 	case GGML_TYPE_Q8_0: {
 		ggml_compute_forward_mul_mat<block_q8_0>(pool, scope, params, dst);
-	} break;
-	case GGML_TYPE_Q8_1: {
-		ggml_compute_forward_mul_mat<block_q8_1>(pool, scope, params, dst);
 	} break;
 	case GGML_TYPE_Q2_K: {
 		ggml_compute_forward_mul_mat<block_q2_K>(pool, scope, params, dst);
@@ -444,6 +441,7 @@ static void ggml_compute_forward_mul_mat(
 	case GGML_TYPE_TQ2_0: {
 		ggml_compute_forward_mul_mat<block_tq2_0>(pool, scope, params, dst);
 	} break;
+	case GGML_TYPE_Q8_1:
 	default:
 		assert(false);
 	}
@@ -1046,7 +1044,6 @@ void copy_cont(
 						id += rs * ir0;
 						for (int i01 = ir0; i01 < ir1; i01++) {
 							const src_t* src0_ptr = (src_t*)((char*)src0->data + i01 * nb01 + i02 * nb02 + i03 * nb03);
-
 							for (int i00 = 0; i00 < ne00; i00++) {
 								src0_f32[i00] = toFloat32(src0_ptr[i00]);
 							}
@@ -3759,6 +3756,7 @@ struct mmid_row_mapping {
 	int32_t i2;
 };
 
+template <typename src0_t>
 static void ggml_compute_forward_mul_mat_id_one_chunk(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -3782,9 +3780,8 @@ static void ggml_compute_forward_mul_mat_id_one_chunk(
 
 	const enum ggml_type type = src0->type;
 
-	ggml_vec_dot_t    const vec_dot = type_traits_cpu[type].vec_dot;
+	using vec_dot_t = typename vec_dot_trait<src0_t>::type;
 	enum ggml_type    const vec_dot_type = type_traits_cpu[type].vec_dot_type;
-
 	const int64_t blck_0 = 16;
 	const int64_t blck_1 = 16;
 
@@ -3817,7 +3814,9 @@ static void ggml_compute_forward_mul_mat_id_one_chunk(
 					float* dst_col = (float*)((char*)dst->data + (i1 * nb1 + i2 * nb2));
 
 					for (int64_t ir0 = iir0; ir0 < iir0 + blck_0 && ir0 < ir0_end; ++ir0) {
-						vec_dot(ne00, &tmp[ir0 - iir0], 0, src0_cur + ir0 * nb01, 0, src1_col, 0, 1);
+						ggml_vec_dot<src0_t, vec_dot_t>(ne00, &tmp[ir0 - iir0], 0,
+							cast_with_offset<src0_t>(src0_cur, ir0 * nb01), 0, 
+							cast_with_offset<vec_dot_t>(src1_col, 0), 0, 1);
 					}
 
 					memcpy(&dst_col[iir0], tmp, (std::min(iir0 + blck_0, ir0_end) - iir0) * sizeof(float));
@@ -3846,7 +3845,6 @@ static void ggml_compute_forward_mul_mat_id(
 
 	const bool src1_cont = ggml_is_contiguous(src1);
 
-	ggml_vec_dot_t    const vec_dot = type_traits_cpu[type].vec_dot;
 	enum ggml_type    const vec_dot_type = type_traits_cpu[type].vec_dot_type;
 
 	// we don't support permuted src0 or src1
@@ -3961,7 +3959,7 @@ static void ggml_compute_forward_mul_mat_id(
 			const int64_t ir1_start = dr1 * ith1;
 			const int64_t ir1_end = std::min(ir1_start + dr1, nr1);
 
-			ggml_compute_forward_mul_mat_id_one_chunk(
+			ggml_compute_forward_mul_mat_id_one_chunk<src0_t>(
 				pool, scope, dst, cur_a,
 				ir0_start, ir0_end, ir1_start, ir1_end,
 				src0_cur, matrix_rows_view, row_size, src1_cont, wdata
@@ -4000,9 +3998,6 @@ static void ggml_compute_forward_mul_mat_id(
 	} break;
 	case GGML_TYPE_Q8_0: {
 		ggml_compute_forward_mul_mat_id<block_q8_0>(pool, scope, dst);
-	} break;
-	case GGML_TYPE_Q8_1: {
-		ggml_compute_forward_mul_mat_id<block_q8_1>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q2_K: {
 		ggml_compute_forward_mul_mat_id<block_q2_K>(pool, scope, dst);
@@ -4052,6 +4047,7 @@ static void ggml_compute_forward_mul_mat_id(
 	case GGML_TYPE_TQ2_0: {
 		ggml_compute_forward_mul_mat_id<block_tq2_0>(pool, scope, dst);
 	} break;
+	case GGML_TYPE_Q8_1:
 	default:
 		assert(false);
 	}
@@ -5416,9 +5412,6 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 	const float m0 = powf(2.0f, -(max_bias) / n_head_log2);
 	const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
 
-	enum ggml_type    const k_vec_dot_type = type_traits_cpu[k->type].vec_dot_type;
-	ggml_vec_dot_t    const kq_vec_dot = type_traits_cpu[k->type].vec_dot;
-
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
 	// loop over n_batch and n_head
@@ -5466,8 +5459,8 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 
 					float s; // KQ value
 
-					const char* k_data = (const char*)k->data + (ic * nbk1 + ik2 * nbk2 + ik3 * nbk3);
-					kq_vec_dot(DK, &s, 0, k_data, 0, Q_q.data(), 0, 1);
+					const K_TYPE* k_data = cast_with_offset<K_TYPE>(k->data, ic * nbk1 + ik2 * nbk2 + ik3 * nbk3);
+					ggml_vec_dot<K_TYPE, q_to_vec_dot_t>(DK, &s, 0, k_data, 0, Q_q.data(), 0, 1);
 
 					s = s * scale; // scale KQ value
 
