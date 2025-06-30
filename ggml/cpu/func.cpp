@@ -55,6 +55,7 @@ static const size_t CACHE_LINE_SIZE_F32 = std::hardware_destructive_interference
 
 module ggml;
 import :ds;
+import :quants;
 import :tensor;
 import :utility;
 import :cpu.ds;

@@ -17,6 +17,7 @@ module;
 
 module ggml;
 import :types;
+import :quants;
 
 static constexpr float GROUP_MAX_EPS = 1e-15f;
 

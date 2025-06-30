@@ -56,7 +56,6 @@ target_sources(libggml
       log.cppm
       op.cppm
       op_back.cppm
-      quants.cppm
       tensor.cppm
       types.cppm
       traits.cppm
@@ -66,6 +65,7 @@ target_sources(libggml
     TYPE CXX_MODULES
     FILES
       host_buffer.cppm
+      quants.cppm
       os/os.cppm
   PRIVATE
       allocator.cpp

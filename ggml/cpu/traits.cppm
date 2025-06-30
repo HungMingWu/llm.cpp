@@ -3,7 +3,6 @@ module;
 #include <unordered_map>
 
 export module ggml:cpu.traits;
-import :quants;
 import :utility;
 import :cpu.func;
 import :cpu.from_float;
