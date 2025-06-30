@@ -36,4 +36,5 @@ target_sources(libggml
       func.cpp
       plan.cpp
       to_float.cpp
+      vec_dot.cpp
 )

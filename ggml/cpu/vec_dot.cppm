@@ -36,6 +36,8 @@ export
         *out = ggml_vec_dot<T>(n, reinterpret_cast<const T*>(x), reinterpret_cast<const T*>(y), nrc);
     }
 
+    void ggml_vec_dot(int n, float* s, size_t bs, const block_q4_0* x, size_t bx, const block_q8_0* y, size_t by, int nrc);
+    void ggml_vec_dot(int n, float* s, size_t bs, const block_q8_0* x, size_t bx, const block_q8_0* y, size_t by, int nrc);
     void ggml_vec_dot_q4_0_q8_0(int n, float* s, size_t bs, const void* vx, size_t bx, const void* vy, size_t by, int nrc) {
         const int qk = block_q8_0::block_size;
         const int nb = n / qk;

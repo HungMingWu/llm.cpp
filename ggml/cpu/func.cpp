@@ -5415,9 +5415,6 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 	const float m0 = powf(2.0f, -(max_bias) / n_head_log2);
 	const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
 
-	enum ggml_type    const k_vec_dot_type = type_traits_cpu[k->type].vec_dot_type;
-	ggml_vec_dot_t    const kq_vec_dot = type_traits_cpu[k->type].vec_dot;
-
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
 	// loop over n_batch and n_head
@@ -5465,8 +5462,13 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 
 					float s; // KQ value
 
-					const char* k_data = (const char*)k->data + (ic * nbk1 + ik2 * nbk2 + ik3 * nbk3);
-					kq_vec_dot(DK, &s, 0, k_data, 0, Q_q.data(), 0, 1);
+					const K_TYPE* k_data = cast_with_offset<K_TYPE>(k->data, ic * nbk1 + ik2 * nbk2 + ik3 * nbk3);
+					if constexpr (std::is_same_v<K_TYPE, ggml_fp16_t> || std::is_same_v<K_TYPE, ggml_fp32_t>) {
+						static_assert(std::is_same_v<K_TYPE, q_to_vec_dot_t>);
+						s = ggml_vec_dot<q_to_vec_dot_t>(DK, k_data, Q_q.data(), 1);
+					} else {
+						ggml_vec_dot(DK, &s, 0, k_data, 0, Q_q.data(), 0, 1);
+					}
 
 					s = s * scale; // scale KQ value
 
