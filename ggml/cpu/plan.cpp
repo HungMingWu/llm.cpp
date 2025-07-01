@@ -274,14 +274,6 @@ ggml_cplan ggml_graph_plan(
 				}
 			} break;
 #endif
-			case GGML_OP_MUL_MAT:
-			{
-				const enum ggml_type vec_dot_type = type_traits_cpu[node->src[0]->type].vec_dot_type;
-
-				if (node->src[1]->type != vec_dot_type) {
-					cur = ggml_row_size(vec_dot_type, node->src[1]->nelements());
-				}
-			} break;
 #if 0
 			case GGML_OP_FLASH_ATTN_BACK:
 			{

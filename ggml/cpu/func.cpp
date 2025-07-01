@@ -100,9 +100,10 @@ void fromFloat(const float* x, T* y, int64_t n)
 	}
 }
 
-template <typename src0_t>
+template <typename src0_type, typename src1_type>
 static void ggml_compute_forward_mul_mat_one_chunk(
-	const ggml_compute_params* params,
+	src0_type src0_data,
+	src1_type src1_data,
 	ggml_tensor* dst,
 	const int64_t num_rows_per_vec_dot,
 	const int64_t ir0_start,
@@ -113,16 +114,13 @@ static void ggml_compute_forward_mul_mat_one_chunk(
 	const ggml_tensor* src0 = dst->src[0];
 	const ggml_tensor* src1 = dst->src[1];
 
-	GGML_TENSOR_BINARY_OP_LOCALS
-
 	const bool src1_cont = ggml_is_contiguous(src1);
 
-	using vec_dot_t = typename vec_dot_trait<src0_t>::type;
 	enum ggml_type const vec_dot_type = type_traits_cpu[src0->type].vec_dot_type;
 
 	// broadcast factors
-	const int64_t r2 = ne12 / ne02;
-	const int64_t r3 = ne13 / ne03;
+	const int64_t r2 = src1->ne[2] / src0->ne[2];
+	const int64_t r3 = src1->ne[3] / src0->ne[3];
 
 	//printf("ir0_start = %6lld, ir0_end = %6lld, ir1_start = %6lld, ir1_end = %6lld\n", ir0_start, ir0_end, ir1_start, ir1_end);
 
@@ -131,60 +129,44 @@ static void ggml_compute_forward_mul_mat_one_chunk(
 		return;
 	}
 
-	const void* wdata = (src1->type == vec_dot_type) ? src1->data : params->wdata;
-	const size_t row_size = ggml_row_size(vec_dot_type, ne10);
+	const size_t row_size = ggml_row_size(vec_dot_type, src1->ne[0]);
 
-	assert(ne12 % ne02 == 0);
-	assert(ne13 % ne03 == 0);
+	assert(src1->ne[2] % src0->ne[2] == 0);
+	assert(src1->ne[3] % src0->ne[3] == 0);
 
 	// block-tiling attempt
 	static constexpr int64_t blck_0 = 16;
 	static constexpr int64_t blck_1 = 16;
 
-	const size_t src1_col_stride = src1_cont || src1->type != vec_dot_type ? row_size : nb11;
+	const size_t src1_col_stride = src1_cont || src1->type != vec_dot_type ? row_size : src1->nb[1];
 
 	// attempt to reduce false-sharing (does not seem to make a difference)
 	// 16 * 2, accounting for mmla kernels
 	float tmp[32];
+	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
 
 	for (int64_t iir1 = ir1_start; iir1 < ir1_end; iir1 += blck_1) {
 		for (int64_t iir0 = ir0_start; iir0 < ir0_end; iir0 += blck_0) {
 			for (int64_t ir1 = iir1; ir1 < iir1 + blck_1 && ir1 < ir1_end; ir1 += num_rows_per_vec_dot) {
-				const int64_t i13 = (ir1 / (ne12 * ne1));
-				const int64_t i12 = (ir1 - i13 * ne12 * ne1) / ne1;
-				const int64_t i11 = (ir1 - i13 * ne12 * ne1 - i12 * ne1);
+				const int64_t i13 = (ir1 / (src1->ne[2] * dst->ne[1]));
+				const int64_t i12 = (ir1 - i13 * src1->ne[2] * dst->ne[1]) / dst->ne[1];
+				const int64_t i11 = (ir1 - i13 * src1->ne[2] * dst->ne[1] - i12 * dst->ne[1]);
 
 				// broadcast src0 into src1
 				const int64_t i03 = i13 / r3;
 				const int64_t i02 = i12 / r2;
 
-				auto src0_row = cast_with_offset<std::byte>(src0->data, 0 + i02 * nb02 + i03 * nb03);
-
-				// desc: when src1 is not a contiguous memory block we have to calculate the offset using the strides
-				//       if it is, then we have either copied the data to params->wdata and made it contiguous or we are using
-				//       the original src1 data pointer, so we should index using the indices directly
-				// TODO: this is a bit of a hack, we should probably have a better way to handle this
-				auto src1_col = cast_with_offset<std::byte *>(wdata,
-					(src1_cont || src1->type != vec_dot_type
-						? (i11 + i12 * ne11 + i13 * ne12 * ne11) * row_size
-						: (i11 * nb11 + i12 * nb12 + i13 * nb13)));
-				auto dst_col = cast_with_offset<float>(dst->data, i11 * nb1 + i12 * nb2 + i13 * nb3);
-
-				//for (int64_t ir0 = iir0; ir0 < iir0 + blck_0 && ir0 < ir0_end; ++ir0) {
-				//    vec_dot(ne00, &dst_col[ir0], src0_row + ir0*nb01, src1_col);
-				//}
-
 				const size_t bs = (num_rows_per_vec_dot > 1 ? 16 : 0);
-				const size_t bx = (num_rows_per_vec_dot > 1 ? nb01 : 0);
+				const size_t bx = (num_rows_per_vec_dot > 1 ? src0->nb[1] : 0);
 				const size_t by = (num_rows_per_vec_dot > 1 ? src1_col_stride : 0);
 				for (int64_t ir0 = iir0; ir0 < iir0 + blck_0 && ir0 < ir0_end; ir0 += num_rows_per_vec_dot) {
-					ggml_vec_dot<src0_t, vec_dot_t>(ne00, &tmp[ir0 - iir0], bs,
-						cast_with_offset<src0_t>(src0_row, ir0 * nb01), bx,
-						cast_with_offset<vec_dot_t>(src1_col, 0), by, num_rows_per_vec_dot);
+					ggml_vec_dot(src0->ne[0], &tmp[ir0 - iir0], bs,
+						&src0_data[i03, i02, ir0, 0], bx,
+						&src1_data[i13, i12, i11, 0], by, num_rows_per_vec_dot);
 				}
 
 				for (int cn = 0; cn < num_rows_per_vec_dot; ++cn) {
-					memcpy(&dst_col[iir0 + cn * nb1 / nb0], tmp + (cn * 16), (std::min(iir0 + blck_0, ir0_end) - iir0) * sizeof(float));
+					memcpy(&dst_data[i13, i12, i11, iir0 + cn * dst->nb[1] / dst->nb[0]], tmp + (cn * 16), (std::min(iir0 + blck_0, ir0_end) - iir0) * sizeof(float));
 				}
 			}
 		}
@@ -195,33 +177,31 @@ template <typename src0_t>
 static void ggml_compute_forward_mul_mat(
 	exec::static_thread_pool &pool,
 	exec::async_scope &scope,
-	const ggml_compute_params* params,
 	ggml_tensor* dst) {
 	using vec_dot_t = typename vec_dot_trait<src0_t>::type;
 	const ggml_tensor* src0 = dst->src[0];
 	const ggml_tensor* src1 = dst->src[1];
 
-	GGML_TENSOR_BINARY_OP_LOCALS
-
 	const int nth = pool.available_parallelism();
 
 	enum ggml_type           const vec_dot_type = type_traits_cpu[src0->type].vec_dot_type;
 
-	GGML_ASSERT(ne0 == ne01);
-	GGML_ASSERT(ne1 == ne11);
-	GGML_ASSERT(ne2 == ne12);
-	GGML_ASSERT(ne3 == ne13);
+	GGML_ASSERT(dst->ne[0] == src0->ne[1]);
+	GGML_ASSERT(dst->ne[1] == src1->ne[1]);
+	GGML_ASSERT(dst->ne[2] == src1->ne[2]);
+	GGML_ASSERT(dst->ne[3] == src1->ne[3]);
 
 	// we don't support permuted src0 or src1
-	GGML_ASSERT(nb00 == ggml_type_size(src0->type));
-	GGML_ASSERT(nb10 == ggml_type_size(src1->type));
+	GGML_ASSERT(src0->nb[0] == ggml_type_size(src0->type));
+	GGML_ASSERT(src1->nb[0] == ggml_type_size(src1->type));
 
 	// dst cannot be transposed or permuted
-	GGML_ASSERT(nb0 == sizeof(float));
-	GGML_ASSERT(nb0 <= nb1);
-	GGML_ASSERT(nb1 <= nb2);
-	GGML_ASSERT(nb2 <= nb3);
+	GGML_ASSERT(dst->nb[0] == sizeof(float));
+	GGML_ASSERT(dst->nb[0] <= dst->nb[1]);
+	GGML_ASSERT(dst->nb[1] <= dst->nb[2]);
+	GGML_ASSERT(dst->nb[2] <= dst->nb[3]);
 
+	std::vector<vec_dot_t> wdata;
 	// nb01 >= nb00 - src0 is not transposed
 	//   compute by src0 rows
 
@@ -256,24 +236,20 @@ UseGgmlGemm1:;
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
 	if (src1->type != vec_dot_type) {
-		const size_t nbw1 = ggml_row_size(vec_dot_type, ne10);
-		const size_t nbw2 = nbw1 * ne11;
-		const size_t nbw3 = nbw2 * ne12;
-
-		assert(params->wsize >= ne13 * nbw3);
+		const size_t we0 = src1->ne[0] / ggml_blck_size(vec_dot_type);
 		GGML_ASSERT(src1->type == GGML_TYPE_F32);
+		wdata.resize(src1->ne[3] * src1->ne[2] * src1->ne[1] * we0);
+		std::experimental::mdspan wdata_span(wdata.data(), src1->ne[3], src1->ne[2], src1->ne[1], we0);
+		auto src1_data = make_strided_mdspan(static_cast<const float*>(src1->data), src1->ne, src1->nb);
 
-		for (int64_t start = 0; start < ne11; start += nth) {
-			int64_t end = std::min(start + nth, ne11);
-			stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-				for (int64_t i13 = 0; i13 < ne13; ++i13) {
-					for (int64_t i12 = 0; i12 < ne12; ++i12) {
-						for (int64_t i11 = start; i11 < end; i11++) {
-							fromFloat(
-								cast_with_offset<float>(src1->data, i13 * nb13 + i12 * nb12 + i11 * nb11),
-								cast_with_offset<vec_dot_t>(params->wdata, i13 * nbw3 + i12 * nbw2 + i11 * nbw1),
-								ne10);
-						}
+		for (int64_t i11 = 0; i11 < src1->ne[1]; i11++) {
+			stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=, &wdata] {
+				for (int64_t i13 = 0; i13 < src1->ne[3]; ++i13) {
+					for (int64_t i12 = 0; i12 < src1->ne[2]; ++i12) {
+						fromFloat(
+							&src1_data[i13, i12, i11, 0],
+							&wdata_span[i13, i12, i11, 0],
+							src1->ne[0]);
 					}
 				}
 			});
@@ -284,7 +260,7 @@ UseGgmlGemm1:;
 
 #if GGML_USE_LLAMAFILE
 	if (src1->type != vec_dot_type) {
-		const void* wdata = (src1->type == vec_dot_type) ? src1->data : params->wdata;
+		const void* wdata = (src1->type == vec_dot_type) ? src1->data : &wdata[0];
 		const size_t row_size = ggml_row_size(vec_dot_type, ne10);
 
 		for (int64_t i13 = 0; i13 < ne13; i13++)
@@ -307,10 +283,10 @@ UseGgmlGemm2:;
 #endif
 
 	// This is the size of the first dimension of the result, so we can iterate that way. (see the ASSERT above, these are the same numbers)
-	const int64_t nr0 = ne0;
+	const int64_t nr0 = dst->ne[0];
 
 	// This is the size of the rest of the dimensions of the result
-	const int64_t nr1 = ne1 * ne2 * ne3;
+	const int64_t nr1 = dst->ne[1] * dst->ne[2] * dst->ne[3];
 
 	// Now select a reasonable chunk size.
 	const int chunk_size = [&] {
@@ -354,97 +330,112 @@ UseGgmlGemm2:;
 		const int64_t num_rows_per_vec_dot = [&]() -> int64_t {
 			// these checks are needed to avoid crossing dim1 boundaries
 			// can be optimized, but the logic would become more complicated, so keeping it like this for simplicity
-			if ((nr0 % 2 != 0) || (ne11 % 2 != 0) || ((ir0_end - ir0_start) % 2 != 0) || ((ir1_end - ir1_start) % 2 != 0)) {
+			if ((nr0 % 2 != 0) || (src1->ne[1] % 2 != 0) || ((ir0_end - ir0_start) % 2 != 0) || ((ir1_end - ir1_start) % 2 != 0)) {
 				return 1;
 			}
 			return type_traits_cpu[src0->type].nrows;
 		}();
 
-		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-			ggml_compute_forward_mul_mat_one_chunk<src0_t>(params, dst, num_rows_per_vec_dot, ir0_start, ir0_end, ir1_start, ir1_end);
+		auto src0_data = make_strided_mdspan(static_cast<const src0_t*>(src0->data), src0->ne, src0->nb);
+		auto src1_data = make_strided_mdspan(static_cast<const vec_dot_t*>(src1->data), src1->ne, src1->nb);
+		const size_t we0 = src1->ne[0] / ggml_blck_size(vec_dot_type);
+		std::experimental::mdspan wdata_span(wdata.data(), src1->ne[3], src1->ne[2], src1->ne[1], we0);
+		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=, &wdata] {
+			if (src1->type == vec_dot_type) {
+				ggml_compute_forward_mul_mat_one_chunk(
+					src0_data,
+					src1_data,
+					dst, num_rows_per_vec_dot, ir0_start, ir0_end, ir1_start, ir1_end);
+			}
+			else {
+				ggml_compute_forward_mul_mat_one_chunk(
+					src0_data,
+					wdata_span,
+					dst, num_rows_per_vec_dot, ir0_start, ir0_end, ir1_start, ir1_end);
+			}
 		});
 		scope.spawn(std::move(sender));
 	}
+	stdexec::sync_wait(scope.on_empty());
 }
 
 static void ggml_compute_forward_mul_mat(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
-	const ggml_compute_params* params,
 	ggml_tensor* dst) {
 	const ggml_tensor* src0 = dst->src[0];
 	switch (src0->type) {
 	case GGML_TYPE_F32: {
-		ggml_compute_forward_mul_mat<ggml_fp32_t>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<ggml_fp32_t>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_F16: {
-		ggml_compute_forward_mul_mat<ggml_fp16_t>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<ggml_fp16_t>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_BF16: {
-		ggml_compute_forward_mul_mat<ggml_bf16_t>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<ggml_bf16_t>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q4_0: {
-		ggml_compute_forward_mul_mat<block_q4_0>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_q4_0>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q4_1: {
-		ggml_compute_forward_mul_mat<block_q4_1>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_q4_1>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q5_0: {
-		ggml_compute_forward_mul_mat<block_q5_0>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_q5_0>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q5_1: {
-		ggml_compute_forward_mul_mat<block_q5_1>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_q5_1>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q8_0: {
-		ggml_compute_forward_mul_mat<block_q8_0>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_q8_0>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q2_K: {
-		ggml_compute_forward_mul_mat<block_q2_K>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_q2_K>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q3_K: {
-		ggml_compute_forward_mul_mat<block_q3_K>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_q3_K>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q4_K: {
-		ggml_compute_forward_mul_mat<block_q4_K>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_q4_K>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q5_K: {
-		ggml_compute_forward_mul_mat<block_q5_K>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_q5_K>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q6_K: {
-		ggml_compute_forward_mul_mat<block_q6_K>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_q6_K>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_IQ1_S: {
-		ggml_compute_forward_mul_mat<block_iq1_s>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_iq1_s>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_IQ1_M: {
-		ggml_compute_forward_mul_mat<block_iq1_m>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_iq1_m>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_IQ2_XXS: {
-		ggml_compute_forward_mul_mat<block_iq2_xxs>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_iq2_xxs>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_IQ2_XS: {
-		ggml_compute_forward_mul_mat<block_iq2_xs>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_iq2_xs>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_IQ2_S: {
-		ggml_compute_forward_mul_mat<block_iq2_s>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_iq2_s>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_IQ3_XXS: {
-		ggml_compute_forward_mul_mat<block_iq3_xxs>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_iq3_xxs>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_IQ3_S: {
-		ggml_compute_forward_mul_mat<block_iq3_s>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_iq3_s>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_IQ4_NL: {
-		ggml_compute_forward_mul_mat<block_iq4_nl>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_iq4_nl>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_IQ4_XS: {
-		ggml_compute_forward_mul_mat<block_iq4_xs>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_iq4_xs>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_TQ1_0: {
-		ggml_compute_forward_mul_mat<block_tq1_0>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_tq1_0>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_TQ2_0: {
-		ggml_compute_forward_mul_mat<block_tq2_0>(pool, scope, params, dst);
+		ggml_compute_forward_mul_mat<block_tq2_0>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q8_1:
 	default:
@@ -2818,7 +2809,7 @@ static void ggml_compute_forward_mul_mat_id_one_chunk(
 					const int64_t  i2 = i12; // row
 
 					// desc: when src1 is not a contiguous memory block we have to calculate the offset using the strides
-					//       if it is, then we have either copied the data to params->wdata and made it contiguous or we are using
+					//       if it is, then we have either copied the data to wdata and made it contiguous or we are using
 					//       the original src1 data pointer, so we should index using the indices directly
 					// TODO: this is a bit of a hack, we should probably have a better way to handle this
 					const char* src1_col = (const char*)wdata +
@@ -5732,7 +5723,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_MUL_MAT:
 	{
-		ggml_compute_forward_mul_mat(pool, scope, params, tensor);
+		ggml_compute_forward_mul_mat(pool, scope, tensor);
 	} break;
 	case GGML_OP_MUL_MAT_ID:
 	{
