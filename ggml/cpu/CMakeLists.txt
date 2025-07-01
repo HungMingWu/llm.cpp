@@ -38,3 +38,17 @@ target_sources(libggml
       to_float.cpp
       vec_dot.cpp
 )
+
+if (GGML_LLAMAFILE)
+    message("Enable LLAMAFILE support")
+    target_sources(libggml
+      PRIVATE
+        FILE_SET cpu_llamafile_interface
+        TYPE CXX_MODULES
+        FILES
+          llamafile/sgemm.cppm
+      PRIVATE
+          llamafile/sgemm.cpp
+    )
+    target_compile_definitions(libggml PRIVATE GGML_USE_LLAMAFILE=1)
+endif()

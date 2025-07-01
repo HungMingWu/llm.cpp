@@ -63,6 +63,10 @@ import :cpu.traits;
 import :cpu.vec_dot;
 import :cpu.op;
 
+#ifdef GGML_USE_LLAMAFILE
+import :cpu.llamafile.sgemm;
+#endif
+
 // ggml_compute_forward_mul_mat
 
 template <typename T, typename U>
