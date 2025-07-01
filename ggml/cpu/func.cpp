@@ -103,6 +103,7 @@ void fromFloat(const float* x, T* y, int64_t n)
 template <typename src0_t>
 static void ggml_compute_forward_mul_mat_one_chunk(
 	const ggml_compute_params* params,
+	const void *wdata,
 	ggml_tensor* dst,
 	const int64_t num_rows_per_vec_dot,
 	const int64_t ir0_start,
@@ -131,7 +132,6 @@ static void ggml_compute_forward_mul_mat_one_chunk(
 		return;
 	}
 
-	const void* wdata = (src1->type == vec_dot_type) ? src1->data : params->wdata;
 	const size_t row_size = ggml_row_size(vec_dot_type, ne10);
 
 	assert(ne12 % ne02 == 0);
@@ -161,7 +161,7 @@ static void ggml_compute_forward_mul_mat_one_chunk(
 				auto src0_row = cast_with_offset<std::byte>(src0->data, 0 + i02 * nb02 + i03 * nb03);
 
 				// desc: when src1 is not a contiguous memory block we have to calculate the offset using the strides
-				//       if it is, then we have either copied the data to params->wdata and made it contiguous or we are using
+				//       if it is, then we have either copied the data to wdata and made it contiguous or we are using
 				//       the original src1 data pointer, so we should index using the indices directly
 				// TODO: this is a bit of a hack, we should probably have a better way to handle this
 				auto src1_col = cast_with_offset<std::byte *>(wdata,
@@ -222,6 +222,7 @@ static void ggml_compute_forward_mul_mat(
 	GGML_ASSERT(nb1 <= nb2);
 	GGML_ASSERT(nb2 <= nb3);
 
+	std::vector<vec_dot_t> wdata;
 	// nb01 >= nb00 - src0 is not transposed
 	//   compute by src0 rows
 
@@ -256,22 +257,20 @@ UseGgmlGemm1:;
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
 	if (src1->type != vec_dot_type) {
-		const size_t nbw1 = ggml_row_size(vec_dot_type, ne10);
+		const size_t nbw1 = ne10 / ggml_blck_size(vec_dot_type);
 		const size_t nbw2 = nbw1 * ne11;
 		const size_t nbw3 = nbw2 * ne12;
-
-		assert(params->wsize >= ne13 * nbw3);
 		GGML_ASSERT(src1->type == GGML_TYPE_F32);
-
+		wdata.resize(ne13 * nbw3);
 		for (int64_t start = 0; start < ne11; start += nth) {
 			int64_t end = std::min(start + nth, ne11);
-			stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+			stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=, &wdata] {
 				for (int64_t i13 = 0; i13 < ne13; ++i13) {
 					for (int64_t i12 = 0; i12 < ne12; ++i12) {
 						for (int64_t i11 = start; i11 < end; i11++) {
 							fromFloat(
 								cast_with_offset<float>(src1->data, i13 * nb13 + i12 * nb12 + i11 * nb11),
-								cast_with_offset<vec_dot_t>(params->wdata, i13 * nbw3 + i12 * nbw2 + i11 * nbw1),
+								&wdata[i13 * nbw3 + i12 * nbw2 + i11 * nbw1],
 								ne10);
 						}
 					}
@@ -284,7 +283,7 @@ UseGgmlGemm1:;
 
 #if GGML_USE_LLAMAFILE
 	if (src1->type != vec_dot_type) {
-		const void* wdata = (src1->type == vec_dot_type) ? src1->data : params->wdata;
+		const void* wdata = (src1->type == vec_dot_type) ? src1->data : &wdata[0];
 		const size_t row_size = ggml_row_size(vec_dot_type, ne10);
 
 		for (int64_t i13 = 0; i13 < ne13; i13++)
@@ -360,11 +359,14 @@ UseGgmlGemm2:;
 			return type_traits_cpu[src0->type].nrows;
 		}();
 
-		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-			ggml_compute_forward_mul_mat_one_chunk<src0_t>(params, dst, num_rows_per_vec_dot, ir0_start, ir0_end, ir1_start, ir1_end);
+		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=, &wdata] {
+			ggml_compute_forward_mul_mat_one_chunk<src0_t>(params,
+				(src1->type == vec_dot_type) ? src1->data : &wdata[0],
+				dst, num_rows_per_vec_dot, ir0_start, ir0_end, ir1_start, ir1_end);
 		});
 		scope.spawn(std::move(sender));
 	}
+	stdexec::sync_wait(scope.on_empty());
 }
 
 static void ggml_compute_forward_mul_mat(
@@ -2818,7 +2820,7 @@ static void ggml_compute_forward_mul_mat_id_one_chunk(
 					const int64_t  i2 = i12; // row
 
 					// desc: when src1 is not a contiguous memory block we have to calculate the offset using the strides
-					//       if it is, then we have either copied the data to params->wdata and made it contiguous or we are using
+					//       if it is, then we have either copied the data to wdata and made it contiguous or we are using
 					//       the original src1 data pointer, so we should index using the indices directly
 					// TODO: this is a bit of a hack, we should probably have a better way to handle this
 					const char* src1_col = (const char*)wdata +
