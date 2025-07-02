@@ -179,7 +179,7 @@ namespace op
         const int64_t stride_channel_dst = ids ? s1 : s2;
         const int64_t stride_channel_y = ids ? s11 : s12;
 
-        GGML_ASSERT(ncols_dst == 1);
+        GGML_ASSERT(!ids || ncols_dst == 1);
 
         mul_mat_vec_context ctx{
             .src0_type = src0->type,
@@ -190,7 +190,10 @@ namespace op
             .dst_d = (float*)dst->data,
             .ncols = src0->ne[0],
             .nrows = src0->ne[1],
+			.ncols_dst = ncols_dst,
             .stride_row = s01,
+            .stride_col_y = s11,
+			.stride_col_dst = s1,
             .nchannels_x = src0->ne[2],
             .nchannels_y = nchannels_y,
             .nchannels_dst = nchannels_dst,
@@ -1952,5 +1955,62 @@ namespace op
         };
 
         conv_2d_transpose_p0_cuda(&ctx, stream);
+    }
+
+    void glu(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+        const int64_t nc = src1 ? src0->ne[0] : src0->ne[0] / 2;
+        GGML_ASSERT(ggml_is_contiguous_1(src0));
+        GGML_ASSERT(src0->nb[0] == ggml_element_size(src0));
+        GGML_ASSERT(ggml_is_contiguous(dst));
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32 || dst->type == GGML_TYPE_F16);
+        GGML_ASSERT(src0->type == dst->type);
+        GGML_ASSERT(dst->ne[0] == nc);
+        GGML_ASSERT(ggml_nrows(dst) == ggml_nrows(src0));
+
+        if (src1) {
+            GGML_ASSERT(ggml_is_contiguous_1(src1));
+            GGML_ASSERT(src1->nb[0] == ggml_element_size(src1));
+            GGML_ASSERT(src1->ne[0] == nc);
+            GGML_ASSERT(src0->type == src1->type);
+        }
+
+        gated_context ctx{
+            .stream = stream,
+            .src0_type = src0->type,
+            .swapped = dst->op_params[1],
+			.src0_d = src0->data,
+            .src1_d = src1 ? src1->data : src0->data,
+			.dst_d = dst->data,
+            .src0_o = src0->nb[1],
+            .src1_o = src1 ? src1->nb[1] : src0->nb[1],
+            .nc = nc,
+			.dst_nelements = dst->nelements(),
+            .src1_exist = src1 != nullptr
+        };
+
+        switch (ggml_get_glu_op(dst)) {
+        case GGML_GLU_OP_REGLU:
+            reglu_cuda(&ctx);
+            break;
+        case GGML_GLU_OP_GEGLU:
+            geglu_cuda(&ctx);
+            break;
+        case GGML_GLU_OP_SWIGLU:
+            swiglu_cuda(&ctx);
+            break;
+        default:
+            std::unreachable();
+        }
+    }
+    void mean(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+        GGML_ASSERT(ggml_is_contiguous(src0));
+        mean_cuda((const float*)src0->data, (float*)dst->data, src0->ne[0], ggml_nrows(src0), stream);
     }
 }

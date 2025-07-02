@@ -13,7 +13,7 @@ static constexpr size_t CUDA_Q8_0_NE_ALIGN = 2048;
 
 template <typename src_t, typename dst_t>
 static __global__ void convert_unary(
-    const src_t* __restrict__ x, dst_t* __restrict__ y, const int64_t ne00, const int64_t ne01, const int64_t ne02,
+    const void* __restrict__ vx, dst_t* __restrict__ y, const int64_t ne00, const int64_t ne01, const int64_t ne02,
     const int64_t s01, const int64_t s02, const int64_t s03) {
     const int64_t i00 = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -24,14 +24,14 @@ static __global__ void convert_unary(
     const int64_t i01 = blockIdx.y;
     const int64_t i02 = blockIdx.z % ne02;
     const int64_t i03 = blockIdx.z / ne02;
-
+    const src_t* x = (const src_t*)vx;
     const int64_t ix = i03 * s03 + i02 * s02 + i01 * s01 + i00;
     const int64_t iy = ((i03 * ne02 + i02) * ne01 + i01) * ne00 + i00;
     y[iy] = float(x[ix]);
 }
 
 template <typename src_t, typename dst_t>
-static void convert_unary_cuda(const src_t* vx, dst_t* y,
+static void convert_unary_cuda(const void* vx, dst_t* y,
     const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
     const int64_t s01, const int64_t s02, const int64_t s03, cudaStream_t stream) {
     const dim3 num_blocks((ne00 + CUDA_DEQUANTIZE_BLOCK_SIZE - 1) / CUDA_DEQUANTIZE_BLOCK_SIZE, ne01, ne02 * ne03);
@@ -702,16 +702,36 @@ void to_bf16_cuda(ggml_type type, const void* x, nv_bfloat16* y, int64_t k, cuda
     }
 }
 
-void to_fp16_nc_cuda(ggml_type type, const void* x, half* y,
-    int64_t ne00, int64_t ne01, int64_t ne02, int64_t ne03,
-    int64_t s01, int64_t s02, int64_t s03, cudaStream_t stream)
-{
+
+to_fp16_nc_cuda_t ggml_get_to_fp16_nc_cuda(ggml_type type) {
     switch (type) {
     case GGML_TYPE_F32:
-        return convert_unary_cuda(static_cast<const float*>(x), y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
+        return convert_unary_cuda<float>;
     case GGML_TYPE_BF16:
-        return convert_unary_cuda(static_cast<const nv_bfloat16*>(x), y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
+        return convert_unary_cuda<nv_bfloat16>;
     default:
-        return GGML_ABORT("Fatal error");
+        return nullptr;
+    }
+}
+
+to_bf16_nc_cuda_t ggml_get_to_bf16_nc_cuda(ggml_type type) {
+    switch (type) {
+    case GGML_TYPE_F32:
+        return convert_unary_cuda<float, nv_bfloat16>;
+    case GGML_TYPE_F16:
+        return convert_unary_cuda<half, nv_bfloat16>;
+    default:
+        return nullptr;
+    }
+}
+
+to_fp32_nc_cuda_t ggml_get_to_fp32_nc_cuda(ggml_type type) {
+    switch (type) {
+    case GGML_TYPE_F16:
+        return convert_unary_cuda<half, float>;
+    case GGML_TYPE_BF16:
+        return convert_unary_cuda<nv_bfloat16, float>;
+    default:
+        return nullptr;
     }
 }

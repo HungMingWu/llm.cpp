@@ -37,6 +37,7 @@ export {
     using ggml_op_pool = ggml_op_pool;
     using ggml_sort_order = ggml_sort_order;
     using ggml_scale_mode = ggml_scale_mode;
+    using ggml_scale_flag = ggml_scale_flag;
 
     constexpr size_t GGML_MAX_DIMS = 4;
     constexpr size_t GGML_MAX_NAME = 64;
@@ -100,6 +101,7 @@ export {
         GGML_OP_TRANSPOSE,
         GGML_OP_GET_ROWS,
         GGML_OP_GET_ROWS_BACK,
+        GGML_OP_SET_ROWS,
         GGML_OP_DIAG,
         GGML_OP_DIAG_MASK_INF,
         GGML_OP_DIAG_MASK_ZERO,
@@ -111,6 +113,7 @@ export {
         GGML_OP_CONV_TRANSPOSE_1D,
         GGML_OP_IM2COL,
         GGML_OP_IM2COL_BACK,
+        GGML_OP_CONV_2D,
         GGML_OP_CONV_2D_DW,
         GGML_OP_CONV_TRANSPOSE_2D,
         GGML_OP_POOL_1D,
@@ -149,6 +152,8 @@ export {
         GGML_OP_CROSS_ENTROPY_LOSS_BACK,
         GGML_OP_OPT_STEP_ADAMW,
 
+        GGML_OP_GLU,
+
         GGML_OP_COUNT,
     };
 
@@ -178,6 +183,14 @@ export {
         GGML_FTYPE_MOSTLY_IQ4_XS = 22, // except 1d tensors
         GGML_FTYPE_MOSTLY_IQ1_M = 23, // except 1d tensors
         GGML_FTYPE_MOSTLY_BF16 = 24, // except 1d tensors
+    };
+
+    enum ggml_glu_op {
+        GGML_GLU_OP_REGLU,
+        GGML_GLU_OP_GEGLU,
+        GGML_GLU_OP_SWIGLU,
+
+        GGML_GLU_OP_COUNT,
     };
 
     //
@@ -613,7 +626,7 @@ export {
         std::unordered_map<const ggml_tensor*, ggml_tensor*> grads;     // the outputs of these tensors are the gradients of the nodes
         std::unordered_map<ggml_tensor*, ggml_tensor*> grad_accs; // accumulators for node gradients
         std::vector<ggml_tensor*> leafs;     // tensors with constant data
-
+        std::unordered_map<const ggml_tensor*, int32_t> use_counts; // number of uses of each tensor
         std::unordered_set<ggml_tensor*> visited_hash_set;
 
         enum ggml_cgraph_eval_order order = GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT;
@@ -738,6 +751,9 @@ export {
     protected:
         virtual void set_tensor_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size);
         virtual void get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size);
+
+        // compute graph (always async if supported by the backend)
+        virtual ggml_status graph_compute_impl(ggml_cgraph* cgraph) = 0;
     public:
         ggml_backend(ggml_backend_dev_t device) : device(device) {}
         virtual ~ggml_backend() = default;
@@ -759,8 +775,11 @@ export {
         // compute the graph with the plan
         virtual enum ggml_status graph_plan_compute(ggml_backend_graph_plan_t plan) { return {}; }
 
-        // compute graph (always async if supported by the backend)
-        virtual ggml_status graph_compute(ggml_cgraph* cgraph) = 0;
+        ggml_status graph_compute(ggml_cgraph* cgraph) {
+            enum ggml_status err = graph_compute_impl(cgraph);
+            synchronize();
+            return err;
+        }
 
         // (optional) event synchronization
         // record an event on this stream

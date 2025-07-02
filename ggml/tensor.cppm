@@ -3,6 +3,7 @@ module;
 #include <stdint.h>
 #include <stdlib.h>
 #include <array>
+#include <bit>
 #define GGML_ASSERT(...)
 
 export module ggml:tensor;
@@ -158,5 +159,19 @@ export
 			}
 		}
 		return 1;
+	}
+
+	// true if the elements in dimension 0 are contiguous, or there is just 1 block of elements
+	bool ggml_is_contiguous_rows(const ggml_tensor* tensor)
+	{
+		return
+			tensor->ne[0] == ggml_blck_size(tensor->type) ||
+			tensor->nb[0] == ggml_type_size(tensor->type);
+	}
+
+	enum ggml_glu_op ggml_get_glu_op(const ggml_tensor* tensor)
+	{
+		GGML_ASSERT(tensor->op == GGML_OP_GLU);
+		return std::bit_cast<ggml_glu_op>(tensor->op_params[0]);
 	}
 }

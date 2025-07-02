@@ -65,7 +65,10 @@ struct mul_mat_vec_context {
     float* dst_d;
     const int64_t ncols;
     const int64_t nrows;
+    const int64_t ncols_dst;
     const int64_t stride_row;
+    const int64_t stride_col_y;
+    const int64_t stride_col_dst;
     const int64_t nchannels_x;
     const int64_t nchannels_y;
     const int64_t nchannels_dst;
@@ -178,6 +181,22 @@ void sqrt_cuda(const unary_context* ctx);
 void sin_cuda(const unary_context* ctx);
 void cos_cuda(const unary_context* ctx);
 void log_cuda(const unary_context* ctx);
+
+struct gated_context {
+    cudaStream_t stream;
+    ggml_type src0_type;
+    const int32_t swapped;
+    void* src0_d;
+    void* src1_d;
+    void* dst_d;
+    const size_t src0_o, src1_o;
+    const int64_t nc, dst_nelements;
+    const bool src1_exist;
+};
+
+void reglu_cuda(const gated_context* ctx);
+void geglu_cuda(const gated_context* ctx);
+void swiglu_cuda(const gated_context* ctx);
 void leaky_relu_cuda(bool, const void*, void*, const int, const float, cudaStream_t);
 
 // get_row
@@ -325,7 +344,7 @@ void rwkv_wkv7_cuda(const int B,
 
 // compute_batched_ptrs
 void k_compute_batched_ptrs_cuda(
-    const half* src0_as_f16, const half* src1_as_f16, char* dst,
+    const void* src0_as_f16, const void* src1_as_f16, char* dst,
     const void** ptrs_src, void** ptrs_dst,
     int64_t ne12, int64_t ne13,
     int64_t ne23,
@@ -591,3 +610,6 @@ struct conv2d_transpose_context {
     const half* kernel_data;
 };
 void conv_2d_transpose_p0_cuda(conv2d_transpose_context* ctx, cudaStream_t stream);
+
+//mean.cu
+void mean_cuda(const float* src0_d, float* dst_d, const int64_t ncols, const int64_t nrows, cudaStream_t stream);

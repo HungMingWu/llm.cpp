@@ -254,7 +254,7 @@ namespace {
         float tmp[4];
 
         for (int i = 0; i < 4; i++) {
-            tmp[i] = GGML_FP16_TO_FP32(p[i]);
+            tmp[i] = toFloat32(p[i]);
         }
 
         return vec_xl(0, (const float*)(tmp));

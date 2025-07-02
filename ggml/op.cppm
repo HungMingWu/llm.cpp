@@ -208,15 +208,6 @@ export {
 		int scale_factor,
 		ggml_scale_mode mode);
 
-	ggml_tensor* ggml_upscale_ext(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		int ne0,
-		int ne1,
-		int ne2,
-		int ne3,
-		ggml_scale_mode mode);
-
 	ggml_tensor* ggml_group_norm(
 		ggml_context* ctx,
 		ggml_tensor* a,
@@ -593,4 +584,100 @@ export {
 		int                   shift1,
 		int                   shift2,
 		int                   shift3);
+
+	// gated linear unit ops
+	// A: n columns, r rows,
+	// result is n / 2 columns, r rows,
+	// expects gate in second half of row, unless swapped is true
+	ggml_tensor* ggml_glu(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_glu_op op,
+		bool swapped);
+
+	ggml_tensor* ggml_reglu(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_reglu_swapped(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_geglu(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_geglu_swapped(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_swiglu(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_swiglu_swapped(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	// A: n columns, r rows,
+	// B: n columns, r rows,
+	ggml_tensor* ggml_glu_split(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		enum ggml_glu_op op);
+
+	ggml_tensor* ggml_reglu_split(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b);
+
+	ggml_tensor* ggml_geglu_split(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b);
+
+	ggml_tensor* ggml_swiglu_split(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b);
+
+	// a TD  [n_embd, ne1,    ne2,    ne3]
+	// b TS  [n_embd, n_rows, ne02,   ne03] | ne02 == ne2, ne03 == ne3
+	// c I64 [n_rows, ne11,   ne12,   1]    | c[i] in [0, ne1)
+	//
+	// undefined behavior if destination rows overlap
+	//
+	// broadcast:
+	//   ne2 % ne11 == 0
+	//   ne3 % ne12 == 0
+	//
+	// return view(a)
+	ggml_tensor* ggml_set_rows(
+		ggml_context* ctx,
+		ggml_tensor* a,  // destination
+		ggml_tensor* b,  // source
+		ggml_tensor* c); // row indices
+
+	ggml_tensor* ggml_conv_2d_direct(
+		ggml_context* ctx,
+		ggml_tensor* a,   // convolution kernel [KW, KH, IC, OC]
+		ggml_tensor* b,   // input data [W, H, C, N]
+		int s0,  // stride dimension 0
+		int s1,  // stride dimension 1
+		int p0,  // padding dimension 0
+		int p1,  // padding dimension 1
+		int d0,  // dilation dimension 0
+		int d1); // dilation dimension 1
+
+	// Up- or downsamples the input to the specified size.
+	// 2D scale modes (eg. bilinear) are applied to the first two dimensions.
+	ggml_tensor* ggml_interpolate(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		int64_t ne0,
+		int64_t ne1,
+		int64_t ne2,
+		int64_t ne3,
+		uint32_t mode); // ggml_scale_mode [ | ggml_scale_flag...]
 }

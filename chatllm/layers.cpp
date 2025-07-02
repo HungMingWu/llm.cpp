@@ -578,13 +578,13 @@ namespace chatllm
         {
         case InterpolateMode::Nearest:
         {
-            ggml::tensor* tensor = ggml_upscale_ext(ctx->get_ctx(), a, (int)ne0, (int)ne1, (int)ne2, (int)ne3, GGML_SCALE_MODE_NEAREST);
+            ggml::tensor* tensor = ggml_interpolate(ctx->get_ctx(), a, (int)ne0, (int)ne1, (int)ne2, (int)ne3, GGML_SCALE_MODE_NEAREST);
             ctx->cb_op_tensor(tensor);
             return tensor;
         }
         case InterpolateMode::Bilinear:
         {
-            ggml::tensor* tensor = ggml_upscale_ext(ctx->get_ctx(), a, (int)ne0, (int)ne1, (int)ne2, (int)ne3, GGML_SCALE_MODE_BILINEAR);
+            ggml::tensor* tensor = ggml_interpolate(ctx->get_ctx(), a, (int)ne0, (int)ne1, (int)ne2, (int)ne3, GGML_SCALE_MODE_BILINEAR);
             ctx->cb_op_tensor(tensor);
             return tensor;
         }

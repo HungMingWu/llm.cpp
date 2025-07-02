@@ -135,6 +135,16 @@ public:
                 return false;
             }
             break;
+        case GGML_OP_GLU:
+            switch (ggml_get_glu_op(op)) {
+            case GGML_GLU_OP_REGLU:
+            case GGML_GLU_OP_GEGLU:
+            case GGML_GLU_OP_SWIGLU:
+                return ggml_is_contiguous_1(op->src[0]);
+            default:
+                return false;
+            }
+            break;
         case GGML_OP_MUL_MAT:
         case GGML_OP_MUL_MAT_ID:
         {
@@ -158,9 +168,16 @@ public:
                 return false;
             }
 #ifdef GGML_USE_MUSA
-            if (b->type == GGML_TYPE_F16 && b->ne[2] * b->ne[3] > 1 &&
-                !ggml_is_transposed(a) && !ggml_is_transposed(b)) {
-                return false;
+            const int cc = ggml_cuda_info().devices[dev_ctx->device].cc;
+            if (b->ne[2] * b->ne[3] > 1 && !ggml_is_transposed(a) && !ggml_is_transposed(b)) {
+                if (GGML_CUDA_CC_IS_QY1(cc) && op->op == GGML_OP_MUL_MAT &&
+                    a->type == GGML_TYPE_F16 && b->type == GGML_TYPE_F16) {
+                    return false;
+                }
+                if (GGML_CUDA_CC_IS_QY2(cc) && op->op == GGML_OP_MUL_MAT_ID &&
+                    a->type == GGML_TYPE_Q2_K && b->type == GGML_TYPE_F32) {
+                    return false;
+                }
             }
 #endif // GGML_USE_MUSA
             switch (a->type) {
@@ -187,11 +204,6 @@ public:
             case GGML_TYPE_IQ4_NL:
             case GGML_TYPE_IQ4_XS:
             case GGML_TYPE_BF16:
-#ifdef GGML_USE_MUSA
-                if (a->type == GGML_TYPE_Q3_K) {
-                    return false;
-                }
-#endif // GGML_USE_MUSA
                 return true;
             default:
                 return false;
@@ -351,6 +363,7 @@ public:
         case GGML_OP_POOL_2D:
         case GGML_OP_SUM:
         case GGML_OP_SUM_ROWS:
+        case GGML_OP_MEAN:
         case GGML_OP_ARGSORT:
         case GGML_OP_ACC:
             return true;

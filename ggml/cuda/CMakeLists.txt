@@ -46,6 +46,7 @@ target_sources(libggml
       cu/getrows.cu
       cu/gla.cu
       cu/im2col.cu
+      cu/mean.cu
       cu/mmv.cu
       cu/mmvq.cu
       cu/norm.cu

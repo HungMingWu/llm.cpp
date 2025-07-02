@@ -37,6 +37,9 @@ void ggml_tensor::set_flag(int32_t flag)
 		GGML_ASSERT(ggml_is_scalar(this));
 		GGML_ASSERT(type == GGML_TYPE_F32);
 	}
+	else if (flag == GGML_TENSOR_FLAG_PARAM) {
+		GGML_ASSERT(op == GGML_OP_NONE);
+	}
 	flags |= flag;
 }
 

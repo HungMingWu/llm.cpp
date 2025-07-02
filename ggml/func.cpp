@@ -217,7 +217,7 @@ static graph_copy ggml_backend_graph_copy(ggml_backend_t backend, ggml_cgraph* g
     };
 }
 
-bool ggml_backend_compare_graph_backend(ggml_backend_t backend1, ggml_backend_t backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback) {
+bool ggml_backend_compare_graph_backend(ggml_backend_t backend1, ggml_backend_t backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback, ggml_tensor* test_node) {
     graph_copy copy = ggml_backend_graph_copy(backend2, graph);
     assert(copy.buffer);
 
@@ -229,29 +229,47 @@ bool ggml_backend_compare_graph_backend(ggml_backend_t backend1, ggml_backend_t 
         ggml_cgraph graph;
         graph.nodes.push_back(node);
         return graph;
-        };
+    };
 
-    // clang's views::zip have bug, keep old style here
-    for (size_t i = 0; i < g1->nodes.size(); i++) {
-        auto t1 = g1->nodes[i];
-        auto t2 = g2->nodes[i];
-        //printf("eval %d/%d\n", i, g1->n_nodes);
-        assert(t1->op == t2->op && ggml_are_same_layout(t1, t2));
-        ggml_cgraph g1v = create_view_graph(t1);
-        ggml_cgraph g2v = create_view_graph(t2);
+    if (test_node != nullptr) {
+        // Compute the whole graph and only test the output for a specific tensor
+        backend1->graph_compute(g1);
+        backend2->graph_compute(g2);
 
-        backend1->compute(&g1v);
-        backend2->compute(&g2v);
-
-        if (ggml_is_view_op(t1->op)) {
-            continue;
+        int test_node_idx = -1;
+        for (size_t i = 0; i < g1->nodes.size(); i++) {
+            ggml_tensor* t1 = g1->nodes[i];
+            if (t1 == test_node) {
+                test_node_idx = i;
+                break;
+            }
         }
+        GGML_ASSERT(test_node_idx != -1);
 
-        // compare results, calculate rms etc
-        if (!callback(t1, t2)) {
-            return false;
+        callback(g1->nodes[test_node_idx], g2->nodes[test_node_idx]);
+    }
+    else {
+        // clang's views::zip have bug, keep old style here
+        for (size_t i = 0; i < g1->nodes.size(); i++) {
+            auto t1 = g1->nodes[i];
+            auto t2 = g2->nodes[i];
+            //printf("eval %d/%d\n", i, g1->n_nodes);
+            assert(t1->op == t2->op && ggml_are_same_layout(t1, t2));
+            ggml_cgraph g1v = create_view_graph(t1);
+            ggml_cgraph g2v = create_view_graph(t2);
+
+            backend1->compute(&g1v);
+            backend2->compute(&g2v);
+
+            if (ggml_is_view_op(t1->op)) {
+                continue;
+            }
+
+            // compare results, calculate rms etc
+            if (!callback(t1, t2)) {
+                return false;
+            }
         }
-
     }
 
     return true;

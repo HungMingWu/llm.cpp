@@ -10,6 +10,8 @@ import :func;
 import :cpu.registry;
 
 struct ggml_cpu_backend : public ggml_backend {
+protected:
+	enum ggml_status graph_compute_impl(ggml_cgraph* cgraph) override;
 public:
 	using ggml_backend::ggml_backend;
 	size_t n_threads = 1;// GGML_DEFAULT_N_THREADS;
@@ -66,8 +68,6 @@ public:
 		return {};
 #endif
 	}
-
-	enum ggml_status graph_compute(ggml_cgraph* cgraph) override;
 };
 
 export

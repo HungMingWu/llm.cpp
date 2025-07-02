@@ -1219,10 +1219,14 @@ export {
 			 enum ggml_unary_op uop = ggml_get_unary_op(t);
 			 return ggml_unary_op_name(uop);
 		 }
+		 if (t->op == GGML_OP_GLU) {
+			 enum ggml_glu_op gop = ggml_get_glu_op(t);
+			 return ggml_glu_op_name(gop);
+		 }
 		 return ggml_op_name(t->op);
 	 }
 
-	 bool ggml_backend_compare_graph_backend(ggml_backend_t backend1, ggml_backend_t backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback);
+	 bool ggml_backend_compare_graph_backend(ggml_backend_t backend1, ggml_backend_t backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback, ggml_tensor* test_node);
 
 	 bool ggml_quantize_requires_imatrix(enum ggml_type type);
 

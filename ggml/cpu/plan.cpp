@@ -87,6 +87,18 @@ static int ggml_get_n_tasks(struct ggml_tensor* node, int n_threads) {
 			GGML_ABORT("fatal error");
 		}
 		break;
+	case GGML_OP_GLU:
+		switch (ggml_get_glu_op(node)) {
+		case GGML_GLU_OP_REGLU:
+		case GGML_GLU_OP_GEGLU:
+		case GGML_GLU_OP_SWIGLU:
+		{
+			n_tasks = n_threads;
+		} break;
+		default:
+			GGML_ABORT("fatal error");
+		}
+		break;
 	case GGML_OP_SILU_BACK:
 	case GGML_OP_MUL:
 	case GGML_OP_DIV:

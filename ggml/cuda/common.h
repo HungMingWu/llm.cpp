@@ -36,9 +36,17 @@
 #define GGML_CUDA_CC_IS_GCN(cc)   (cc > GGML_CUDA_CC_OFFSET_AMD && cc < GGML_CUDA_CC_CDNA)
 #define GGML_CUDA_CC_IS_CDNA(cc)  (cc >= GGML_CUDA_CC_CDNA && cc < GGML_CUDA_CC_RDNA1)
 
+// Moore Threads
+#define GGML_CUDA_CC_QY1 (GGML_CUDA_CC_OFFSET_MTHREADS + 0x210) // MTT S80, MTT S3000
+#define GGML_CUDA_CC_QY2 (GGML_CUDA_CC_OFFSET_MTHREADS + 0x220) // MTT S4000
+#define GGML_CUDA_CC_NG  (GGML_CUDA_CC_OFFSET_MTHREADS + 0x310) // TBD
+
+#define GGML_CUDA_CC_IS_MTHREADS(cc) (cc >= GGML_CUDA_CC_OFFSET_MTHREADS && cc < GGML_CUDA_CC_OFFSET_AMD)
+#define GGML_CUDA_CC_IS_QY1(cc)      (cc >= GGML_CUDA_CC_QY1 && cc < GGML_CUDA_CC_QY2)
+#define GGML_CUDA_CC_IS_QY2(cc)      (cc >= GGML_CUDA_CC_QY2 && cc < GGML_CUDA_CC_NG)
+#define GGML_CUDA_CC_IS_NG(cc)       (cc >= GGML_CUDA_CC_NG)
+
 #define MMVQ_MAX_BATCH_SIZE 8 // Max. batch size for which to use MMVQ kernels.
-// maximum number of src0 rows with which to use mul_mat_vec over cuBLAS if FP16 tensor cores are available
-#define MMV_MAX_ROWS 512
 #define MUL_MAT_SRC1_COL_STRIDE 128
 #define MMQ_DP4A_MAX_BATCH_SIZE 64 // Max. batch size to use for dp4a MMQ kernels when FP16 tensor co
 #define GGML_CUDA_CC_IS_CDNA(cc)  (cc >= GGML_CUDA_CC_CDNA && cc < GGML_CUDA_CC_RDNA1)
@@ -237,7 +245,9 @@ static constexpr bool int8_mma_available(const int cc) {
 
 enum ggml_type :int;
 
+bool bf16_mma_hardware_available(const int cc);
 bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11);
+bool ggml_cuda_should_use_mmv(enum ggml_type type, int cc, const int64_t* src0_ne, int64_t ne11);
 
 // To be used for feature selection of external libraries, e.g. cuBLAS.
 bool fast_fp16_hardware_available(const int cc);

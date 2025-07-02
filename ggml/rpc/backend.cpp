@@ -52,7 +52,7 @@ void ggml_backend_rpc::synchronize()
 	// this is no-op because we don't have any async operations
 }
 
-ggml_status ggml_backend_rpc::graph_compute(ggml_cgraph* cgraph)
+ggml_status ggml_backend_rpc::graph_compute_impl(ggml_cgraph* cgraph)
 {
     std::vector<uint8_t> input;
     serialize_graph(cgraph, input);

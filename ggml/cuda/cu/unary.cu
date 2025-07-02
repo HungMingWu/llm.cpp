@@ -253,3 +253,74 @@ void leaky_relu_cuda(bool is_half, const void* x, void* dst,
         leaky_relu_cuda((const float*)x, (float*)dst, k, negative_slope, stream);
     }
 }
+
+/* gated ops */
+
+template <float (*op)(float), typename T>
+static __global__ void unary_gated_op_kernel(const T* x, const T* g, T* dst, const int64_t k, const int64_t n, const int64_t o0, const int64_t o1) {
+    const int64_t i = int64_t(blockDim.x) * blockIdx.x + threadIdx.x;
+
+    if (i >= k) {
+        return;
+    }
+
+    // perform base op and multiply with gate (either offset in same tensor or a separate one)
+    const int64_t j0 = (i / n) * o0 + (i % n);
+    const int64_t j1 = o0 == o1 ? j0 : (i / n) * o1 + (i % n);
+
+    dst[i] = (T)(op((float)x[j0]) * (float)g[j1]);
+}
+
+template <float (*op)(float), typename T>
+static void unary_gated_cuda(const T* x, const T* g, T* dst, const int64_t k, const int64_t n, const int64_t o0, const int64_t o1, cudaStream_t stream) {
+    static constexpr size_t CUDA_GLU_BLOCK_SIZE = 256;
+    const int64_t num_blocks = (k + CUDA_GLU_BLOCK_SIZE - 1) / CUDA_GLU_BLOCK_SIZE;
+    unary_gated_op_kernel<op> << <num_blocks, CUDA_GLU_BLOCK_SIZE, 0, stream >> > (x, g, dst, k, n, o0, o1);
+}
+
+template <float (*op)(float)>
+void ggml_cuda_op_unary_gated(const gated_context* ctx) {
+    const int64_t src0_o = ctx->src0_o;
+    const int64_t src1_o = ctx->src1_o;
+    const int64_t nc = ctx->nc;
+
+    const int32_t swapped = ctx->swapped;
+
+    if (ctx->src0_type == GGML_TYPE_F16) {
+        half* src0_p = (half*)ctx->src0_d;
+        half* src1_p = (half*)ctx->src1_d;
+
+        if (!ctx->src1_exist) {
+            src0_p += swapped ? nc : 0;
+            src1_p += swapped ? 0 : nc;
+        }
+
+        unary_gated_cuda<op>(src0_p, src1_p, (half*)ctx->dst_d, ctx->dst_nelements, nc, src0_o / sizeof(half), src1_o / sizeof(half), ctx->stream);
+    }
+    else {
+        float* src0_p = (float*)ctx->src0_d;
+        float* src1_p = (float*)ctx->src1_d;
+
+        if (!ctx->src1_exist) {
+            src0_p += swapped ? nc : 0;
+            src1_p += swapped ? 0 : nc;
+        }
+
+        unary_gated_cuda<op>(src0_p, src1_p, (float*)ctx->dst_d, ctx->dst_nelements, nc, src0_o / sizeof(float), src1_o / sizeof(float), ctx->stream);
+    }
+}
+
+void reglu_cuda(const gated_context* ctx)
+{
+    ggml_cuda_op_unary_gated<relu>(ctx);
+}
+
+void geglu_cuda(const gated_context* ctx)
+{
+	ggml_cuda_op_unary_gated<gelu>(ctx);
+}
+
+void swiglu_cuda(const gated_context* ctx)
+{
+	ggml_cuda_op_unary_gated<silu>(ctx);
+}

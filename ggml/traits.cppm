@@ -442,6 +442,7 @@ static const char* GGML_OP_NAME[GGML_OP_COUNT] = {
     "TRANSPOSE",
     "GET_ROWS",
     "GET_ROWS_BACK",
+    "SET_ROWS",
     "DIAG",
     "DIAG_MASK_INF",
     "DIAG_MASK_ZERO",
@@ -453,6 +454,7 @@ static const char* GGML_OP_NAME[GGML_OP_COUNT] = {
     "CONV_TRANSPOSE_1D",
     "IM2COL",
     "IM2COL_BACK",
+    "CONV_2D",
     "CONV_2D_DW",
     "CONV_TRANSPOSE_2D",
     "POOL_1D",
@@ -490,6 +492,8 @@ static const char* GGML_OP_NAME[GGML_OP_COUNT] = {
     "CROSS_ENTROPY_LOSS",
     "CROSS_ENTROPY_LOSS_BACK",
     "OPT_STEP_ADAMW",
+
+    "GLU",
 };
 
 static const char* GGML_OP_SYMBOL[GGML_OP_COUNT] = {
@@ -604,6 +608,12 @@ static const char* GGML_UNARY_OP_NAME[GGML_UNARY_OP_COUNT] = {
     "GELU_ERF",
 };
 
+static const char* GGML_GLU_OP_NAME[GGML_GLU_OP_COUNT] = {
+    "REGLU",
+    "GEGLU",
+    "SWIGLU",
+};
+
 export
 {
     size_t ggml_blck_size(enum ggml_type type) {
@@ -646,6 +656,10 @@ export
 
     const char* ggml_unary_op_name(enum ggml_unary_op op) {
         return GGML_UNARY_OP_NAME[op];
+    }
+
+    const char* ggml_glu_op_name(enum ggml_glu_op op) {
+        return GGML_GLU_OP_NAME[op];
     }
 
     const struct ggml_type_traits* ggml_get_type_traits(enum ggml_type type) {

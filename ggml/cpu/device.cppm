@@ -173,6 +173,7 @@ struct ggml_backend_cpu_device : public ggml_backend_device {
 
 		switch (op->op) {
 		case GGML_OP_CPY:
+		case GGML_OP_SET_ROWS:
 			return is_not_one_of(op->type, GGML_TYPE_IQ3_XXS, GGML_TYPE_IQ3_S,
 				GGML_TYPE_IQ2_XXS, GGML_TYPE_IQ2_XS, GGML_TYPE_IQ2_S,
 				GGML_TYPE_IQ1_S, GGML_TYPE_IQ1_M); // missing type_traits.from_float

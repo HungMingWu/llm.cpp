@@ -6,7 +6,7 @@ module;
 module ggml;
 import :cpu.ds;
 
-enum ggml_status ggml_cpu_backend::graph_compute(ggml_cgraph* cgraph)
+enum ggml_status ggml_cpu_backend::graph_compute_impl(ggml_cgraph* cgraph)
 {
 	ggml_cplan cplan = ggml_graph_plan(*cgraph, n_threads, threadpool);
 

@@ -1,7 +1,7 @@
 #include "common.cuh"
 
 static __global__ void k_compute_batched_ptrs(
-    const half* src0_as_f16, const half* src1_as_f16, char* dst,
+    const void* src0_as_f16, const void* src1_as_f16, char* dst,
     const void** ptrs_src, void** ptrs_dst,
     int64_t ne12, int64_t ne13,
     int64_t ne23,
@@ -25,7 +25,7 @@ static __global__ void k_compute_batched_ptrs(
 }
 
 void k_compute_batched_ptrs_cuda(
-    const half* src0_as_f16, const half* src1_as_f16, char* dst,
+    const void* src0_as_f16, const void* src1_as_f16, char* dst,
     const void** ptrs_src, void** ptrs_dst,
     int64_t ne12, int64_t ne13,
     int64_t ne23,

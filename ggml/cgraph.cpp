@@ -716,12 +716,22 @@ void ggml_cgraph::visit_parents(ggml_tensor* node)
 
     if (order == GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT) {
         std::for_each(node->src.begin(), node->src.end(), [this](ggml_tensor* src) {
-            if (src) visit_parents(src);
+            if (src) {
+                visit_parents(src);
+
+                // Update the use count for this operand.
+                use_counts[src]++;
+            }
         });
     }
     else {
         std::for_each(node->src.rbegin(), node->src.rend(), [this](ggml_tensor* src) {
-            if (src) visit_parents(src);
+            if (src) {
+                visit_parents(src);
+
+                // Update the use count for this operand.
+                use_counts[src]++;
+            }
         });
     }
 
@@ -1115,4 +1125,60 @@ void ggml_dump_graph_nodes(ggml_cgraph* cgraph, const char* binary_name)
         fwrite(data.data(), sizeof(uint8_t), length, fp);
     }
     fclose(fp);
+}
+
+// return true if the node's results are only used by N other nodes
+// and can be fused into their calculations.
+static inline bool ggml_node_has_n_uses(const ggml_cgraph* cgraph, int node_idx, int32_t n_uses) {
+    ggml_tensor* node = cgraph->nodes[node_idx];
+
+    // check the use count against how many we're replacing
+    if (cgraph->visited_hash_set.count(node) == 0 || cgraph->use_counts.at(node) != n_uses) {
+        return false;
+    }
+
+    // if node is a view, some other node might be using the intermediate result
+    // via the view source.
+    if (node->view_src) {
+        return false;
+    }
+
+    // If the user requested output for the node, can't fuse
+    if (node->flags & GGML_TENSOR_FLAG_OUTPUT) {
+        return false;
+    }
+
+    return true;
+}
+
+// Returns true if nodes [i, i+ops.size()) are the sequence of ggml_ops in ops[]
+// and are fusable. Nodes are considered fusable according to this function if:
+// - all nodes except the last have only one use and are not views/outputs (see ggml_node_has_N_uses).
+// - all nodes except the last are a src of the following node.
+// - all nodes are the same shape.
+// TODO: Consider allowing GGML_OP_NONE nodes in between
+static inline bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* ops, int num_ops) {
+    if (node_idx + num_ops > cgraph->nodes.size()) {
+        return false;
+    }
+
+    for (int i = 0; i < num_ops; ++i) {
+        ggml_tensor* node = cgraph->nodes[node_idx + i];
+        if (node->op != ops[i]) {
+            return false;
+        }
+        if (i < num_ops - 1 && !ggml_node_has_n_uses(cgraph, node_idx + i, 1)) {
+            return false;
+        }
+        if (i > 0) {
+            ggml_tensor* prev = cgraph->nodes[node_idx + i - 1];
+            if (node->src[0] != prev && node->src[1] != prev) {
+                return false;
+            }
+            if (!ggml_are_same_shape(node, prev)) {
+                return false;
+            }
+        }
+    }
+    return true;
 }

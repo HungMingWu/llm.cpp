@@ -183,6 +183,8 @@ export
             quantize_cuda_t quantize_src1);
         void mul_mat(ggml_tensor* dst);
         bool compute_forward(ggml_tensor* dst);
+    protected:
+        enum ggml_status graph_compute_impl(ggml_cgraph* cgraph) override;
     public:
         using ggml_backend::ggml_backend;
         ~ggml_backend_cuda() override;
@@ -192,7 +194,6 @@ export
 		}
         bool cpy_tensor_async(ggml_backend_t backend_src, const ggml_tensor* src, ggml_tensor* dst) override;
         void synchronize() override;
-        enum ggml_status graph_compute(ggml_cgraph* cgraph) override;
         void event_record(ggml_backend_event_t event) override;
         void event_wait(ggml_backend_event_t event) override;
 	};

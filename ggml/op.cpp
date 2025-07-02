@@ -832,17 +832,6 @@ ggml_tensor* ggml_upscale(
 	return ggml_upscale_impl(ctx, a, a->ne[0] * scale_factor, a->ne[1] * scale_factor, a->ne[2], a->ne[3], mode);
 }
 
-ggml_tensor* ggml_upscale_ext(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	int ne0,
-	int ne1,
-	int ne2,
-	int ne3,
-	ggml_scale_mode mode) {
-	return ggml_upscale_impl(ctx, a, ne0, ne1, ne2, ne3, mode);
-}
-
 static ggml_tensor* ggml_group_norm_impl(
 	ggml_context* ctx,
 	ggml_tensor* a,
@@ -1838,4 +1827,204 @@ ggml_tensor* ggml_roll(
 	result->src.push_back(a);
 
 	return result;
+}
+
+static ggml_tensor* ggml_glu_impl(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	enum ggml_glu_op op,
+	bool swapped) {
+	GGML_ASSERT(ggml_is_contiguous_1(a));
+
+	if (b) {
+		GGML_ASSERT(ggml_is_contiguous_1(b));
+		GGML_ASSERT(ggml_are_same_shape(a, b));
+		GGML_ASSERT(a->type == b->type);
+	}
+
+	ggml_tensor* result = ctx->create(a->type, {
+		b ? a->ne[0] : a->ne[0] / 2,
+		a->ne[1],
+		a->ne[2],
+		a->ne[3]
+	});
+
+	result->op_params[0] = std::bit_cast<int32_t>(op);
+	result->op_params[1] = swapped;
+
+	result->op = GGML_OP_GLU;
+	result->src.push_back(a);
+	result->src.push_back(b);
+
+	return result;
+}
+
+ggml_tensor* ggml_glu(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_glu_op op,
+	bool swapped) {
+	return ggml_glu_impl(ctx, a, NULL, op, swapped);
+}
+
+ggml_tensor* ggml_glu_split(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	enum ggml_glu_op op) {
+	return ggml_glu_impl(ctx, a, b, op, false);
+}
+
+ggml_tensor* ggml_reglu(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_glu_impl(ctx, a, NULL, GGML_GLU_OP_REGLU, false);
+}
+
+ggml_tensor* ggml_reglu_swapped(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_glu_impl(ctx, a, NULL, GGML_GLU_OP_REGLU, true);
+}
+
+ggml_tensor* ggml_reglu_split(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b) {
+	return ggml_glu_impl(ctx, a, b, GGML_GLU_OP_REGLU, false);
+}
+
+ggml_tensor* ggml_geglu(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_glu_impl(ctx, a, NULL, GGML_GLU_OP_GEGLU, false);
+}
+
+ggml_tensor* ggml_geglu_swapped(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_glu_impl(ctx, a, NULL, GGML_GLU_OP_GEGLU, true);
+}
+
+ggml_tensor* ggml_geglu_split(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b) {
+	return ggml_glu_impl(ctx, a, b, GGML_GLU_OP_GEGLU, false);
+}
+
+ggml_tensor* ggml_swiglu(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_glu_impl(ctx, a, NULL, GGML_GLU_OP_SWIGLU, false);
+}
+
+ggml_tensor* ggml_swiglu_swapped(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_glu_impl(ctx, a, NULL, GGML_GLU_OP_SWIGLU, true);
+}
+
+ggml_tensor* ggml_swiglu_split(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b) {
+	return ggml_glu_impl(ctx, a, b, GGML_GLU_OP_SWIGLU, false);
+}
+
+ggml_tensor* ggml_set_rows(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	ggml_tensor* c)
+{
+	GGML_ASSERT(a->ne[0] == b->ne[0]);
+	GGML_ASSERT(a->ne[2] == b->ne[2]);
+	GGML_ASSERT(a->ne[3] == b->ne[3]);
+	GGML_ASSERT(b->ne[1] == c->ne[0]);
+	GGML_ASSERT(b->ne[2] % c->ne[1] == 0);
+	GGML_ASSERT(b->ne[3] % c->ne[2] == 0);
+	GGML_ASSERT(c->ne[3] == 1);
+	GGML_ASSERT(b->type == GGML_TYPE_F32);
+	GGML_ASSERT(c->type == GGML_TYPE_I64);
+
+	GGML_ASSERT(ggml_is_contiguous_rows(a));
+	GGML_ASSERT(ggml_is_contiguous_rows(b));
+
+	ggml_tensor* result = ggml_view_tensor(ctx, a);
+
+	result->op = GGML_OP_SET_ROWS;
+	result->src.push_back(b);
+	result->src.push_back(c);
+
+	return result;
+}
+
+ggml_tensor* ggml_conv_2d_direct(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	int s0,
+	int s1,
+	int p0,
+	int p1,
+	int d0,
+	int d1)
+{
+	GGML_ASSERT(a->ne[2] == b->ne[2]);
+	//GGML_ASSERT(a->type == b->type);
+
+	int64_t ne[4];
+	ne[0] = ggml_calc_conv_output_size(b->ne[0], a->ne[0], s0, p0, d0);
+	ne[1] = ggml_calc_conv_output_size(b->ne[1], a->ne[1], s1, p1, d1);
+	ne[2] = a->ne[3];
+	ne[3] = b->ne[3];
+
+	ggml_tensor* result = ctx->create(b->type, { ne[0], ne[1], ne[2], ne[3] });
+
+	result->op_params[0] = std::bit_cast<int32_t>(s0);
+	result->op_params[1] = std::bit_cast<int32_t>(s1);
+	result->op_params[2] = std::bit_cast<int32_t>(p0);
+	result->op_params[3] = std::bit_cast<int32_t>(p1);
+	result->op_params[4] = std::bit_cast<int32_t>(d0);
+	result->op_params[5] = std::bit_cast<int32_t>(d1);
+
+	result->op = GGML_OP_CONV_2D;
+	result->src.push_back(a);
+	result->src.push_back(b);
+
+	return result;
+}
+
+static ggml_tensor* ggml_interpolate_impl(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	int64_t ne0,
+	int64_t ne1,
+	int64_t ne2,
+	int64_t ne3,
+	uint32_t mode) {
+	GGML_ASSERT((mode & 0xFF) < GGML_SCALE_MODE_COUNT);
+
+	ggml_tensor* result = ctx->create(a->type, { ne0, ne1, ne2, ne3 });
+
+	result->op_params[0] = std::bit_cast<int32_t>(mode);
+
+	result->op = GGML_OP_UPSCALE;
+	result->src.push_back(a);
+
+	return result;
+}
+
+ggml_tensor* ggml_interpolate(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	int64_t ne0,
+	int64_t ne1,
+	int64_t ne2,
+	int64_t ne3,
+	uint32_t mode)
+{
+	return ggml_interpolate_impl(ctx, a, ne0, ne1, ne2, ne3, mode);
 }
