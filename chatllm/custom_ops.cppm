@@ -1018,6 +1018,32 @@ static void ggml_compute_forward_bicubic_f32(ggml::tensor* dst, const ggml::tens
     }
 }
 
+
+void ggml_custom_group_index_boost(struct ggml_tensor* dst, const struct ggml_tensor* src0, int ith, int nth, void* userdata)
+{
+    const int group_size = (int)(intptr_t)(userdata);
+
+    CHATLLM_CHECK(ggml::type_of(src0) == ggml::type::GGML_TYPE_I32);
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++)
+    {
+        for (int64_t i2 = ith; i2 < dst->ne[2]; i2 += nth)
+        {
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++)
+            {
+                const int inc = (int)i1 * group_size;
+                for (int64_t i0 = 0; i0 < dst->ne[0]; i0++)
+                {
+                    const int* x_src = (const int*)((char*)src0->data + i0 * src0->nb[0] + i1 * src0->nb[1] + i2 * src0->nb[2] + i3 * src0->nb[3]);
+                    int* y_dst = (int*)((char*)dst->data + i0 * dst->nb[0] + i1 * dst->nb[1] + i2 * dst->nb[2] + i3 * dst->nb[3]);
+                    y_dst[0] = x_src[0] + inc;
+                }
+            }
+        }
+    }
+}
+
+
 extern "C" void test_interp(void)
 {
     ggml::tensor dst;
