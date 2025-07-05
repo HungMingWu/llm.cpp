@@ -1019,7 +1019,7 @@ static void ggml_compute_forward_bicubic_f32(ggml::tensor* dst, const ggml::tens
 }
 
 
-void ggml_custom_group_index_boost(struct ggml_tensor* dst, const struct ggml_tensor* src0, int ith, int nth, void* userdata)
+void ggml_custom_group_index_boost(ggml_tensor* dst, const ggml_tensor* src0, int ith, int nth, void* userdata)
 {
     const int group_size = (int)(intptr_t)(userdata);
 
