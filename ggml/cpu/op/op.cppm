@@ -6,5 +6,6 @@ import :cpu.op.leaky_relu;
 import :cpu.op.norm;
 import :cpu.op.repeat_back;
 import :cpu.op.scale;
+import :cpu.op.sum_rows;
 import :cpu.op.unary;
 import :cpu.op.upscale;

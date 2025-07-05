@@ -4887,56 +4887,6 @@ static void ggml_compute_forward_rope(
 	}
 }
 
-static void ggml_compute_forward_sum_rows_f32(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-
-	if (params->ith != 0) {
-		return;
-	}
-
-	GGML_ASSERT(src0->nb[0] == sizeof(float));
-	GGML_ASSERT(dst->nb[0] == sizeof(float));
-
-	GGML_TENSOR_UNARY_OP_LOCALS
-
-	GGML_ASSERT(ne0 == 1);
-	GGML_ASSERT(ne1 == ne01);
-	GGML_ASSERT(ne2 == ne02);
-	GGML_ASSERT(ne3 == ne03);
-
-	for (int64_t i3 = 0; i3 < ne03; i3++) {
-		for (int64_t i2 = 0; i2 < ne02; i2++) {
-			for (int64_t i1 = 0; i1 < ne01; i1++) {
-				float* src_row = (float*)((char*)src0->data + i1 * nb01 + i2 * nb02 + i3 * nb03);
-				float* dst_row = (float*)((char*)dst->data + i1 * nb1 + i2 * nb2 + i3 * nb3);
-				std::span<float> src_span(src_row, ne00);
-				dst_row[0] = std::reduce(src_span.begin(), src_span.end(), 0.0f);
-			}
-		}
-	}
-}
-
-static void ggml_compute_forward_sum_rows(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-
-	switch (src0->type) {
-	case GGML_TYPE_F32:
-	{
-		ggml_compute_forward_sum_rows_f32(params, dst);
-	} break;
-	default:
-	{
-		GGML_ABORT("fatal error");
-	}
-	}
-}
-
 static void ggml_compute_forward_rope_back(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -7412,7 +7362,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_SUM_ROWS:
 	{
-		ggml_compute_forward_sum_rows(params, tensor);
+		ggml_compute_forward_sum_rows(tensor);
 	} break;
 	case GGML_OP_MEAN:
 	{

@@ -27,6 +27,7 @@ target_sources(libggml
       op/op.cppm
       op/repeat_back.cppm
       op/scale.cppm
+      op/sum_rows.cppm
       op/unary.cppm
       op/upscale.cppm
   PRIVATE
