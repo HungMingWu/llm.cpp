@@ -4325,7 +4325,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         for (auto op : { ggml_add, ggml_sub, ggml_mul, ggml_div }) {
             test_cases.emplace_back(new test_bin_bcast(op, type, ne, nr));
         }
-        };
+    };
     for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
         add_test_bin_bcast(type, { 1, 1, 8, 1 }, { 1, 1, 1, 1 });
         add_test_bin_bcast(type, { 1, 1, 1, 1 }, { 32, 1, 1, 1 });
