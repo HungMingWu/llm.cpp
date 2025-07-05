@@ -1,5 +1,6 @@
 module;
 #include <assert.h>
+#include <stdint.h>
 #include <numeric>
 #include <span>
 #define GGML_ABORT(...)

@@ -4922,61 +4922,6 @@ inline static void ggml_vec_sum_f32(const int n, float* s, const float* x) {
 #endif
 }
 
-static void ggml_compute_forward_mean_f32(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-
-	if (params->ith != 0) {
-		return;
-	}
-
-	assert(src0->nb[0] == sizeof(float));
-
-	GGML_TENSOR_UNARY_OP_LOCALS
-
-	assert(ne0 == 1);
-	assert(ne1 == ne01);
-	assert(ne2 == ne02);
-	assert(ne3 == ne03);
-
-	(void)(ne0);
-	(void)(ne1);
-	(void)(ne2);
-	(void)(ne3);
-
-	for (int64_t i03 = 0; i03 < ne03; i03++) {
-		for (int64_t i02 = 0; i02 < ne02; i02++) {
-			for (int64_t i01 = 0; i01 < ne01; i01++) {
-				ggml_vec_sum_f32(ne00,
-					(float*)((char*)dst->data + i01 * nb1 + i02 * nb2 + i03 * nb3),
-					(float*)((char*)src0->data + i01 * nb01 + i02 * nb02 + i03 * nb03));
-
-				*(float*)((char*)dst->data + i01 * nb1 + i02 * nb2 + i03 * nb3) /= (float)ne00;
-			}
-		}
-	}
-}
-
-static void ggml_compute_forward_mean(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-
-	switch (src0->type) {
-	case GGML_TYPE_F32:
-	{
-		ggml_compute_forward_mean_f32(params, dst);
-	} break;
-	default:
-	{
-		GGML_ABORT("fatal error");
-	}
-	}
-}
-
 static void ggml_compute_forward_acc_f32(
 	const struct ggml_compute_params* params,
 	struct ggml_tensor* dst) {
@@ -7366,7 +7311,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_MEAN:
 	{
-		ggml_compute_forward_mean(params, tensor);
+		ggml_compute_forward_mean(tensor);
 	} break;
 	case GGML_OP_ARGMAX:
 	{
