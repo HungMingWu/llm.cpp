@@ -4978,53 +4978,61 @@ static void ggml_compute_forward_acc(
 }
 
 static void ggml_compute_forward_pad_f32(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src0 = dst->src[0];
 
 	GGML_ASSERT(src0->nb[0] == sizeof(float));
 	GGML_ASSERT(dst->nb[0] == sizeof(float));
 
-	const int ith = params->ith;
-	const int nth = params->nth;
-
 	GGML_TENSOR_UNARY_OP_LOCALS
+	
+	const int nth = pool.available_parallelism();
+	const int64_t dr = (ne1 + nth - 1) / nth;
 
 	float* dst_ptr = (float*)dst->data;
 
 	// TODO: optimize
 
-	for (int64_t i2 = 0; i2 < ne2; ++i2) {
-		for (int64_t i1 = ith; i1 < ne1; i1 += nth) {
-			for (int64_t i0 = 0; i0 < ne0; ++i0) {
-				for (int64_t i3 = 0; i3 < ne3; ++i3) {
-					const int64_t dst_idx = i3 * (ne0 * ne1 * ne2) + i2 * (ne0 * ne1) + i1 * ne0 + i0;
+	for (int64_t ir0 = 0; ir0 < ne1; ir0 += dr) {
+		const int64_t ir1 = std::min(ir0 + dr, ne1);
+		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+			for (int64_t i2 = 0; i2 < ne2; ++i2) {
+				for (int64_t i1 = ir0; i1 < ir1; i1++) {
+					for (int64_t i0 = 0; i0 < ne0; ++i0) {
+						for (int64_t i3 = 0; i3 < ne3; ++i3) {
+							const int64_t dst_idx = i3 * (ne0 * ne1 * ne2) + i2 * (ne0 * ne1) + i1 * ne0 + i0;
 
-					const float* src_ptr = (const float*)((char*)src0->data + i3 * nb03 + i2 * nb02 + i1 * nb01 + i0 * nb00);
+							const float* src_ptr = (const float*)((char*)src0->data + i3 * nb03 + i2 * nb02 + i1 * nb01 + i0 * nb00);
 
-					if (i0 < ne00 && i1 < ne01 && i2 < ne02 && i3 < ne03) {
-						dst_ptr[dst_idx] = *src_ptr;
-					}
-					else {
-						dst_ptr[dst_idx] = 0;
+							if (i0 < ne00 && i1 < ne01 && i2 < ne02 && i3 < ne03) {
+								dst_ptr[dst_idx] = *src_ptr;
+							}
+							else {
+								dst_ptr[dst_idx] = 0;
+							}
+						}
 					}
 				}
 			}
-		}
+		});
+		scope.spawn(std::move(sender));
 	}
 }
 
 static void ggml_compute_forward_pad(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_pad_f32(params, dst);
+		ggml_compute_forward_pad_f32(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -7405,7 +7413,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_PAD:
 	{
-		ggml_compute_forward_pad(params, tensor);
+		ggml_compute_forward_pad(pool, scope, tensor);
 	} break;
 	case GGML_OP_PAD_REFLECT_1D:
 	{
