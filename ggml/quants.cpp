@@ -3637,18 +3637,6 @@ void quantize_row_tq2_0_ref(const float* x, block_tq2_0* y, int64_t k) {
     }
 }
 
-static int iq2_compare_func(const void* left, const void* right) {
-    const int* l = (const int*)left;
-    const int* r = (const int*)right;
-    return l[0] < r[0] ? -1 : l[0] > r[0] ? 1 : l[1] < r[1] ? -1 : l[1] > r[1] ? 1 : 0;
-}
-
-static int iq3_compare_func(const void* left, const void* right) {
-    const int* l = (const int*)left;
-    const int* r = (const int*)right;
-    return l[0] < r[0] ? -1 : l[0] > r[0] ? 1 : l[1] < r[1] ? -1 : l[1] > r[1] ? 1 : 0;
-}
-
 void iq2xs_init_impl(enum ggml_type type) {
     const int gindex = iq2_data_index(type);
     const int grid_size = iq2_grid_size(type);
@@ -3910,26 +3898,21 @@ void iq2xs_init_impl(enum ggml_type type) {
     const uint16_t* kgrid = type == GGML_TYPE_IQ2_XXS ? kgrid_2bit_256 :
         type == GGML_TYPE_IQ2_XS ? kgrid_2bit_512 :
         type == GGML_TYPE_IQ1_S || type == GGML_TYPE_IQ1_M ? kgrid_1bit_2048 : kgrid_2bit_1024;
-    uint64_t* kgrid_q2xs;
-    int* kmap_q2xs;
-    uint16_t* kneighbors_q2xs;
 
     //printf("================================================================= %s(grid_size = %d)\n", __func__, grid_size);
-    uint64_t* the_grid = (uint64_t*)malloc(grid_size * sizeof(uint64_t));
+    std::vector<uint64_t> the_grid(grid_size);
     for (int k = 0; k < grid_size; ++k) {
-        int8_t* pos = (int8_t*)(the_grid + k);
+        int8_t* pos = (int8_t*)(the_grid.data() + k);
         for (int i = 0; i < 8; ++i) {
             int l = (kgrid[k] >> 2 * i) & 0x3;
             pos[i] = 2 * l + 1;
         }
     }
-    kgrid_q2xs = the_grid;
-    kmap_q2xs = (int*)malloc(kmap_size * sizeof(int));
-    for (int i = 0; i < kmap_size; ++i) kmap_q2xs[i] = -1;
+    std::vector<int> kmap_q2xs(kmap_size, -1);
     uint64_t aux64;
     uint8_t* aux8 = (uint8_t*)&aux64;
     for (int i = 0; i < grid_size; ++i) {
-        aux64 = kgrid_q2xs[i];
+        aux64 = the_grid[i];
         uint16_t index = 0;
         for (int k = 0; k < 8; ++k) {
             uint16_t q = (aux8[k] - 1) / 2;
@@ -3938,38 +3921,8 @@ void iq2xs_init_impl(enum ggml_type type) {
         kmap_q2xs[index] = i;
     }
     int8_t pos[8];
-    int* dist2 = (int*)malloc(2 * grid_size * sizeof(int));
-    int num_neighbors = 0, num_not_in_map = 0;
-    for (int i = 0; i < kmap_size; ++i) {
-        if (kmap_q2xs[i] >= 0) continue;
-        ++num_not_in_map;
-        for (int k = 0; k < 8; ++k) {
-            int l = (i >> 2 * k) & 0x3;
-            pos[k] = 2 * l + 1;
-        }
-        for (int j = 0; j < grid_size; ++j) {
-            const int8_t* pg = (const int8_t*)(kgrid_q2xs + j);
-            int d2 = 0;
-            for (int k = 0; k < 8; ++k) d2 += (pg[k] - pos[k]) * (pg[k] - pos[k]);
-            dist2[2 * j + 0] = d2;
-            dist2[2 * j + 1] = j;
-        }
-        qsort(dist2, grid_size, 2 * sizeof(int), iq2_compare_func);
-        int n = 0; int d2 = dist2[0];
-        int nhave = 1;
-        for (int j = 0; j < grid_size; ++j) {
-            if (dist2[2 * j] > d2) {
-                if (nhave == nwant) break;
-                d2 = dist2[2 * j];
-                ++nhave;
-            }
-            ++n;
-        }
-        num_neighbors += n;
-    }
-    //printf("%s: %d neighbours in total\n", __func__, num_neighbors);
-    kneighbors_q2xs = (uint16_t*)malloc((num_neighbors + num_not_in_map) * sizeof(uint16_t));
-    int counter = 0;
+    std::vector<std::pair<int, int>> dist2(grid_size);
+    std::vector<uint16_t> kneighbors_q2xs;
     for (int i = 0; i < kmap_size; ++i) {
         if (kmap_q2xs[i] >= 0) continue;
         for (int k = 0; k < 8; ++k) {
@@ -3977,38 +3930,31 @@ void iq2xs_init_impl(enum ggml_type type) {
             pos[k] = 2 * l + 1;
         }
         for (int j = 0; j < grid_size; ++j) {
-            const int8_t* pg = (const int8_t*)(kgrid_q2xs + j);
+            const int8_t* pg = (const int8_t*)(&the_grid[j]);
             int d2 = 0;
             for (int k = 0; k < 8; ++k) d2 += (pg[k] - pos[k]) * (pg[k] - pos[k]);
-            dist2[2 * j + 0] = d2;
-            dist2[2 * j + 1] = j;
+            dist2[j] = std::make_pair(d2, j);
         }
-        qsort(dist2, grid_size, 2 * sizeof(int), iq2_compare_func);
-        kmap_q2xs[i] = -(counter + 1);
-        int d2 = dist2[0];
-        uint16_t* start = &kneighbors_q2xs[counter++];
+        std::ranges::sort(dist2);
+        kmap_q2xs[i] = -(kneighbors_q2xs.size() + 1);
+        int d2 = dist2[0].first;
+        size_t start_pos = kneighbors_q2xs.size();
+        kneighbors_q2xs.emplace_back();
         int n = 0, nhave = 1;
         for (int j = 0; j < grid_size; ++j) {
-            if (dist2[2 * j] > d2) {
+            if (dist2[j].first > d2) {
                 if (nhave == nwant) break;
-                d2 = dist2[2 * j];
+                d2 = dist2[j].first;
                 ++nhave;
             }
-            kneighbors_q2xs[counter++] = dist2[2 * j + 1];
+            kneighbors_q2xs.emplace_back(dist2[j].second);
             ++n;
         }
-        *start = n;
+        kneighbors_q2xs[start_pos] = n;
     }
-    iq2_data[gindex].grid.resize(grid_size);
-    memcpy(&iq2_data[gindex].grid[0], the_grid, grid_size);
-    iq2_data[gindex].map.resize(kmap_size);
-    memcpy(&iq2_data[gindex].map[0], kmap_q2xs, kmap_size);
-    iq2_data[gindex].neighbours.resize(counter);
-    memcpy(&iq2_data[gindex].neighbours[0], kneighbors_q2xs, counter);
-    free(the_grid);
-    free(kmap_q2xs);
-    free(kneighbors_q2xs);
-    free(dist2);
+    iq2_data[gindex].grid = std::move(the_grid);
+    iq2_data[gindex].map = std::move(kmap_q2xs);
+    iq2_data[gindex].neighbours = std::move(kneighbors_q2xs);
 }
 
 void iq3xs_init_impl(int grid_size) {
@@ -4072,26 +4018,21 @@ void iq3xs_init_impl(int grid_size) {
     const int kmap_size = 4096;
     const int nwant = grid_size == 256 ? 2 : 3;
     const uint16_t* kgrid = grid_size == 256 ? kgrid_256 : kgrid_512;
-    uint32_t* kgrid_q3xs;
-    int* kmap_q3xs;
-    uint16_t* kneighbors_q3xs;
 
     //printf("================================================================= %s(grid_size = %d)\n", __func__, grid_size);
-    uint32_t* the_grid = (uint32_t*)malloc(grid_size * sizeof(uint32_t));
+    std::vector<uint32_t> the_grid(grid_size);
     for (int k = 0; k < grid_size; ++k) {
-        int8_t* pos = (int8_t*)(the_grid + k);
+        int8_t* pos = (int8_t*)(the_grid.data() + k);
         for (int i = 0; i < 4; ++i) {
             int l = (kgrid[k] >> 3 * i) & 0x7;
             pos[i] = 2 * l + 1;
         }
     }
-    kgrid_q3xs = the_grid;
-    kmap_q3xs = (int*)malloc(kmap_size * sizeof(int));
-    for (int i = 0; i < kmap_size; ++i) kmap_q3xs[i] = -1;
+    std::vector<int> kmap_q3xs(kmap_size, -1);
     uint32_t aux32;
     uint8_t* aux8 = (uint8_t*)&aux32;
     for (int i = 0; i < grid_size; ++i) {
-        aux32 = kgrid_q3xs[i];
+        aux32 = the_grid[i];
         uint16_t index = 0;
         for (int k = 0; k < 4; ++k) {
             uint16_t q = (aux8[k] - 1) / 2;
@@ -4100,38 +4041,8 @@ void iq3xs_init_impl(int grid_size) {
         kmap_q3xs[index] = i;
     }
     int8_t pos[4];
-    int* dist2 = (int*)malloc(2 * grid_size * sizeof(int));
-    int num_neighbors = 0, num_not_in_map = 0;
-    for (int i = 0; i < kmap_size; ++i) {
-        if (kmap_q3xs[i] >= 0) continue;
-        ++num_not_in_map;
-        for (int k = 0; k < 4; ++k) {
-            int l = (i >> 3 * k) & 0x7;
-            pos[k] = 2 * l + 1;
-        }
-        for (int j = 0; j < grid_size; ++j) {
-            const int8_t* pg = (const int8_t*)(kgrid_q3xs + j);
-            int d2 = 0;
-            for (int k = 0; k < 4; ++k) d2 += (pg[k] - pos[k]) * (pg[k] - pos[k]);
-            dist2[2 * j + 0] = d2;
-            dist2[2 * j + 1] = j;
-        }
-        qsort(dist2, grid_size, 2 * sizeof(int), iq3_compare_func);
-        int n = 0; int d2 = dist2[0];
-        int nhave = 1;
-        for (int j = 0; j < grid_size; ++j) {
-            if (dist2[2 * j] > d2) {
-                if (nhave == nwant) break;
-                d2 = dist2[2 * j];
-                ++nhave;
-            }
-            ++n;
-        }
-        num_neighbors += n;
-    }
-    //printf("%s: %d neighbours in total\n", __func__, num_neighbors);
-    kneighbors_q3xs = (uint16_t*)malloc((num_neighbors + num_not_in_map) * sizeof(uint16_t));
-    int counter = 0;
+    std::vector<std::pair<int, int>> dist2(grid_size);
+    std::vector<uint16_t> kneighbors_q3xs;
     for (int i = 0; i < kmap_size; ++i) {
         if (kmap_q3xs[i] >= 0) continue;
         for (int k = 0; k < 4; ++k) {
@@ -4139,38 +4050,31 @@ void iq3xs_init_impl(int grid_size) {
             pos[k] = 2 * l + 1;
         }
         for (int j = 0; j < grid_size; ++j) {
-            const int8_t* pg = (const int8_t*)(kgrid_q3xs + j);
+            const int8_t* pg = (const int8_t*)(&the_grid[j]);
             int d2 = 0;
             for (int k = 0; k < 4; ++k) d2 += (pg[k] - pos[k]) * (pg[k] - pos[k]);
-            dist2[2 * j + 0] = d2;
-            dist2[2 * j + 1] = j;
+            dist2[j] = std::make_pair(d2, j);
         }
-        qsort(dist2, grid_size, 2 * sizeof(int), iq3_compare_func);
-        kmap_q3xs[i] = -(counter + 1);
-        int d2 = dist2[0];
-        uint16_t* start = &kneighbors_q3xs[counter++];
+        std::ranges::sort(dist2);
+        kmap_q3xs[i] = -(kneighbors_q3xs.size() + 1);
+        int d2 = dist2[0].first;
+        size_t start_pos = kneighbors_q3xs.size();
+		kneighbors_q3xs.emplace_back();
         int n = 0, nhave = 1;
         for (int j = 0; j < grid_size; ++j) {
-            if (dist2[2 * j] > d2) {
+            if (dist2[j].first > d2) {
                 if (nhave == nwant) break;
-                d2 = dist2[2 * j];
+                d2 = dist2[j].first;
                 ++nhave;
             }
-            kneighbors_q3xs[counter++] = dist2[2 * j + 1];
+            kneighbors_q3xs.emplace_back(dist2[j].second);
             ++n;
         }
-        *start = n;
+        kneighbors_q3xs[start_pos] = n;
     }
-    iq3_data[gindex].grid.resize(grid_size);
-    memcpy(&iq3_data[gindex].grid[0], the_grid, grid_size);
-	iq3_data[gindex].map.resize(kmap_size);
-    memcpy(&iq3_data[gindex].map[0], kmap_q3xs, kmap_size);
-    iq3_data[gindex].neighbours.resize(counter);
-    memcpy(&iq3_data[gindex].neighbours[0], kneighbors_q3xs, counter);;
-    free(the_grid);
-    free(kmap_q3xs);
-    free(kneighbors_q3xs);
-    free(dist2);
+    iq3_data[gindex].grid = std::move(the_grid);
+    iq3_data[gindex].map = std::move(kmap_q3xs);
+    iq3_data[gindex].neighbours = std::move(kneighbors_q3xs);
 }
 
 void ggml_quantize_init(ggml_type type)
