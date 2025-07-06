@@ -1024,7 +1024,7 @@ namespace chatllm
 
     int64_t ggml::nelements(const ggml::tensor* tensor)
     {
-        return tensor->nelements();
+        return tensor ? tensor->nelements() : 0;
     }
 
     int  BlockParams::num_padding_embeddings = 0;
@@ -2214,7 +2214,7 @@ namespace chatllm
     }
 
     BaseSparseMLP::BaseSparseMLP(InitContext* ctx, int hidden_size, int intermediate_size, int num_local_experts, int num_experts_per_tok,
-        ActFunc act, bool gate_use_bias, bool grouped_max)
+        ActFunc act, bool gate_use_bias, bool grouped_max, bool router_scale)
         :
         num_local_experts(num_local_experts), num_experts_per_tok(num_experts_per_tok),
         gate(ctx, hidden_size, num_local_experts, false),
@@ -2224,6 +2224,7 @@ namespace chatllm
         experts_up(ctx, hidden_size, intermediate_size, num_local_experts),
         gate_score_correction_bias(gate_use_bias ? ggml::new_tensor_1d(ctx, GGML_TYPE_F32, num_local_experts) : nullptr),
         group_indices(grouped_max ? ggml::new_tensor_2d(ctx, GGML_TYPE_I32, 1, num_experts_per_tok) : nullptr),
+        router_scale(router_scale ? ggml::new_tensor_1d(ctx, GGML_TYPE_F32, num_local_experts) : nullptr),
         act(act),
         norm_topk_prob(true),
         score_func(ScoreFunc::Softmax),
@@ -2296,6 +2297,11 @@ namespace chatllm
             selected_experts = ggml::top_k(ctx, corrected_score, num_experts_per_tok); // [qlen, num_experts_per_tok]
         }
 
+        if (router_scale)
+        {
+            probs = ggml::mul(ctx, probs, router_scale);
+        }
+
         ggml::tensor* weights = ggml::get_rows(ctx,
             ggml::reshape_3d(ctx, probs, 1, n_expert, qlen), selected_experts); // [1, num_experts_per_tok, qlen]
 
@@ -2317,7 +2323,6 @@ namespace chatllm
             if (routed_scaling_factor > 0.0f)
                 weights = ggml::scale(ctx, weights, routed_scaling_factor);
         }
-
 
         return forward_with_experts(ctx, hidden_states, selected_experts, weights);
     }
@@ -2366,6 +2371,25 @@ namespace chatllm
         return moe_out;
     }
 
+    int64_t BaseSparseMLP::get_param_num(bool effective_only) const
+    {
+        int64_t r = 0;
+        r += experts_gate.get_param_num(effective_only);
+        r += experts_down.get_param_num(effective_only);
+        r += experts_up.get_param_num(effective_only);
+        if (effective_only)
+        {
+            r /= num_local_experts;
+            r *= num_experts_per_tok;
+        }
+        r += gate.get_param_num(effective_only);
+
+        r += ggml::nelements(gate_score_correction_bias);
+        r += ggml::nelements(router_scale);
+
+        return r;
+    }
+
     void BaseSparseMLP::load(const std::string& path, TensorLoader* loader)
     {
         Block::load(path, loader);
@@ -2378,6 +2402,10 @@ namespace chatllm
         if (gate_score_correction_bias)
         {
             loader->read_tensor(path + "gate_score_correction_bias", gate_score_correction_bias);
+        }
+        if (router_scale)
+        {
+            loader->read_tensor(path + "router_scale", router_scale);
         }
     }
 }
