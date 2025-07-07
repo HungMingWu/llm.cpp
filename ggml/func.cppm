@@ -1284,25 +1284,6 @@ export {
 		 return (it != cgraph->grads.end()) ? it->second : nullptr;
 	 }
 
-	 ggml_tensor* ggml_get_rows_back(
-		 struct ggml_context* ctx,
-		 struct ggml_tensor* a,
-		 struct ggml_tensor* b,
-		 struct ggml_tensor* c) {
-		 GGML_ASSERT(ggml_is_matrix(a) && ggml_is_vector(*b) && b->type == GGML_TYPE_I32);
-		 GGML_ASSERT(ggml_is_matrix(c) && (a->ne[0] == c->ne[0]));
-
-		 // TODO: implement non F32 return
-		 //struct ggml_tensor * result = ggml_new_tensor_2d(ctx, a->type, a->ne[0], b->ne[0]);
-		 ggml_tensor* result = ctx->create(GGML_TYPE_F32, { c->ne[0], c->ne[1] });
-
-		 result->op = GGML_OP_GET_ROWS_BACK;
-		 result->src.push_back(a);
-		 result->src.push_back(b);
-
-		 return result;
-	 }
-
 	 ggml_tensor* ggml_argmax(
 		 ggml_context* ctx,
 		 ggml_tensor* a) {

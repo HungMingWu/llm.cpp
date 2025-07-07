@@ -61,4 +61,10 @@ export {
         ggml_context* ctx,
         ggml_tensor* a,
         ggml_tensor* b);
+
+    ggml_tensor* ggml_get_rows_back(
+        ggml_context* ctx,
+        ggml_tensor* a,
+        ggml_tensor* b,
+        ggml_tensor* c);
 }
