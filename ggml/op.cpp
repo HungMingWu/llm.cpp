@@ -2048,3 +2048,26 @@ ggml_tensor* ggml_arange(
 
 	return result;
 }
+
+ggml_tensor* ggml_get_rows(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b)
+{
+	GGML_ASSERT(a->ne[2] == b->ne[1]);
+	GGML_ASSERT(b->ne[3] == 1);
+	GGML_ASSERT(b->type == GGML_TYPE_I32);
+
+	// TODO: implement non F32 return
+	enum ggml_type type = GGML_TYPE_F32;
+	if (a->type == GGML_TYPE_I32) {
+		type = a->type;
+	}
+	ggml_tensor* result = ctx->create(type, { a->ne[0], b->ne[0], b->ne[1], b->ne[2] });
+
+	result->op = GGML_OP_GET_ROWS;
+	result->src.push_back(a);
+	result->src.push_back(b);
+
+	return result;
+}

@@ -686,4 +686,9 @@ export {
 		float start,
 		float stop,
 		float step);
+
+	ggml_tensor* ggml_get_rows(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b);
 }
