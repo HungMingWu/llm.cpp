@@ -93,6 +93,12 @@ private:
 	{
 		return dev_ptr;
 	}
+	void clear_impl(uint8_t value) override
+	{
+		ggml_cuda_set_device(device);
+		CUDA_CHECK(cudaMemsetAsync(dev_ptr, value, size, cudaStreamPerThread));
+		CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
+	}
 public:
 	cuda_backend_buffer(
 		ggml_backend_buffer_type_t type,
@@ -174,13 +180,6 @@ public:
 #endif
 		return false;
 	}
-
-	void clear(uint8_t value) override
-	{
-		ggml_cuda_set_device(device);
-		CUDA_CHECK(cudaMemsetAsync(dev_ptr, value, size, cudaStreamPerThread));
-		CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
-	}
 };
 
 struct ggml_tensor_extra_gpu {
@@ -192,19 +191,18 @@ struct ggml_tensor_extra_gpu {
 
 struct cuda_split_backend_buffer : public ggml_backend_buffer {
 	std::map<ggml_tensor*, ggml_tensor_extra_gpu> tensor_extras;
-private:
+protected:
 	void* get_base_impl() override
 	{
 		// the pointers are stored in the tensor extras, this is just a dummy address and never dereferenced
 		return (void*)0x1000;
 	}
+	void clear_impl(uint8_t) override {}
 public:
 	using ggml_backend_buffer::ggml_backend_buffer;
 	ggml_status init_tensor(ggml_tensor* tensor) override;
 	void set_tensor(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
 	void get_tensor(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
-
-	void clear(uint8_t) override {}
 };
 
 export

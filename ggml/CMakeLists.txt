@@ -71,6 +71,7 @@ target_sources(libggml
       allocator.cpp
       backend.cpp
       backend_registry.cpp
+      buffer.cpp
       buffer_type.cpp
       cgraph.cpp
       context.cpp

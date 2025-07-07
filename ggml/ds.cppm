@@ -342,6 +342,8 @@ export {
         ggml_backend_buffer_usage usage = GGML_BACKEND_BUFFER_USAGE_ANY;
         // base address of the buffer
         virtual void* get_base_impl() { return nullptr; }
+        // clear the entire buffer
+        virtual void clear_impl(uint8_t value) = 0;
     public:
         ggml_backend_buffer(ggml_backend_buffer_type_t buft,
             size_t size) : buft(buft), size(size) {}
@@ -366,8 +368,7 @@ export {
         virtual void get_tensor(const ggml_tensor* tensor, void* data, size_t offset, size_t size) {};
         // (optional) tensor copy: dst is in the buffer, src may be in any buffer, including buffers from a different backend (return false if not supported)
         virtual bool cpy_tensor(const ggml_tensor* src, ggml_tensor* dst) { return false; }
-        // clear the entire buffer
-        virtual void clear(uint8_t value) = 0;
+        void clear(uint8_t value);
         // (optional) reset any internal state due to tensor initialization, such as tensor extras
         virtual void reset() {};
         size_t get_size() const { return size; }

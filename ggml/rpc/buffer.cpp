@@ -98,7 +98,7 @@ bool rpc_backend_buffer::cpy_tensor(const ggml_tensor* src, ggml_tensor* dst)
     return response.result;
 }
 
-void rpc_backend_buffer::clear(uint8_t value)
+void rpc_backend_buffer::clear_impl(uint8_t value)
 {
     rpc_msg_buffer_clear_req request = { remote_ptr, value };
     bool status = send_rpc_cmd(sock, RPC_CMD_BUFFER_CLEAR, &request, sizeof(request), nullptr, 0);

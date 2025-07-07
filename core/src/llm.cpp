@@ -10477,7 +10477,7 @@ static bool llama_kv_cache_init(
             LLAMA_LOG_ERROR("%s: failed to allocate buffer for kv cache\n", __func__);
             return false;
         }
-        ggml_backend_buffer_clear(buf.get(), 0);
+        buf->clear(0);
         LLAMA_LOG_INFO("%s: %10s KV buffer size = %8.2f MiB\n", __func__, ggml_backend_buffer_name(buf), ggml_backend_buffer_get_size(buf) / 1024.0 / 1024.0);
         cache.bufs.emplace_back(buf.release());
     }
@@ -10551,7 +10551,7 @@ static size_t llama_output_reserve(llama_context& lctx, size_t n_outputs) {
     // set all ids as invalid (negative)
     std::fill(lctx.output_ids.begin(), lctx.output_ids.end(), -1);
 
-    ggml_backend_buffer_clear(lctx.buf_output.get(), 0);
+    lctx.buf_output->clear(0);
 
     lctx.n_outputs = 0;
 

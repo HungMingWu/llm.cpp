@@ -504,15 +504,6 @@ export {
 		return dev->init_backend(params);
 	}
 
-	void ggml_backend_buffer_clear(ggml_backend_buffer_t buffer, uint8_t value) {
-		// clear is optional if the buffer is zero-sized
-		if (buffer->get_size() == 0) {
-			return;
-		}
-
-		buffer->clear(value);
-	}
-
 	size_t ggml_graph_overhead_custom(size_t size, bool grads) {
 		// TODO
 #if 0
@@ -681,6 +672,11 @@ export {
 
 	 struct multi_backend_buffer : public ggml_backend_buffer {
 		 std::vector<std::unique_ptr<ggml_backend_buffer>> buffers;
+	 protected:
+		 void clear_impl(uint8_t value) override {
+			 for (auto& buffer : buffers)
+				 buffer->clear(value);
+		 }
 	 public:
 		 multi_backend_buffer(
 			 ggml_backend_buffer_type_t buft, size_t size, std::vector<std::unique_ptr<ggml_backend_buffer>> buffers)
@@ -688,10 +684,6 @@ export {
 			   buffers(std::move(buffers))
 		 {
 
-		 }
-		 void clear(uint8_t value) override {
-			 for (auto& buffer : buffers)
-				 buffer->clear(value);
 		 }
 	 };
 

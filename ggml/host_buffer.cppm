@@ -9,7 +9,7 @@ import :func;
 template <auto free_func>
 struct host_backend_buffer : public ggml_backend_buffer {
 	void* context;
-private:
+protected:
 	void* get_base_impl() override {
 		uintptr_t data = (uintptr_t)context;
 
@@ -19,6 +19,10 @@ private:
 		}
 
 		return (void*)data;
+	}
+	void clear_impl(uint8_t value) override
+	{
+		memset(context, value, size);
 	}
 public:
 	host_backend_buffer(ggml_backend_buffer_type_t type, size_t size, void* context)
@@ -53,10 +57,5 @@ public:
 			return true;
 		}
 		return false;
-	}
-
-	void clear(uint8_t value) override
-	{
-		memset(context, value, size);
 	}
 };
