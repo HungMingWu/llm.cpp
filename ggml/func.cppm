@@ -552,10 +552,6 @@ export {
 		return result;
 	}
 
-	ggml_tensor* ggml_dup_tensor(ggml_context* ctx, const ggml_tensor* src) {
-		return ctx->create(src->type, { src->ne[0], src->ne[1], src->ne[2], src->ne[3] });
-	}
-
 	ggml_tensor* ggml_conv_transpose_1d(
 		ggml_context* ctx,
 		ggml_tensor* a,

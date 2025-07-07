@@ -141,4 +141,6 @@ export
 		GGML_ASSERT(tensor->op == GGML_OP_GLU);
 		return std::bit_cast<ggml_glu_op>(tensor->op_params[0]);
 	}
+
+	ggml_tensor* ggml_dup_tensor(ggml_context* ctx, const ggml_tensor* src);
 }

@@ -81,3 +81,7 @@ bool ggml_is_contiguous_2(const ggml_tensor* tensor) {
 bool ggml_is_contiguous(const ggml_tensor* tensor) {
 	return ggml_is_contiguous_0(tensor);
 }
+
+ggml_tensor* ggml_dup_tensor(ggml_context* ctx, const ggml_tensor* src) {
+	return ctx->create(src->type, { src->ne[0], src->ne[1], src->ne[2], src->ne[3] });
+}
