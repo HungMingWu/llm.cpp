@@ -467,10 +467,6 @@ export {
 	{
 		return {};
 	}
-	ggml_tensor* ggml_get_tensor(struct ggml_context* ctx, const char* name)
-	{
-		return nullptr;
-	}
 	size_t  ggml_get_max_tensor_size(const struct ggml_context* ctx)
 	{
 		return {};

@@ -7535,7 +7535,7 @@ static bool llm_load_tensors(
 
             // if duplicated, check if the original tensor was allocated in the same buffer type context and avoid creating a new one
             if (flags & llm_model_loader::TENSOR_DUPLICATED) {
-                ggml_tensor* t = ggml_get_tensor(ctx, tn.str().c_str());
+                ggml_tensor* t = ctx->find(tn.str());
                 if (t) {
                     return t;
                 }
