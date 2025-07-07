@@ -13508,7 +13508,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_stablelm() {
-        ggml_cgraph* gf = ggml_new_graph(ctx0);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -14404,7 +14404,7 @@ struct llm_build_context {
 
 
     ggml_cgraph* build_plamo() {
-        ggml_cgraph* gf = ggml_new_graph(ctx0);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);

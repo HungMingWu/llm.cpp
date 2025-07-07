@@ -595,12 +595,6 @@ export {
 		return nullptr;
 	}
 
-	ggml_cgraph* ggml_new_graph(struct ggml_context* ctx) // size = GGML_DEFAULT_GRAPH_SIZE, grads = false
-	{
-		// TODO
-		return nullptr;
-	}
-
 	struct ggml_tensor* ggml_set_1d(
 		struct ggml_context* ctx,
 		struct ggml_tensor* a,
