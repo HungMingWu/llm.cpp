@@ -58,49 +58,14 @@ bool ggml_is_numa()
 #define GGML_MEM_ALIGN 16
 #endif
 
-#define GGML_UNUSED(x) (void)(x)
-
 export {
 ggml_tensor* ggml_dup_tensor(ggml_context* ctx, const ggml_tensor* src);
 ggml_status ggml_backend_view_init(ggml_tensor* tensor);
-ggml_tensor* ggml_dup_tensor_layout(ggml_context* ctx, const ggml_tensor* tensor);
 }
 
 bool ggml_backend_buffer_copy_tensor(const ggml_tensor* src, ggml_tensor* dst) {
 	ggml_backend_buffer* dst_buf = dst->view_src ? dst->view_src->buffer : dst->buffer;
 	return dst_buf->cpy_tensor(src, dst);
-}
-
-ggml_tensor* graph_copy_dup_tensor(std::unordered_map<ggml_tensor*, ggml_tensor*>& node_copies,
-	ggml_context* ctx_allocated, ggml_context* ctx_unallocated, ggml_tensor* src) {
-
-	GGML_ASSERT(src != nullptr);
-	GGML_ASSERT(src->data && "graph must be allocated");
-
-	auto it = node_copies.find(src);
-	if (it != node_copies.end()) return it->second;
-
-	ggml_tensor* dst = ggml_dup_tensor_layout(src->data && !src->view_src ? ctx_allocated : ctx_unallocated, src);
-	if (src->view_src != nullptr) {
-		dst->view_src = graph_copy_dup_tensor(node_copies, ctx_allocated, ctx_unallocated, src->view_src);
-		dst->view_offs = src->view_offs;
-	}
-	dst->op = src->op;
-	memcpy(dst->op_params, src->op_params, sizeof(dst->op_params));
-	dst->name = src->name;
-
-	// copy src
-	for (auto s : src->src) {
-		if (!s) dst->src.push_back(nullptr);
-		else dst->src.push_back(graph_copy_dup_tensor(node_copies, ctx_allocated, ctx_unallocated, s));
-	}
-
-	node_copies[src] = dst;
-	return dst;
-}
-
-export {
-std::unique_ptr<ggml_backend_buffer> ggml_backend_alloc_ctx_tensors(ggml_context* ctx, ggml_backend_t backend);
 }
 
 template <typename Iter>

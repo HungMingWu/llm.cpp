@@ -183,6 +183,34 @@ struct graph_copy {
     ggml_cgraph graph;
 };
 
+static ggml_tensor* graph_copy_dup_tensor(std::unordered_map<ggml_tensor*, ggml_tensor*>& node_copies,
+    ggml_context* ctx_allocated, ggml_context* ctx_unallocated, ggml_tensor* src) {
+
+    GGML_ASSERT(src != nullptr);
+    GGML_ASSERT(src->data && "graph must be allocated");
+
+    auto it = node_copies.find(src);
+    if (it != node_copies.end()) return it->second;
+
+    ggml_tensor* dst = ggml_dup_tensor_layout(src->data && !src->view_src ? ctx_allocated : ctx_unallocated, src);
+    if (src->view_src != nullptr) {
+        dst->view_src = graph_copy_dup_tensor(node_copies, ctx_allocated, ctx_unallocated, src->view_src);
+        dst->view_offs = src->view_offs;
+    }
+    dst->op = src->op;
+    memcpy(dst->op_params, src->op_params, sizeof(dst->op_params));
+    dst->name = src->name;
+
+    // copy src
+    for (auto s : src->src) {
+        if (!s) dst->src.push_back(nullptr);
+        else dst->src.push_back(graph_copy_dup_tensor(node_copies, ctx_allocated, ctx_unallocated, s));
+    }
+
+    node_copies[src] = dst;
+    return dst;
+}
+
 static graph_copy ggml_backend_graph_copy(ggml_backend_t backend, ggml_cgraph* graph) {
     std::unordered_map<ggml_tensor*, ggml_tensor*> node_copies;
     std::unordered_map<ggml_tensor*, bool> node_init;
