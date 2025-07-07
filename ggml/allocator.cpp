@@ -406,7 +406,7 @@ void ggml_gallocr::init_tensor(ggml_tensor* tensor, tensor_alloc* tensor_alloc) 
 			assert(buffers[buffer_id]->get_alloc_size(tensor) <= tensor_alloc->size_max);
 			void* base = buffers[buffer_id]->get_base();
 			void* addr = (char*)base + tensor_alloc->offset;
-			ggml_backend_tensor_alloc(buffers[buffer_id].get(), tensor, addr);
+			buffers[buffer_id]->alloc(tensor, addr);
 		}
 		else {
 			if (tensor->buffer == NULL) {
@@ -624,7 +624,7 @@ void ggml_tallocr::alloc(ggml_tensor* tensor) {
 
 	assert(((uintptr_t)addr % alignment) == 0);
 
-	ggml_backend_tensor_alloc(buffer, tensor, addr);
+	buffer->alloc(tensor, addr);
 }
 
 ggml_tallocr::ggml_tallocr(ggml_backend_buffer_t buffer) : buffer(buffer)

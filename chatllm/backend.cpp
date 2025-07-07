@@ -71,7 +71,7 @@ namespace chatllm
     void BackendBuffer::assign_to(ggml::tensor* tensor, size_t offset)
     {
         uint8_t* data = (uint8_t*)get_base() + offset;
-        ggml_backend_tensor_alloc(buf, tensor, data);
+        buf->alloc(tensor, data);
     }
 
     BackendBuffer::BackendBuffer(ggml_backend_buffer_t buf)

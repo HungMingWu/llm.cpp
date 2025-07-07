@@ -180,19 +180,6 @@ export
 		return (x + n - 1) & ~(n - 1);
 	}
 
-	ggml_status ggml_backend_tensor_alloc(ggml_backend_buffer_t buffer, ggml_tensor* tensor, void* addr) {
-		GGML_ASSERT(tensor->buffer == NULL);
-		GGML_ASSERT(tensor->data == NULL);
-		GGML_ASSERT(tensor->view_src == NULL);
-		GGML_ASSERT(addr >= buffer->get_base());
-		GGML_ASSERT((char*)addr + buffer->get_alloc_size(tensor) <=
-			(char*)buffer->get_base() + buffer->get_size());
-
-		tensor->buffer = buffer;
-		tensor->data = addr;
-		return buffer->init_tensor(tensor);
-	}
-
 	std::unique_ptr<ggml_context> ggml_init()
 	{
 		// TODO

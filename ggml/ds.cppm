@@ -381,6 +381,7 @@ export {
         constexpr size_t get_alloc_size(const ggml_tensor* tensor) {
             return buft->get_alloc_size(tensor);
         }
+        ggml_status alloc(ggml_tensor* tensor, void* addr);
     };
 
     // n-dimensional tensor
