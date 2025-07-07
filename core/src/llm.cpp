@@ -9397,7 +9397,7 @@ static bool llm_load_tensors(
                     continue;
                 }
                 const size_t max_size = ggml_get_max_tensor_size(ctx);
-                ggml_backend_buffer_t buf = ggml_backend_dev_buffer_from_host_ptr(dev, (char*)addr + first, last - first, max_size);
+                ggml_backend_buffer_t buf = dev->buffer_from_host_ptr((char*)addr + first, last - first, max_size);
                 if (buf == nullptr) {
                     throw make_format_runtime_error("unable to allocate {} buffer", buft->get_name());
                 }

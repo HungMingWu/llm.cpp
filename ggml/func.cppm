@@ -470,10 +470,6 @@ export {
 	{
 		return {};
 	}
-	ggml_backend_buffer_t         ggml_backend_dev_buffer_from_host_ptr(ggml_backend_dev_t device, void* ptr, size_t size, size_t max_tensor_size)
-	{
-		return {};
-	}
 
 	// implementation at cpu side
 	ggml_backend_buffer_type_t ggml_backend_cpu_buffer_type();
