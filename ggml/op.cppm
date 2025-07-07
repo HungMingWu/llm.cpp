@@ -746,4 +746,10 @@ export {
 		ggml_tensor* a,
 		ggml_tensor* b,
 		int stride);
+
+	ggml_tensor* ggml_pad_reflect_1d(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		int p0,
+		int p1);
 }

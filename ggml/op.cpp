@@ -2286,3 +2286,34 @@ ggml_tensor* ggml_conv_transpose_2d_p0(
 
 	return result;
 }
+
+ggml_tensor* ggml_pad_reflect_1d(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	int p0,
+	int p1)
+{
+	GGML_ASSERT(p0 >= 0);
+	GGML_ASSERT(p1 >= 0);
+
+	GGML_ASSERT(p0 < a->ne[0]); // padding length on each size must be less than the
+	GGML_ASSERT(p1 < a->ne[0]); // existing length of the dimension being padded
+
+	GGML_ASSERT(ggml_is_contiguous(a));
+	GGML_ASSERT(a->type == GGML_TYPE_F32);
+
+	ggml_tensor* result = ctx->create(a->type, {
+		a->ne[0] + p0 + p1,
+		a->ne[1],
+		a->ne[2],
+		a->ne[3]
+	});
+
+	int32_t params[] = { p0, p1 };
+	ggml_set_op_params(*result, params, sizeof(params));
+
+	result->op = GGML_OP_PAD_REFLECT_1D;
+	result->src.push_back(a);
+
+	return result;
+}

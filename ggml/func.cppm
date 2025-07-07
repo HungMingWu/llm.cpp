@@ -61,7 +61,6 @@ bool ggml_is_numa()
 #define GGML_UNUSED(x) (void)(x)
 
 export {
-void ggml_set_op_params(ggml_tensor& tensor, const void* params, size_t params_size);
 ggml_tensor* ggml_dup_tensor(ggml_context* ctx, const ggml_tensor* src);
 ggml_status ggml_backend_view_init(ggml_tensor* tensor);
 ggml_tensor* ggml_dup_tensor_layout(ggml_context* ctx, const ggml_tensor* tensor);
@@ -1026,36 +1025,6 @@ export {
 		 int64_t   nrows,
 		 int64_t   n_per_row,
 		 const float* imatrix);
-
-	 ggml_tensor* ggml_pad_reflect_1d(
-		 ggml_context* ctx,
-		 ggml_tensor* a,
-		 int                   p0,
-		 int                   p1) {
-		 GGML_ASSERT(p0 >= 0);
-		 GGML_ASSERT(p1 >= 0);
-
-		 GGML_ASSERT(p0 < a->ne[0]); // padding length on each size must be less than the
-		 GGML_ASSERT(p1 < a->ne[0]); // existing length of the dimension being padded
-
-		 GGML_ASSERT(ggml_is_contiguous(a));
-		 GGML_ASSERT(a->type == GGML_TYPE_F32);
-
-		 ggml_tensor* result = ctx->create(a->type, {
-			 a->ne[0] + p0 + p1,
-			 a->ne[1],
-			 a->ne[2],
-			 a->ne[3]
-		 });
-
-		 int32_t params[] = { p0, p1 };
-		 ggml_set_op_params(*result, params, sizeof(params));
-
-		 result->op = GGML_OP_PAD_REFLECT_1D;
-		 result->src.push_back(a);
-
-		 return result;
-	 }
 
 	 float ggml_get_f32_1d(const struct ggml_tensor* tensor, int i) {
 		 switch (tensor->type) {
