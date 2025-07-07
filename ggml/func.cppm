@@ -101,23 +101,6 @@ ggml_tensor* graph_copy_dup_tensor(std::unordered_map<ggml_tensor*, ggml_tensor*
 	return dst;
 }
 
-static ggml_tensor* ggml_view_impl(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	std::initializer_list<int64_t> ne,
-	size_t                offset) {
-
-	ggml_tensor* result = ctx->create(a->type, ne, a, offset);
-	result->set_name("{} (view)", a->name);
-
-	ggml_set_op_params(*result, &offset, sizeof(offset));
-
-	result->op = GGML_OP_VIEW;
-	result->src.push_back(a);
-
-	return result;
-}
-
 static int64_t ggml_calc_conv_transpose_1d_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
 	return (ins - 1) * s - 2 * p + d * (ks - 1) + 1;
 }
@@ -1110,38 +1093,6 @@ export {
 		 }
 
 		 return tensor;
-	 }
-
-	 ggml_tensor* ggml_view(
-		 ggml_context* ctx,
-		 ggml_tensor* a,
-		 std::initializer_list<int64_t> ne,
-		 std::initializer_list<size_t> nb,
-		 size_t                offset) {
-
-		 assert(nb.size() + 1 == ne.size());
-		 ggml_tensor* result = ggml_view_impl(ctx, a, ne, offset);
-
-		 if (nb.size() == 1) {
-			 auto it = nb.begin();
-			 result->nb[1] = *it;
-			 result->nb[2] = result->nb[1] * result->ne[1];
-			 result->nb[3] = result->nb[2];
-		 }
-		 else if (nb.size() == 2) {
-			 auto it = nb.begin();
-			 result->nb[1] = *it++;
-			 result->nb[2] = *it++;
-			 result->nb[3] = result->nb[2] * result->ne[2];
-		 }
-		 else if (nb.size() == 3) {
-			 auto it = nb.begin();
-			 result->nb[1] = *it++;
-			 result->nb[2] = *it++;
-			 result->nb[3] = *it++;
-		 }
-
-		 return result;
 	 }
 
 	 const char* ggml_op_desc(const ggml_tensor* t) {

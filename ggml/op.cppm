@@ -710,4 +710,11 @@ export {
 		int s1,
 		int32_t p0,
 		int32_t p1);
+
+	ggml_tensor* ggml_view(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		std::initializer_list<int64_t> ne,
+		std::initializer_list<size_t> nb,
+		size_t offset);
 }
