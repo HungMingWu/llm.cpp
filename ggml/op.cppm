@@ -680,4 +680,10 @@ export {
 		int64_t ne2,
 		int64_t ne3,
 		uint32_t mode); // ggml_scale_mode [ | ggml_scale_flag...]
+
+	ggml_tensor* ggml_arange(
+		ggml_context* ctx,
+		float start,
+		float stop,
+		float step);
 }

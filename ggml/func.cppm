@@ -587,26 +587,6 @@ export {
 		return ctx->create(src->type, { src->ne[0], src->ne[1], src->ne[2], src->ne[3] });
 	}
 
-	ggml_tensor* ggml_arange(
-		ggml_context* ctx,
-		float                 start,
-		float                 stop,
-		float                 step) {
-		GGML_ASSERT(stop > start);
-
-		const int64_t steps = (int64_t)ceilf((stop - start) / step);
-
-		ggml_tensor* result = ctx->create(GGML_TYPE_F32, { steps });
-
-		result->op_params[0] = std::bit_cast<int32_t>(start);
-		result->op_params[1] = std::bit_cast<int32_t>(stop);
-		result->op_params[2] = std::bit_cast<int32_t>(step);
-
-		result->op = GGML_OP_ARANGE;
-
-		return result;
-	}
-
 	ggml_tensor* ggml_conv_transpose_1d(
 		ggml_context* ctx,
 		ggml_tensor* a,
