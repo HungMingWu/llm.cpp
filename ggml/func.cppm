@@ -1140,53 +1140,6 @@ export {
 		 return result;
 	 }
 
-	 // im2col: [N, IC, IH, IW] => [N, OH, OW, IC*KH*KW]
-	 // a: [OC¡AIC, KH, KW]
-	 // b: [N, IC, IH, IW]
-	 // result: [N, OH, OW, IC*KH*KW]
-	 ggml_tensor* ggml_im2col(
-		 ggml_context* ctx,
-		 ggml_tensor* a,
-		 ggml_tensor* b,
-		 int                   s0,
-		 int                   s1,
-		 int                   p0,
-		 int                   p1,
-		 int                   d0,
-		 int                   d1,
-		 bool                  is_2D,
-		 enum ggml_type        dst_type) {
-		 if (is_2D) {
-			 GGML_ASSERT(a->ne[2] == b->ne[2]);
-		 }
-		 else {
-			 //GGML_ASSERT(b->ne[1] % a->ne[1] == 0);
-			 GGML_ASSERT(b->ne[1] == a->ne[1]);
-			 GGML_ASSERT(b->ne[3] == 1);
-		 }
-
-		 const int64_t OH = is_2D ? ggml_calc_conv_output_size(b->ne[1], a->ne[1], s1, p1, d1) : 0;
-		 const int64_t OW = ggml_calc_conv_output_size(b->ne[0], a->ne[0], s0, p0, d0);
-
-		 GGML_ASSERT((!is_2D || OH > 0) && "b too small compared to a");
-		 GGML_ASSERT((OW > 0) && "b too small compared to a");
-
-		 ggml_tensor* result = ctx->create(dst_type, {
-			 is_2D ? (a->ne[2] * a->ne[1] * a->ne[0]) : a->ne[1] * a->ne[0],
-			 OW,
-			 is_2D ? OH : b->ne[2],
-			 is_2D ? b->ne[3] : 1,
-		 });
-		 int32_t params[] = { s0, s1, p0, p1, d0, d1, (is_2D ? 1 : 0) };
-		 ggml_set_op_params(*result, params, sizeof(params));
-
-		 result->op = GGML_OP_IM2COL;
-		 result->src.push_back(a);
-		 result->src.push_back(b);
-
-		 return result;
-	 }
-
 	 float ggml_get_f32_1d(const struct ggml_tensor* tensor, int i) {
 		 switch (tensor->type) {
 		 case GGML_TYPE_I8:

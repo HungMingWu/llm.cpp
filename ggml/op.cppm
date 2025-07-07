@@ -717,4 +717,19 @@ export {
 		std::initializer_list<int64_t> ne,
 		std::initializer_list<size_t> nb,
 		size_t offset);
+
+	// im2col
+	// converts data into a format that effectively results in a convolution when combined with matrix multiplication
+	ggml_tensor* ggml_im2col(
+		ggml_context* ctx,
+		ggml_tensor* a,  // convolution kernel
+		ggml_tensor* b,  // data
+		int s0, // stride dimension 0
+		int s1, // stride dimension 1
+		int p0, // padding dimension 0
+		int p1, // padding dimension 1
+		int d0, // dilation dimension 0
+		int d1, // dilation dimension 1
+		bool is_2D,
+		enum ggml_type dst_type);
 }
