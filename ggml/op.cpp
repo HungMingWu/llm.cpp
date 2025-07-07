@@ -2071,3 +2071,58 @@ ggml_tensor* ggml_get_rows(
 
 	return result;
 }
+
+static int64_t ggml_calc_pool_output_size(int64_t ins, int ks, int s, float p) {
+	return (ins + 2 * p - ks) / s + 1;
+}
+
+ggml_tensor* ggml_pool_1d(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	enum ggml_op_pool op,
+	int k0,
+	int s0,
+	int p0)
+{
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, {
+		ggml_calc_pool_output_size(a->ne[0], k0, s0, p0),
+		a->ne[1],
+		a->ne[2],
+		a->ne[3]
+	});
+
+	int32_t params[] = { op, k0, s0, p0 };
+	ggml_set_op_params(*result, params, sizeof(params));
+
+	result->op = GGML_OP_POOL_1D;
+	result->src.push_back(a);
+
+	return result;
+}
+
+ggml_tensor* ggml_pool_2d(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	enum ggml_op_pool op,
+	int k0,
+	int k1,
+	int s0,
+	int s1,
+	int32_t p0,
+	int32_t p1)
+{
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, {
+		ggml_calc_pool_output_size(a->ne[0], k0, s0, p0),
+		ggml_calc_pool_output_size(a->ne[1], k1, s1, p1),
+		a->ne[2],
+		a->ne[3]
+	});
+
+	int32_t params[] = { op, k0, k1, s0, s1, p0, p1 };
+	ggml_set_op_params(*result, params, sizeof(params));
+
+	result->op = GGML_OP_POOL_2D;
+	result->src.push_back(a);
+
+	return result;
+}

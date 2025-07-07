@@ -691,4 +691,23 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,
 		ggml_tensor* b);
+
+	ggml_tensor* ggml_pool_1d(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		enum ggml_op_pool op,
+		int k0,
+		int s0,
+		int p0);
+
+	ggml_tensor* ggml_pool_2d(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		enum ggml_op_pool op,
+		int k0,
+		int k1,
+		int s0,
+		int s1,
+		int32_t p0,
+		int32_t p1);
 }
