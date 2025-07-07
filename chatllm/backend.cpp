@@ -388,7 +388,7 @@ namespace chatllm
             return false;
 
         ggml_backend_dev_props props;
-        ggml_backend_dev_get_props(dev, &props);
+        dev->get_props(&props);
         info.type = (DeviceType)props.type;
         info.backend_name = dev->get_backend_reg()->get_name();
         info.name = dev->get_name();

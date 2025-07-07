@@ -1243,7 +1243,7 @@ struct llm_model_loader {
             }
 
             ggml_backend_dev_props props;
-            ggml_backend_dev_get_props(dev, &props);
+            dev->get_props(&props);
             if (!props.caps.async || !props.caps.host_buffer || !props.caps.events) {
                 LLAMA_LOG_DEBUG("%s: device %s does not support async, host buffers or events\n", func,
                     ggml_backend_dev_name(dev));
@@ -9381,7 +9381,7 @@ static bool llm_load_tensors(
             dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
         }
         ggml_backend_dev_props props;
-        ggml_backend_dev_get_props(dev, &props);
+        dev->get_props(&props);
         bool buffer_from_host_ptr_supported = props.caps.buffer_from_host_ptr;
         bool is_default_buft = buft == dev->get_buffer_type();
 
@@ -18829,7 +18829,7 @@ llama_context* llama_new_context_with_model(
                     }
                     auto* dev = backend->get_device();
                     ggml_backend_dev_props props;
-                    ggml_backend_dev_get_props(dev, &props);
+                    dev->get_props(&props);
                     if (!props.caps.async || !props.caps.events) {
                         // device does not support async compute or events
                         pipeline_parallel = false;

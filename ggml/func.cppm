@@ -480,11 +480,6 @@ export {
 		return {};
 	}
 
-	void                          ggml_backend_dev_get_props(ggml_backend_dev_t device, struct ggml_backend_dev_props* props)
-	{
-
-	}
-
 	// implementation at cpu side
 	ggml_backend_buffer_type_t ggml_backend_cpu_buffer_type();
 
