@@ -8,6 +8,29 @@ module;
 module ggml;
 import :ds;
 
+static bool ggml_is_contiguous_n(const ggml_tensor* tensor, int n) {
+	size_t next_nb = ggml_type_size(tensor->type);
+	if (tensor->ne[0] != ggml_blck_size(tensor->type) && tensor->nb[0] != next_nb) {
+		return false;
+	}
+	next_nb *= tensor->ne[0] / ggml_blck_size(tensor->type);
+	for (int i = 1; i < GGML_MAX_DIMS; i++) {
+		if (tensor->ne[i] != 1) {
+			if (i > n) {
+				if (tensor->nb[i] != next_nb) {
+					return false;
+				}
+				next_nb *= tensor->ne[i];
+			}
+			else {
+				// this dimension does not need to be contiguous
+				next_nb = tensor->ne[i] * tensor->nb[i];
+			}
+		}
+	}
+	return true;
+}
+
 size_t ggml_tensor::nbytes() const {
 	size_t nbytes;
 	const size_t blck_size = ggml_blck_size(type);
@@ -44,3 +67,19 @@ void ggml_tensor::set_flag(int32_t flag)
 }
 
 size_t ggml_backend_buffer_type::get_alloc_size(const ggml_tensor* tensor) { return tensor->nbytes(); }
+
+bool ggml_is_contiguous_0(const ggml_tensor* tensor) {
+	return ggml_is_contiguous_n(tensor, 0);
+}
+
+bool ggml_is_contiguous_1(const ggml_tensor* tensor) {
+	return ggml_is_contiguous_n(tensor, 1);
+}
+
+bool ggml_is_contiguous_2(const ggml_tensor* tensor) {
+	return ggml_is_contiguous_n(tensor, 2);
+}
+
+bool ggml_is_contiguous(const ggml_tensor* tensor) {
+	return ggml_is_contiguous_0(tensor);
+}

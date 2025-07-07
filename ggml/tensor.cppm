@@ -10,29 +10,6 @@ export module ggml:tensor;
 import :ds;
 import :traits;
 
-static bool ggml_is_contiguous_n(const ggml_tensor& tensor, int n) {
-	size_t next_nb = ggml_type_size(tensor.type);
-	if (tensor.ne[0] != ggml_blck_size(tensor.type) && tensor.nb[0] != next_nb) {
-		return false;
-	}
-	next_nb *= tensor.ne[0] / ggml_blck_size(tensor.type);
-	for (int i = 1; i < GGML_MAX_DIMS; i++) {
-		if (tensor.ne[i] != 1) {
-			if (i > n) {
-				if (tensor.nb[i] != next_nb) {
-					return false;
-				}
-				next_nb *= tensor.ne[i];
-			}
-			else {
-				// this dimension does not need to be contiguous
-				next_nb = tensor.ne[i] * tensor.nb[i];
-			}
-		}
-	}
-	return true;
-}
-
 export
 {
 	int32_t ggml_get_op_params_i32(const ggml_tensor* tensor, uint32_t i) {
@@ -73,20 +50,10 @@ export
 		return tensor->ne[2] == 1 && tensor->ne[3] == 1;
 	}
 
-	bool ggml_is_contiguous_0(const ggml_tensor* tensor) {
-		return ggml_is_contiguous_n(*tensor, 0);
-	}
-	bool ggml_is_contiguous_1(const ggml_tensor* tensor) {
-		return ggml_is_contiguous_n(*tensor, 1);
-	}
-
-	bool ggml_is_contiguous_2(const ggml_tensor* tensor) {
-		return ggml_is_contiguous_n(*tensor, 2);
-	}
-
-	bool ggml_is_contiguous(const ggml_tensor* tensor) {
-		return ggml_is_contiguous_0(tensor);
-	}
+	bool ggml_is_contiguous_0(const ggml_tensor* tensor);
+	bool ggml_is_contiguous_1(const ggml_tensor* tensor);
+	bool ggml_is_contiguous_2(const ggml_tensor* tensor);
+	bool ggml_is_contiguous(const ggml_tensor* tensor);
 
 	bool ggml_is_scalar(const ggml_tensor* tensor) {
 		return tensor->ne[0] == 1 && tensor->ne[1] == 1 && tensor->ne[2] == 1 && tensor->ne[3] == 1;

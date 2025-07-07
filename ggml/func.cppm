@@ -126,29 +126,6 @@ static int64_t ggml_calc_conv_transpose_1d_output_size(int64_t ins, int64_t ks, 
 	return (ins - 1) * s - 2 * p + d * (ks - 1) + 1;
 }
 
-static bool ggml_is_contiguous_n(const struct ggml_tensor* tensor, int n) {
-	size_t next_nb = ggml_type_size(tensor->type);
-	if (tensor->ne[0] != ggml_blck_size(tensor->type) && tensor->nb[0] != next_nb) {
-		return false;
-	}
-	next_nb *= tensor->ne[0] / ggml_blck_size(tensor->type);
-	for (int i = 1; i < GGML_MAX_DIMS; i++) {
-		if (tensor->ne[i] != 1) {
-			if (i > n) {
-				if (tensor->nb[i] != next_nb) {
-					return false;
-				}
-				next_nb *= tensor->ne[i];
-			}
-			else {
-				// this dimension does not need to be contiguous
-				next_nb = tensor->ne[i] * tensor->nb[i];
-			}
-		}
-	}
-	return true;
-}
-
 export {
 std::unique_ptr<ggml_backend_buffer> ggml_backend_alloc_ctx_tensors(ggml_context* ctx, ggml_backend_t backend);
 }
