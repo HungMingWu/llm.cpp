@@ -66,8 +66,6 @@ void ggml_tensor::set_flag(int32_t flag)
 	flags |= flag;
 }
 
-size_t ggml_backend_buffer_type::get_alloc_size(const ggml_tensor* tensor) { return tensor->nbytes(); }
-
 bool ggml_is_contiguous_0(const ggml_tensor* tensor) {
 	return ggml_is_contiguous_n(tensor, 0);
 }
