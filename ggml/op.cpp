@@ -93,7 +93,7 @@ static ggml_tensor* ggml_add_impl(
 	ggml_tensor* a,
 	ggml_tensor* b,
 	bool                  inplace) {
-	GGML_ASSERT(ggml_can_repeat(*b, *a));
+	GGML_ASSERT(ggml_can_repeat(b, a));
 
 	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
 
@@ -109,7 +109,7 @@ static ggml_tensor* ggml_mul_impl(
 	ggml_tensor* a,
 	ggml_tensor* b,
 	bool                  inplace) {
-	GGML_ASSERT(ggml_can_repeat(*b, *a));
+	GGML_ASSERT(ggml_can_repeat(b, a));
 
 	struct ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
 
@@ -125,7 +125,7 @@ static struct ggml_tensor* ggml_div_impl(
 	struct ggml_tensor* a,
 	struct ggml_tensor* b,
 	bool                  inplace) {
-	GGML_ASSERT(ggml_can_repeat(*b, *a));
+	GGML_ASSERT(ggml_can_repeat(b, a));
 
 	struct ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
 
@@ -1228,7 +1228,7 @@ ggml_tensor* ggml_sub(
 	ggml_tensor* a,
 	ggml_tensor* b)
 {
-	GGML_ASSERT(ggml_can_repeat(*b, *a));
+	GGML_ASSERT(ggml_can_repeat(b, a));
 	return build(false, ctx, a, GGML_OP_SUB, a, b);;
 }
 
@@ -1275,7 +1275,7 @@ ggml_tensor* ggml_repeat(
 	ggml_tensor* a,
 	ggml_tensor* b)
 {
-	GGML_ASSERT(ggml_can_repeat(*a, *b));
+	GGML_ASSERT(ggml_can_repeat(a, b));
 
 	ggml_tensor* result = ctx->create(a->type, { b->ne[0], b->ne[1], b->ne[2], b->ne[3] });
 
@@ -1472,7 +1472,7 @@ static ggml_tensor* ggml_sub_impl(
 	ggml_tensor* a,
 	ggml_tensor* b,
 	bool inplace) {
-	GGML_ASSERT(ggml_can_repeat(*b, *a));
+	GGML_ASSERT(ggml_can_repeat(b, a));
 
 	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
 

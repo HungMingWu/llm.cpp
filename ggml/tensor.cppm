@@ -143,4 +143,7 @@ export
 	}
 
 	ggml_tensor* ggml_dup_tensor(ggml_context* ctx, const ggml_tensor* src);
+
+	// check if t1 can be represented as a repeatition of t0
+	bool ggml_can_repeat(const ggml_tensor* t0, const ggml_tensor* t1);
 }

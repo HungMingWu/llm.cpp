@@ -421,15 +421,6 @@ export {
 	// implementation at cpu side
 	ggml_backend_buffer_type_t ggml_backend_cpu_buffer_type();
 
-	// check if t1 can be represented as a repeatition of t0
-	bool ggml_can_repeat(const ggml_tensor &t0, const ggml_tensor &t1) {
-		return ggml_is_empty(&t0) ? ggml_is_empty(&t1) :
-			(t1.ne[0] % t0.ne[0] == 0) &&
-			(t1.ne[1] % t0.ne[1] == 0) &&
-			(t1.ne[2] % t0.ne[2] == 0) &&
-			(t1.ne[3] % t0.ne[3] == 0);
-	}
-
 	bool ggml_is_vector(const ggml_tensor &tensor) {
 		return tensor.ne[1] == 1 && tensor.ne[2] == 1 && tensor.ne[3] == 1;
 	}

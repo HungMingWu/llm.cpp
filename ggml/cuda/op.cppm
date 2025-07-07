@@ -1771,7 +1771,7 @@ namespace op
 
         GGML_ASSERT(src0->type == dst->type);
         GGML_ASSERT(ggml_is_contiguous(dst));
-        GGML_ASSERT(ggml_can_repeat(*dst, *src0));
+        GGML_ASSERT(ggml_can_repeat(dst, src0));
 
         GGML_ASSERT(dst->ne[2] * dst->ne[3] <= (1 << 15));
 

@@ -126,7 +126,7 @@ ggml_tensor* ggml_repeat_back(
     ggml_context* ctx,
     ggml_tensor* a,
     ggml_tensor* b) {
-    GGML_ASSERT(ggml_can_repeat(*b, *a));
+    GGML_ASSERT(ggml_can_repeat(b, a));
 
     ggml_tensor* result = ctx->create(a->type, { b->ne[0], b->ne[1], b->ne[2], b->ne[3] });
 

@@ -85,3 +85,11 @@ bool ggml_is_contiguous(const ggml_tensor* tensor) {
 ggml_tensor* ggml_dup_tensor(ggml_context* ctx, const ggml_tensor* src) {
 	return ctx->create(src->type, { src->ne[0], src->ne[1], src->ne[2], src->ne[3] });
 }
+
+bool ggml_can_repeat(const ggml_tensor* t0, const ggml_tensor* t1) {
+	return ggml_is_empty(t0) ? ggml_is_empty(t1) :
+		(t1->ne[0] % t0->ne[0] == 0) &&
+		(t1->ne[1] % t0->ne[1] == 0) &&
+		(t1->ne[2] % t0->ne[2] == 0) &&
+		(t1->ne[3] % t0->ne[3] == 0);
+}

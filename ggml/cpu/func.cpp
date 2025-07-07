@@ -1685,7 +1685,7 @@ static void ggml_compute_forward_repeat_f16(
 
 	const ggml_tensor* src0 = dst->src[0];
 
-	GGML_ASSERT(ggml_can_repeat(*src0, *dst));
+	GGML_ASSERT(ggml_can_repeat(src0, dst));
 
 	GGML_TENSOR_UNARY_OP_LOCALS
 
@@ -1729,7 +1729,7 @@ static void ggml_compute_forward_repeat_f32(
 
 	const ggml_tensor* src0 = dst->src[0];
 
-	GGML_ASSERT(ggml_can_repeat(*src0, *dst));
+	GGML_ASSERT(ggml_can_repeat(src0, dst));
 
 	GGML_TENSOR_UNARY_OP_LOCALS
 
@@ -6031,7 +6031,7 @@ static void apply_binary_op(
 	const ggml_tensor* src0 = dst->src[0];
 	const ggml_tensor* src1 = dst->src[1];
 
-	GGML_ASSERT(ggml_can_repeat(*src1, *src0) && ggml_are_same_shape(src0, dst));
+	GGML_ASSERT(ggml_can_repeat(src1, src0) && ggml_are_same_shape(src0, dst));
 
 	GGML_TENSOR_BINARY_OP_LOCALS
 

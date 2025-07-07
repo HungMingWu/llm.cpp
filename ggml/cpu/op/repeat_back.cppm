@@ -12,7 +12,7 @@ static void ggml_compute_forward_repeat_back_f32(
 
 	const ggml_tensor* src0 = dst->src[0];
 
-	assert(ggml_can_repeat(*dst, *src0));
+	assert(ggml_can_repeat(dst, src0));
 
 	// guaranteed to be an integer due to the check in ggml_can_repeat
 	const int nr0 = (int)(src0->ne[0] / dst->ne[0]);
