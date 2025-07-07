@@ -100,10 +100,6 @@ ggml_tensor* graph_copy_dup_tensor(std::unordered_map<ggml_tensor*, ggml_tensor*
 	return dst;
 }
 
-static int64_t ggml_calc_conv_transpose_1d_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
-	return (ins - 1) * s - 2 * p + d * (ks - 1) + 1;
-}
-
 export {
 std::unique_ptr<ggml_backend_buffer> ggml_backend_alloc_ctx_tensors(ggml_context* ctx, ggml_backend_t backend);
 }
@@ -539,37 +535,6 @@ export {
 		return result;
 	}
 
-	ggml_tensor* ggml_conv_transpose_1d(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b,
-		int                   s0,
-		int                   p0,
-		int                   d0) {
-		GGML_ASSERT(ggml_is_matrix(b));
-		GGML_ASSERT(a->ne[2] == b->ne[1]);
-		GGML_ASSERT(a->ne[3] == 1);
-
-		GGML_ASSERT(p0 == 0);
-		GGML_ASSERT(d0 == 1);
-
-		ggml_tensor* result = ctx->create(GGML_TYPE_F32, {
-			ggml_calc_conv_transpose_1d_output_size(b->ne[0], a->ne[0], s0, 0 /*p0*/, 1 /*d0*/),
-			a->ne[1],
-			b->ne[2],
-			1
-		});
-
-		int32_t params[] = { s0, p0, d0 };
-		ggml_set_op_params(*result, params, sizeof(params));
-
-		result->op = GGML_OP_CONV_TRANSPOSE_1D;
-		result->src.push_back(a);
-		result->src.push_back(b);
-
-		return result;
-	}
-
 	ggml_tensor* ggml_tanh(
 		struct ggml_context* ctx,
 		struct ggml_tensor* a)
@@ -799,32 +764,6 @@ export {
 	 }
 
 	 void ggml_graph_dump_dot(const ggml_cgraph* gb, const ggml_cgraph* gf, const char* filename);
-
-	 int64_t ggml_calc_conv_transpose_output_size(int64_t ins, int64_t ks, int s, int p) {
-		 return (ins - 1) * s - 2 * p + ks;
-	 }
-
-	 ggml_tensor* ggml_conv_transpose_2d_p0(
-		 ggml_context* ctx,
-		 ggml_tensor* a,
-		 ggml_tensor* b,
-		 int                   stride) {
-		 GGML_ASSERT(a->ne[3] == b->ne[2]);
-
-		 ggml_tensor* result = ctx->create(GGML_TYPE_F32, {
-			 ggml_calc_conv_transpose_output_size(b->ne[0], a->ne[0], stride, 0 /*p0*/),
-			 ggml_calc_conv_transpose_output_size(b->ne[1], a->ne[1], stride, 0 /*p1*/),
-			 a->ne[2], b->ne[3]
-		 });
-
-		 result->op_params[0] = std::bit_cast<uint32_t>(stride);
-
-		 result->op = GGML_OP_CONV_TRANSPOSE_2D;
-		 result->src.push_back(a);
-		 result->src.push_back(b);
-
-		 return result;
-	 }
 
 	 void* ggml_get_data(const ggml_tensor* tensor) {
 		 return tensor->data;

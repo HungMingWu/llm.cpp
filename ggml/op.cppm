@@ -732,4 +732,18 @@ export {
 		int d1, // dilation dimension 1
 		bool is_2D,
 		enum ggml_type dst_type);
+
+	ggml_tensor* ggml_conv_transpose_1d(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		int s0,
+		int p0,
+		int d0);
+
+	ggml_tensor* ggml_conv_transpose_2d_p0(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		int stride);
 }
