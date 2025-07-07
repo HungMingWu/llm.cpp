@@ -1040,7 +1040,7 @@ struct test_get_rows : public test_case {
             rows->set_name("view_of_rows");
         }
 
-        const bool grad_supported = ggml_is_matrix(in) && ggml_is_vector(*rows);
+        const bool grad_supported = ggml_is_matrix(in) && ggml_is_vector(rows);
         if (grad_supported) {
             in->set_flag(GGML_TENSOR_FLAG_PARAM);
             // rows is a constant input -> no gradients

@@ -615,7 +615,7 @@ ggml_tensor* ggml_rope_multi(
 	// Multimodal Rotary Position Embedding
 	GGML_ASSERT((mode & 1) == 0 && "mode & 1 == 1 is no longer supported");
 
-	GGML_ASSERT(ggml_is_vector(*b));
+	GGML_ASSERT(ggml_is_vector(b));
 	GGML_ASSERT(b->type == GGML_TYPE_I32);
 	GGML_ASSERT(a->ne[2] * 4 == b->ne[0]); // mrope expecting 4 position ids per token
 
@@ -664,7 +664,7 @@ static ggml_tensor* ggml_rope_impl(
 	bool inplace) {
 	GGML_ASSERT((mode & 1) == 0 && "mode & 1 == 1 is no longer supported");
 
-	GGML_ASSERT(ggml_is_vector(*b));
+	GGML_ASSERT(ggml_is_vector(b));
 	GGML_ASSERT(b->type == GGML_TYPE_I32);
 
 	bool mrope_used = mode & GGML_ROPE_TYPE_MROPE;

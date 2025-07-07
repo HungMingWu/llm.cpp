@@ -93,3 +93,7 @@ bool ggml_can_repeat(const ggml_tensor* t0, const ggml_tensor* t1) {
 		(t1->ne[2] % t0->ne[2] == 0) &&
 		(t1->ne[3] % t0->ne[3] == 0);
 }
+
+bool ggml_is_vector(const ggml_tensor* tensor) {
+	return tensor->ne[1] == 1 && tensor->ne[2] == 1 && tensor->ne[3] == 1;
+}

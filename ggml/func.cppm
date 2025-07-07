@@ -421,10 +421,6 @@ export {
 	// implementation at cpu side
 	ggml_backend_buffer_type_t ggml_backend_cpu_buffer_type();
 
-	bool ggml_is_vector(const ggml_tensor &tensor) {
-		return tensor.ne[1] == 1 && tensor.ne[2] == 1 && tensor.ne[3] == 1;
-	}
-
 	void ggml_set_op_params(ggml_tensor &tensor, const void* params, size_t params_size) {
 		assert(params_size <= GGML_MAX_OP_PARAMS);
 		memcpy(tensor.op_params, params, params_size);

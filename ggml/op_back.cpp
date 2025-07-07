@@ -142,7 +142,7 @@ ggml_tensor* ggml_get_rows_back(
     ggml_tensor* b,
     ggml_tensor* c)
 {
-    GGML_ASSERT(ggml_is_matrix(a) && ggml_is_vector(*b) && b->type == GGML_TYPE_I32);
+    GGML_ASSERT(ggml_is_matrix(a) && ggml_is_vector(b) && b->type == GGML_TYPE_I32);
     GGML_ASSERT(ggml_is_matrix(c) && (a->ne[0] == c->ne[0]));
 
     // TODO: implement non F32 return
