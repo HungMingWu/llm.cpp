@@ -6,6 +6,7 @@ export import :gguf;
 export import :log;
 export import :op;
 export import :op_back;
+export import :os;
 export import :rpc;
 export import :tensor;
 export import :traits;

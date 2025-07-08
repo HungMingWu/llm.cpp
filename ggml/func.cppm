@@ -6,25 +6,10 @@ module;
 #include <memory>
 #include <ranges>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include "inplace_vector.hpp"
-
-#ifdef _WIN32
-#    define WIN32_LEAN_AND_MEAN
-#    ifndef NOMINMAX
-#        define NOMINMAX
-#    endif
-#    include <windows.h>
-#elif defined(__APPLE__)
-	#    include <mach-o/dyld.h>
-	#    include <dlfcn.h>
-#else
-	#    include <dlfcn.h>
-	#    include <unistd.h>
-#endif
 
 #define GGML_LOG_DEBUG(...)
 #define GGML_LOG_ERROR(...)
@@ -33,12 +18,12 @@ module;
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_ABORT(...)
 
-#define GGML_BACKEND_API_VERSION 1
 #define GGML_USE_CPU
 
 export module ggml:func;
 import :alloc;
 import :ds;
+import :os;
 import :tensor;
 import :traits;
 import :cpu.registry;
@@ -105,29 +90,6 @@ static bool alloc_tensor_range(ggml_context* ctx,
 
 	buffers->push_back(std::move(buffer));
 	return true;
-}
-
-static std::string utf16_to_utf8(const std::wstring& str) {
-	std::string result;
-	result.reserve(str.size() * 2);
-	for (wchar_t wc : str) {
-		if (wc <= 0x7F) {
-			result.push_back(static_cast<char>(wc));
-		}
-		else if (wc <= 0x7FF) {
-			result.push_back(0xC0 | ((wc >> 6) & 0x1F));
-			result.push_back(0x80 | (wc & 0x3F));
-		}
-		else if (wc <= 0xFFFF) {
-			result.push_back(0xE0 | ((wc >> 12) & 0x0F));
-			result.push_back(0x80 | ((wc >> 6) & 0x3F));
-			result.push_back(0x80 | (wc & 0x3F));
-		}
-		else {
-			throw std::runtime_error("Character out of UTF-8 range");
-		}
-	}
-	return result;
 }
 
 void ggml_cpu_init(void) {
@@ -219,63 +181,6 @@ export
 	}
 }
 
-#ifdef _WIN32
-
-using dl_handle = std::remove_pointer_t<HMODULE>;
-
-struct dl_handle_deleter {
-	void operator()(HMODULE handle) {
-		FreeLibrary(handle);
-	}
-};
-
-static dl_handle* dl_load_library(const std::wstring& path) {
-	// suppress error dialogs for missing DLLs
-	DWORD old_mode = SetErrorMode(SEM_FAILCRITICALERRORS);
-	SetErrorMode(old_mode | SEM_FAILCRITICALERRORS);
-
-	HMODULE handle = LoadLibraryW(path.c_str());
-
-	SetErrorMode(old_mode);
-
-	return handle;
-}
-
-static void* dl_get_sym(dl_handle* handle, const char* name) {
-	DWORD old_mode = SetErrorMode(SEM_FAILCRITICALERRORS);
-	SetErrorMode(old_mode | SEM_FAILCRITICALERRORS);
-
-	void* p = (void*)GetProcAddress(handle, name);
-
-	SetErrorMode(old_mode);
-
-	return p;
-}
-
-#else
-
-using dl_handle = void;
-
-struct dl_handle_deleter {
-	void operator()(void* handle) {
-		dlclose(handle);
-	}
-};
-
-static void* dl_load_library(const std::wstring& path) {
-	dl_handle* handle = dlopen(utf16_to_utf8(path).c_str(), RTLD_NOW | RTLD_LOCAL);
-
-	return handle;
-}
-
-static void* dl_get_sym(dl_handle* handle, const char* name) {
-	return dlsym(handle, name);
-}
-
-#endif
-
-using dl_handle_ptr = std::unique_ptr<dl_handle, dl_handle_deleter>;
-
 struct ggml_backend_reg_entry {
 	ggml_backend_reg_t reg;
 	dl_handle_ptr handle;
@@ -288,97 +193,10 @@ struct ggml_backend_registry {
 	ggml_backend_registry();
 	~ggml_backend_registry();
 
-	void register_backend(ggml_backend_reg_t reg, dl_handle_ptr handle = nullptr) {
-		if (!reg) {
-			return;
-		}
-
-#ifndef NDEBUG
-		GGML_LOG_DEBUG("%s: registered backend %s (%zu devices)\n",
-			__func__, ggml_backend_reg_name(reg), ggml_backend_reg_dev_count(reg));
-#endif
-		backends.push_back({ reg, std::move(handle) });
-		for (auto dev : reg->get_devices())
-			register_device(dev);
-	}
-
-	void register_device(ggml_backend_dev_t device) {
-#ifndef NDEBUG
-		GGML_LOG_DEBUG("%s: registered device %s (%s)\n", __func__, ggml_backend_dev_name(device), ggml_backend_dev_description(device));
-#endif
-		devices.push_back(device);
-	}
-
-	ggml_backend_reg_t load_backend(const std::wstring& path, bool silent) {
-		dl_handle_ptr handle{ dl_load_library(path) };
-		if (!handle) {
-			if (!silent) {
-				GGML_LOG_ERROR("%s: failed to load %s\n", __func__, utf16_to_utf8(path).c_str());
-			}
-			return nullptr;
-		}
-
-		auto score_fn = (ggml_backend_score_t)dl_get_sym(handle.get(), "ggml_backend_score");
-		if (score_fn && score_fn() == 0) {
-			if (!silent) {
-				GGML_LOG_INFO("%s: backend %s is not supported on this system\n", __func__, utf16_to_utf8(path).c_str());
-			}
-			return nullptr;
-		}
-
-		auto backend_init_fn = (ggml_backend_init_t)dl_get_sym(handle.get(), "ggml_backend_init");
-		if (!backend_init_fn) {
-			if (!silent) {
-				GGML_LOG_ERROR("%s: failed to find ggml_backend_init in %s\n", __func__, utf16_to_utf8(path).c_str());
-			}
-			return nullptr;
-		}
-
-		ggml_backend_reg_t reg = backend_init_fn();
-		if (!reg || reg->api_version != GGML_BACKEND_API_VERSION) {
-			if (!silent) {
-				if (!reg) {
-					GGML_LOG_ERROR("%s: failed to initialize backend from %s: ggml_backend_init returned NULL\n", __func__, utf16_to_utf8(path).c_str());
-				}
-				else {
-					GGML_LOG_ERROR("%s: failed to initialize backend from %s: incompatible API version (backend: %d, current: %d)\n",
-						__func__, utf16_to_utf8(path).c_str(), reg->api_version, GGML_BACKEND_API_VERSION);
-				}
-			}
-			return nullptr;
-		}
-
-		GGML_LOG_INFO("%s: loaded %s backend from %s\n", __func__, ggml_backend_reg_name(reg), utf16_to_utf8(path).c_str());
-
-		register_backend(reg, std::move(handle));
-
-		return reg;
-	}
-
-	void unload_backend(ggml_backend_reg_t reg, bool silent) {
-		auto it = std::find_if(backends.begin(), backends.end(),
-			[reg](const ggml_backend_reg_entry& entry) { return entry.reg == reg; });
-
-		if (it == backends.end()) {
-			if (!silent) {
-				GGML_LOG_ERROR("%s: backend not found\n", __func__);
-			}
-			return;
-		}
-
-		if (!silent) {
-			GGML_LOG_DEBUG("%s: unloading %s backend\n", __func__, ggml_backend_reg_name(reg));
-		}
-
-		// remove devices
-		devices.erase(
-			std::remove_if(devices.begin(), devices.end(),
-				[reg](ggml_backend_dev_t dev) { return dev->get_backend_reg() == reg; }),
-			devices.end());
-
-		// remove backend
-		backends.erase(it);
-	}
+	void register_backend(ggml_backend_reg_t reg, dl_handle_ptr handle = nullptr);
+	void register_device(ggml_backend_dev_t device);
+	ggml_backend_reg_t load_backend(const std::wstring& path, bool silent);
+	void unload_backend(ggml_backend_reg_t reg, bool silent);
 };
 
 static ggml_backend_registry& get_reg() {
@@ -1008,6 +826,8 @@ export {
 	 bool ggml_is_view_op(enum ggml_op op) {
 		 return op == GGML_OP_VIEW || op == GGML_OP_RESHAPE || op == GGML_OP_PERMUTE || op == GGML_OP_TRANSPOSE;
 	 }
+
+	 std::string utf16_to_utf8(const std::wstring& str);
 
 	 // Remove later
 	 size_t ggml_backend_reg_count() {

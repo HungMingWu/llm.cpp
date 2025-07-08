@@ -60,13 +60,13 @@ target_sources(libggml
       types.cppm
       traits.cppm
       utility.cppm
+      os/os.cppm
   PRIVATE
     FILE_SET private_interface
     TYPE CXX_MODULES
     FILES
       host_buffer.cppm
       quants.cppm
-      os/os.cppm
   PRIVATE
       allocator.cpp
       backend.cpp

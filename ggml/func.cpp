@@ -4,6 +4,8 @@ module;
 #include <stdint.h>
 #include <string.h>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -301,4 +303,27 @@ bool ggml_backend_compare_graph_backend(ggml_backend_t backend1, ggml_backend_t 
     }
 
     return true;
+}
+
+std::string utf16_to_utf8(const std::wstring& str) {
+    std::string result;
+    result.reserve(str.size() * 2);
+    for (wchar_t wc : str) {
+        if (wc <= 0x7F) {
+            result.push_back(static_cast<char>(wc));
+        }
+        else if (wc <= 0x7FF) {
+            result.push_back(0xC0 | ((wc >> 6) & 0x1F));
+            result.push_back(0x80 | (wc & 0x3F));
+        }
+        else if (wc <= 0xFFFF) {
+            result.push_back(0xE0 | ((wc >> 12) & 0x0F));
+            result.push_back(0x80 | ((wc >> 6) & 0x3F));
+            result.push_back(0x80 | (wc & 0x3F));
+        }
+        else {
+            throw std::runtime_error("Character out of UTF-8 range");
+        }
+    }
+    return result;
 }
