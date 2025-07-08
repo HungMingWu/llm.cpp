@@ -148,4 +148,8 @@ export
 	bool ggml_can_repeat(const ggml_tensor* t0, const ggml_tensor* t1);
 
 	bool ggml_is_vector(const ggml_tensor* tensor);
+
+	ggml_tensor* ggml_view_tensor(
+		ggml_context* ctx,
+		ggml_tensor* src);
 }
