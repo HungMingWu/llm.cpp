@@ -1,22 +1,21 @@
 #include <mutex>
-#include "log.h"
 #include "common.h"
 #include "cuda_config.h"
-#include "internal_ds.h"
 #include "vendor_constant.h"
 
 #define GGML_ASSERT(...)
-#define GGML_LOG_ERROR(...)
 #define GGML_ABORT(...)
+
+import ggml;
 
 [[noreturn]]
 void ggml_cuda_error(const char* stmt, const char* func, const char* file, int line, const char* msg) {
     int id = -1; // in case cudaGetDevice fails
     cudaGetDevice(&id);
 
-    GGML_LOG_ERROR(GGML_CUDA_NAME " error: %s\n", msg);
-    GGML_LOG_ERROR("  current device: %d, in function %s at %s:%d\n", id, func, file, line);
-    GGML_LOG_ERROR("  %s\n", stmt);
+    GGML_LOG_ERROR(GGML_CUDA_NAME " error: %s", msg);
+    GGML_LOG_ERROR("  current device: {}, in function {} at {}:{}", id, func, file, line);
+    GGML_LOG_ERROR("  {}", stmt);
     // abort with GGML_ABORT to get a stack trace
     GGML_ABORT(GGML_CUDA_NAME " error");
 }
@@ -50,7 +49,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
 
     cudaError_t err = cudaGetDeviceCount(&info.device_count);
     if (err != cudaSuccess) {
-        GGML_LOG_ERROR("%s: failed to initialize " GGML_CUDA_NAME ": %s\n", __func__, cudaGetErrorString(err));
+        GGML_LOG_ERROR("{}: failed to initialize " GGML_CUDA_NAME ": {}", __func__, cudaGetErrorString(err));
         return info;
     }
 
@@ -58,16 +57,16 @@ static ggml_cuda_device_info ggml_cuda_init() {
 
     int64_t total_vram = 0;
 #ifdef GGML_CUDA_FORCE_MMQ
-    GGML_LOG_INFO1("{}: GGML_CUDA_FORCE_MMQ:    yes", __func__);
+    GGML_LOG_INFO("{}: GGML_CUDA_FORCE_MMQ:    yes", __func__);
 #else
-    GGML_LOG_INFO1("{}: GGML_CUDA_FORCE_MMQ:    no", __func__);
+    GGML_LOG_INFO("{}: GGML_CUDA_FORCE_MMQ:    no", __func__);
 #endif // GGML_CUDA_FORCE_MMQ
 #ifdef GGML_CUDA_FORCE_CUBLAS
-    GGML_LOG_INFO1("{}: GGML_CUDA_FORCE_CUBLAS: yes", __func__);
+    GGML_LOG_INFO("{}: GGML_CUDA_FORCE_CUBLAS: yes", __func__);
 #else
-    GGML_LOG_INFO1("{}: GGML_CUDA_FORCE_CUBLAS: no", __func__);
+    GGML_LOG_INFO("{}: GGML_CUDA_FORCE_CUBLAS: no", __func__);
 #endif // GGML_CUDA_FORCE_CUBLAS
-    GGML_LOG_INFO1("{}: found {} " GGML_CUDA_NAME " devices:", __func__, info.device_count);
+    GGML_LOG_INFO("{}: found {} " GGML_CUDA_NAME " devices:", __func__, info.device_count);
     for (int id = 0; id < info.device_count; ++id) {
         int device_vmm = 0;
 
@@ -88,7 +87,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
 
         cudaDeviceProp prop;
         CUDA_CHECK(cudaGetDeviceProperties(&prop, id));
-        GGML_LOG_INFO1("  Device {}: {}, compute capability {}.{}, VMM: {}", id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no");
+        GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}", id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no");
 
         info.default_tensor_split[id] = total_vram;
         total_vram += prop.totalGlobalMem;
@@ -110,19 +109,19 @@ static ggml_cuda_device_info ggml_cuda_init() {
                 info.devices[id].cc += prop.minor * 0x10;
             }
         }
-        GGML_LOG_INFO1("  Device {}: {}, {} (0x{:x}), VMM: {}, Wave Size: {}",
+        GGML_LOG_INFO("  Device {}: {}, {} (0x{:x}), VMM: {}, Wave Size: {}",
             id, prop.name, prop.gcnArchName, info.devices[id].cc & 0xffff,
             device_vmm ? "yes" : "no", prop.warpSize);
 #elif defined(GGML_USE_MUSA)
         // TODO: refine the .cc to reflect MUSA's actual CC capabilities
         info.devices[id].smpbo = prop.sharedMemPerBlockOptin;
         info.devices[id].cc = 100 * prop.major + 10 * prop.minor;
-        GGML_LOG_INFO1("  Device {}: {}, compute capability {}.{}, VMM: {}",
+        GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}",
             id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no");
 #else
         info.devices[id].smpbo = prop.sharedMemPerBlockOptin;
         info.devices[id].cc = 100 * prop.major + 10 * prop.minor;
-        GGML_LOG_INFO1("  Device {}: {}, compute capability {}.{}, VMM: {}",
+        GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}",
             id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no");
 #endif // defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
     }

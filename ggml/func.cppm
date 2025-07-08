@@ -11,9 +11,6 @@ module;
 #include <vector>
 #include "inplace_vector.hpp"
 
-#define GGML_LOG_DEBUG(...)
-#define GGML_LOG_ERROR(...)
-#define GGML_LOG_INFO(...)
 #include <assert.h>
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_ABORT(...)
@@ -23,6 +20,7 @@ module;
 export module ggml:func;
 import :alloc;
 import :ds;
+import :log;
 import :os;
 import :tensor;
 import :traits;
@@ -63,7 +61,7 @@ static bool alloc_tensor_range(ggml_context* ctx,
 
 	if (buffer == NULL) {
 #ifndef NDEBUG
-		GGML_LOG_DEBUG("%s: failed to allocate %s buffer of size %zu\n", __func__, ggml_backend_buft_name(buft), size);
+		GGML_LOG_DEBUG("{}: failed to allocate {} buffer of size {}", __func__, buft->get_name(), size);
 #endif
 		return false;
 	}
@@ -411,7 +409,7 @@ export {
 			 }
 #if 0
 			 if (this_size > max_size) {
-				 GGML_LOG_ERROR("%s: tensor %s is too large to fit in a %s buffer (tensor size: %zu, max buffer size: %zu)\n",
+				 GGML_LOG_ERROR("{}: tensor {} is too large to fit in a {} buffer (tensor size: {}, max buffer size: {})",
 					 __func__, t->name,
 					 ggml_backend_buft_name(buft),
 					 this_size, max_size);
@@ -440,7 +438,7 @@ export {
 
 		 if (buffers.empty()) {
 #ifndef NDEBUG
-			 GGML_LOG_DEBUG("%s: all tensors in the context are already allocated\n", __func__);
+			 GGML_LOG_DEBUG("{}: all tensors in the context are already allocated", __func__);
 #endif
 			 return nullptr;
 		 }

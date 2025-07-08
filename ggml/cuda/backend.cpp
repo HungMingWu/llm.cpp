@@ -16,8 +16,6 @@ module;
 
 #define GGML_ABORT(...)
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
-#define GGML_LOG_DEBUG(...)
-#define GGML_LOG_ERROR(...)
 
 #define GGML_UNUSED(x) (void)(x)
 #define GGML_TENSOR_LOCALS_1(type, prefix, pointer, array) \
@@ -528,7 +526,7 @@ struct ggml_cuda_pool_leg : public ggml_cuda_pool {
                 return;
             }
         }
-        GGML_LOG_DEBUG(GGML_CUDA_NAME " buffer pool full, increase MAX_CUDA_BUFFERS\n");
+        GGML_LOG_DEBUG(GGML_CUDA_NAME " buffer pool full, increase MAX_CUDA_BUFFERS");
         ggml_cuda_set_device(device);
         CUDA_CHECK(cudaFree(ptr));
         pool_size -= size;
@@ -1257,7 +1255,7 @@ bool ggml_backend_cuda::cpy_tensor_async(ggml_backend_t backend_src, const ggml_
 
     if (cuda_ctx_src->device != buf_ctx_src->device || device != buf_ctx_dst->device) {
 #ifndef NDEBUG
-        GGML_LOG_DEBUG("%s: backend and buffer devices do not match\n", __func__);
+        GGML_LOG_DEBUG("{}: backend and buffer devices do not match", __func__);
 #endif
         return false;
     }
@@ -1327,7 +1325,7 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
 
                 bool ok = compute_forward(node);
                 if (!ok) {
-                    GGML_LOG_ERROR("%s: op not supported %s (%s)\n", __func__, node->name, ggml_op_name(node->op));
+                    GGML_LOG_ERROR("{}: op not supported {} ({})", __func__, node->name, ggml_op_name(node->op));
                 }
                 GGML_ASSERT(ok);
             }
@@ -1397,7 +1395,7 @@ enum ggml_status ggml_backend_cuda::graph_compute_impl(ggml_cgraph* cgraph)
             if (ggml_cuda_info().devices[device].cc < GGML_CUDA_CC_AMPERE) {
                     cuda_graph.disable_due_to_gpu_arch = true;
 #ifndef NDEBUG
-                    GGML_LOG_DEBUG("%s: disabling CUDA graphs due to GPU architecture\n", __func__);
+                    GGML_LOG_DEBUG("{}: disabling CUDA graphs due to GPU architecture", __func__);
 #endif
             }
         }
@@ -1430,7 +1428,7 @@ enum ggml_status ggml_backend_cuda::graph_compute_impl(ggml_cgraph* cgraph)
             if (cuda_ctx->cuda_graph->number_consecutive_updates >= 4) {
                 cuda_ctx->cuda_graph->disable_due_to_too_many_updates = true;
 #ifndef NDEBUG
-                GGML_LOG_DEBUG("%s: disabling CUDA graphs due to too many consecutive updates\n", __func__);
+                GGML_LOG_DEBUG("{}: disabling CUDA graphs due to too many consecutive updates", __func__);
 #endif
             }
         }
@@ -1691,7 +1689,7 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
 
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
-        GGML_LOG_ERROR("%s: %s failed\n", __func__, ggml_op_desc(dst));
+        GGML_LOG_ERROR("{}: {} failed", __func__, ggml_op_desc(dst));
         CUDA_CHECK(err);
     }
 

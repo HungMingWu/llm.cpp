@@ -6,7 +6,6 @@ module;
 #include "cuda_pool.h"
 
 #define GGML_ASSERT(...)
-#define GGML_LOG_ERROR(...)
 #define GGML_ABORT(...)
 
 export module ggml:cuda.backend;

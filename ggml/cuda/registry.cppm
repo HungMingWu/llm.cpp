@@ -7,13 +7,13 @@ module;
 #include "common.h"
 #include "vendors/cuda.h"
 #define GGML_ASSERT(...)
-#define GGML_LOG_ERROR(...)
 #define GGML_ABORT(...)
 #define GGML_BACKEND_API_VERSION 1
 #define WARP_SIZE 32
 
 export module ggml:cuda.registry;
 import :ds;
+import :log;
 import :tensor;
 import :cuda.buffer;
 import :cuda.buffer_type;
@@ -524,7 +524,7 @@ export
 
     std::unique_ptr<ggml_backend> ggml_backend_cuda_init(int device) {
 		if (device < 0 || device >= ggml_backend_cuda_get_device_count()) {
-			GGML_LOG_ERROR("%s: invalid device %d\n", __func__, device);
+			GGML_LOG_ERROR("{}: invalid device {}", __func__, device);
 			return nullptr;
 		}
         auto cuda_device = ggml_backend_cuda_reg()->get_devices()[device];

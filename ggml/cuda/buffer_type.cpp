@@ -3,8 +3,6 @@ module;
 #include <memory>
 #include "common.h"
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
-#define GGML_LOG_ERROR(...)
-#define GGML_LOG_DEBUG(...)
 
 module ggml;
 import :host_buffer;
@@ -20,7 +18,7 @@ static void* ggml_cuda_host_malloc(size_t size) {
 	if (err != cudaSuccess) {
 		// clear the error
 		(void)cudaGetLastError();
-		GGML_LOG_DEBUG("%s: failed to allocate %.2f MiB of pinned memory: %s\n", __func__,
+		GGML_LOG_DEBUG("{}: failed to allocate {:.2} MiB of pinned memory: {}", __func__,
 			size / 1024.0 / 1024.0, cudaGetErrorString(err));
 		return nullptr;
 	}
@@ -41,7 +39,7 @@ std::unique_ptr<ggml_backend_buffer> cuda_backend_buffer_type::alloc_buffer_impl
 	if (err != cudaSuccess) {
 		// clear the error
 		cudaGetLastError();
-		GGML_LOG_ERROR("%s: allocating %.2f MiB on device %d: cudaMalloc failed: %s\n", __func__, size / 1024.0 / 1024.0, buft_ctx->device, cudaGetErrorString(err));
+		GGML_LOG_ERROR("{}: allocating {:.2} MiB on device {}: cudaMalloc failed: {}", __func__, size / 1024.0 / 1024.0, device, cudaGetErrorString(err));
 		return nullptr;
 	}
 

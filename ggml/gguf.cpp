@@ -5,8 +5,8 @@ module;
 #include <optional>
 #include <print>
 #include <string_view>
+#include <vector>
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
-#define GGML_LOG_ERROR(...)
 
 module ggml;
 
@@ -153,7 +153,7 @@ std::optional<gguf_context> gguf_init_from_file_impl(FILE* file) {
 
     if (ok && gr.read(ctx.version)) {
         if (ok && ctx.version == 0) {
-            GGML_LOG_ERROR("%s: bad GGUF version: %" PRIu32 "\n", __func__, ctx.version);
+            GGML_LOG_ERROR("{}: bad GGUF version: {}", __func__, ctx.version);
             ok = false;
         }
 
@@ -165,17 +165,17 @@ std::optional<gguf_context> gguf_init_from_file_impl(FILE* file) {
          * endianness as the host system.
         */
         if (ok && (ctx.version & 0x0000FFFF) == 0x00000000) {
-            GGML_LOG_ERROR("%s: failed to load model: this GGUF file version %" PRIu32 " is extremely large, is there a mismatch between the host and model endianness?\n", __func__, ctx->version);
+            GGML_LOG_ERROR("{}: failed to load model: this GGUF file version {} is extremely large, is there a mismatch between the host and model endianness?", __func__, ctx.version);
             ok = false;
         }
 
         if (ok && ctx.version == 1) {
-            GGML_LOG_ERROR("%s: GGUFv1 is no longer supported, please use a more up-to-date version\n", __func__);
+            GGML_LOG_ERROR("{}: GGUFv1 is no longer supported, please use a more up-to-date version", __func__);
             ok = false;
         }
         if (ok && ctx.version > GGUF_VERSION) {
-            GGML_LOG_ERROR("%s: this GGUF file is version %" PRIu32 " but this software only supports up to version %d\n",
-                __func__, ctx->version, GGUF_VERSION);
+            GGML_LOG_ERROR("{}: this GGUF file is version {} but this software only supports up to version %d\n",
+                __func__, ctx.version, GGUF_VERSION);
             ok = false;
         }
     }

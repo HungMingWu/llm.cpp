@@ -65,7 +65,6 @@
 
 #define MM256_SET_M128I(a, b) _mm256_insertf128_si256(_mm256_castsi128_si256(b), (a), 1)
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
-#define GGML_LOG_ERROR(...)
 
 module ggml;
 import :types;
@@ -390,7 +389,7 @@ namespace {
                 return mnpack<RM, RN - 1, BM>(m, n, SIZE_N, BN);
             }
             else {
-                GGML_LOG_ERROR("mnpack<%d, %d> bloc size not supported\n", RM, (int)SIZE_N);
+                GGML_LOG_ERROR("mnpack<{}, {}> bloc size not supported", RM, SIZE_N);
                 GGML_ASSERT(false); // we have miss something.
             }
         }

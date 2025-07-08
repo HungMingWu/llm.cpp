@@ -1,6 +1,5 @@
 module;
 #include <memory>
-#define GGML_LOG_ERROR(...)
 
 module ggml;
 import :alloc;
@@ -11,7 +10,7 @@ std::unique_ptr<ggml_backend_buffer> cpu_backend_buffer_type::alloc_buffer_impl(
 	void* data = internal::aligned_alloc(64, size);
 
 	if (data == nullptr) {
-		GGML_LOG_ERROR("%s: failed to allocate buffer of size %zu\n", __func__, size);
+		GGML_LOG_ERROR("{}: failed to allocate buffer of size {}", __func__, size);
 		return nullptr;
 	}
 

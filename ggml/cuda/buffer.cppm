@@ -7,8 +7,6 @@ module;
 #include <utility>
 #include "common.h"
 
-#define GGML_LOG_DEBUG(...)
-#define GGML_LOG_ERROR(...)
 #define GGML_ASSERT(...)
 
 export module ggml:cuda.buffer;

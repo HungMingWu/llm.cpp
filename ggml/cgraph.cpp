@@ -9,10 +9,10 @@ module;
 
 module ggml;
 import :ds;
+import :log;
 import :tensor;
 import :traits;
 
-#define GGML_LOG_INFO(...)
 #define GGML_ABORT(...)
 #define GGML_ASSERT(...)
 #define GGML_PRINT_DEBUG(...)
@@ -899,29 +899,29 @@ void ggml_cgraph::build_backward_expand(ggml_context* ctx, ggml_tensor** grad_ac
 void graph_print(const ggml_cgraph* cgraph) {
     GGML_LOG_INFO("=== GRAPH ===\n");
 
-    GGML_LOG_INFO("n_nodes = %d\n", cgraph->nodes.size());
+    GGML_LOG_INFO("n_nodes = {}", cgraph->nodes.size());
     for (size_t i = 0; i < cgraph->nodes.size(); i++) {
         auto &node = cgraph->nodes[i];
 
-        GGML_LOG_INFO(" - %3d: [ %5" PRId64 ", %5" PRId64 ", %5" PRId64 "] %16s %s\n",
+        GGML_LOG_INFO(" - {:3}: [ {:5}, {:5}, {:5}] {:16} {}",
             i,
             node->ne[0], node->ne[1], node->ne[2],
             ggml_op_name(node->op), (node->flags & GGML_TENSOR_FLAG_PARAM) ? "x" :
             ggml_graph_get_grad(cgraph, node) ? "g" : " ");
     }
 
-    GGML_LOG_INFO("n_leafs = %d\n", cgraph->leafs.size());
+    GGML_LOG_INFO("n_leafs = {}", cgraph->leafs.size());
     for (size_t i = 0; i < cgraph->leafs.size(); i++) {
         auto &node = cgraph->leafs[i];
 
-        GGML_LOG_INFO(" - %3d: [ %5" PRId64 ", %5" PRId64 "] %8s %16s\n",
+        GGML_LOG_INFO(" - {:3}: [ {:5}, {:5}] {:8} {:16}",
             i,
             node->ne[0], node->ne[1],
             ggml_op_name(node->op),
-            ggml_get_name(node));
+            node->get_name());
     }
 
-    GGML_LOG_INFO("========================================\n");
+    GGML_LOG_INFO("========================================");
 }
 
 static ggml_tensor* ggml_graph_get_parent(const ggml_cgraph* cgraph, const ggml_tensor* node)

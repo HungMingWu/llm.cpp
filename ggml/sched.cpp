@@ -9,14 +9,7 @@ module;
 #include <unordered_map>
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
-#define GGML_LOG_ERROR(...)
 #define GGML_ABORT(...)
-
-template <typename ...Args>
-void GGML_LOG_DEBUG(std::format_string<Args...> fmt, Args... args) {
-    auto output = std::vformat(fmt.get(), std::make_format_args(args...));
-    printf("%s", output.c_str());
-}
 
 #ifndef GGML_SCHED_MAX_BACKENDS
 #define GGML_SCHED_MAX_BACKENDS 16
@@ -749,11 +742,11 @@ bool ggml_backend_sched::alloc_splits() {
             backends[i]->synchronize();
         }
 #ifndef NDEBUG
-        GGML_LOG_DEBUG("%s: failed to allocate graph, reserving (backend_ids_changed = %d)\n", __func__, backend_ids_changed);
+        GGML_LOG_DEBUG("{}: failed to allocate graph, reserving (backend_ids_changed = {})", __func__, backend_ids_changed);
 #endif
         galloc->reserve(graph, node_backend_ids, leaf_backend_ids);
         if (!galloc->alloc_graph(&graph)) {
-            GGML_LOG_ERROR("%s: failed to allocate graph\n", __func__);
+            GGML_LOG_ERROR("{}: failed to allocate graph", __func__);
             return false;
         }
     }

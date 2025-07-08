@@ -4,13 +4,11 @@ module;
 #include <vector>
 
 #define GGML_USE_CPU
-#define GGML_LOG_DEBUG(...)
-#define GGML_LOG_INFO(...)
-#define GGML_LOG_ERROR(...)
 
 #define GGML_BACKEND_API_VERSION 1
 
 module ggml;
+import :log;
 
 ggml_backend_registry::ggml_backend_registry() {
 #ifdef GGML_USE_CUDA
@@ -61,8 +59,8 @@ void ggml_backend_registry::register_backend(ggml_backend_reg_t reg, dl_handle_p
 	}
 
 #ifndef NDEBUG
-	GGML_LOG_DEBUG("%s: registered backend %s (%zu devices)\n",
-		__func__, ggml_backend_reg_name(reg), ggml_backend_reg_dev_count(reg));
+	GGML_LOG_DEBUG("{}: registered backend {} ({} devices)",
+		__func__, reg->get_name(), reg->get_device_count());
 #endif
 	backends.push_back({ reg, std::move(handle) });
 	for (auto dev : reg->get_devices())
@@ -71,7 +69,7 @@ void ggml_backend_registry::register_backend(ggml_backend_reg_t reg, dl_handle_p
 
 void ggml_backend_registry::register_device(ggml_backend_dev_t device) {
 #ifndef NDEBUG
-	GGML_LOG_DEBUG("%s: registered device %s (%s)\n", __func__, ggml_backend_dev_name(device), ggml_backend_dev_description(device));
+	GGML_LOG_DEBUG("{}: registered device {} ({})", __func__, device->get_name(), device->get_description());
 #endif
 	devices.push_back(device);
 }
@@ -81,7 +79,7 @@ ggml_backend_reg_t ggml_backend_registry::load_backend(const std::wstring& path,
 	dl_handle_ptr handle{ dl_load_library(path) };
 	if (!handle) {
 		if (!silent) {
-			GGML_LOG_ERROR("%s: failed to load %s\n", __func__, utf16_to_utf8(path).c_str());
+			GGML_LOG_ERROR("{}: failed to load {}", __func__, utf16_to_utf8(path));
 		}
 		return nullptr;
 	}
@@ -89,7 +87,7 @@ ggml_backend_reg_t ggml_backend_registry::load_backend(const std::wstring& path,
 	auto score_fn = (ggml_backend_score_t)dl_get_sym(handle.get(), "ggml_backend_score");
 	if (score_fn && score_fn() == 0) {
 		if (!silent) {
-			GGML_LOG_INFO("%s: backend %s is not supported on this system\n", __func__, utf16_to_utf8(path).c_str());
+			GGML_LOG_INFO("{}: backend {} is not supported on this system", __func__, utf16_to_utf8(path));
 		}
 		return nullptr;
 	}
@@ -97,7 +95,7 @@ ggml_backend_reg_t ggml_backend_registry::load_backend(const std::wstring& path,
 	auto backend_init_fn = (ggml_backend_init_t)dl_get_sym(handle.get(), "ggml_backend_init");
 	if (!backend_init_fn) {
 		if (!silent) {
-			GGML_LOG_ERROR("%s: failed to find ggml_backend_init in %s\n", __func__, utf16_to_utf8(path).c_str());
+			GGML_LOG_ERROR("{}: failed to find ggml_backend_init in {}", __func__, utf16_to_utf8(path));
 		}
 		return nullptr;
 	}
@@ -106,17 +104,17 @@ ggml_backend_reg_t ggml_backend_registry::load_backend(const std::wstring& path,
 	if (!reg || reg->api_version != GGML_BACKEND_API_VERSION) {
 		if (!silent) {
 			if (!reg) {
-				GGML_LOG_ERROR("%s: failed to initialize backend from %s: ggml_backend_init returned NULL\n", __func__, utf16_to_utf8(path).c_str());
+				GGML_LOG_ERROR("{}: failed to initialize backend from {}: ggml_backend_init returned NULL", __func__, utf16_to_utf8(path));
 			}
 			else {
-				GGML_LOG_ERROR("%s: failed to initialize backend from %s: incompatible API version (backend: %d, current: %d)\n",
-					__func__, utf16_to_utf8(path).c_str(), reg->api_version, GGML_BACKEND_API_VERSION);
+				GGML_LOG_ERROR("{}: failed to initialize backend from {}: incompatible API version (backend: {}, current: {})\n",
+					__func__, utf16_to_utf8(path), reg->api_version, GGML_BACKEND_API_VERSION);
 			}
 		}
 		return nullptr;
 	}
 
-	GGML_LOG_INFO("%s: loaded %s backend from %s\n", __func__, ggml_backend_reg_name(reg), utf16_to_utf8(path).c_str());
+	GGML_LOG_INFO("{}: loaded {} backend from {}", __func__, reg->get_name(), utf16_to_utf8(path));
 
 	register_backend(reg, std::move(handle));
 
@@ -129,13 +127,13 @@ void ggml_backend_registry::unload_backend(ggml_backend_reg_t reg, bool silent) 
 
 	if (it == backends.end()) {
 		if (!silent) {
-			GGML_LOG_ERROR("%s: backend not found\n", __func__);
+			GGML_LOG_ERROR("{}: backend not found", __func__);
 		}
 		return;
 	}
 
 	if (!silent) {
-		GGML_LOG_DEBUG("%s: unloading %s backend\n", __func__, ggml_backend_reg_name(reg));
+		GGML_LOG_DEBUG("{}: unloading {} backend\n", __func__, reg->get_name());
 	}
 
 	// remove devices

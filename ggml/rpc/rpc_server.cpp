@@ -14,7 +14,6 @@ module;
 namespace fs = std::filesystem;
 
 #define GGML_PRINT_DEBUG(...)
-#define GGML_LOG_ERROR(...)
 
 module ggml;
 import :rpc.ds;
@@ -35,7 +34,7 @@ bool rpc_server::get_alloc_size(const rpc_msg_get_alloc_size_req& request, rpc_m
     ggml_tensor* tensor = deserialize_tensor(&ctx, &request.tensor);
 
     if (tensor == nullptr) {
-        GGML_LOG_ERROR("Null tensor pointer passed to server get_alloc_size function.\n");
+        GGML_LOG_ERROR("Null tensor pointer passed to server get_alloc_size function.");
         return false;
     }
 
@@ -63,7 +62,7 @@ void rpc_server::alloc_buffer(const rpc_msg_alloc_buffer_req& request, rpc_msg_a
         buffers.insert(buffer.release());
     }
     else {
-        GGML_LOG_ERROR("[%s] size: %" PRIu64 " -> failed\n", __func__, request.size);
+        GGML_LOG_ERROR("[{}] size: {} -> failed\n", __func__, request.size);
     }
 }
 
@@ -85,7 +84,7 @@ bool rpc_server::buffer_get_base(const rpc_msg_buffer_get_base_req& request, rpc
     GGML_PRINT_DEBUG("[%s] remote_ptr: %" PRIx64 "\n", __func__, request.remote_ptr);
     ggml_backend_buffer_t buffer = reinterpret_cast<ggml_backend_buffer_t>(request.remote_ptr);
     if (buffers.find(buffer) == buffers.end()) {
-        GGML_LOG_ERROR("[%s] buffer not found\n", __func__);
+        GGML_LOG_ERROR("[{}] buffer not found", __func__);
         return false;
     }
     void* base = buffer->get_base();
@@ -97,7 +96,7 @@ bool rpc_server::free_buffer(const rpc_msg_free_buffer_req& request) {
     GGML_PRINT_DEBUG("[%s] remote_ptr: %" PRIx64 "\n", __func__, request.remote_ptr);
     ggml_backend_buffer_t buffer = reinterpret_cast<ggml_backend_buffer_t>(request.remote_ptr);
     if (buffers.find(buffer) == buffers.end()) {
-        GGML_LOG_ERROR("[%s] buffer not found\n", __func__);
+        GGML_LOG_ERROR("[{}] buffer not found", __func__);
         return false;
     }
     delete buffer;
@@ -109,7 +108,7 @@ bool rpc_server::buffer_clear(const rpc_msg_buffer_clear_req& request) {
     GGML_PRINT_DEBUG("[%s] remote_ptr: %" PRIx64 ", value: %u\n", __func__, request.remote_ptr, request.value);
     ggml_backend_buffer_t buffer = reinterpret_cast<ggml_backend_buffer_t>(request.remote_ptr);
     if (buffers.find(buffer) == buffers.end()) {
-        GGML_LOG_ERROR("[%s] buffer not found\n", __func__);
+        GGML_LOG_ERROR("[{}] buffer not found", __func__);
         return false;
     }
     buffer->clear(request.value);
@@ -119,7 +118,7 @@ bool rpc_server::buffer_clear(const rpc_msg_buffer_clear_req& request) {
 ggml_tensor* rpc_server::deserialize_tensor(struct ggml_context* ctx, const rpc_tensor* tensor) {
     // Validate tensor type before using it
     if (tensor->type >= GGML_TYPE_COUNT) {
-        GGML_LOG_ERROR("[%s] invalid tensor type received: %u\n", __func__, tensor->type);
+        GGML_LOG_ERROR("[{}] invalid tensor type received: {}", __func__, tensor->type);
         return nullptr;
     }
 
@@ -128,7 +127,7 @@ ggml_tensor* rpc_server::deserialize_tensor(struct ggml_context* ctx, const rpc_
 
     // ggml_new_tensor_4d might fail if dimensions are invalid, although less likely to crash than invalid type
     if (result == nullptr) {
-        GGML_LOG_ERROR("[%s] ggml_new_tensor_4d failed for type %u\\n", __func__, tensor->type);
+        GGML_LOG_ERROR("[{}] ggml_new_tensor_4d failed for type {}", __func__, tensor->type);
         return nullptr;
     }
 
@@ -173,7 +172,7 @@ bool rpc_server::set_tensor(const std::vector<uint8_t>& input) {
     ggml_context ctx;
     ggml_tensor* tensor = deserialize_tensor(&ctx, in_tensor);
     if (tensor == nullptr) {
-        GGML_LOG_ERROR("[%s] error deserializing tensor\n", __func__);
+        GGML_LOG_ERROR("[{}] error deserializing tensor", __func__);
         return false;
     }
     GGML_PRINT_DEBUG("[%s] buffer: %p, data: %p, offset: %" PRIu64 ", size: %zu\n", __func__, (void*)tensor->buffer, tensor->data, offset, size);
@@ -184,7 +183,7 @@ bool rpc_server::set_tensor(const std::vector<uint8_t>& input) {
         const size_t p1 = p0 + tensor->buffer->get_size();
 
         if (in_tensor->data + offset < p0 || in_tensor->data + offset >= p1 || size >(p1 - in_tensor->data - offset)) {
-            GGML_LOG_ERROR("[%s] tensor data region (data=0x%" PRIx64 ", offset=%" PRIu64 ", size=%zu) out of buffer bounds [0x%zx, 0x%zx)\n",
+            GGML_LOG_ERROR("[{}] tensor data region (data=0x{:x}, offset={}, size={}) out of buffer bounds [0x{:x}, 0x{:x})",
                 __func__, in_tensor->data, offset, size, p0, p1);
             return false;
         }
@@ -233,7 +232,7 @@ bool rpc_server::set_tensor_hash(const rpc_msg_set_tensor_hash_req& request, rpc
     ggml_context ctx;
     ggml_tensor* tensor = deserialize_tensor(&ctx, &request.tensor);
     if (tensor == nullptr) {
-        GGML_LOG_ERROR("[%s] error deserializing tensor\n", __func__);
+        GGML_LOG_ERROR("[{}] error deserializing tensor", __func__);
         return false;
     }
     GGML_PRINT_DEBUG("[%s] buffer: %p, data: %p, offset: %" PRIu64 ", size: %zu, hash: %" PRIx64 "\n",
@@ -247,7 +246,7 @@ bool rpc_server::set_tensor_hash(const rpc_msg_set_tensor_hash_req& request, rpc
         if (request.tensor.data + request.offset < p0
             || request.tensor.data + request.offset >= p1
             || size >(p1 - request.tensor.data - request.offset)) {
-            GGML_LOG_ERROR("[%s] tensor data region (data=0x%" PRIx64 ", offset=%" PRIu64 ", size=%zu, hash=0x%" PRIx64 ") out of buffer bounds [0x%zx, 0x%zx)\n",
+            GGML_LOG_ERROR("[{}] tensor data region (data=0x{:x}, offset={}, size={}, hash=0x{:x}) out of buffer bounds [0x{:x}, 0x{:x})",
                 __func__, request.tensor.data, request.offset, size, request.hash, p0, p1);
             return false;
         }
@@ -261,7 +260,7 @@ bool rpc_server::init_tensor(const rpc_msg_init_tensor_req& request) {
     ggml_context ctx;
     ggml_tensor* tensor = deserialize_tensor(&ctx, &request.tensor);
     if (tensor == nullptr) {
-        GGML_LOG_ERROR("Null tensor pointer passed to server init_tensor function.\n");
+        GGML_LOG_ERROR("Null tensor pointer passed to server init_tensor function.");
         return false;
     }
 
@@ -271,13 +270,13 @@ bool rpc_server::init_tensor(const rpc_msg_init_tensor_req& request) {
         buffer->init_tensor(tensor);
     }
     else {
-        GGML_LOG_ERROR("Null buffer for tensor passed to init_tensor function\n");
+        GGML_LOG_ERROR("Null buffer for tensor passed to init_tensor function");
     }
 
     if (tensor->extra != nullptr) {
         // This pointer can either be passed around client/server, or probably better stored server-side and kept track of.
         // Currently unimplemented.
-        GGML_LOG_ERROR("tensor->extra populated by the backend, this is currently unsupported.\n");
+        GGML_LOG_ERROR("tensor->extra populated by the backend, this is currently unsupported.");
         return false;
     }
 
@@ -288,7 +287,7 @@ bool rpc_server::get_tensor(const rpc_msg_get_tensor_req& request, std::vector<u
     ggml_context ctx;
     ggml_tensor* tensor = deserialize_tensor(&ctx, &request.tensor);
     if (tensor == nullptr) {
-        GGML_LOG_ERROR("[%s] error deserializing tensor\n", __func__);
+        GGML_LOG_ERROR("[{}] error deserializing tensor", __func__);
         return false;
     }
     GGML_PRINT_DEBUG("[%s] buffer: %p, data: %p, offset: %" PRIu64 ", size: %" PRIu64 "\n", __func__, (void*)tensor->buffer, tensor->data, request.offset, request.size);
@@ -301,7 +300,7 @@ bool rpc_server::get_tensor(const rpc_msg_get_tensor_req& request, std::vector<u
         if (request.tensor.data + request.offset < p0 ||
             request.tensor.data + request.offset >= p1 ||
             request.size >(p1 - request.tensor.data - request.offset)) {
-            GGML_LOG_ERROR("[%s] requested tensor region (data=0x%" PRIx64 ", offset=%" PRIu64 ", size=%" PRIu64 ") out of buffer bounds [0x%zx, 0x%zx)\n",
+            GGML_LOG_ERROR("[{}] requested tensor region (data=0x{:x}, offset={}, size={}) out of buffer bounds [0x{:x}, 0x{:x})",
                 __func__, request.tensor.data, request.offset, request.size, p0, p1);
             return false;
         }
@@ -318,7 +317,7 @@ bool rpc_server::copy_tensor(const rpc_msg_copy_tensor_req& request, rpc_msg_cop
     ggml_tensor* src = deserialize_tensor(&ctx, &request.src);
     ggml_tensor* dst = deserialize_tensor(&ctx, &request.dst);
     if (src == nullptr || dst == nullptr) {
-        GGML_LOG_ERROR("[%s] error deserializing tensors\n", __func__);
+        GGML_LOG_ERROR("[{}] error deserializing tensors", __func__);
         return false;
     }
 
@@ -374,7 +373,7 @@ ggml_tensor* rpc_server::create_node(uint64_t id,
             result->src[i] = create_node(tensor->src[i], ctx, tensor_ptrs, tensor_map);
             // If the recursive call failed for a non-zero ID, propagate the error
             if (result->src[i] == nullptr) {
-                GGML_LOG_ERROR("[%s] failed to create source node %d (src_id=%" PRIu64 ") for node id %" PRIu64 "\n",
+                GGML_LOG_ERROR("[{}] failed to create source node {} (src_id={}) for node id {}",
                     __func__, i, tensor->src[i], id);
                 // Must return nullptr to signal failure up the call stack
                 return nullptr;
@@ -390,7 +389,7 @@ ggml_tensor* rpc_server::create_node(uint64_t id,
         result->view_src = create_node(tensor->view_src, ctx, tensor_ptrs, tensor_map);
         // If the recursive call failed for a non-zero ID, propagate the error
         if (result->view_src == nullptr) {
-            GGML_LOG_ERROR("[%s] failed to create view_src node (view_src_id=%" PRIu64 ") for node id %" PRIu64 "\n",
+            GGML_LOG_ERROR("[{}] failed to create view_src node (view_src_id={}) for node id {}",
                 __func__, tensor->view_src, id);
             // Must return nullptr to signal failure up the call stack
             return nullptr;
@@ -436,7 +435,7 @@ bool rpc_server::graph_compute(const std::vector<uint8_t>& input, rpc_msg_graph_
         // If id was 0, create_node returning nullptr is expected.
         // If id was non-zero and create_node returned nullptr, it indicates a deserialization error.
         if (graph.nodes.back() == nullptr && id != 0) {
-            GGML_LOG_ERROR("[%s] failed to create graph node %d (id=%" PRId64 ")\n", __func__, i, id);
+            GGML_LOG_ERROR("[{}] failed to create graph node {} (id={})", __func__, i, id);
             return false;
         }
     }
