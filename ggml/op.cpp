@@ -2317,3 +2317,17 @@ ggml_tensor* ggml_pad_reflect_1d(
 
 	return result;
 }
+
+ggml_tensor* ggml_argmax(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	GGML_ASSERT(ggml_is_matrix(a));
+	GGML_ASSERT(a->ne[0] <= INT32_MAX);
+
+	ggml_tensor* result = ctx->create(GGML_TYPE_I32, { a->ne[1] });
+
+	result->op = GGML_OP_ARGMAX;
+	result->src.push_back(a);
+
+	return result;
+}

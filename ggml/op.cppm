@@ -752,4 +752,8 @@ export {
 		ggml_tensor* a,
 		int p0,
 		int p1);
+
+	ggml_tensor* ggml_argmax(
+		ggml_context* ctx,
+		ggml_tensor* a);
 }
