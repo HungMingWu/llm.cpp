@@ -25,7 +25,6 @@ export namespace chatllm
 
         size_t element_size(const ggml::tensor* tensor);
         size_t nbytes(const ggml::tensor* tensor);
-        size_t tensor_overhead(void);
         int64_t nrows(const ggml::tensor* tensor);
         int64_t nelements(const ggml::tensor* tensor);
         int64_t block_size(const ggml::tensor* tensor);
@@ -358,8 +357,6 @@ export namespace chatllm
 
         ggml_backend_t backend_cpu = nullptr;
 
-        // memory buffers used to evaluate the model
-        std::vector<uint8_t> buf_compute_meta;
         std::unique_ptr<ggml_backend_sched> sched;
 
         // host buffer for the model output (logits and embeddings)

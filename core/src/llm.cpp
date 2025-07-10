@@ -10325,8 +10325,6 @@ struct llama_context {
     std::vector<float> embd_enc;
     std::vector<std::set<llama_seq_id>> seq_ids_enc;
 
-    // memory buffers used to evaluate the model
-    std::vector<uint8_t> buf_compute_meta;
     ggml_backend_sched_ptr sched;
 
     ggml_abort_callback abort_callback = nullptr;
@@ -11533,8 +11531,6 @@ struct llm_build_context {
 
     const llm_build_cb& cb;
 
-    std::vector<uint8_t>& buf_compute_meta;
-
     ggml_context* ctx0 = nullptr;
 
     // TODO: consider making the entire interface noexcept
@@ -11578,8 +11574,7 @@ struct llm_build_context {
         flash_attn(cparams.flash_attn),
         pooling_type(cparams.pooling_type),
         rope_type(hparams.rope_type),
-        cb(cb),
-        buf_compute_meta(lctx.buf_compute_meta) {
+        cb(cb) {
         // all initializations should be done in init()
     }
 
@@ -18807,9 +18802,6 @@ llama_context* llama_new_context_with_model(
             }
 
             const size_t max_nodes = llama_model_max_nodes(*model);
-
-            // buffer used to store the computation graph and the tensor meta data
-            ctx->buf_compute_meta.resize(ggml_tensor_overhead() * max_nodes);
 
             // TODO: move these checks to ggml_backend_sched
             // enabling pipeline parallelism in the scheduler increases memory usage, so it is only done when necessary

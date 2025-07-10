@@ -163,10 +163,6 @@ export
 		return std::make_unique<ggml_context>();
 	}
 
-    constexpr size_t ggml_tensor_overhead() {
-        return sizeof(ggml_object) + sizeof(ggml_tensor);
-    }
-
 	float* ggml_get_data_f32(const ggml_tensor* tensor) {
 		assert(tensor->type == GGML_TYPE_F32);
 		return (float*)(tensor->data);

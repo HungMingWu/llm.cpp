@@ -276,11 +276,6 @@ namespace chatllm
         return tensor->nbytes();
     }
 
-    size_t ggml::tensor_overhead(void)
-    {
-        return ggml_tensor_overhead();
-    }
-
     int ggml::n_dims(const ggml::tensor* tensor)
     {
         return ggml_n_dims(tensor);
