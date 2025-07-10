@@ -244,11 +244,6 @@ export {
 		return dev->init_backend(params);
 	}
 
-	ggml_cgraph* ggml_new_graph_custom(ggml_context* ctx, size_t size, bool grads) {
-		// TODO
-		return nullptr;
-	}
-
 	struct ggml_tensor* ggml_cast(
 		struct ggml_context* ctx,
 		struct ggml_tensor* a,

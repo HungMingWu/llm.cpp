@@ -195,7 +195,6 @@ export namespace chatllm
         void mul_mat_set_prec(ggml::tensor* a, ggml::prec prec);
         bool is_contiguous(const ggml::tensor* a);
 
-        struct ggml_cgraph* new_graph_custom(ComputeContext* ctx, size_t size, bool grads);
         void build_forward_expand(ComputeContext* ctx, ggml::tensor* tensor);
     };
 

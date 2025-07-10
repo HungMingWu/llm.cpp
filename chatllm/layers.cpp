@@ -992,11 +992,6 @@ namespace chatllm
         return reshaped_seq;
     }
 
-    struct ggml_cgraph* ggml::new_graph_custom(ComputeContext* ctx, size_t size, bool grads)
-    {
-        return ggml_new_graph_custom(ctx->get_ctx(), size, grads);
-    }
-
     void ggml::build_forward_expand(ComputeContext* ctx, ggml::tensor* tensor)
     {
         ctx->get_cgraph()->build_forward_expand(tensor);

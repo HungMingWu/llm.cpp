@@ -10556,10 +10556,6 @@ static size_t llama_output_reserve(llama_context& lctx, size_t n_outputs) {
     return n_outputs_max;
 }
 
-static size_t llama_model_max_nodes(const llama_model& model) {
-    return std::max<size_t>(8192, model.tensors_by_name.size() * 5);
-}
-
 llama_token llama_token_bos_impl(const struct llama_vocab& vocab) {
     return vocab.type != LLAMA_VOCAB_TYPE_WPM ? vocab.special_bos_id : vocab.special_cls_id;
 }
@@ -11604,7 +11600,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_k_shift() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         GGML_ASSERT(kv_self.size == n_ctx);
 
@@ -11655,7 +11651,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_defrag(const std::vector<uint32_t>& ids) {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         for (uint32_t i = 0; i < ids.size(); ++i) {
             const uint32_t id = ids[i];
@@ -11917,7 +11913,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_llama() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -12081,7 +12077,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_deci() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -12244,7 +12240,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_baichuan() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -12359,7 +12355,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_xverse() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -12462,7 +12458,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_falcon() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa();
@@ -12583,7 +12579,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_grok() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -12740,7 +12736,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_dbrx() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -12866,7 +12862,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_starcoder() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa();
@@ -12970,7 +12966,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_refact() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -13064,7 +13060,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_bert() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa();
@@ -13261,7 +13257,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_bloom() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa();
@@ -13362,7 +13358,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_mpt() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa();
@@ -13654,7 +13650,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_qwen() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -13766,7 +13762,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_qwen2() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -13878,7 +13874,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_qwen2vl() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
         GGML_ASSERT(n_embd_head == hparams.n_rot);
@@ -13996,7 +13992,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_qwen2moe() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -14142,7 +14138,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_phi2() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa();
@@ -14264,7 +14260,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_phi3() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa();
@@ -14503,7 +14499,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_gpt2() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa();
@@ -14608,7 +14604,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_codeshell() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa();
@@ -14719,7 +14715,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_orion() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -14837,7 +14833,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_internlm2() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -14955,7 +14951,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_minicpm3() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         //TODO: if the model varies, these parameters need to be read from the model
         const int64_t n_embd_base = 256;
@@ -15164,7 +15160,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_gemma() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head_k = hparams.n_embd_head_k;
 
@@ -15272,7 +15268,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_gemma2() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head_k = hparams.n_embd_head_k;
 
@@ -15408,7 +15404,7 @@ struct llm_build_context {
 
 
     ggml_cgraph* build_starcoder2() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -15527,7 +15523,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_mamba() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         struct ggml_tensor* cur;
         struct ggml_tensor* inpL;
@@ -15582,7 +15578,7 @@ struct llm_build_context {
 
     ggml_cgraph* build_command_r() {
 
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -15736,7 +15732,7 @@ struct llm_build_context {
     //   * removed bias
     //   * removed MoE
     ggml_cgraph* build_olmo() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -15860,7 +15856,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_olmo2() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -15988,7 +15984,7 @@ struct llm_build_context {
     //   * removed bias
     //   * added q, k norm
     ggml_cgraph* build_olmoe() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -16112,7 +16108,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_openelm() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -16237,7 +16233,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_gptneox() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa();
@@ -16380,7 +16376,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_arctic() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -16512,7 +16508,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_deepseek() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -16668,7 +16664,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_deepseek2() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -16898,7 +16894,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_bitnet() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -17049,7 +17045,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_t5_enc() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -17181,7 +17177,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_t5_dec() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -17386,7 +17382,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_jais() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa();
@@ -17478,7 +17474,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_chatglm() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa();
@@ -17592,7 +17588,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_nemotron() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         const int64_t n_embd_head = hparams.n_embd_head_v;
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -17713,7 +17709,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_exaone() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -17840,7 +17836,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_rwkv6() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // Token shift state dimensions should be 2 * n_emb
         GGML_ASSERT(n_embd == hparams.n_embd_k_s() / 2);
@@ -17957,7 +17953,7 @@ struct llm_build_context {
     //   * removed bias
     //   * removed MoE
     ggml_cgraph* build_chameleon() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         // mutable variable, needed during the last layer of the computation to skip unused tokens
         int32_t n_tokens = this->n_tokens;
@@ -18130,7 +18126,7 @@ struct llm_build_context {
     }
 
     ggml_cgraph* build_wavtokenizer_dec() {
-        ggml_cgraph* gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
+        ggml_cgraph* gf = new ggml_cgraph;
 
         struct ggml_tensor* cur;
         struct ggml_tensor* inpL;
@@ -18800,8 +18796,6 @@ llama_context* llama_new_context_with_model(
                 backend_buft.push_back(buft);
                 backend_ptrs.push_back(backend.get());
             }
-
-            const size_t max_nodes = llama_model_max_nodes(*model);
 
             // TODO: move these checks to ggml_backend_sched
             // enabling pipeline parallelism in the scheduler increases memory usage, so it is only done when necessary
