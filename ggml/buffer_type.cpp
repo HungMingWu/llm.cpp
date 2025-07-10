@@ -1,5 +1,6 @@
 module;
 #include <memory>
+#include <vector>
 
 module ggml;
 
