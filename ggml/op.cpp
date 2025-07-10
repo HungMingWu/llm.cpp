@@ -1232,6 +1232,10 @@ ggml_tensor* ggml_sub(
 	return build(false, ctx, a, GGML_OP_SUB, a, b);;
 }
 
+static int64_t ggml_calc_conv_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
+	return (ins + 2 * p - d * (ks - 1) - 1) / s + 1;
+}
+
 ggml_tensor* ggml_conv_2d_dw_direct(
 	ggml_context* ctx,
 	ggml_tensor* a,

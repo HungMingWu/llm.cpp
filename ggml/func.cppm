@@ -186,10 +186,6 @@ export {
 		memcpy(tensor.op_params, params, params_size);
 	}
 
-	int64_t ggml_calc_conv_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
-		return (ins + 2 * p - d * (ks - 1) - 1) / s + 1;
-	}
-
 	ggml_backend_t ggml_backend_init_by_type(enum ggml_backend_dev_type type, const char* params) {
 		ggml_backend_dev_t dev = ggml_backend_dev_by_type(type);
 		if (!dev) {
