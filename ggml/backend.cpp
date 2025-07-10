@@ -25,3 +25,14 @@ void ggml_backend::get_tensor_async(const ggml_tensor* tensor, void* data, size_
 
     get_tensor_async_impl(tensor, data, offset, size);
 }
+
+ggml_status ggml_backend::graph_compute(ggml_cgraph* cgraph) {
+    enum ggml_status err = graph_compute_impl(cgraph);
+    synchronize();
+    return err;
+}
+
+std::unique_ptr<ggml_backend_buffer> ggml_backend::alloc_tensors(ggml_context* ctx)
+{
+    return ggml_backend_alloc_ctx_tensors_from_buft(ctx, get_default_buffer_type());
+}

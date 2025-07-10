@@ -448,10 +448,6 @@ export {
 
 	 }
 
-	 std::unique_ptr<ggml_backend_buffer> ggml_backend_alloc_ctx_tensors(ggml_context* ctx, ggml_backend_t backend) {
-		 return ggml_backend_alloc_ctx_tensors_from_buft(ctx, backend->get_default_buffer_type());
-	 }
-
 	 void ggml_backend_tensor_get(const ggml_tensor* tensor, void* data, size_t offset, size_t size) {
 		 GGML_ASSERT(tensor);
 		 ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;

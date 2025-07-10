@@ -84,10 +84,9 @@ bool test_roll(std::array<int64_t, 4> ne, std::array<int, 4> shift, bool permute
     gf.build_forward_expand(res);
 
     // Create backend & allocate buffers
-    std::unique_ptr<ggml_backend> backend_ptr = ggml_backend_cpu_init();
-    ggml_backend_t backend = backend_ptr.get();
+    std::unique_ptr<ggml_backend> backend = ggml_backend_cpu_init();
     //ggml_backend_cpu_set_n_threads(backend, 2);
-    std::unique_ptr<ggml_backend_buffer> buffer{ ggml_backend_alloc_ctx_tensors(&ctx, backend) };
+    std::unique_ptr<ggml_backend_buffer> buffer = backend->alloc_tensors(&ctx);
 
     std::vector<float> src_values = f32_range(src->nelements());
     ggml_backend_tensor_set(src, src_values.data(), 0, src->nbytes());

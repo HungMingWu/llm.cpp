@@ -225,7 +225,7 @@ static graph_copy ggml_backend_graph_copy(ggml_backend_t backend, ggml_cgraph* g
     }
 
     // allocate nodes
-    std::unique_ptr<ggml_backend_buffer> buffer = ggml_backend_alloc_ctx_tensors(&ctx_allocated, backend);
+    std::unique_ptr<ggml_backend_buffer> buffer = backend->alloc_tensors(&ctx_allocated);
 
     //printf("copy buffer size: %zu MB\n", ggml_backend_buffer_get_size(buffer) / 1024 / 1024);
 

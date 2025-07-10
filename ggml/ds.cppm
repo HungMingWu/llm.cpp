@@ -757,11 +757,8 @@ export {
         // compute the graph with the plan
         virtual enum ggml_status graph_plan_compute(ggml_backend_graph_plan_t plan) { return {}; }
 
-        ggml_status graph_compute(ggml_cgraph* cgraph) {
-            enum ggml_status err = graph_compute_impl(cgraph);
-            synchronize();
-            return err;
-        }
+        ggml_status graph_compute(ggml_cgraph* cgraph);
+        std::unique_ptr<ggml_backend_buffer> alloc_tensors(ggml_context* ctx);
 
         // (optional) event synchronization
         // record an event on this stream

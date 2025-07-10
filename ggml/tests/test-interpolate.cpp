@@ -34,7 +34,7 @@ bool test_interpolate(char const* name,
     // Create backend & allocate buffers
     std::unique_ptr<ggml_backend> backend = ggml_backend_cpu_init();
     //ggml_backend_cpu_set_n_threads(backend, 2);
-    std::unique_ptr<ggml_backend_buffer> buf = ggml_backend_alloc_ctx_tensors(&ctx, backend.get());
+    std::unique_ptr<ggml_backend_buffer> buf = backend->alloc_tensors(&ctx);
 
     // Execute and compare results
     ggml_backend_tensor_set(src, src_data, 0, src->nbytes());

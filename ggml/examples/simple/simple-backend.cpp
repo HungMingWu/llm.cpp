@@ -62,7 +62,7 @@ void load_model(simple_model& model, float* a, float* b, int rows_A, int cols_A,
     model.b = model.ctx.create(GGML_TYPE_F32, { cols_B, rows_B });
 
     // create a backend buffer (backend memory) and alloc the tensors from the context
-    model.buffer = ggml_backend_alloc_ctx_tensors(&model.ctx, model.backend.get());
+    model.buffer = model.backend->alloc_tensors(&model.ctx);
 
     // load data from cpu memory to backend buffer
     ggml_backend_tensor_set(model.a, a, 0, model.a->nbytes());

@@ -107,7 +107,7 @@ bool test_conv_2d_dw(
     ggml_backend_ptr backend_ptr{ ggml_backend_cpu_init() };
     ggml_backend_t backend = backend_ptr.get();
     //ggml_backend_cpu_set_n_threads(backend, 2);
-    ggml_backend_buffer_ptr buffer{ ggml_backend_alloc_ctx_tensors(ctx, backend) };
+    ggml_backend_buffer_ptr buffer = backend->alloc_tensors(ctx);
 
     std::vector<float> src_values = f32_range(src->nelements(), -1.f, 1.f);
     std::vector<float> knl_values = f32_range(knl->nelements(), -1.f, 1.f);

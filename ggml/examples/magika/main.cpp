@@ -93,7 +93,7 @@ bool magika_model_load(const std::string& fname, magika_model& model) {
 
     constructFrom(ctx_gguf.value(), &ctx);
 
-    model.buf_w = ggml_backend_alloc_ctx_tensors(&ctx, model.backend.get());
+    model.buf_w = model.backend->alloc_tensors(&ctx);
     if (!model.buf_w) {
         std::println(stderr, "{}: ggml_backend_alloc_ctx_tensors() failed", __func__);
         return false;

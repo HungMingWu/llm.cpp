@@ -350,7 +350,7 @@ struct test_case {
         add_sentinel(&ctx);
 
         // allocate
-        auto buf = ggml_backend_alloc_ctx_tensors(&ctx, backend1);
+        auto buf = backend1->alloc_tensors(&ctx);
         if (buf == NULL) {
             std::print("failed to allocate tensors [{}] ", backend1->get_name());
             return false;
@@ -474,7 +474,7 @@ struct test_case {
         printf("%*s", last - len, "");
 
         // allocate
-        std::unique_ptr<ggml_backend_buffer> buf = ggml_backend_alloc_ctx_tensors(&ctx, backend);
+        std::unique_ptr<ggml_backend_buffer> buf = backend->alloc_tensors(&ctx);
         if (!buf) {
             printf("failed to allocate tensors\n");
             return false;
@@ -678,7 +678,7 @@ struct test_case {
         }
 
         // allocate
-        std::unique_ptr<ggml_backend_buffer> buf = ggml_backend_alloc_ctx_tensors(&ctx, backend);
+        std::unique_ptr<ggml_backend_buffer> buf = backend->alloc_tensors(&ctx);
         if (!buf) {
             std::print("failed to allocate tensors [{}] ", backend->get_name());
             return false;
