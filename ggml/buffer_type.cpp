@@ -12,7 +12,7 @@ std::unique_ptr<ggml_backend_buffer> ggml_backend_buffer_type::alloc_buffer(size
 size_t ggml_backend_buffer_type::get_alloc_size(const ggml_tensor* tensor) { return tensor->nbytes(); }
 
 template <typename Iter>
-static bool alloc_tensor_range(ggml_context* ctx,
+static bool alloc_tensor_range(
 	Iter first, Iter last,
 	ggml_backend_buffer_type_t buft, size_t size,
 	std::vector<std::unique_ptr<ggml_backend_buffer>>* buffers) {
@@ -50,7 +50,7 @@ static bool alloc_tensor_range(ggml_context* ctx,
 	return true;
 }
 
-std::unique_ptr<ggml_backend_buffer> ggml_backend_buffer_type::alloc_tensors(ggml_context* ctx)
+std::unique_ptr<ggml_backend_buffer> ggml_backend_buffer_type::alloc_tensors(const ggml_context* ctx)
 {
 	size_t alignment = get_alignment();
 	size_t max_size = get_max_size();
@@ -76,7 +76,7 @@ std::unique_ptr<ggml_backend_buffer> ggml_backend_buffer_type::alloc_tensors(ggm
 #endif
 		if ((cur_buf_size + this_size) > max_size) {
 			// allocate tensors in the current buffer
-			if (!alloc_tensor_range(ctx, first, it, this, cur_buf_size, &buffers)) {
+			if (!alloc_tensor_range(first, it, this, cur_buf_size, &buffers)) {
 				return NULL;
 			}
 			first = it;
@@ -89,7 +89,7 @@ std::unique_ptr<ggml_backend_buffer> ggml_backend_buffer_type::alloc_tensors(ggm
 
 	// allocate remaining tensors
 	if (cur_buf_size > 0) {
-		if (!alloc_tensor_range(ctx, first, ctx->getTensors().end(), this, cur_buf_size, &buffers)) {
+		if (!alloc_tensor_range(first, ctx->getTensors().end(), this, cur_buf_size, &buffers)) {
 			return nullptr;
 		}
 	}

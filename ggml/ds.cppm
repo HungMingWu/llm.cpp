@@ -234,7 +234,7 @@ export {
         virtual const char* get_name() = 0;
 
         std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size);
-        std::unique_ptr<ggml_backend_buffer> alloc_tensors(ggml_context* ctx);
+        std::unique_ptr<ggml_backend_buffer> alloc_tensors(const ggml_context* ctx);
 
         // tensor alignment
         virtual size_t get_alignment() = 0;
@@ -455,7 +455,8 @@ export {
         explicit ggml_context();
         ~ggml_context();
 
-        auto& getTensors() { return tensors; }
+        template <typename Self>
+        auto& getTensors(this Self&& self) { return self.tensors; }
         ggml_tensor* create(ggml_type type, std::initializer_list<int64_t> ne);
         ggml_tensor* create(ggml_type type, std::initializer_list<int64_t> ne, ggml_tensor* view_src, size_t view_offset);
 		ggml_tensor* find(std::string_view name);
@@ -760,7 +761,7 @@ export {
         virtual enum ggml_status graph_plan_compute(ggml_backend_graph_plan_t plan) { return {}; }
 
         ggml_status graph_compute(ggml_cgraph* cgraph);
-        std::unique_ptr<ggml_backend_buffer> alloc_tensors(ggml_context* ctx);
+        std::unique_ptr<ggml_backend_buffer> alloc_tensors(const ggml_context* ctx);
 
         // (optional) event synchronization
         // record an event on this stream
