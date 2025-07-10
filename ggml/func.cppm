@@ -35,12 +35,6 @@ bool ggml_is_numa()
 	return false;
 }
 
-#if UINTPTR_MAX == 0xFFFFFFFF
-#define GGML_MEM_ALIGN 4
-#else
-#define GGML_MEM_ALIGN 16
-#endif
-
 export {
 ggml_tensor* ggml_dup_tensor(ggml_context* ctx, const ggml_tensor* src);
 ggml_status ggml_backend_view_init(ggml_tensor* tensor);

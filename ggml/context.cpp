@@ -10,12 +10,6 @@ module ggml;
 import :alloc;
 import :ds;
 
-#if UINTPTR_MAX == 0xFFFFFFFF
-#define GGML_MEM_ALIGN 4
-#else
-#define GGML_MEM_ALIGN 16
-#endif
-
 ggml_context::ggml_context()
 {
 }
