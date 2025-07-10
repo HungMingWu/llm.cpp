@@ -98,7 +98,9 @@ namespace utils
     std::string get_opt(const std::map<std::string, std::string>& options, const char* key, const char* def);
     std::string get_opt(const std::map<std::string, std::string>& options, const char* key, const std::string& def);
 
-    //#define TIME_STAMP (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
+    std::string now(const char* fmt = "%Y-%m-%d");
+
+    //#define TIME_STAMP (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()))
 }
 
 #if defined(_MSC_VER)
