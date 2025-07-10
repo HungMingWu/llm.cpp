@@ -463,23 +463,6 @@ export {
 		ggml_tensor* find(std::string_view name);
     };
 
-    enum ggml_object_type {
-        GGML_OBJECT_TYPE_TENSOR,
-        GGML_OBJECT_TYPE_GRAPH,
-        GGML_OBJECT_TYPE_WORK_BUFFER
-    };
-
-    struct ggml_object {
-        size_t offs;
-        size_t size;
-
-        ggml_object* next;
-
-        ggml_object_type type;
-
-        char padding[4];
-    };
-
     enum ggml_unary_op {
         GGML_UNARY_OP_ABS,
         GGML_UNARY_OP_SGN,
