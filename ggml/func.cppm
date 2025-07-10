@@ -254,15 +254,6 @@ export {
 		return dev->init_backend(params);
 	}
 
-	size_t ggml_graph_overhead_custom(size_t size, bool grads) {
-		// TODO
-#if 0
-		return GGML_OBJECT_SIZE + GGML_PAD(ggml_graph_nbytes(size, grads), GGML_MEM_ALIGN);
-#else
-		return 0;
-#endif
-	}
-
 	ggml_cgraph* ggml_new_graph_custom(ggml_context* ctx, size_t size, bool grads) {
 		// TODO
 		return nullptr;

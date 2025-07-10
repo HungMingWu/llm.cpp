@@ -678,7 +678,7 @@ namespace chatllm
 
         const bool use_gpu = n_gpu_layers > 0;
 
-        buf_compute_meta.resize(ggml_tensor_overhead() * graph_max_nodes_num + ggml_graph_overhead_custom(graph_max_nodes_num, false));
+        buf_compute_meta.resize(ggml_tensor_overhead() * graph_max_nodes_num );
 
         auto init_device = [this, use_gpu, n_threads](int device, ggml_backend_dev_t dev, int n_layers)
             {

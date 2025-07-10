@@ -18809,7 +18809,7 @@ llama_context* llama_new_context_with_model(
             const size_t max_nodes = llama_model_max_nodes(*model);
 
             // buffer used to store the computation graph and the tensor meta data
-            ctx->buf_compute_meta.resize(ggml_tensor_overhead() * max_nodes + ggml_graph_overhead_custom(max_nodes, false));
+            ctx->buf_compute_meta.resize(ggml_tensor_overhead() * max_nodes);
 
             // TODO: move these checks to ggml_backend_sched
             // enabling pipeline parallelism in the scheduler increases memory usage, so it is only done when necessary
