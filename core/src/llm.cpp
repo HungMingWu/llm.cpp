@@ -9406,7 +9406,7 @@ static bool llm_load_tensors(
             }
         }
         else {
-            std::unique_ptr<ggml_backend_buffer> buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx, buft);
+            std::unique_ptr<ggml_backend_buffer> buf = buft->alloc_tensors(ctx);
             if (buf == nullptr) {
                 throw make_format_runtime_error("unable to allocate {} buffer", buft->get_name());
             }
@@ -10470,7 +10470,7 @@ static bool llama_kv_cache_init(
         auto* buft = it.first;
         auto* ctx = it.second;
 
-        std::unique_ptr<ggml_backend_buffer> buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx, buft);
+        std::unique_ptr<ggml_backend_buffer> buf = buft->alloc_tensors(ctx);
         if (!buf) {
             LLAMA_LOG_ERROR("%s: failed to allocate buffer for kv cache\n", __func__);
             return false;

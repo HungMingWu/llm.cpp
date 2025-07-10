@@ -223,6 +223,7 @@ export {
 
     struct ggml_tensor;
     struct tensor_traits;
+    struct ggml_context;
 
     struct ggml_backend_buffer_type {
     protected:
@@ -233,6 +234,7 @@ export {
         virtual const char* get_name() = 0;
 
         std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size);
+        std::unique_ptr<ggml_backend_buffer> alloc_tensors(ggml_context* ctx);
 
         // tensor alignment
         virtual size_t get_alignment() = 0;

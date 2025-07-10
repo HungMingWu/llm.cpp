@@ -34,5 +34,5 @@ ggml_status ggml_backend::graph_compute(ggml_cgraph* cgraph) {
 
 std::unique_ptr<ggml_backend_buffer> ggml_backend::alloc_tensors(ggml_context* ctx)
 {
-    return ggml_backend_alloc_ctx_tensors_from_buft(ctx, get_default_buffer_type());
+    return get_default_buffer_type()->alloc_tensors(ctx);
 }
