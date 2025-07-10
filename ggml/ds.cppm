@@ -438,7 +438,6 @@ export {
         void set_flag(int32_t flag);
     };
 
-    struct ggml_object;
     struct ggml_cgraph;
 
     struct ggml_context {
@@ -451,9 +450,6 @@ export {
     public:
         std::list<ggml_tensor*> tensors;
 
-        int    n_objects = 0;
-
-        std::list<ggml_object*> objects;
         explicit ggml_context();
         ~ggml_context();
 
