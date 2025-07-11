@@ -6,9 +6,6 @@ module;
 
 #include <assert.h>
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
-#define GGML_ABORT(...)
-
-#define GGML_USE_CPU
 
 export module ggml:func;
 import :alloc;
@@ -17,20 +14,10 @@ import :log;
 import :os;
 import :tensor;
 import :traits;
-import :cpu.registry;
-
-#ifdef GGML_USE_CUDA
-import :cuda.registry;
-#endif
 
 bool ggml_is_numa()
 {
 	return false;
-}
-
-export {
-ggml_tensor* ggml_dup_tensor(ggml_context* ctx, const ggml_tensor* src);
-ggml_status ggml_backend_view_init(ggml_tensor* tensor);
 }
 
 bool ggml_backend_buffer_copy_tensor(const ggml_tensor* src, ggml_tensor* dst) {
@@ -409,13 +396,7 @@ export {
 	 void ggml_backend_tensor_copy(ggml_tensor* src, ggml_tensor* dst);
 
 	 // creates a copy of the tensor with the same memory layout
-	 ggml_tensor* ggml_dup_tensor_layout(ggml_context* ctx, const ggml_tensor* tensor) {
-		 ggml_tensor* dup = ggml_dup_tensor(ctx, tensor);
-		 for (int i = 0; i < GGML_MAX_DIMS; i++) {
-			 dup->nb[i] = tensor->nb[i];
-		 }
-		 return dup;
-	 }
+	 ggml_tensor* ggml_dup_tensor_layout(ggml_context* ctx, const ggml_tensor* tensor);
 
 	 bool ggml_is_view_op(enum ggml_op op) {
 		 return op == GGML_OP_VIEW || op == GGML_OP_RESHAPE || op == GGML_OP_PERMUTE || op == GGML_OP_TRANSPOSE;

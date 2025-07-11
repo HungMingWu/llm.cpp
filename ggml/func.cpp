@@ -327,3 +327,11 @@ std::string utf16_to_utf8(const std::wstring& str) {
     }
     return result;
 }
+
+ggml_tensor* ggml_dup_tensor_layout(ggml_context* ctx, const ggml_tensor* tensor) {
+    ggml_tensor* dup = ggml_dup_tensor(ctx, tensor);
+    for (int i = 0; i < GGML_MAX_DIMS; i++) {
+        dup->nb[i] = tensor->nb[i];
+    }
+    return dup;
+}
