@@ -928,12 +928,9 @@ export namespace chatllm
     class ModelProxy : public AbstractModel
     {
     public:
-        ModelProxy() : AbstractModel(), model(nullptr) {}
+        ModelProxy() : AbstractModel() {}
 
-        virtual ~ModelProxy()
-        {
-            delete model;
-        }
+        virtual ~ModelProxy() = default;
 
         bool load_more(const json::JSON& config) override { return model->load_more(config); }
 
@@ -1047,8 +1044,8 @@ export namespace chatllm
         }
 
     protected:
-        AbstractModel* model;
-        void set_proxy_model(AbstractModel* model) { this->model = model; }
+        std::unique_ptr<AbstractModel> model;
+        void set_proxy_model(AbstractModel* model) { this->model.reset(model); }
     };
 
     class BaseModel : public AbstractModel

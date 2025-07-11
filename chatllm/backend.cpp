@@ -1,5 +1,6 @@
 module;
 #include <cstring>
+#include <format>
 #include <map>
 #include <memory>
 #include <set>
