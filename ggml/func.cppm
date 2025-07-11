@@ -544,65 +544,6 @@ export {
 	 void ggml_vec_set_bf16(const int n, ggml_bf16_t* x, const ggml_bf16_t v) { for (int i = 0; i < n; ++i) x[i] = v; }
 	 void ggml_vec_set_f32(const int n, float* x, const float   v) { for (int i = 0; i < n; ++i) x[i] = v; }
 
-	 struct ggml_tensor* ggml_set_i32(struct ggml_tensor* tensor, int32_t value) {
-		 const int n = ggml_nrows(tensor);
-		 const int nc = tensor->ne[0];
-		 const size_t n1 = tensor->nb[1];
-
-		 char* const data = (char * const)tensor->data;
-
-		 switch (tensor->type) {
-		 case GGML_TYPE_I8:
-		 {
-			 assert(tensor->nb[0] == sizeof(int8_t));
-			 for (int i = 0; i < n; i++) {
-				 ggml_vec_set_i8(nc, (int8_t*)(data + i * n1), value);
-			 }
-		 } break;
-		 case GGML_TYPE_I16:
-		 {
-			 assert(tensor->nb[0] == sizeof(int16_t));
-			 for (int i = 0; i < n; i++) {
-				 ggml_vec_set_i16(nc, (int16_t*)(data + i * n1), value);
-			 }
-		 } break;
-		 case GGML_TYPE_I32:
-		 {
-			 assert(tensor->nb[0] == sizeof(int32_t));
-			 for (int i = 0; i < n; i++) {
-				 ggml_vec_set_i32(nc, (int32_t*)(data + i * n1), value);
-			 }
-		 } break;
-		 case GGML_TYPE_F16:
-		 {
-			 assert(tensor->nb[0] == sizeof(ggml_fp16_t));
-			 for (int i = 0; i < n; i++) {
-				 ggml_vec_set_f16(nc, (ggml_fp16_t*)(data + i * n1), fromFloat32<ggml_fp16_t>(value));
-			 }
-		 } break;
-		 case GGML_TYPE_BF16:
-		 {
-			 assert(tensor->nb[0] == sizeof(ggml_fp16_t));
-			 for (int i = 0; i < n; i++) {
-				 ggml_vec_set_bf16(nc, (ggml_bf16_t*)(data + i * n1), fromFloat32<ggml_bf16_t>(value));
-			 }
-		 } break;
-		 case GGML_TYPE_F32:
-		 {
-			 assert(tensor->nb[0] == sizeof(float));
-			 for (int i = 0; i < n; i++) {
-				 ggml_vec_set_f32(nc, (float*)(data + i * n1), value);
-			 }
-		 } break;
-		 default:
-		 {
-			 GGML_ABORT("fatal error");
-		 }
-		 }
-
-		 return tensor;
-	 }
-
 	 const char* ggml_op_desc(const ggml_tensor* t) {
 		 if (t->op == GGML_OP_UNARY) {
 			 enum ggml_unary_op uop = ggml_get_unary_op(t);
