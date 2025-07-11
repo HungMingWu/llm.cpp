@@ -1,4 +1,5 @@
 module;
+#include <functional>
 #include <vector>
 #include <memory>
 #include <map>
@@ -57,8 +58,8 @@ export namespace chatllm
 
         void graph_dump_dot(ggml_backend_sched_t sched, const struct ggml_cgraph* gb, const struct ggml_cgraph* gf, const char* filename);
 
-        typedef bool (*need_observe_tensor_evaluation_callback)(ggml::tensor* tensor, void* user_data);
-        typedef bool (*observe_tensor_evaluation_callback)(ggml::tensor* tensor, void* user_data);
+        using need_observe_tensor_evaluation_callback = std::function<bool(ggml::tensor* tensor)>;
+        using observe_tensor_evaluation_callback = std::function<bool(ggml::tensor* tensor)>;
 
         void log(enum ggml_log_level level, const char* format, ...);
     }
@@ -344,7 +345,7 @@ export namespace chatllm
         void set_abort_callback(struct llama_context* ctx, bool (*abort_callback)(void* data), void* abort_callback_data);
 
         void set_eval_observe_callback(ggml::need_observe_tensor_evaluation_callback need_observe_tensor_callback,
-            ggml::observe_tensor_evaluation_callback observe_tensor_callback, void* user_data);
+            ggml::observe_tensor_evaluation_callback observe_tensor_callback);
 
         void show_buffer_sizes(void);
 
@@ -374,8 +375,7 @@ export namespace chatllm
 
     public:
         ggml::need_observe_tensor_evaluation_callback need_observe_tensor_callback = nullptr;
-        ggml::observe_tensor_evaluation_callback      observe_tensor_callback = nullptr;
-        void* observe_tensor_callback_data = nullptr;
+        ggml::observe_tensor_evaluation_callback observe_tensor_callback;
     };
 
     class ComputeContext

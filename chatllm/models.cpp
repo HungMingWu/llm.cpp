@@ -16,6 +16,7 @@
 #include <type_traits>
 #include <utility>
 #include <numbers>
+#include <print>
 #include <unordered_map>
 
 #include "basics.h"
@@ -42,8 +43,8 @@ namespace chatllm
 
     void print_tensor_shape(const char* info, ggml::tensor* tensor)
     {
-        printf("%s: shape of %s (%p): [%zd, %zd, %zd, %zd] [%zd, %zd, %zd, %zd]\n",
-            info, tensor->name.c_str(), tensor->data,
+        std::println("{}: shape of {} ({}): [{}, {}, {}, {}] [{}, {}, {}, {}]",
+            info, tensor->name, tensor->data,
             tensor->ne[0], tensor->ne[1], tensor->ne[2], tensor->ne[3],
             tensor->nb[0], tensor->nb[1], tensor->nb[2], tensor->nb[3]);
     }
@@ -68,7 +69,7 @@ namespace chatllm
                 if (!full && ((PRINT_CNT < i) && (i < n - PRINT_CNT))) continue;
                 float t = p[i];
                 //t = ggml_fp16_to_fp32(ggml_fp32_to_fp16(t));
-                printf("[%3d] = %+3.18f\n", (int)i, t);
+                std::println("[{:3}] = {:+3.18f}", i, t);
                 //printf("[%3d] = %08x\n", (int)i, *(uint32_t *)(p + i));
             }
         }
@@ -81,7 +82,7 @@ namespace chatllm
             {
                 if (!full && ((PRINT_CNT < i) && (i < n - PRINT_CNT))) continue;
 
-                printf("[%3d] = %+3.18f\n", (int)i, toFloat32(p[i]));
+                std::println("[{:3}] = {:+3.18f}", i, toFloat32(p[i]));
             }
         }
         break;
@@ -123,28 +124,27 @@ namespace chatllm
         }
 
         printf("\n");
-        exit(-1);
     }
 
-    static bool need_observe_tensor_evaluation_callback(ggml::tensor* tensor, void* user_data)
+    static bool need_observe_tensor_evaluation_callback(ggml::tensor* tensor)
     {
         return inspected_set.find(tensor) != inspected_set.end();
     }
 
-    static bool observe_tensor_evaluation_callback(ggml::tensor* tensor, void* user_data)
+    static bool observe_tensor_evaluation_callback(ggml::tensor* tensor)
     {
         auto it = inspected_set.find(tensor);
         if (it == inspected_set.end()) return true;
 
         if (dbg_w)
         {
-            printf("\n--------------- dbg_w ----------------------\n");
+            std::print("\n--------------- dbg_w ----------------------\n");
             print_tensor(dbg_w);
 
             dbg_w = nullptr;
         }
 
-        printf("\n--------------- %s ----------------------\n", it->second.c_str());
+        std::print("\n--------------- {} ----------------------\n", it->second);
         bool full = true;
         print_tensor(tensor, 0, full);
 
@@ -156,32 +156,14 @@ namespace chatllm
         dbg_w = tensor;
     }
 
-    void inspect_tensor(ggml::tensor* tensor, const char* format, ...)
+    void inspect_tensor(ggml::tensor* tensor, std::string tag)
     { //return;
         if (nullptr == dbg_ctx) return;
         if (tensor == nullptr) return;
 
-        std::string tag;
+        inspected_set[tensor] = std::move(tag);
 
-        va_list args;
-        va_start(args, format);
-        int size = vsnprintf(nullptr, 0, format, args) + 1; // +1 for the null terminator
-        va_end(args);
-
-        if (size > 0)
-        {
-            std::unique_ptr<char[]> buffer(new char[size]);
-
-            va_start(args, format);
-            vsnprintf(buffer.get(), size, format, args);
-            va_end(args);
-
-            tag = buffer.get();
-        }
-
-        inspected_set[tensor] = tag;
-
-        dbg_ctx->get_backend_context()->set_eval_observe_callback(need_observe_tensor_evaluation_callback, observe_tensor_evaluation_callback, nullptr);
+        dbg_ctx->get_backend_context()->set_eval_observe_callback(need_observe_tensor_evaluation_callback, observe_tensor_evaluation_callback);
     }
 
     ChatModelAccessPoints get_chat_model_access_points(ModelType model_type)

@@ -792,9 +792,9 @@ namespace chatllm
         if (observe_tensor_callback)
             sched->set_eval_callback([this](ggml::tensor* t, bool ask) {
                 if (ask)
-                    return need_observe_tensor_callback(t, observe_tensor_callback_data);
+                    return need_observe_tensor_callback(t);
                 else
-                    return observe_tensor_callback(t, observe_tensor_callback_data);
+                    return observe_tensor_callback(t);
             });
         else
             sched->set_eval_callback(nullptr);
@@ -820,11 +820,10 @@ namespace chatllm
     }
 
     void BackendContext::set_eval_observe_callback(ggml::need_observe_tensor_evaluation_callback need_observe_tensor_callback,
-        ggml::observe_tensor_evaluation_callback observe_tensor_callback, void* user_data)
+        ggml::observe_tensor_evaluation_callback observe_tensor_callback)
     {
         this->need_observe_tensor_callback = need_observe_tensor_callback;
         this->observe_tensor_callback = observe_tensor_callback;
-        this->observe_tensor_callback_data = user_data;
     }
 
     void BackendContext::show_buffer_sizes(void)

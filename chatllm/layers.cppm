@@ -17,7 +17,7 @@ export namespace chatllm
     void dump_weight_tensor(ggml::tensor* tensor);
     void print_tensor(ggml::tensor* tensor, int offset = 0, bool full = false);
     void print_tensor_shape(const char* info, ggml::tensor* tensor);
-    void inspect_tensor(ggml::tensor* tensor, const char* format, ...);
+    void inspect_tensor(ggml::tensor* tensor, std::string format);
 
     struct alibi_ctx
     {
