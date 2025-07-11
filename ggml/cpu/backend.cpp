@@ -14,7 +14,6 @@ enum ggml_status ggml_cpu_backend::graph_compute_impl(ggml_cgraph* cgraph)
 	cplan.work_data = work_data.data();
 
 	cplan.abort_callback = abort_callback;
-	cplan.abort_callback_data = abort_callback_data;
 
 	return ggml_graph_compute(cgraph, cplan);
 }

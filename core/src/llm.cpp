@@ -9732,7 +9732,6 @@ struct llama_context_params {
     // if it returns true, execution of llama_decode() will be aborted
     // currently works only with CPU execution
     ggml_abort_callback abort_callback = nullptr;
-    void* abort_callback_data = nullptr;
 };
 
 llama_context_params common_context_params_to_llama(const common_params& params) {
@@ -10328,7 +10327,6 @@ struct llama_context {
     ggml_backend_sched_ptr sched;
 
     ggml_abort_callback abort_callback = nullptr;
-    void* abort_callback_data = nullptr;
 
     // input tensors
     ggml_tensor* inp_tokens;      // I32 [n_batch]
@@ -10369,15 +10367,14 @@ bool llama_model_is_recurrent(const llama_model* model) {
     }
 }
 
-void llama_set_abort_callback(struct llama_context* ctx, bool (*abort_callback)(void* data), void* abort_callback_data) {
+void llama_set_abort_callback(struct llama_context* ctx, std::function<bool()> abort_callback) {
     ctx->abort_callback = abort_callback;
-    ctx->abort_callback_data = abort_callback_data;
 
     for (auto& backend : ctx->backends) {
         auto* reg = backend->get_device()->get_backend_reg();
         auto* set_abort_callback_fn = (ggml_backend_set_abort_callback_t)reg->get_proc_address("ggml_backend_set_abort_callback");
         if (set_abort_callback_fn) {
-            set_abort_callback_fn(backend.get(), ctx->abort_callback, ctx->abort_callback_data);
+            set_abort_callback_fn(backend.get(), ctx->abort_callback);
         }
     }
 }
@@ -18739,7 +18736,7 @@ llama_context* llama_new_context_with_model(
             }
         }
 
-        llama_set_abort_callback(ctx.get(), params.abort_callback, params.abort_callback_data);
+        llama_set_abort_callback(ctx.get(), params.abort_callback);
 
         if (!llama_kv_cache_init(ctx->kv_self, ctx.get(), type_k, type_v, kv_size, cparams.offload_kqv)) {
             LLAMA_LOG_ERROR("%s: llama_kv_cache_init() failed for self-attention cache\n", __func__);

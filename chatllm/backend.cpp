@@ -813,10 +813,9 @@ namespace chatllm
         ggml::log(GGML_LOG_LEVEL_INFO, "dot -Tsvg %s -o %s.svg && open %s.svg\n", file_name, file_name, file_name);
     }
 
-    void BackendContext::set_abort_callback(struct llama_context* ctx, bool (*abort_callback)(void* data), void* abort_callback_data)
+    void BackendContext::set_abort_callback(struct llama_context* ctx, std::function<bool()> abort_callback)
     {
         this->abort_callback = abort_callback;
-        this->abort_callback_data = abort_callback_data;
     }
 
     void BackendContext::set_eval_observe_callback(ggml::need_observe_tensor_evaluation_callback need_observe_tensor_callback,

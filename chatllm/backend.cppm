@@ -342,7 +342,7 @@ export namespace chatllm
 
         void dump_graph(ggml_cgraph* gf, const char* file_name);
 
-        void set_abort_callback(struct llama_context* ctx, bool (*abort_callback)(void* data), void* abort_callback_data);
+        void set_abort_callback(struct llama_context* ctx, std::function<bool()> abort_callback);
 
         void set_eval_observe_callback(ggml::need_observe_tensor_evaluation_callback need_observe_tensor_callback,
             ggml::observe_tensor_evaluation_callback observe_tensor_callback);
@@ -368,7 +368,6 @@ export namespace chatllm
 
     protected:
         ggml_abort_callback abort_callback = nullptr;
-        void* abort_callback_data = nullptr;
 
         std::vector<ggml_backend_t> gg_backends;
         std::vector<ggml_backend_buffer_type_t> gg_bufts;

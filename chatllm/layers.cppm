@@ -954,7 +954,7 @@ export namespace chatllm
             hidden_states = Base::attention.forward(ctx, hidden_states, n_past);
             if (Base::get_id() == 0)
             {
-                //inspect_tensor(hidden_states, "attention");
+                inspect_tensor(hidden_states, "attention");
             }
 
             if (scale_depth > 0.0f)

@@ -20,7 +20,6 @@ public:
 	std::vector<uint8_t> work_data;
 
 	ggml_abort_callback abort_callback = nullptr;
-	void* abort_callback_data = nullptr;
 
 	const char* get_name() override {
 		return "CPU";
