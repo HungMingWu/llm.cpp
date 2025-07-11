@@ -428,51 +428,6 @@ export {
 		 }
 	 }
 
-	 void ggml_set_i32_1d(const struct ggml_tensor* tensor, int i, int32_t value) {
-		 if (!ggml_is_contiguous(tensor)) {
-			 int64_t id[4] = { 0, 0, 0, 0 };
-			 ggml_unravel_index(tensor, i, &id[0], &id[1], &id[2], &id[3]);
-			 ggml_set_i32_nd(tensor, id[0], id[1], id[2], id[3], value);
-			 return;
-		 }
-		 switch (tensor->type) {
-		 case GGML_TYPE_I8:
-		 {
-			 GGML_ASSERT(tensor->nb[0] == sizeof(int8_t));
-			 ((int8_t*)(tensor->data))[i] = value;
-		 } break;
-		 case GGML_TYPE_I16:
-		 {
-			 GGML_ASSERT(tensor->nb[0] == sizeof(int16_t));
-			 ((int16_t*)(tensor->data))[i] = value;
-		 } break;
-		 case GGML_TYPE_I32:
-		 {
-			 GGML_ASSERT(tensor->nb[0] == sizeof(int32_t));
-			 ((int32_t*)(tensor->data))[i] = value;
-		 } break;
-		 case GGML_TYPE_F16:
-		 {
-			 GGML_ASSERT(tensor->nb[0] == sizeof(ggml_fp16_t));
-			 ((ggml_fp16_t*)(tensor->data))[i] = fromFloat32<ggml_fp16_t>(value);
-		 } break;
-		 case GGML_TYPE_BF16:
-		 {
-			 GGML_ASSERT(tensor->nb[0] == sizeof(ggml_bf16_t));
-			 ((ggml_bf16_t*)(tensor->data))[i] = fromFloat32<ggml_bf16_t>(value);
-		 } break;
-		 case GGML_TYPE_F32:
-		 {
-			 GGML_ASSERT(tensor->nb[0] == sizeof(float));
-			 ((float*)(tensor->data))[i] = value;
-		 } break;
-		 default:
-		 {
-			 GGML_ABORT("fatal error");
-		 }
-		 }
-	 }
-
 	 int32_t ggml_get_i32_nd(const struct ggml_tensor* tensor, int i0, int i1, int i2, int i3) {
 		 void* data = (char*)tensor->data + i0 * tensor->nb[0] + i1 * tensor->nb[1] + i2 * tensor->nb[2] + i3 * tensor->nb[3];
 		 switch (tensor->type) {
