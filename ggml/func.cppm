@@ -370,11 +370,6 @@ export {
 		 return tensor->data;
 	 }
 
-	 void ggml_vec_set_i8(const int n, int8_t* x, const int8_t v) { for (int i = 0; i < n; ++i) x[i] = v; }
-	 void ggml_vec_set_i16(const int n, int16_t* x, const int16_t v) { for (int i = 0; i < n; ++i) x[i] = v; }
-	 void ggml_vec_set_i32(const int n, int32_t* x, const int32_t   v) { for (int i = 0; i < n; ++i) x[i] = v; }
-	 void ggml_vec_set_f16(const int n, ggml_fp16_t* x, const int32_t v) { for (int i = 0; i < n; ++i) x[i] = v; }
-	 void ggml_vec_set_bf16(const int n, ggml_bf16_t* x, const ggml_bf16_t v) { for (int i = 0; i < n; ++i) x[i] = v; }
 	 void ggml_vec_set_f32(const int n, float* x, const float   v) { for (int i = 0; i < n; ++i) x[i] = v; }
 
 	 const char* ggml_op_desc(const ggml_tensor* t) {
