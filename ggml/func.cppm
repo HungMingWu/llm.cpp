@@ -628,39 +628,6 @@ export {
 		 int64_t   n_per_row,
 		 const float* imatrix);
 
-	 float ggml_get_f32_1d(const struct ggml_tensor* tensor, int i) {
-		 switch (tensor->type) {
-		 case GGML_TYPE_I8:
-		 {
-			 return ((int8_t*)(tensor->data))[i];
-		 }
-		 case GGML_TYPE_I16:
-		 {
-			 return ((int16_t*)(tensor->data))[i];
-		 }
-		 case GGML_TYPE_I32:
-		 {
-			 return ((int32_t*)(tensor->data))[i];
-		 }
-		 case GGML_TYPE_F16:
-		 {
-			 return 0;// GGML_FP16_TO_FP32(((ggml_fp16_t*)(tensor->data))[i]);
-		 }
-		 case GGML_TYPE_BF16:
-		 {
-			 return 0;// GGML_BF16_TO_FP32(((ggml_bf16_t*)(tensor->data))[i]);
-		 }
-		 case GGML_TYPE_F32:
-		 {
-			 return ((float*)(tensor->data))[i];
-		 }
-		 default:
-		 {
-			 GGML_ABORT("fatal error");
-		 }
-		 }
-	 }
-
 	 ggml_tensor* ggml_graph_get_grad(const ggml_cgraph* cgraph, const ggml_tensor* node) {
 		 auto it = cgraph->grads.find(node);
 		 return (it != cgraph->grads.end()) ? it->second : nullptr;
