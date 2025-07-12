@@ -2133,7 +2133,7 @@ struct llama_model {
     std::vector<layer_dev> dev_layer;
 
     // contexts where the model tensors metadata is stored
-    std::vector<ggml_context_ptr> ctxs;
+    std::vector<std::unique_ptr<ggml_context>> ctxs;
 
     // the model memory buffers for the tensor data
     std::vector<ggml_backend_buffer_ptr> bufs;
@@ -2178,7 +2178,7 @@ struct llama_lora_adapter {
     llama_model* base_model;
     // map tensor name to lora_a_b
     std::unordered_map<std::string, llama_lora_weight> ab_map;
-    std::vector<ggml_context_ptr> ctxs;
+    std::vector<std::unique_ptr<ggml_context>> ctxs;
     std::vector<ggml_backend_buffer_ptr> bufs;
 
     float alpha;
@@ -10212,7 +10212,7 @@ struct llama_kv_cache {
     std::vector<ggml_tensor*> k_l; // per layer
     std::vector<ggml_tensor*> v_l;
 
-    std::vector<ggml_context_ptr> ctxs;
+    std::vector<std::unique_ptr<ggml_context>> ctxs;
     std::vector<ggml_backend_buffer_ptr> bufs;
 
     size_t total_size() {
@@ -10226,7 +10226,7 @@ struct llama_kv_cache {
 
 struct llama_control_vector {
     std::vector<ggml_tensor*> tensors; // per layer
-    std::vector<ggml_context_ptr> ctxs;
+    std::vector<std::unique_ptr<ggml_context>> ctxs;
     std::vector<ggml_backend_buffer_ptr> bufs;
 
     int32_t layer_start = -1;
