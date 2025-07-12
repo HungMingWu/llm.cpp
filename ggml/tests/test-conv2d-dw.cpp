@@ -104,8 +104,7 @@ bool test_conv_2d_dw(
     gf.build_forward_expand(res);
 
     // Create backend & allocate buffers
-    ggml_backend_ptr backend_ptr{ ggml_backend_cpu_init() };
-    ggml_backend_t backend = backend_ptr.get();
+    std::unique_ptr<ggml_backend> backend = ggml_backend_cpu_init();
     //ggml_backend_cpu_set_n_threads(backend, 2);
     ggml_backend_buffer_ptr buffer = backend->alloc_tensors(ctx);
 

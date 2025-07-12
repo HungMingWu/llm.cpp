@@ -10269,7 +10269,7 @@ struct llama_context {
 
     std::unordered_map<struct llama_lora_adapter*, float> lora_adapters;
 
-    std::vector<ggml_backend_ptr> backends;
+    std::vector<std::unique_ptr<ggml_backend>> backends;
     std::vector<std::pair<ggml_backend_t, ggml_backend_set_n_threads_t>> set_n_threads_fns;
 
     ggml_backend_t backend_cpu = nullptr;
