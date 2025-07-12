@@ -10324,7 +10324,7 @@ struct llama_context {
     std::vector<float> embd_enc;
     std::vector<std::set<llama_seq_id>> seq_ids_enc;
 
-    ggml_backend_sched_ptr sched;
+    std::unique_ptr<ggml_backend_sched> sched;
 
     ggml_abort_callback abort_callback = nullptr;
 

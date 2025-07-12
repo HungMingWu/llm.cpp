@@ -820,7 +820,6 @@ export {
     using ggml_backend_set_abort_callback_t = void (*)(ggml_backend_t backend, ggml_abort_callback abort_callback);
 
     using ggml_backend_buffer_ptr = std::unique_ptr<ggml_backend_buffer>;
-    using ggml_backend_sched_ptr = std::unique_ptr<ggml_backend_sched>;
 
     // Tensor allocator
     struct ggml_tallocr {
