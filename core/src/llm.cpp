@@ -7409,7 +7409,7 @@ static bool llm_load_tensors(
     auto ctx_for_buft = [&](ggml_backend_buffer_type_t buft) -> ggml_context* {
         auto it = ctx_map.find(buft);
         if (it == ctx_map.end()) {
-            auto ctx = ggml_init();
+            auto ctx = std::make_unique<ggml_context>();
             if (!ctx) {
                 throw std::runtime_error("failed to create ggml context");
             }
@@ -10419,7 +10419,7 @@ static bool llama_kv_cache_init(
     auto ctx_for_buft = [&](ggml_backend_buffer_type_t buft) -> ggml_context* {
         auto it = ctx_map.find(buft);
         if (it == ctx_map.end()) {
-            auto ctx = ggml_init();
+            auto ctx = std::make_unique<ggml_context>();
             if (!ctx) {
                 return nullptr;
             }
@@ -11572,7 +11572,7 @@ struct llm_build_context {
     }
 
     void init() {
-        ctx0 = ggml_init().release();
+        ctx0 = std::make_unique<ggml_context>().release();
 
         lctx.inp_tokens = nullptr;
         lctx.inp_embd = nullptr;

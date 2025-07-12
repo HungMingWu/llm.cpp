@@ -75,35 +75,6 @@ export
 		return (x + n - 1) & ~(n - 1);
 	}
 
-	std::unique_ptr<ggml_context> ggml_init()
-	{
-		// TODO
-#if 0
-		static bool is_first_call = true;
-
-		ggml_critical_section_start();
-
-		if (is_first_call) {
-			// initialize time system (required on Windows)
-			ggml_time_init();
-
-			for (int i = 0; i < (1 << 16); ++i) {
-				union {
-					uint16_t u16;
-					ggml_fp16_t fp16;
-				} u = { i };
-				ggml_table_f32_f16[i] = GGML_COMPUTE_FP16_TO_FP32(u.fp16);
-			}
-
-			is_first_call = false;
-		}
-
-		ggml_critical_section_end();
-#endif
-
-		return std::make_unique<ggml_context>();
-	}
-
 	float* ggml_get_data_f32(const ggml_tensor* tensor) {
 		assert(tensor->type == GGML_TYPE_F32);
 		return (float*)(tensor->data);
