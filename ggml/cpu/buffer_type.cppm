@@ -2,7 +2,7 @@ module;
 #include <memory>
 
 export module ggml:cpu.buffer_type;
-import :ds;
+import :buffer_type;
 
 export
 {

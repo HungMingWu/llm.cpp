@@ -1,5 +1,7 @@
 export module ggml;
 export import :alloc;
+export import :buffer;
+export import :buffer_type;
 export import :ds;
 export import :func;
 export import :gguf;

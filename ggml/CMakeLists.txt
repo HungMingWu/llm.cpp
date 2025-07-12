@@ -49,6 +49,8 @@ target_sources(libggml
     TYPE CXX_MODULES
     FILES
       alloc.cppm
+      buffer.cppm
+      buffer_type.cppm
       ds.cppm
       func.cppm
       ggml.cppm

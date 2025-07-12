@@ -225,32 +225,6 @@ export {
     struct tensor_traits;
     struct ggml_context;
 
-    struct ggml_backend_buffer_type {
-    protected:
-        // allocate a buffer of this type
-        virtual std::unique_ptr<ggml_backend_buffer> alloc_buffer_impl(size_t size) = 0;
-    public:
-        virtual ~ggml_backend_buffer_type() = default;
-        virtual const char* get_name() = 0;
-
-        std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size);
-        std::unique_ptr<ggml_backend_buffer> alloc_tensors(const ggml_context* ctx);
-
-        // tensor alignment
-        virtual size_t get_alignment() = 0;
-        // (optional) max buffer size that can be allocated (defaults to SIZE_MAX)
-        virtual size_t get_max_size() { return SIZE_MAX; }
-        // (optional) data size needed to allocate the tensor, including padding (defaults to ggml_nbytes)
-        virtual size_t get_alloc_size(const ggml_tensor* tensor);
-        // (optional) check if tensor data is in host memory and uses standard ggml tensor layout (defaults to false)
-        virtual bool is_host() { return false; }
-
-        // (optional) check whether support op
-        virtual bool supports_op(const ggml_tensor* op) { return false; }
-        // (optional) get tensor_traits for  op
-        virtual tensor_traits* get_tensor_traits(const struct ggml_tensor* op) { return nullptr; }
-    };
-
     // Use for reflection later
     struct ggml_backend_reg {
         int api_version; // initialize to GGML_BACKEND_API_VERSION
@@ -336,55 +310,6 @@ export {
         GGML_STATUS_FAILED = -1,
         GGML_STATUS_SUCCESS = 0,
         GGML_STATUS_ABORTED = 1,
-    };
-
-    struct ggml_backend_buffer {
-    protected:
-        ggml_backend_buffer_type_t buft;
-        size_t size;
-        ggml_backend_buffer_usage usage = GGML_BACKEND_BUFFER_USAGE_ANY;
-        // base address of the buffer
-        virtual void* get_base_impl() { return nullptr; }
-        // clear the entire buffer
-        virtual void clear_impl(uint8_t value) = 0;
-    public:
-        ggml_backend_buffer(ggml_backend_buffer_type_t buft,
-            size_t size) : buft(buft), size(size) {}
-        virtual ~ggml_backend_buffer() = default;
-        void* get_base() {
-            // get_base is optional if the buffer is zero-sized
-            if (size == 0) {
-                return nullptr;
-            }
-
-            void* base = get_base_impl();
-            //GGML_ASSERT(base != nullptr && "backend buffer base cannot be nullptr");
-            return base;
-        }
-        // (optional) initialize a tensor in the buffer (eg. add tensor extras)
-        virtual ggml_status init_tensor(ggml_tensor* tensor) {
-            return GGML_STATUS_SUCCESS;
-        }
-        // tensor data access
-        virtual void memset_tensor(ggml_tensor* tensor, uint8_t value, size_t offset, size_t size) {};
-        virtual void set_tensor(ggml_tensor* tensor, const void* data, size_t offset, size_t size) {};
-        virtual void get_tensor(const ggml_tensor* tensor, void* data, size_t offset, size_t size) {};
-        // (optional) tensor copy: dst is in the buffer, src may be in any buffer, including buffers from a different backend (return false if not supported)
-        virtual bool cpy_tensor(const ggml_tensor* src, ggml_tensor* dst) { return false; }
-        void clear(uint8_t value);
-        // (optional) reset any internal state due to tensor initialization, such as tensor extras
-        virtual void reset() {};
-        size_t get_size() const { return size; }
-        void setUsage(ggml_backend_buffer_usage usage) { this->usage = usage; }
-        ggml_backend_buffer_usage getUsage() const { return usage; }
-        // helper function
-        constexpr ggml_backend_buffer_type_t get_type() const { return buft; }
-        constexpr bool is_host() const { return buft->is_host(); }
-        constexpr size_t get_alignment() const { return buft->get_alignment(); }
-        constexpr size_t get_alloc_size(const ggml_tensor* tensor) {
-            return buft->get_alloc_size(tensor);
-        }
-        ggml_status alloc(ggml_tensor* tensor, void* addr);
     };
 
     // n-dimensional tensor
@@ -798,9 +723,7 @@ export {
             return device->offload_op(op);
         }
 
-        std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size) {
-            return device->get_buffer_type()->alloc_buffer(size);
-        }
+        std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size);
     };
 
     struct ggml_threadpool;     // forward declaration, see ggml.c

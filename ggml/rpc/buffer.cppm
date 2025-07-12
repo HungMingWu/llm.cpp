@@ -3,6 +3,7 @@ module;
 #include <memory>
 
 module ggml:rpc.buffer;
+import :buffer;
 import :ds;
 import :rpc.socket;
 

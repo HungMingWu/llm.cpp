@@ -37,3 +37,8 @@ std::unique_ptr<ggml_backend_buffer> ggml_backend::alloc_tensors(const ggml_cont
 {
     return get_default_buffer_type()->alloc_tensors(ctx);
 }
+
+std::unique_ptr<ggml_backend_buffer> ggml_backend::alloc_buffer(size_t size)
+{
+    return device->get_buffer_type()->alloc_buffer(size);
+}

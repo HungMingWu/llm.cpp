@@ -3,6 +3,7 @@ module;
 #include <string>
 
 module ggml:rpc.buffer_type;
+import :buffer_type;
 import :ds;
 
 class ggml_rpc_buffer_type : public ggml_backend_buffer_type {

@@ -4,7 +4,7 @@ module;
 #include <span>
 
 export module ggml:alloc;
-import :ds;
+import :buffer_type;
 
 export namespace internal
 {

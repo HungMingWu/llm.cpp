@@ -289,23 +289,6 @@ export {
 		 // TODO
 	 }
 
-	 struct multi_backend_buffer : public ggml_backend_buffer {
-		 std::vector<std::unique_ptr<ggml_backend_buffer>> buffers;
-	 protected:
-		 void clear_impl(uint8_t value) override {
-			 for (auto& buffer : buffers)
-				 buffer->clear(value);
-		 }
-	 public:
-		 multi_backend_buffer(
-			 ggml_backend_buffer_type_t buft, size_t size, std::vector<std::unique_ptr<ggml_backend_buffer>> buffers)
-			 : ggml_backend_buffer(buft, size), 
-			   buffers(std::move(buffers))
-		 {
-
-		 }
-	 };
-
 	 void ggml_backend_tensor_set(ggml_tensor* tensor, const void* data, size_t offset, size_t size) {
 		 GGML_ASSERT(tensor);
 

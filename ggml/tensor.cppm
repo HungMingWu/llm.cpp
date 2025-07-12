@@ -7,6 +7,7 @@ module;
 #define GGML_ASSERT(...)
 
 export module ggml:tensor;
+import :buffer;
 import :ds;
 import :traits;
 

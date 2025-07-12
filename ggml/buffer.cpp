@@ -1,6 +1,10 @@
 module;
 #include <assert.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <memory>
+#include <vector>
+#include <utility>
 
 module ggml;
 
@@ -26,4 +30,28 @@ ggml_status ggml_backend_buffer::alloc(ggml_tensor* tensor, void* addr)
 	tensor->buffer = this;
 	tensor->data = addr;
 	return init_tensor(tensor);
+}
+
+void* ggml_backend_buffer::get_base() {
+	// get_base is optional if the buffer is zero-sized
+	if (size == 0) {
+		return nullptr;
+	}
+
+	void* base = get_base_impl();
+	//GGML_ASSERT(base != nullptr && "backend buffer base cannot be nullptr");
+	return base;
+}
+
+multi_backend_buffer::multi_backend_buffer(
+	ggml_backend_buffer_type_t buft, size_t size, std::vector<std::unique_ptr<ggml_backend_buffer>> buffers)
+	: ggml_backend_buffer(buft, size),
+	buffers(std::move(buffers))
+{
+}
+
+void multi_backend_buffer::clear_impl(uint8_t value)
+{
+	for (auto& buffer : buffers)
+		buffer->clear(value);
 }

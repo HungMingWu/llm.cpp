@@ -3,6 +3,7 @@ module;
 #include <memory>
 
 export module ggml:cpu_aarch64;
+import :buffer;
 import :ds;
 
 struct aarch64_cpu_backend_buffer_type : public ggml_backend_buffer_type {
