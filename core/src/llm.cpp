@@ -2136,7 +2136,7 @@ struct llama_model {
     std::vector<std::unique_ptr<ggml_context>> ctxs;
 
     // the model memory buffers for the tensor data
-    std::vector<ggml_backend_buffer_ptr> bufs;
+    std::vector<std::unique_ptr<ggml_backend_buffer>> bufs;
 
     // model memory mapped files
     llama_mmaps mappings;
@@ -2179,7 +2179,7 @@ struct llama_lora_adapter {
     // map tensor name to lora_a_b
     std::unordered_map<std::string, llama_lora_weight> ab_map;
     std::vector<std::unique_ptr<ggml_context>> ctxs;
-    std::vector<ggml_backend_buffer_ptr> bufs;
+    std::vector<std::unique_ptr<ggml_backend_buffer>> bufs;
 
     float alpha;
 
@@ -10213,7 +10213,7 @@ struct llama_kv_cache {
     std::vector<ggml_tensor*> v_l;
 
     std::vector<std::unique_ptr<ggml_context>> ctxs;
-    std::vector<ggml_backend_buffer_ptr> bufs;
+    std::vector<std::unique_ptr<ggml_backend_buffer>> bufs;
 
     size_t total_size() {
         size_t size = 0;
@@ -10227,7 +10227,7 @@ struct llama_kv_cache {
 struct llama_control_vector {
     std::vector<ggml_tensor*> tensors; // per layer
     std::vector<std::unique_ptr<ggml_context>> ctxs;
-    std::vector<ggml_backend_buffer_ptr> bufs;
+    std::vector<std::unique_ptr<ggml_backend_buffer>> bufs;
 
     int32_t layer_start = -1;
     int32_t layer_end = -1;
@@ -10291,7 +10291,7 @@ struct llama_context {
     mutable int32_t n_eval = 0; // number of eval calls
 
     // host buffer for the model output (logits and embeddings)
-    ggml_backend_buffer_ptr buf_output;
+    std::unique_ptr<ggml_backend_buffer> buf_output;
 
     // decode output (2-dimensional array: [n_outputs][n_vocab])
     size_t  logits_size = 0; // capacity (of floats) for logits
