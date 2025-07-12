@@ -4,6 +4,7 @@
 #include <thread>
 #include <algorithm>
 #include <numeric>
+#include <format>
 #include <functional>
 #include <cstring>
 #include <climits>
@@ -633,9 +634,9 @@ public:
     int ref_count;
 };
 
-static void print_timing(char* str, const char* prefix, size_t tok_number, double duration_sec)
+static std::string print_timing(const char* prefix, size_t tok_number, double duration_sec)
 {
-    sprintf(str, "%s = %12.2f ms / %5zd tokens ( %8.2f ms per token, %8.2f tokens per second)", prefix, duration_sec, tok_number,
+    return std::format("{} = {:12.2f} ms / {:5} tokens ( {:8.2f} ms per token, {:8.2f} tokens per second)", prefix, duration_sec, tok_number,
         duration_sec / tok_number,
         tok_number / duration_sec * 1000);
 }
@@ -645,14 +646,13 @@ static void show_stat(chatllm::Pipeline& pipeline, chatllm::BaseStreamer& stream
     streamer.putln("");
 
     chatllm::ModelPerfInfo* perf = &pipeline.performance;
-    char str[1024];
-    print_timing(str, "timings: prompt eval time", perf->timings[chatllm::ModelPerfInfo::Type::Prompt].tok_count, perf->timings[chatllm::ModelPerfInfo::Type::Prompt].duration_ms);
+    std::string str = print_timing("timings: prompt eval time", perf->timings[chatllm::ModelPerfInfo::Type::Prompt].tok_count, perf->timings[chatllm::ModelPerfInfo::Type::Prompt].duration_ms);
     streamer.putln(str);
 
-    print_timing(str, "timings:        eval time", perf->timings[chatllm::ModelPerfInfo::Type::Generation].tok_count, perf->timings[chatllm::ModelPerfInfo::Type::Generation].duration_ms);
+    str = print_timing("timings:        eval time", perf->timings[chatllm::ModelPerfInfo::Type::Generation].tok_count, perf->timings[chatllm::ModelPerfInfo::Type::Generation].duration_ms);
     streamer.putln(str);
 
-    sprintf(str, "timings:       total time = %12.2f ms / %5zd tokens",
+    str = std::format("timings:       total time = {:12.2f} ms / {:5} tokens",
         (perf->timings[chatllm::ModelPerfInfo::Type::Generation].duration_ms + perf->timings[chatllm::ModelPerfInfo::Type::Prompt].duration_ms),
         perf->timings[chatllm::ModelPerfInfo::Type::Generation].tok_count + perf->timings[chatllm::ModelPerfInfo::Type::Prompt].tok_count);
     streamer.putln(str);
