@@ -283,7 +283,7 @@ export {
         // device properties
         virtual void get_props(struct ggml_backend_dev_props* props) = 0;
         // backend (stream) initialization
-        virtual ggml_backend_t init_backend(const char* params) = 0;
+        virtual std::unique_ptr<ggml_backend> init_backend(const char* params) = 0;
         // preferred buffer type
         virtual ggml_backend_buffer_type_t get_buffer_type() = 0;
         // (optional) host buffer type (in system memory, typically this is a pinned memory buffer for faster transfers between host and device)

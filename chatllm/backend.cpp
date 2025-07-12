@@ -349,7 +349,7 @@ namespace chatllm
         return (int)ggml_backend_dev_count();
     }
 
-    ggml_backend_t ComputeManager::init_backend_device(int index, const char* param)
+    std::unique_ptr<ggml_backend> ComputeManager::init_backend_device(int index, const char* param)
     {
         auto dev = ggml_backend_dev_get(index);
         return dev ? dev->init_backend(param) : nullptr;
@@ -683,9 +683,9 @@ namespace chatllm
             {
                 auto reg = dev->get_backend_reg();
 
-                ggml_backend_t backend = ComputeManager::init_backend_device(device);
+                std::unique_ptr<ggml_backend> backend = ComputeManager::init_backend_device(device);
                 CHATLLM_CHECK(backend != nullptr) << __func__ << ": failed to initialize backend: #" << device;
-                backends.emplace_back(backend, n_layers, use_gpu);
+                backends.emplace_back(backend.release(), n_layers, use_gpu);
 
 #if 0
                 if (n_threads > 0)

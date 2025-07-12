@@ -22,7 +22,7 @@ ggml_backend_buffer_type_t ggml_backend_cpu_device::get_buffer_type()
 	return ggml_backend_cpu_buffer_type();
 }
 
-ggml_backend_t ggml_backend_cpu_device::init_backend(const char* params)
+std::unique_ptr<ggml_backend> ggml_backend_cpu_device::init_backend(const char* params)
 {
-	return std::make_unique<ggml_cpu_backend>(this).release();
+	return std::make_unique<ggml_cpu_backend>(this);
 }

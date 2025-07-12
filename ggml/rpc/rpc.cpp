@@ -69,8 +69,8 @@ public:
         };
     }
 
-    ggml_backend_t init_backend(const char* params) override {
-        return new ggml_backend_rpc(this, endpoint, "RPC[" + std::string(endpoint) + "]");
+    std::unique_ptr<ggml_backend> init_backend(const char* params) override {
+        return std::make_unique<ggml_backend_rpc>(this, endpoint, "RPC[" + std::string(endpoint) + "]");
     }
     ggml_backend_buffer_type_t get_buffer_type() override {
         return ggml_backend_rpc_buffer_type(endpoint.c_str());

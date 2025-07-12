@@ -242,7 +242,7 @@ export namespace chatllm
         static ggml_backend_allocator get_default_allocator(ggml_backend_t backend);
         static int get_device_count(void);
 
-        static ggml_backend_t init_backend_device(int index, const char* param = nullptr);
+        static std::unique_ptr<ggml_backend> init_backend_device(int index, const char* param = nullptr);
 
         static ggml_backend_allocator get_default_allocator_offload(int device);
 

@@ -73,9 +73,9 @@ public:
         };
     }
 
-    ggml_backend_t init_backend(const char*) override
+    std::unique_ptr<ggml_backend> init_backend(const char*) override
     {
-        return ggml_backend_cuda_init(device).release();
+        return ggml_backend_cuda_init(device);
     }
 
     ggml_backend_buffer_type_t get_buffer_type() override

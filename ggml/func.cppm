@@ -173,7 +173,7 @@ export {
 		memcpy(tensor.op_params, params, params_size);
 	}
 
-	ggml_backend_t ggml_backend_init_by_type(enum ggml_backend_dev_type type, const char* params) {
+	std::unique_ptr<ggml_backend> ggml_backend_init_by_type(enum ggml_backend_dev_type type, const char* params) {
 		ggml_backend_dev_t dev = ggml_backend_dev_by_type(type);
 		if (!dev) {
 			return nullptr;

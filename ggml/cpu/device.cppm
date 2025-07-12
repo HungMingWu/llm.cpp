@@ -1,6 +1,7 @@
 module;
 #include <string.h>
 #include <bit>
+#include <memory>
 #include <span>
 #include <string>
 #include <vector>
@@ -142,7 +143,7 @@ struct ggml_backend_cpu_device : public ggml_backend_device {
 #endif
 	}
 
-	ggml_backend_t init_backend(const char* params) override;
+	std::unique_ptr<ggml_backend> init_backend(const char* params) override;
 
 	ggml_backend_buffer_type_t get_buffer_type() override;
 

@@ -18695,29 +18695,29 @@ llama_context* llama_new_context_with_model(
     if (!hparams.vocab_only) {
         // GPU backends
         for (auto* dev : model->devices) {
-            ggml_backend_t backend = dev->init_backend(nullptr);
+            std::unique_ptr<ggml_backend> backend = dev->init_backend(nullptr);
             if (backend == nullptr) {
                 LLAMA_LOG_ERROR("%s: failed to initialize %s backend\n", __func__, ggml_backend_dev_name(dev));
                 return nullptr;
             }
-            ctx->backends.emplace_back(backend);
+            ctx->backends.emplace_back(std::move(backend));
         }
 
         // add ACCEL backends (such as BLAS)
         for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
             ggml_backend_dev_t dev = ggml_backend_dev_get(i);
             if (dev->get_type() == GGML_BACKEND_DEVICE_TYPE_ACCEL) {
-                ggml_backend_t backend = dev->init_backend(nullptr);
+                std::unique_ptr<ggml_backend> backend = dev->init_backend(nullptr);
                 if (backend == nullptr) {
                     LLAMA_LOG_ERROR("%s: failed to initialize %s backend\n", __func__, ggml_backend_dev_name(dev));
                     return nullptr;
                 }
-                ctx->backends.emplace_back(backend);
+                ctx->backends.emplace_back(std::move(backend));
             }
         }
 
         // add CPU backend
-        ctx->backend_cpu = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
+        ctx->backend_cpu = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr).release();
         if (ctx->backend_cpu == nullptr) {
             LLAMA_LOG_ERROR("%s: failed to initialize CPU backend\n", __func__);
             return nullptr;
