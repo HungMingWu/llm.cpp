@@ -215,13 +215,15 @@ ggml_tensor* ggml_step(
 static ggml_tensor* ggml_scale_impl(
     ggml_context* ctx,
     ggml_tensor* a,
-    float                 s,
-    bool                  inplace) {
+    float s,
+    float b,
+    bool inplace) {
     GGML_ASSERT(ggml_is_padded_1d(a));
 
     ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
 
-    ggml_set_op_params(*result, &s, sizeof(s));
+    float params[2] = { s, b };
+    ggml_set_op_params(*result, &params, sizeof(params));
 
     result->op = GGML_OP_SCALE;
     result->src.push_back(a);
@@ -375,7 +377,7 @@ static void ggml_compute_backward(
     } break;
     case GGML_OP_MEAN: {
         if (src0_needs_grads) {
-            ggml_add1_or_set(ctx, cgraph, src0, ggml_scale_impl(ctx, grad, 1.0f / src0->ne[0], false));
+            ggml_add1_or_set(ctx, cgraph, src0, ggml_scale_impl(ctx, grad, 1.0f / src0->ne[0], 0.0, false));
         }
     } break;
     case GGML_OP_REPEAT: {
@@ -452,7 +454,7 @@ static void ggml_compute_backward(
         if (src0_needs_grads) {
             float s;
             memcpy(&s, tensor->op_params, sizeof(float));
-            ggml_add_or_set(ctx, cgraph, src0, ggml_scale_impl(ctx, grad, s, false));
+            ggml_add_or_set(ctx, cgraph, src0, ggml_scale_impl(ctx, grad, s, 0.0, false));
         }
     } break;
     case GGML_OP_SET: {
@@ -692,13 +694,28 @@ static void ggml_compute_backward(
         }
         GGML_ASSERT(!src1_needs_grads && "backward pass for labels not implemented");
     } break;
+    case GGML_OP_GLU: {
+        switch (ggml_get_glu_op(tensor)) {
+        case GGML_GLU_OP_SWIGLU: {
+            if (src0_needs_grads) {
+                GGML_ASSERT(src1 && "backward pass only implemented for split swiglu");
+                ggml_add_or_set(ctx, cgraph, src0, ggml_silu_back(ctx, ggml_mul(ctx, grad, src1), src0));
+            }
+            if (src1_needs_grads) {
+                ggml_add_or_set(ctx, cgraph, src1, ggml_mul(ctx, ggml_silu(ctx, src0), grad));
+            }
+        } break;
+        default: {
+            GGML_ABORT("unsupported glu op for backward pass: %s", ggml_glu_op_name(ggml_get_glu_op(tensor)));
+        } //break;
+        }
+    } break;
     case GGML_OP_NONE: {
         // noop
     } break;
     case GGML_OP_COUNT:
     default: {
-        fprintf(stderr, "%s: unsupported ggml op for backward pass: %s\n", __func__, ggml_op_name(tensor->op));
-        GGML_ABORT("fatal error");
+        GGML_ABORT("%s: unsupported ggml op for backward pass: %s\n", __func__, ggml_op_name(tensor->op))
     } //break;
     }
 

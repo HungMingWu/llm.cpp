@@ -11250,7 +11250,8 @@ static ggml_tensor* llm_build_mamba(
         // Custom operator to optimize the parallel associative scan
         // as described in the Annex D of the Mamba paper.
         // => {d_inner, n_seq_tokens, n_seqs} and {d_state, d_inner, n_seqs}
-        struct ggml_tensor* y_ssm = ggml_ssm_scan(ctx, ssm, x, dt, model.layers[il].ssm_a, B, C);
+        // The answer is wwrong, fix it
+        struct ggml_tensor* y_ssm = ggml_ssm_scan(ctx, ssm, x, dt, model.layers[il].ssm_a, B, C, nullptr);
 
         // store last states
         graph->build_forward_expand(

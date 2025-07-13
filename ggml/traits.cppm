@@ -612,6 +612,8 @@ static const char* GGML_GLU_OP_NAME[GGML_GLU_OP_COUNT] = {
     "REGLU",
     "GEGLU",
     "SWIGLU",
+    "GEGLU_ERF",
+    "GEGLU_QUICK",
 };
 
 export

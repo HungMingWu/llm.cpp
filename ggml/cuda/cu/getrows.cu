@@ -174,6 +174,12 @@ static void ggml_cuda_get_rows_switch_src0_type(const get_row_context* ctx)
     case GGML_TYPE_F32:
         get_rows_cuda_float<const float, dst_t>(ctx);
         break;
+    case GGML_TYPE_I32:
+        get_rows_cuda_float<const int32_t, dst_t>(ctx);
+        break;
+    case GGML_TYPE_BF16:
+        get_rows_cuda_float<const nv_bfloat16, dst_t>(ctx);
+        break;
     case GGML_TYPE_Q4_0:
         get_rows_cuda<block_q4_0, QR4_0, dst_t>(ctx);
         break;
@@ -201,6 +207,9 @@ void get_rows_cuda(const get_row_context* ctx)
     switch (ctx->dst_type) {
     case GGML_TYPE_F32:
         ggml_cuda_get_rows_switch_src0_type<float>(ctx);
+        break;
+    case GGML_TYPE_I32:
+        ggml_cuda_get_rows_switch_src0_type<int32_t>(ctx);
         break;
     case GGML_TYPE_F16:
         ggml_cuda_get_rows_switch_src0_type<half>(ctx);

@@ -251,3 +251,5 @@ bool ggml_cuda_should_use_mmv(enum ggml_type type, int cc, const int64_t* src0_n
 
 // To be used for feature selection of external libraries, e.g. cuBLAS.
 bool fast_fp16_hardware_available(const int cc);
+
+void CUDA_SET_SHARED_MEMORY_LIMIT(const void* kernel, size_t nbytes);

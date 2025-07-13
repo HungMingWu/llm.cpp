@@ -151,10 +151,18 @@ static ggml_tensor* ggml_scale_impl(
 	ggml_context* ctx,
 	ggml_tensor* a,
 	float s,
+	float b,
 	bool inplace) {
 	GGML_ASSERT(ggml_is_padded_1d(a));
-	ggml_tensor* result = build(inplace, ctx, a, GGML_OP_SCALE, a);
-	result->op_params[0] = std::bit_cast<uint32_t>(s);
+
+	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+	float params[2] = { s, b };
+	ggml_set_op_params(*result, &params, sizeof(params));
+
+	result->op = GGML_OP_SCALE;
+	result->src.push_back(a);
+
 	return result;
 }
 
@@ -234,7 +242,7 @@ ggml_tensor* ggml_scale(
 	ggml_tensor* a,
 	float s)
 {
-	return ggml_scale_impl(ctx, a, s, false);
+	return ggml_scale_impl(ctx, a, s, 0.0, false);
 }
 
 static ggml_tensor* ggml_norm_impl(
@@ -288,7 +296,6 @@ ggml_tensor* ggml_ssm_conv(
 	const int64_t n_s = sx->ne[2];
 
 	// TODO: maybe support other strides than 1?
-	// FIXME: this is always true?
 	GGML_ASSERT(sx->ne[0] == d_conv - 1 + n_t);
 	GGML_ASSERT(sx->ne[1] == d_inner);
 	GGML_ASSERT(n_t >= 0);
@@ -309,37 +316,50 @@ ggml_tensor* ggml_ssm_scan(
 	ggml_tensor* dt,
 	ggml_tensor* A,
 	ggml_tensor* B,
-	ggml_tensor* C)
+	ggml_tensor* C,
+	ggml_tensor* ids)
 {
 	GGML_ASSERT(ggml_is_contiguous(s));
-	GGML_ASSERT(ggml_is_contiguous(x));
 	GGML_ASSERT(ggml_is_contiguous(dt));
 	GGML_ASSERT(ggml_is_contiguous(A));
-	GGML_ASSERT(ggml_is_matrix(A));
-	GGML_ASSERT(ggml_is_3d(B));
-	GGML_ASSERT(ggml_is_3d(s));
+	GGML_ASSERT(x->nb[0] == ggml_type_size(x->type));
 	GGML_ASSERT(B->nb[0] == ggml_type_size(B->type));
 	GGML_ASSERT(C->nb[0] == ggml_type_size(C->type));
-	GGML_ASSERT(ggml_are_same_shape(x, dt));
+	GGML_ASSERT(x->nb[1] == x->ne[0] * x->nb[0]);
+	GGML_ASSERT(B->nb[1] == B->ne[0] * B->nb[0]);
+	GGML_ASSERT(C->nb[1] == C->ne[0] * C->nb[0]);
 	GGML_ASSERT(ggml_are_same_shape(B, C));
+	GGML_ASSERT(ids->type == GGML_TYPE_I32);
 
 	{
 		const int64_t d_state = s->ne[0];
-		const int64_t d_inner = s->ne[1];
-		const int64_t n_seq_tokens = x->ne[1];
-		const int64_t n_seqs = x->ne[2];
+		const int64_t head_dim = x->ne[0];
+		const int64_t n_head = x->ne[1];
+		const int64_t n_seq_tokens = x->ne[2];
+		const int64_t n_seqs = x->ne[3];
 
-		GGML_ASSERT(s->ne[2] == n_seqs);
-		GGML_ASSERT(x->ne[0] == d_inner);
-		GGML_ASSERT(A->ne[0] == d_state);
-		GGML_ASSERT(A->ne[1] == d_inner);
+		GGML_ASSERT(dt->ne[0] == n_head);
+		GGML_ASSERT(dt->ne[1] == n_seq_tokens);
+		GGML_ASSERT(dt->ne[2] == n_seqs);
+		GGML_ASSERT(ggml_is_3d(dt));
+		GGML_ASSERT(s->ne[1] == head_dim);
+		GGML_ASSERT(s->ne[2] == n_head);
 		GGML_ASSERT(B->ne[0] == d_state);
-		GGML_ASSERT(B->ne[1] == n_seq_tokens);
-		GGML_ASSERT(B->ne[2] == n_seqs);
+		GGML_ASSERT(B->ne[2] == n_seq_tokens);
+		GGML_ASSERT(B->ne[3] == n_seqs);
+		GGML_ASSERT(ids->ne[0] == n_seqs);
+		GGML_ASSERT(ggml_is_vector(ids));
+		GGML_ASSERT(A->ne[1] == n_head);
+		GGML_ASSERT(ggml_is_matrix(A));
+
+		if (A->ne[0] != 1) {
+			// Mamba-1 has more granular decay factors
+			GGML_ASSERT(A->ne[0] == d_state);
+		}
 	}
 
 	// concatenated y + ssm_states
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { x->nelements() + s->nelements() });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { x->nelements() + s->ne[0] * s->ne[1] * s->ne[2] * ids->ne[0] });
 
 	result->op = GGML_OP_SSM_SCAN;
 	result->src.push_back(s);
@@ -348,6 +368,7 @@ ggml_tensor* ggml_ssm_scan(
 	result->src.push_back(A);
 	result->src.push_back(B);
 	result->src.push_back(C);
+	result->src.push_back(ids);
 
 	return result;
 }
@@ -566,9 +587,10 @@ static ggml_tensor* ggml_soft_max_impl(
 	if (mask) {
 		GGML_ASSERT(mask->type == GGML_TYPE_F16 || mask->type == GGML_TYPE_F32);
 		GGML_ASSERT(ggml_is_contiguous(mask));
-		GGML_ASSERT(ggml_is_matrix(mask));
 		GGML_ASSERT(mask->ne[0] == a->ne[0]);
 		GGML_ASSERT(mask->ne[1] >= a->ne[1]);
+		GGML_ASSERT(a->ne[2] % mask->ne[2] == 0);
+		GGML_ASSERT(a->ne[3] % mask->ne[3] == 0);
 	}
 
 	if (max_bias > 0.0f) {
@@ -962,13 +984,17 @@ ggml_tensor* ggml_flash_attn_ext(
 	GGML_ASSERT(ggml_can_mul_mat(*k, *q));
 	// TODO: check if vT can be multiplied by (k*qT)
 
+	GGML_ASSERT(q->ne[3] == k->ne[3]);
+	GGML_ASSERT(q->ne[3] == v->ne[3]);
+
 	if (mask) {
 		GGML_ASSERT(ggml_is_contiguous(mask));
-		GGML_ASSERT(mask->ne[2] == 1);
-		GGML_ASSERT(mask->ne[3] == 1);
 		GGML_ASSERT(mask->ne[1] >= GGML_PAD(q->ne[1], GGML_KQ_MASK_PAD) &&
 			"the Flash-Attention kernel requires the mask to be padded to GGML_KQ_MASK_PAD and at least n_queries big");
 		//GGML_ASSERT(ggml_can_repeat_rows(mask, qk));
+
+		GGML_ASSERT(q->ne[2] % mask->ne[2] == 0);
+		GGML_ASSERT(q->ne[3] % mask->ne[3] == 0);
 	}
 
 	if (max_bias > 0.0f) {
@@ -1461,7 +1487,7 @@ ggml_tensor* ggml_scale_inplace(
 	ggml_context* ctx,
 	ggml_tensor* a,
 	float s) {
-	return ggml_scale_impl(ctx, a, s, true);
+	return ggml_scale_impl(ctx, a, s, 0.0, true);
 }
 
 ggml_tensor* ggml_add_inplace(
@@ -2334,4 +2360,59 @@ ggml_tensor* ggml_argmax(
 	result->src.push_back(a);
 
 	return result;
+}
+
+ggml_tensor* ggml_geglu_erf(
+	ggml_context* ctx,
+	ggml_tensor* a)
+{
+	return ggml_glu_impl(ctx, a, nullptr, GGML_GLU_OP_GEGLU_ERF, false);
+}
+
+ggml_tensor* ggml_geglu_erf_swapped(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_glu_impl(ctx, a, nullptr, GGML_GLU_OP_GEGLU_ERF, true);
+}
+
+ggml_tensor* ggml_geglu_quick(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_glu_impl(ctx, a, nullptr, GGML_GLU_OP_GEGLU_QUICK, false);
+}
+
+ggml_tensor* ggml_geglu_quick_swapped(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_glu_impl(ctx, a, nullptr, GGML_GLU_OP_GEGLU_QUICK, true);
+}
+
+ggml_tensor* ggml_geglu_erf_split(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b) {
+	return ggml_glu_impl(ctx, a, b, GGML_GLU_OP_GEGLU_ERF, false);
+}
+
+ggml_tensor* ggml_geglu_quick_split(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b) {
+	return ggml_glu_impl(ctx, a, b, GGML_GLU_OP_GEGLU_QUICK, false);
+}
+
+ggml_tensor* ggml_scale_bias(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	float s,
+	float b) {
+	return ggml_scale_impl(ctx, a, s, b, false);
+}
+
+ggml_tensor* ggml_scale_bias_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	float s,
+	float b) {
+	return ggml_scale_impl(ctx, a, s, b, true);
 }

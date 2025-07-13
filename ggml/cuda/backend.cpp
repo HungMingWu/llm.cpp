@@ -1536,6 +1536,8 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         case GGML_GLU_OP_REGLU:
         case GGML_GLU_OP_GEGLU:
         case GGML_GLU_OP_SWIGLU:
+        case GGML_GLU_OP_GEGLU_ERF:
+        case GGML_GLU_OP_GEGLU_QUICK:
             op::glu(stream(), dst);
             break;
         default:

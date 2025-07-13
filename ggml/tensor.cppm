@@ -153,4 +153,8 @@ export
 	ggml_tensor* ggml_view_tensor(
 		ggml_context* ctx,
 		ggml_tensor* src);
+
+	void ggml_flash_attn_ext_set_prec(
+		ggml_tensor* a,
+		enum ggml_prec       prec);
 }

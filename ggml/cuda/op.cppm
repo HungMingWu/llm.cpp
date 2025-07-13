@@ -513,9 +513,10 @@ namespace op
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-        float scale = std::bit_cast<float>(dst->op_params[0]);
+        const float scale = std::bit_cast<float>(dst->op_params[0]);
+        const float bias = std::bit_cast<float>(dst->op_params[1]);
 
-        scale_f32_cuda(src0_d, dst_d, scale, src0->nelements(), stream);
+        scale_f32_cuda(src0_d, dst_d, scale, bias, src0->nelements(), stream);
     }
 
     void norm(cudaStream_t stream, ggml_tensor* dst) {
@@ -1221,14 +1222,28 @@ namespace op
 
         GGML_ASSERT(!src1 || src1->type == GGML_TYPE_F16 || src1->type == GGML_TYPE_F32); // src1 contains mask and it is optional
 
-        const int64_t ne00 = src0->ne[0];
         const int64_t nrows_x = ggml_nrows(src0);
         const int64_t nrows_y = src0->ne[1];
+
+        const int64_t ne00 = src0->ne[0];
 
         float scale = std::bit_cast<float>(dst->op_params[0]);
         float max_bias = std::bit_cast<float>(dst->op_params[1]);
 
         const bool use_f16 = (src1 && src1->type == GGML_TYPE_F16);
+
+        const int64_t nb11 = src1 ? src1->nb[1] : 1;
+        const int64_t nb12 = src1 ? src1->nb[2] : 1;
+        const int64_t nb13 = src1 ? src1->nb[3] : 1;
+
+        const int64_t ne12 = src1 ? src1->ne[2] : 1;
+        const int64_t ne13 = src1 ? src1->ne[3] : 1;
+
+        const uint32_t n_head = src0->ne[2];
+        const uint32_t n_head_log2 = 1u << (uint32_t)floorf(log2f((float)n_head));
+
+        const float m0 = powf(2.0f, -(max_bias) / n_head_log2);
+        const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
 
         softmax_context ctx{
             .src0_d = src0_d,
@@ -1239,7 +1254,27 @@ namespace op
 			.nrows_y = nrows_y,
 			.scale = scale,
 			.max_bias = max_bias,
-            .use_f16 = use_f16
+            .use_f16 = use_f16,
+            .params = {
+                .nheads = src0->ne[2],
+                .n_head_log2 = n_head_log2,
+                .ncols = ne00,
+                .nrows_x = nrows_x,
+                .nrows_y = nrows_y,
+                .ne00 = src0->ne[0],
+                .ne01 = src0->ne[1],
+                .ne02 = src0->ne[2],
+                .ne03 = src0->ne[3],
+                .nb11 = nb11,
+                .nb12 = nb12,
+                .nb13 = nb13,
+                .ne12 = ne12,
+                .ne13 = ne13,
+                .scale = scale,
+                .max_bias = max_bias,
+                .m0 = m0,
+                .m1 = m1
+            }
         };
         soft_max_f32_cuda(&ctx, stream);
     }
@@ -1416,12 +1451,28 @@ namespace op
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-        const float sf0 = (float)dst->ne[0] / src0->ne[0];
-        const float sf1 = (float)dst->ne[1] / src0->ne[1];
-        const float sf2 = (float)dst->ne[2] / src0->ne[2];
+        const int mode_flags = dst->op_params[0];
+        const ggml_scale_mode mode = (ggml_scale_mode)(mode_flags & 0xFF);
+
+        float sf0 = (float)dst->ne[0] / src0->ne[0];
+        float sf1 = (float)dst->ne[1] / src0->ne[1];
+        float sf2 = (float)dst->ne[2] / src0->ne[2];
         const float sf3 = (float)dst->ne[3] / src0->ne[3];
 
-        upscale_f32_cuda(src0_d, dst_d, src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3], dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3], sf0, sf1, sf2, sf3, stream);
+        if (mode == GGML_SCALE_MODE_NEAREST) {
+            upscale_f32_cuda(src0_d, dst_d, src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3], dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3], sf0, sf1, sf2, sf3, stream);
+        }
+        else if (mode == GGML_SCALE_MODE_BILINEAR) {
+            float pixel_offset = 0.5f;
+            if (mode_flags & GGML_SCALE_FLAG_ALIGN_CORNERS) {
+                sf0 = (float)(dst->ne[0] - 1) / (src0->ne[0] - 1);
+                sf1 = (float)(dst->ne[1] - 1) / (src0->ne[1] - 1);
+                pixel_offset = 0.0f;
+            }
+            upscale_f32_bilinear_cuda(src0_d, dst_d, src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3],
+                src0->ne[0], src0->ne[1], dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3],
+                sf0, sf1, sf2, sf3, pixel_offset, stream);
+        }
     }
 
     void group_norm(cudaStream_t stream, ggml_tensor* dst) {
@@ -1843,36 +1894,31 @@ namespace op
     }
 
     void ssm_scan(cudaStream_t stream, ggml_tensor* dst) {
-        const struct ggml_tensor* src0 = dst->src[0];  // s
-        const struct ggml_tensor* src1 = dst->src[1];  // x
-        const struct ggml_tensor* src2 = dst->src[2];  // dt
-        const struct ggml_tensor* src3 = dst->src[3];  // A
-        const struct ggml_tensor* src4 = dst->src[4];  // B
-        const struct ggml_tensor* src5 = dst->src[5];  // C
-
-        //   const int64_t d_state = src0->ne[0];
-        //   const int64_t d_inner = src0->ne[1];
-        //   const int64_t l = src1->ne[1];
-        //   const int64_t b = src0->ne[2];
+        const ggml_tensor* src0 = dst->src[0];  // s
+        const ggml_tensor* src1 = dst->src[1];  // x
+        const ggml_tensor* src2 = dst->src[2];  // dt
+        const ggml_tensor* src3 = dst->src[3];  // A
+        const ggml_tensor* src4 = dst->src[4];  // B
+        const ggml_tensor* src5 = dst->src[5];  // C
+        const ggml_tensor* src6 = dst->src[6];  // ids
 
         const int64_t nc = src0->ne[0];  // d_state
-        const int64_t nr = src0->ne[1];  // d_inner
-        const int64_t n_t = src1->ne[1];  // number of tokens per sequence
-        const int64_t n_s = src0->ne[2];  // number of sequences in the batch
+        const int64_t nr = src0->ne[1];  // head_dim or 1
+        const int64_t nh = src1->ne[1];  // n_head
+        const int64_t ng = src4->ne[1];  // n_group
+        const int64_t n_t = src1->ne[2];  // number of tokens per sequence
+        const int64_t n_s = src1->ne[3];  // number of sequences in the batch
 
-        GGML_ASSERT(src1->nelements() + src0->nelements() == dst->nelements());
+        const int64_t s_off = src1->nelements() * sizeof(float);
+
+        GGML_ASSERT(src1->nelements() + nc * nr * nh * n_s == dst->nelements());
         GGML_ASSERT(src0->nb[0] == sizeof(float));
         GGML_ASSERT(src1->nb[0] == sizeof(float));
         GGML_ASSERT(src2->nb[0] == sizeof(float));
         GGML_ASSERT(src3->nb[0] == sizeof(float));
         GGML_ASSERT(src4->nb[0] == sizeof(float));
         GGML_ASSERT(src5->nb[0] == sizeof(float));
-        // required for the dot product between s and C
-        GGML_ASSERT(src0->nb[1] == src0->ne[0] * sizeof(float));
-        // required for per-sequence offsets for states
-        GGML_ASSERT(src0->nb[2] == src0->ne[0] * src0->ne[1] * sizeof(float));
-        // required to get correct offset for state destination (i.e. src1->nb[3])
-        GGML_ASSERT(src1->nb[3] == src1->ne[0] * src1->ne[1] * src1->ne[2] * sizeof(float));
+        GGML_ASSERT(src6->nb[0] == sizeof(int32_t));
 
         const float* src0_d = (const float*)src0->data;
         const float* src1_d = (const float*)src1->data;
@@ -1880,14 +1926,17 @@ namespace op
         const float* src3_d = (const float*)src3->data;
         const float* src4_d = (const float*)src4->data;
         const float* src5_d = (const float*)src5->data;
+        const int32_t* src6_d = (const int32_t*)src6->data;
         float* dst_d = (float*)dst->data;
 
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(src6->type == GGML_TYPE_I32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-        ssm_scan_f32_cuda(src0_d, src1_d, src2_d, src3_d, src4_d, src5_d, src0->nb[1], src0->nb[2], src1->nb[0],
-            src1->nb[1], src1->nb[2], src1->nb[3], src2->nb[0], src2->nb[1], src2->nb[2], src3->nb[1],
-            src4->nb[1], src4->nb[2], src5->nb[1], src5->nb[2], dst_d, nc, nr, n_t, n_s, stream);
+        ssm_scan_f32_cuda(src0_d, src1_d, src2_d, src3_d, src4_d, src5_d, src6_d, dst_d,
+            src0->nb[2], src0->nb[3], src1->nb[2], src1->nb[3], src2->nb[1], src2->nb[2],
+            src3->nb[1], src4->nb[2], src4->nb[3], src5->nb[2], src5->nb[3],
+            s_off, nc, nr, nh, ng, n_t, n_s, stream);
     }
 
     void conv2d_dw(cudaStream_t stream, ggml_tensor* dst) {
@@ -2001,6 +2050,12 @@ namespace op
             break;
         case GGML_GLU_OP_SWIGLU:
             swiglu_cuda(&ctx);
+            break;
+        case GGML_GLU_OP_GEGLU_ERF:
+            geglu_erf_cuda(&ctx);
+            break;
+        case GGML_GLU_OP_GEGLU_QUICK:
+            geglu_quick_cuda(&ctx);
             break;
         default:
             std::unreachable();

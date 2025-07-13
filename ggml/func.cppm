@@ -244,13 +244,6 @@ export {
 		 return nullptr;
 	 }
 
-	 void ggml_flash_attn_ext_set_prec(
-		 ggml_tensor* a,
-		 enum ggml_prec       prec)
-	 {
-		 // TODO
-	 }
-
 	 // change the precision of a matrix multiplication
 	 // set to GGML_PREC_F32 for higher precision (useful for phi-2)
 	 void ggml_mul_mat_set_prec(

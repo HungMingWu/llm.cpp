@@ -53,13 +53,7 @@ void cross_entropy_loss_cuda(const cross_entropy_context* ctx, cudaStream_t stre
 
     ggml_cuda_pool_alloc<float> dst_tmp(ctx->pool, blocks_num.x);
     if (nbytes_shared <= ctx->smpbo) {
-#if !(defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)) && !defined(GGML_USE_MUSA)
-        static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = { false };
-        if (!shared_memory_limit_raised[ctx->id]) {
-            CUDA_CHECK(cudaFuncSetAttribute(cross_entropy_loss_f32<true>, cudaFuncAttributeMaxDynamicSharedMemorySize, ctx->smpbo));
-            shared_memory_limit_raised[ctx->id] = true;
-        }
-#endif // !(defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)) && !defined(GGML_USE_MUSA)
+        CUDA_SET_SHARED_MEMORY_LIMIT(reinterpret_cast<const void*>(cross_entropy_loss_f32<true>), ctx->smpbo);
         cross_entropy_loss_f32<true> << <blocks_num, blocks_dim, nbytes_shared, stream >> > 
             (ctx->src0_d, ctx->src1_d, dst_tmp.ptr, ctx->ne00, ctx->nrows);
     }
@@ -123,13 +117,7 @@ void cross_entropy_loss_back_cuda(const cross_entropy_back_context* ctx, cudaStr
     const size_t nbytes_shared = ctx->ne00 * sizeof(float);
 
     if (nbytes_shared <= ctx->smpbo) {
-#if !(defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)) && !defined(GGML_USE_MUSA)
-        static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = { false };
-        if (!shared_memory_limit_raised[ctx->id]) {
-            CUDA_CHECK(cudaFuncSetAttribute(cross_entropy_loss_back_f32<true>, cudaFuncAttributeMaxDynamicSharedMemorySize, ctx->smpbo));
-            shared_memory_limit_raised[ctx->id] = true;
-        }
-#endif // !(defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)) && !defined(GGML_USE_MUSA)
+        CUDA_SET_SHARED_MEMORY_LIMIT(reinterpret_cast<const void*>(cross_entropy_loss_f32<true>), ctx->smpbo);
         cross_entropy_loss_back_f32<true> << <blocks_num, blocks_dim, nbytes_shared, stream >> >
             (ctx->grad_d, ctx->src0f_d, ctx->src1f_d, ctx->dst_d, ctx->ne00);
     }

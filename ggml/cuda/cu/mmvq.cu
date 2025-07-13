@@ -3839,14 +3839,8 @@ static void launch_mul_mat_q(ggml_cuda_pool& pool, const mmq_args& args, cudaStr
 
     const int nbytes_shared = mmq_get_nbytes_shared<type>(mmq_x, mmq_y, cc);
 
-#if !(defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)) && !defined(GGML_USE_MUSA)
-    static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = { false };
-    if (!shared_memory_limit_raised[id]) {
-        CUDA_CHECK(cudaFuncSetAttribute(mul_mat_q<type, src_t, mmq_x, MMQ_NWARPS, false>, cudaFuncAttributeMaxDynamicSharedMemorySize, nbytes_shared));
-        CUDA_CHECK(cudaFuncSetAttribute(mul_mat_q<type, src_t, mmq_x, MMQ_NWARPS, true>, cudaFuncAttributeMaxDynamicSharedMemorySize, nbytes_shared));
-        shared_memory_limit_raised[id] = true;
-    }
-#endif // !(defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)) && !defined(GGML_USE_MUSA)
+    CUDA_SET_SHARED_MEMORY_LIMIT(reinterpret_cast<const void*>(mul_mat_q<type, src_t, mmq_x, MMQ_NWARPS, false>), nbytes_shared);
+    CUDA_SET_SHARED_MEMORY_LIMIT(reinterpret_cast<const void*>(mul_mat_q<type, src_t, mmq_x, MMQ_NWARPS, true>), nbytes_shared);
 
     const int nty = (args.nrows_x + mmq_y - 1) / mmq_y;
     const int ntx = (args.ncols_dst + mmq_x - 1) / mmq_x;

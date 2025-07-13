@@ -2,6 +2,7 @@ module;
 #include <assert.h>
 #include <stdint.h>
 #include <array>
+#include <bit>
 #include <string_view>
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
@@ -109,4 +110,13 @@ ggml_tensor* ggml_view_tensor(
 	}
 
 	return result;
+}
+
+void ggml_flash_attn_ext_set_prec(
+	ggml_tensor* a,
+	enum ggml_prec       prec)
+{
+	GGML_ASSERT(a->op == GGML_OP_FLASH_ATTN_EXT);
+	// scale is on first pos, max_bias on second
+	a->op_params[3] = std::bit_cast<int32_t>(prec);
 }

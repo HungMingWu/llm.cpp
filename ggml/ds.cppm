@@ -119,7 +119,7 @@ export {
         GGML_OP_POOL_1D,
         GGML_OP_POOL_2D,
         GGML_OP_POOL_2D_BACK,
-        GGML_OP_UPSCALE, // nearest interpolate
+        GGML_OP_UPSCALE,
         GGML_OP_PAD,
         GGML_OP_PAD_REFLECT_1D,
         GGML_OP_ROLL,
@@ -189,6 +189,8 @@ export {
         GGML_GLU_OP_REGLU,
         GGML_GLU_OP_GEGLU,
         GGML_GLU_OP_SWIGLU,
+        GGML_GLU_OP_GEGLU_ERF,
+        GGML_GLU_OP_GEGLU_QUICK,
 
         GGML_GLU_OP_COUNT,
     };

@@ -287,3 +287,16 @@ bool fast_fp16_hardware_available(const int cc)
     return (GGML_CUDA_CC_IS_NVIDIA(cc) && cc >= GGML_CUDA_CC_PASCAL && cc != 610) || GGML_CUDA_CC_IS_AMD(cc) ||
         (GGML_CUDA_CC_IS_MTHREADS(cc) && cc >= GGML_CUDA_CC_QY2);
 }
+
+void CUDA_SET_SHARED_MEMORY_LIMIT(const void* kernel, size_t nbytes)
+{
+#if !(defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)) && !defined(GGML_USE_MUSA)
+    static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = { false };
+    const int id = ggml_cuda_get_device();
+    if (!shared_memory_limit_raised[id]) {
+        CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, nbytes));
+        shared_memory_limit_raised[id] = true;
+    }
+#else
+#endif
+}

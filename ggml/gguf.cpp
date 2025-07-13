@@ -421,7 +421,13 @@ std::optional<gguf_context> gguf_init_from_file_impl(FILE* file) {
                 GGML_LOG_ERROR("{}: failed to read tensor data", __func__);
                 return std::nullopt;
             }
-            ctx.size += GGML_PAD(ti.t.nbytes(), ctx.alignment);
+            size_t padded_size = GGML_PAD(ti.t.nbytes(), ctx.alignment);
+            if (SIZE_MAX - ctx.size < padded_size) {
+                GGML_LOG_ERROR("{}: tensor '{}' size overflow, cannot accumulate size {} + {}",
+                    __func__, ti.t.name, ctx.size, padded_size);
+                return std::nullopt;
+            }
+            ctx.size += padded_size;
         }
     }
 

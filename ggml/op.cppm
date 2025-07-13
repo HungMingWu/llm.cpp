@@ -79,7 +79,8 @@ export {
 		ggml_tensor* dt,
 		ggml_tensor* A,
 		ggml_tensor* B,
-		ggml_tensor* C);
+		ggml_tensor* C,
+		ggml_tensor* ids);
 
 	ggml_tensor* ggml_rwkv_wkv6(
 		ggml_context* ctx,
@@ -243,6 +244,17 @@ export {
 		float negative_slope,
 		bool inplace);
 
+	// q:    [n_embd_k, n_batch,     n_head,    ne3 ]
+	// k:    [n_embd_k, n_kv,        n_head_kv, ne3 ]
+	// v:    [n_embd_v, n_kv,        n_head_kv, ne3 ] !! not transposed !!
+	// mask: [n_kv,     n_batch_pad, ne32,      ne33] !! n_batch_pad = GGML_PAD(n_batch, GGML_KQ_MASK_PAD) !!
+	// res:  [n_embd_v, n_head,      n_batch,   ne3 ] !! permuted !!
+	//
+	// broadcast:
+	//   n_head % n_head_kv == 0
+	//   n_head % ne32      == 0
+	//   ne3    % ne33      == 0
+	//
 	ggml_tensor* ggml_flash_attn_ext(
 		ggml_context* ctx,
 		ggml_tensor* q,
@@ -756,4 +768,43 @@ export {
 	ggml_tensor* ggml_argmax(
 		ggml_context* ctx,
 		ggml_tensor* a);
+
+	ggml_tensor* ggml_geglu_erf(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_geglu_erf_swapped(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_geglu_quick(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_geglu_quick_swapped(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_geglu_erf_split(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b);
+
+	ggml_tensor* ggml_geglu_quick_split(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b);
+
+	// x = s * a + b
+	ggml_tensor* ggml_scale_bias(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		float s,
+		float b);
+
+	ggml_tensor* ggml_scale_bias_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		float s,
+		float b);
 }

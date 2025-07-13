@@ -25,13 +25,14 @@ static __host__ __device__ float gelu_erf(float x) {
     return 0.5f * x * (1.0f + erff(x * SQRT_2_INV));
 }
 
-static __host__ __device__ float silu(float x) {
-    return x / (1.0f + expf(-x));
+static __device__ __forceinline__ float gelu_quick(float x) {
+    const float GELU_QUICK_COEF = -1.702f;
+
+    return x * (1.0f / (1.0f + expf(GELU_QUICK_COEF * x)));
 }
 
-static __host__ __device__ float gelu_quick(float x) {
-    static const float GELU_QUICK_COEF = -1.702f;
-    return x * (1.0f / (1.0f + expf(GELU_QUICK_COEF * x)));
+static __host__ __device__ float silu(float x) {
+    return x / (1.0f + expf(-x));
 }
 
 static __host__ __device__ float relu(float x) {
@@ -323,4 +324,14 @@ void geglu_cuda(const gated_context* ctx)
 void swiglu_cuda(const gated_context* ctx)
 {
 	ggml_cuda_op_unary_gated<silu>(ctx);
+}
+
+void geglu_erf_cuda(const gated_context* ctx)
+{
+    ggml_cuda_op_unary_gated<gelu_erf>(ctx);
+}
+
+void geglu_quick_cuda(const gated_context* ctx)
+{
+    ggml_cuda_op_unary_gated<gelu_quick>(ctx);
 }

@@ -197,6 +197,8 @@ struct gated_context {
 void reglu_cuda(const gated_context* ctx);
 void geglu_cuda(const gated_context* ctx);
 void swiglu_cuda(const gated_context* ctx);
+void geglu_erf_cuda(const gated_context* ctx);
+void geglu_quick_cuda(const gated_context* ctx);
 void leaky_relu_cuda(bool, const void*, void*, const int, const float, cudaStream_t);
 
 // get_row
@@ -295,7 +297,7 @@ struct dup_context {
 void dup_cuda(const dup_context* ctx, cudaStream_t stream);
 
 // scale
-void scale_f32_cuda(const float* x, float* dst, const float scale, const int k, cudaStream_t stream);
+void scale_f32_cuda(const float* x, float* dst, const float scale, const float bias, const int k, cudaStream_t stream);
 
 // norm
 void norm_f32_cuda(
@@ -368,6 +370,28 @@ void clamp_cuda(const clamp_context* ctx);
 void diag_mask_inf_f32_cuda(const float* x, float* dst, const int ncols_x, const int nrows_x, const int rows_per_channel, const int n_past, cudaStream_t stream);
 
 // softmax
+struct soft_max_params {
+    int64_t nheads;
+    uint32_t n_head_log2;
+    int64_t ncols;
+    int64_t nrows_x;
+    int64_t nrows_y;
+    int64_t ne00;
+    int64_t ne01;
+    int64_t ne02;
+    int64_t ne03;
+    int64_t nb11;
+    int64_t nb12;
+    int64_t nb13;
+
+    int64_t ne12;
+    int64_t ne13;
+    float scale;
+    float max_bias;
+    float m0;
+    float m1;
+};
+
 struct softmax_context {
     const float* src0_d;
     const void* src1_d;
@@ -376,6 +400,7 @@ struct softmax_context {
     const int64_t nrows_x, nrows_y;
     const float scale, max_bias;
     bool use_f16;
+    soft_max_params params;
 };
 
 void soft_max_f32_cuda(const softmax_context* ctx, cudaStream_t stream);
@@ -453,6 +478,13 @@ void upscale_f32_cuda(const float* x, float* dst,
     const int ne10, const int ne11, const int ne12, const int ne13,
     const float sf0, const float sf1, const float sf2, const float sf3,
     cudaStream_t stream);
+
+void upscale_f32_bilinear_cuda(const float* x, float* dst,
+    const int nb00, const int nb01, const int nb02, const int nb03,
+    const int ne00_src, const int ne01_src,
+    const int ne10_dst, const int ne11_dst, const int ne12_dst, const int ne13_dst,
+    const float sf0, const float sf1, const float sf2, const float sf3,
+    const float pixel_offset, cudaStream_t stream);
 
 // acc
 void acc_f32_cuda(const float* x, const float* y, float* dst, const int64_t n_elements,
@@ -575,11 +607,11 @@ void ssm_conv_f32_cuda(const float* src0, const float* src1, const int src0_nb0,
 
 // ssm-scan
 void ssm_scan_f32_cuda(const float* src0, const float* src1, const float* src2, const float* src3,
-    const float* src4, const float* src5, const int src0_nb1, const int src0_nb2,
-    const int src1_nb0, const int src1_nb1, const int src1_nb2, const int src1_nb3,
-    const int src2_nb0, const int src2_nb1, const int src2_nb2, const int src3_nb1,
-    const int src4_nb1, const int src4_nb2, const int src5_nb1, const int src5_nb2,
-    float* dst, const int64_t N, const int64_t D, const int64_t L, const int64_t B,
+    const float* src4, const float* src5, const int32_t* src6, float* dst,
+    const int src0_nb2, const int src0_nb3, const int src1_nb2, const int src1_nb3, const int src2_nb1,
+    const int src2_nb2, const int src3_nb1, const int src4_nb2, const int src4_nb3, const int src5_nb2,
+    const int src5_nb3, const int64_t s_off, const int64_t d_state, const int64_t head_dim,
+    const int64_t n_head, const int64_t n_group, const int64_t n_tok, const int64_t n_seq,
     cudaStream_t stream);
 
 // conv2d-dw.cu
