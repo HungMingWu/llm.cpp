@@ -6979,6 +6979,24 @@ void ggml_compute_forward_conv_2d(
 	ggml_compute_forward_conv_2d_impl(params, src0, src1, dst, src0->type);
 }
 
+void ggml_compute_forward_diag_mask_zero(
+	const ggml_compute_params* params,
+	ggml_tensor* dst) {
+
+	const ggml_tensor* src0 = dst->src[0];
+
+	switch (src0->type) {
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_diag_mask_f32(params, dst, 0);
+	} break;
+	default:
+	{
+		GGML_ABORT("fatal error");
+	}
+	}
+}
+
 static void ggml_compute_forward(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -7147,12 +7165,10 @@ static void ggml_compute_forward(
 	{
 		ggml_compute_forward_diag_mask_inf(params, tensor);
 	} break;
-#if 0
 	case GGML_OP_DIAG_MASK_ZERO:
 	{
 		ggml_compute_forward_diag_mask_zero(params, tensor);
 	} break;
-#endif
 	case GGML_OP_SOFT_MAX:
 	{
 		ggml_compute_forward_soft_max(pool, scope, tensor);
