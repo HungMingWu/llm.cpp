@@ -32,6 +32,7 @@ target_sources(libggml
       op/sum_rows.cppm
       op/unary.cppm
       op/upscale.cppm
+      op/win.cppm
   PRIVATE
       backend.cpp
       buffer_type.cpp

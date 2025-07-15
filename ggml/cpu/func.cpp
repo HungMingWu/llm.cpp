@@ -7283,16 +7283,14 @@ static void ggml_compute_forward(
 	{
 		ggml_compute_forward_ssm_scan(pool, scope, tensor);
 	} break;
-#if 0
 	case GGML_OP_WIN_PART:
 	{
-		ggml_compute_forward_win_part(params, tensor);
+		ggml_compute_forward_win_part(tensor);
 	} break;
 	case GGML_OP_WIN_UNPART:
 	{
-		ggml_compute_forward_win_unpart(params, tensor);
+		ggml_compute_forward_win_unpart(tensor);
 	} break;
-#endif
 	case GGML_OP_UNARY:
 	{
 		ggml_compute_forward_unary(params, tensor);

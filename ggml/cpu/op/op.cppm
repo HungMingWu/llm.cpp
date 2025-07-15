@@ -11,3 +11,4 @@ import :cpu.op.scale;
 import :cpu.op.sum_rows;
 import :cpu.op.unary;
 import :cpu.op.upscale;
+import :cpu.op.win;

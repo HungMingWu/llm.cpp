@@ -1,5 +1,6 @@
 module;
 #include <assert.h>
+#include <stdint.h>
 #define GGML_ABORT(...)
 
 module ggml:cpu.op.diag;
