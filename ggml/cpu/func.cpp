@@ -7224,12 +7224,10 @@ static void ggml_compute_forward(
 	{
 		ggml_compute_forward_pool_2d(tensor);
 	} break;
-#if 0
 	case GGML_OP_POOL_2D_BACK:
 	{
-		ggml_compute_forward_pool_2d_back(params, tensor);
+		ggml_compute_forward_pool_2d_back(tensor);
 	} break;
-#endif
 	case GGML_OP_UPSCALE:
 	{
 		ggml_compute_forward_upscale(params, tensor);

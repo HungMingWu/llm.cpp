@@ -27,6 +27,7 @@ target_sources(libggml
       op/mean.cppm
       op/norm.cppm
       op/op.cppm
+      op/pool.cppm
       op/repeat_back.cppm
       op/scale.cppm
       op/sum_rows.cppm
