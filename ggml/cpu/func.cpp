@@ -7139,12 +7139,10 @@ static void ggml_compute_forward(
 	{
 		ggml_compute_forward_get_rows_back(params, tensor);
 	} break;
-#if 0
 	case GGML_OP_DIAG:
 	{
-		ggml_compute_forward_diag(params, tensor);
+		ggml_compute_forward_diag(tensor);
 	} break;
-#endif
 	case GGML_OP_DIAG_MASK_INF:
 	{
 		ggml_compute_forward_diag_mask_inf(params, tensor);

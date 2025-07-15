@@ -22,6 +22,7 @@ target_sources(libggml
       vec_dot.cppm
       op/argsort.cppm
       op/concat.cppm
+      op/diag.cppm
       op/leaky_relu.cppm
       op/mean.cppm
       op/norm.cppm
