@@ -33,10 +33,10 @@ static float qwen_get_ntk_alpha(int true_seq_len, int seq_length)
     return MAX(ntk_alpha, 1.0f);
 }
 
-static void ggml_compute_forward_mat_scale_f32(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+static void ggml_compute_forward_mat_scale_f32(ggml::tensor* dst, int ith, int nth)
 {
-    const ggml::tensor* src0 = a;
-    const ggml::tensor* src1 = b;
+    const ggml::tensor* src0 = dst->src[0];
+    const ggml::tensor* src1 = dst->src[1];
 
     const int nr = (int)ggml::nrows(dst);
 
@@ -71,12 +71,13 @@ static void ggml_compute_forward_mat_scale_f32(ggml::tensor* dst, const ggml::te
     }
 }
 
-void ggml_compute_forward_mat_scale(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+void ggml_compute_forward_mat_scale(ggml::tensor* dst, int ith, int nth)
 {
+    const ggml::tensor* a = dst->src[0];
     switch (a->type)
     {
     case GGML_TYPE_F32:
-        ggml_compute_forward_mat_scale_f32(dst, a, b, ith, nth, userdata);
+        ggml_compute_forward_mat_scale_f32(dst, ith, nth);
         break;
     default:
         GGML_ASSERT(false);
@@ -84,12 +85,10 @@ void ggml_compute_forward_mat_scale(ggml::tensor* dst, const ggml::tensor* a, co
     }
 }
 
-static void ggml_compute_forward_ntk_dynamic_rope_f32(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+static void ggml_compute_forward_ntk_dynamic_rope_f32(ggml::tensor* dst, int ith, int nth, const QWenSelfAttention* data)
 {
-    QWenSelfAttention* data = reinterpret_cast<QWenSelfAttention*>(userdata);
-
-    const ggml::tensor* src0 = a;
-    const ggml::tensor* src1 = b;
+    const ggml::tensor* src0 = dst->src[0];
+    const ggml::tensor* src1 = dst->src[1];
 
     int n_dims = data->rope_dim;
 
@@ -156,12 +155,10 @@ static void ggml_compute_forward_ntk_dynamic_rope_f32(ggml::tensor* dst, const g
     }
 }
 
-static void ggml_compute_forward_ntk_dynamic_rope_f16(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+static void ggml_compute_forward_ntk_dynamic_rope_f16(ggml::tensor* dst, int ith, int nth, const QWenSelfAttention* data)
 {
-    QWenSelfAttention* data = reinterpret_cast<QWenSelfAttention*>(userdata);
-
-    const ggml::tensor* src0 = a;
-    const ggml::tensor* src1 = b;
+    const ggml::tensor* src0 = dst->src[0];
+    const ggml::tensor* src1 = dst->src[1];
 
     int n_dims = data->rope_dim;
 
@@ -228,28 +225,32 @@ static void ggml_compute_forward_ntk_dynamic_rope_f16(ggml::tensor* dst, const g
     }
 }
 
-void ggml_compute_forward_ntk_dynamic_rope(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
-{
-    switch (a->type)
+struct ggml_compute_forward_ntk_dynamic_rope {
+    const QWenSelfAttention* data;
+    ggml_compute_forward_ntk_dynamic_rope(const QWenSelfAttention* data) : data(data) {}
+    ggml_compute_forward_ntk_dynamic_rope(const ggml_compute_forward_ntk_dynamic_rope&) = default;
+    void operator()(ggml::tensor* dst, int ith, int nth)
     {
-    case GGML_TYPE_F16:
-        ggml_compute_forward_ntk_dynamic_rope_f16(dst, a, b, ith, nth, userdata);
-        break;
-    case GGML_TYPE_F32:
-        ggml_compute_forward_ntk_dynamic_rope_f32(dst, a, b, ith, nth, userdata);
-        break;
-    default:
-        GGML_ASSERT(false);
-        break;
+        const ggml_tensor* a = dst->src[0];
+        switch (a->type)
+        {
+        case GGML_TYPE_F16:
+            ggml_compute_forward_ntk_dynamic_rope_f16(dst, ith, nth, data);
+            break;
+        case GGML_TYPE_F32:
+            ggml_compute_forward_ntk_dynamic_rope_f32(dst, ith, nth, data);
+            break;
+        default:
+            GGML_ASSERT(false);
+            break;
+        }
     }
-}
+};
 
-static void ggml_compute_forward_ntk_mix_rope_f32(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+static void ggml_compute_forward_ntk_mix_rope_f32(ggml::tensor* dst, int ith, int nth, const BlueLMSelfAttention* data)
 {
-    BlueLMSelfAttention* data = reinterpret_cast<BlueLMSelfAttention*>(userdata);
-
-    const ggml::tensor* src0 = a;
-    const ggml::tensor* src1 = b;
+    const ggml::tensor* src0 = dst->src[0];
+    const ggml::tensor* src1 = dst->src[1];
 
     int n_dims = data->rope_dim;
 
@@ -298,12 +299,10 @@ static void ggml_compute_forward_ntk_mix_rope_f32(ggml::tensor* dst, const ggml:
     }
 }
 
-static void ggml_compute_forward_ntk_mix_rope_f16(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+static void ggml_compute_forward_ntk_mix_rope_f16(ggml::tensor* dst, int ith, int nth, const BlueLMSelfAttention* data)
 {
-    BlueLMSelfAttention* data = reinterpret_cast<BlueLMSelfAttention*>(userdata);
-
-    const ggml::tensor* src0 = a;
-    const ggml::tensor* src1 = b;
+    const ggml::tensor* src0 = dst->src[0];
+    const ggml::tensor* src1 = dst->src[1];
 
     int n_dims = data->rope_dim;
 
@@ -352,21 +351,27 @@ static void ggml_compute_forward_ntk_mix_rope_f16(ggml::tensor* dst, const ggml:
     }
 }
 
-void ggml_compute_forward_ntk_mix_rope(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
-{
-    switch (a->type)
+struct ggml_compute_forward_ntk_mix_rope {
+    const BlueLMSelfAttention* data;
+    ggml_compute_forward_ntk_mix_rope(const BlueLMSelfAttention* data) : data(data) {}
+    ggml_compute_forward_ntk_mix_rope(const ggml_compute_forward_ntk_mix_rope&) = default;
+    void operator()(ggml::tensor* dst, int ith, int nth)
     {
-    case GGML_TYPE_F16:
-        ggml_compute_forward_ntk_mix_rope_f16(dst, a, b, ith, nth, userdata);
-        break;
-    case GGML_TYPE_F32:
-        ggml_compute_forward_ntk_mix_rope_f32(dst, a, b, ith, nth, userdata);
-        break;
-    default:
-        GGML_ASSERT(false);
-        break;
+        const ggml::tensor* a = dst->src[0];
+        switch (a->type)
+        {
+        case GGML_TYPE_F16:
+            ggml_compute_forward_ntk_mix_rope_f16(dst, ith, nth, data);
+            break;
+        case GGML_TYPE_F32:
+            ggml_compute_forward_ntk_mix_rope_f32(dst, ith, nth, data);
+            break;
+        default:
+            GGML_ASSERT(false);
+            break;
+        }
     }
-}
+};
 
 void build_ntk_mixed_inv_freq(int dim, std::vector<float>& inv_freq,
     int max_position_embeddings = 2048, float base = 10000.0, float k = 16, float b = 0.3)
@@ -382,12 +387,10 @@ void build_ntk_mixed_inv_freq(int dim, std::vector<float>& inv_freq,
 }
 
 
-static void ggml_compute_forward_chatglm1_rope_f16(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+static void ggml_compute_forward_chatglm1_rope_f16(ggml::tensor* dst, int ith, int nth, const GLMSelfAttention* data)
 {
-    GLMSelfAttention* data = reinterpret_cast<GLMSelfAttention*>(userdata);
-
-    const ggml::tensor* src0 = a;
-    const ggml::tensor* src1 = b;
+    const ggml::tensor* src0 = dst->src[0];
+    const ggml::tensor* src1 = dst->src[1];
 
     int n_dims = data->rope_dim;
     int n_ctx = data->n_ctx;
@@ -448,12 +451,10 @@ static void ggml_compute_forward_chatglm1_rope_f16(ggml::tensor* dst, const ggml
     }
 }
 
-static void ggml_compute_forward_chatglm1_rope_f32(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
+static void ggml_compute_forward_chatglm1_rope_f32(ggml::tensor* dst, int ith, int nth, const GLMSelfAttention* data)
 {
-    GLMSelfAttention* data = reinterpret_cast<GLMSelfAttention*>(userdata);
-
-    const ggml::tensor* src0 = a;
-    const ggml::tensor* src1 = b;
+    const ggml::tensor* src0 = dst->src[0];
+    const ggml::tensor* src1 = dst->src[1];
 
     int n_dims = data->rope_dim;
     int n_ctx = data->n_ctx;
@@ -514,23 +515,29 @@ static void ggml_compute_forward_chatglm1_rope_f32(ggml::tensor* dst, const ggml
     }
 }
 
-void ggml_compute_forward_chatglm1_rope(ggml::tensor* dst, const ggml::tensor* a, const ggml::tensor* b, int ith, int nth, void* userdata)
-{
-    switch (a->type)
+struct ggml_compute_forward_chatglm1_rope {
+    const GLMSelfAttention* data;
+    ggml_compute_forward_chatglm1_rope(const GLMSelfAttention* data) : data(data) {}
+    ggml_compute_forward_chatglm1_rope(const ggml_compute_forward_chatglm1_rope&) = default;
+    void operator()(ggml::tensor* dst, int ith, int nth)
     {
-    case GGML_TYPE_F16:
-        ggml_compute_forward_chatglm1_rope_f16(dst, a, b, ith, nth, userdata);
-        break;
-    case GGML_TYPE_F32:
-        ggml_compute_forward_chatglm1_rope_f32(dst, a, b, ith, nth, userdata);
-        break;
-    default:
-        GGML_ASSERT(false);
-        break;
+        const ggml::tensor* a = dst->src[0];
+        switch (a->type)
+        {
+        case GGML_TYPE_F16:
+            ggml_compute_forward_chatglm1_rope_f16(dst, ith, nth, data);
+            break;
+        case GGML_TYPE_F32:
+            ggml_compute_forward_chatglm1_rope_f32(dst, ith, nth, data);
+            break;
+        default:
+            GGML_ASSERT(false);
+            break;
+        }
     }
-}
+};
 
-static void ggml_compute_forward_randn_f32(ggml::tensor* dst, int ith, int nth, void* userdata)
+static void ggml_compute_forward_randn_f32(ggml::tensor* dst, int ith, int nth)
 {
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -563,7 +570,7 @@ static void ggml_compute_forward_randn_f32(ggml::tensor* dst, int ith, int nth, 
     }
 }
 
-static void ggml_compute_forward_randn_f16(ggml::tensor* dst, int ith, int nth, void* userdata)
+static void ggml_compute_forward_randn_f16(ggml::tensor* dst, int ith, int nth)
 {
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -596,15 +603,15 @@ static void ggml_compute_forward_randn_f16(ggml::tensor* dst, int ith, int nth, 
     }
 }
 
-void ggml_compute_forward_randn(ggml::tensor* dst, const ggml::tensor* a, int ith, int nth, void* userdata)
+void ggml_compute_forward_randn(ggml::tensor* dst, int ith, int nth)
 {
     switch (dst->type)
     {
     case GGML_TYPE_F16:
-        ggml_compute_forward_randn_f16(dst, ith, nth, userdata);
+        ggml_compute_forward_randn_f16(dst, ith, nth);
         break;
     case GGML_TYPE_F32:
-        ggml_compute_forward_randn_f32(dst, ith, nth, userdata);
+        ggml_compute_forward_randn_f32(dst, ith, nth);
         break;
     default:
         GGML_ASSERT(false);
@@ -612,15 +619,15 @@ void ggml_compute_forward_randn(ggml::tensor* dst, const ggml::tensor* a, int it
     }
 }
 
-void ggml_custom_compute_forward_randn(ggml_tensor* dst, int ith, int nth, void* userdata)
+void ggml_custom_compute_forward_randn(ggml_tensor* dst, int ith, int nth)
 {
     switch (dst->type)
     {
     case GGML_TYPE_F16:
-        ggml_compute_forward_randn_f16(dst, ith, nth, userdata);
+        ggml_compute_forward_randn_f16(dst, ith, nth);
         break;
     case GGML_TYPE_F32:
-        ggml_compute_forward_randn_f32(dst, ith, nth, userdata);
+        ggml_compute_forward_randn_f32(dst, ith, nth);
         break;
     default:
         GGML_ASSERT(false);
@@ -661,25 +668,29 @@ static void ggml_compute_forward_flip_T_0(ggml::tensor* dst, const ggml::tensor*
     }
 }
 
-void ggml_compute_forward_flip(ggml::tensor* dst, const ggml::tensor* a, int ith, int nth, void* userdata)
-{
-    const int dim = (int)(intptr_t)userdata;
-    CHATLLM_CHECK(dim == 0) << "flip: only dim = 0 is supported";
-    switch (a->type)
-    {
-    case GGML_TYPE_F16:
-        ggml_compute_forward_flip_T_0<ggml_fp16_t>(dst, a, ith, nth);
-        break;
-    case GGML_TYPE_F32:
-        ggml_compute_forward_flip_T_0<float>(dst, a, ith, nth);
-        break;
-    default:
-        GGML_ASSERT(false);
-        break;
+struct ggml_compute_forward_flip {
+    const int dim;
+    ggml_compute_forward_flip(int dim) : dim(dim) {}
+    ggml_compute_forward_flip(const ggml_compute_forward_flip&) = default;
+    void operator()(ggml::tensor* dst, int ith, int nth) {
+        const ggml::tensor* a = dst->src[0];
+        CHATLLM_CHECK(dim == 0) << "flip: only dim = 0 is supported";
+        switch (a->type)
+        {
+        case GGML_TYPE_F16:
+            ggml_compute_forward_flip_T_0<ggml_fp16_t>(dst, a, ith, nth);
+            break;
+        case GGML_TYPE_F32:
+            ggml_compute_forward_flip_T_0<float>(dst, a, ith, nth);
+            break;
+        default:
+            GGML_ASSERT(false);
+            break;
+        }
     }
-}
+};
 
-void ggml_custom_compute_forward_zeroes(ggml_tensor* dst, int ith, int nth, void* userdata)
+void ggml_custom_compute_forward_zeroes(ggml_tensor* dst, int ith, int nth)
 {
     memset(dst->data, 0, ggml::nbytes(dst));
 }
@@ -1019,30 +1030,31 @@ static void ggml_compute_forward_bicubic_f32(ggml::tensor* dst, const ggml::tens
 }
 
 
-void ggml_custom_group_index_boost(ggml_tensor* dst, const ggml_tensor* src0, int ith, int nth, void* userdata)
-{
-    const int group_size = (int)(intptr_t)(userdata);
-
-    CHATLLM_CHECK(ggml::type_of(src0) == ggml::type::GGML_TYPE_I32);
-
-    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++)
+struct ggml_custom_group_index_boost {
+    const int group_size;
+    void operator()(ggml_tensor* dst, int ith, int nth)
     {
-        for (int64_t i2 = ith; i2 < dst->ne[2]; i2 += nth)
+        const ggml_tensor* src0 = dst->src[0];
+        CHATLLM_CHECK(ggml::type_of(src0) == ggml::type::GGML_TYPE_I32);
+
+        for (int64_t i3 = 0; i3 < dst->ne[3]; i3++)
         {
-            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++)
+            for (int64_t i2 = ith; i2 < dst->ne[2]; i2 += nth)
             {
-                const int inc = (int)i1 * group_size;
-                for (int64_t i0 = 0; i0 < dst->ne[0]; i0++)
+                for (int64_t i1 = 0; i1 < dst->ne[1]; i1++)
                 {
-                    const int* x_src = (const int*)((char*)src0->data + i0 * src0->nb[0] + i1 * src0->nb[1] + i2 * src0->nb[2] + i3 * src0->nb[3]);
-                    int* y_dst = (int*)((char*)dst->data + i0 * dst->nb[0] + i1 * dst->nb[1] + i2 * dst->nb[2] + i3 * dst->nb[3]);
-                    y_dst[0] = x_src[0] + inc;
+                    const int inc = (int)i1 * group_size;
+                    for (int64_t i0 = 0; i0 < dst->ne[0]; i0++)
+                    {
+                        const int* x_src = (const int*)((char*)src0->data + i0 * src0->nb[0] + i1 * src0->nb[1] + i2 * src0->nb[2] + i3 * src0->nb[3]);
+                        int* y_dst = (int*)((char*)dst->data + i0 * dst->nb[0] + i1 * dst->nb[1] + i2 * dst->nb[2] + i3 * dst->nb[3]);
+                        y_dst[0] = x_src[0] + inc;
+                    }
                 }
             }
         }
     }
-}
-
+};
 
 extern "C" void test_interp(void)
 {
@@ -1102,21 +1114,25 @@ extern "C" void test_interp(void)
     exit(0);
 }
 
-void ggml_compute_forward_bicubic(ggml_tensor* dst, int ith, int nth, void* userdata)
-{
-    switch (dst->type)
+struct ggml_compute_forward_bicubic {
+    const bool align_corners;
+    void operator()(ggml_tensor* dst, int ith, int nth)
     {
-    case GGML_TYPE_F32:
-        CHATLLM_CHECK(ggml::type_of(dst->src[0]) == ggml::type::GGML_TYPE_F32);
-        ggml_compute_forward_bicubic_f32(dst, dst->src[0], ith, nth, userdata);
-        break;
-    default:
-        GGML_ASSERT(false);
-        break;
+        switch (dst->type)
+        {
+        case GGML_TYPE_F32:
+            CHATLLM_CHECK(ggml::type_of(dst->src[0]) == ggml::type::GGML_TYPE_F32);
+            ggml_compute_forward_bicubic_f32(dst, dst->src[0], ith, nth, align_corners);
+            break;
+        default:
+            GGML_ASSERT(false);
+            break;
+        }
     }
-}
+};
 
-void ggml_custom_merge_patch(ggml_tensor* dst, const ggml_tensor* src, int ith, int nth, const ggml::merge_patch_param* param)
+
+void ggml_custom_merge_patch_1(ggml_tensor* dst, const ggml_tensor* src, int ith, int nth, const ggml::merge_patch_param* param)
 {
     const int kernel_height = param->merge_kernel_size[0];
     const int kernel_width = param->merge_kernel_size[1];
@@ -1156,14 +1172,15 @@ void ggml_custom_merge_patch(ggml_tensor* dst, const ggml_tensor* src, int ith, 
     }
 }
 
-void ggml_custom_merge_patch(ggml_tensor* dst, int ith, int nth, void* userdata)
-{
-    const ggml::merge_patch_param* param = (const ggml::merge_patch_param*)userdata;
+struct ggml_custom_merge_patch {
+    const ggml::merge_patch_param* param;
+    void operator()(ggml_tensor* dst, int ith, int nth)
+    {
+        const struct ggml_tensor* a = dst->src[0];
+        CHATLLM_CHECK(ggml::is_contiguous(a));
+        CHATLLM_CHECK(ggml::get_dim(a, 3) == 1);
+        CHATLLM_CHECK(ggml::get_dim(a, 2) == 1);
 
-    const struct ggml_tensor* a = dst->src[0];
-    CHATLLM_CHECK(ggml::is_contiguous(a));
-    CHATLLM_CHECK(ggml::get_dim(a, 3) == 1);
-    CHATLLM_CHECK(ggml::get_dim(a, 2) == 1);
-
-    ggml_custom_merge_patch(dst, a, ith, nth, param);
-}
+        ggml_custom_merge_patch_1(dst, a, ith, nth, param);
+    }
+};

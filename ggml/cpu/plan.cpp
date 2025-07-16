@@ -188,38 +188,9 @@ static int ggml_get_n_tasks(struct ggml_tensor* node, int n_threads) {
 	{
 		n_tasks = 1;
 	} break;
-	case GGML_OP_MAP_CUSTOM1:
+	case GGML_OP_CUSTOM:
 	{
-		struct ggml_map_custom1_op_params p;
-		memcpy(&p, node->op_params, sizeof(p));
-		if (p.n_tasks == GGML_N_TASKS_MAX) {
-			n_tasks = n_threads;
-		}
-		else {
-			n_tasks = std::min(p.n_tasks, n_threads);
-		}
-	} break;
-	case GGML_OP_MAP_CUSTOM2:
-	{
-		struct ggml_map_custom2_op_params p;
-		memcpy(&p, node->op_params, sizeof(p));
-		if (p.n_tasks == GGML_N_TASKS_MAX) {
-			n_tasks = n_threads;
-		}
-		else {
-			n_tasks = std::min(p.n_tasks, n_threads);
-		}
-	} break;
-	case GGML_OP_MAP_CUSTOM3:
-	{
-		struct ggml_map_custom3_op_params p;
-		memcpy(&p, node->op_params, sizeof(p));
-		if (p.n_tasks == GGML_N_TASKS_MAX) {
-			n_tasks = n_threads;
-		}
-		else {
-			n_tasks = std::min(p.n_tasks, n_threads);
-		}
+		n_tasks = 1;
 	} break;
 	case GGML_OP_CROSS_ENTROPY_LOSS:
 	case GGML_OP_CROSS_ENTROPY_LOSS_BACK:

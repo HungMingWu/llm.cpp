@@ -142,10 +142,6 @@ export {
 
         GGML_OP_UNARY,
 
-        GGML_OP_MAP_CUSTOM1,
-        GGML_OP_MAP_CUSTOM2,
-        GGML_OP_MAP_CUSTOM3,
-
         GGML_OP_CUSTOM,
 
         GGML_OP_CROSS_ENTROPY_LOSS,
@@ -314,6 +310,13 @@ export {
         GGML_STATUS_ABORTED = 1,
     };
 
+    using ggml_custom_op_cb = std::function<void(ggml_tensor*, int, int)>;
+
+    struct custom_op_hook {
+        ggml_custom_op_cb func;
+        std::optional<uint32_t> n_tasks;
+    };
+
     // n-dimensional tensor
     struct ggml_tensor {
         ggml_type type;
@@ -328,6 +331,7 @@ export {
 
         // op params - allocated as int32_t for alignment
         int32_t op_params[GGML_MAX_OP_PARAMS / sizeof(int32_t)]{ 0 };
+        custom_op_hook hook;
 
         int32_t flags = 0;
 

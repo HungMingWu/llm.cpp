@@ -169,8 +169,7 @@ namespace chatllm
         }
         else
         {
-            std::vector<ggml::tensor*> empty;
-            return ggml::custom(ctx, ggml_custom_compute_forward_zeroes, 1, nullptr, empty, type, ne0, ne1, ne2, ne3);
+            return ggml::custom(ctx, type, { ne0, ne1, ne2, ne3 }, {}, ggml_custom_compute_forward_zeroes, 1);
         }
     }
 
@@ -555,7 +554,7 @@ namespace chatllm
 
     ggml::tensor* ggml::flip(ComputeContext* ctx, ggml::tensor* a, int dim)
     {
-        ggml::tensor* tensor = ggml::map_custom1(ctx, a, ggml_compute_forward_flip, GGML_N_TASKS_MAX, (void*)(intptr_t)dim);
+        ggml::tensor* tensor = ggml::map_custom(ctx, { a }, ggml_compute_forward_flip(2));
         ctx->cb_op_tensor(tensor);
         return tensor;
     }
@@ -591,11 +590,7 @@ namespace chatllm
             if ((ggml::get_dim(a, 0) == ne0) && (ggml::get_dim(a, 1) == ne1))
                 return a;
 
-            std::vector<tensor*> tensors;
-            tensors.push_back(a);
-
-            ggml::tensor* tensor = custom(ctx, ggml_compute_forward_bicubic, GGML_N_TASKS_MAX, nullptr, tensors,
-                ggml::type_of(a), ne0, ne1, ne2, ne3);
+            ggml::tensor* tensor = custom(ctx, ggml::type_of(a), { ne0, ne1, ne2, ne3 }, { a }, ggml_compute_forward_bicubic(false));
             return tensor;
         }
         default:
@@ -792,14 +787,13 @@ namespace chatllm
 
     ggml::tensor* ggml::randn_inplace(ComputeContext* ctx, ggml::tensor* a)
     {
-        ggml::tensor* tensor = ggml::map_custom1_inplace(ctx, a, ggml_compute_forward_randn, GGML_N_TASKS_MAX, NULL);
+        ggml::tensor* tensor = ggml::map_custom_inplace(ctx, { a }, ggml_compute_forward_randn);
         return tensor;
     }
 
     ggml::tensor* ggml::randn(ComputeContext* ctx, ggml::type type, int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3)
     {
-        std::vector<ggml::tensor*> empty;
-        ggml::tensor* tensor = ggml::custom(ctx, ggml_custom_compute_forward_randn, GGML_N_TASKS_MAX, NULL, empty, type, ne0, ne1, ne2, ne3);
+        ggml::tensor* tensor = ggml::custom(ctx, type, { ne0, ne1, ne2, ne3 }, {}, ggml_custom_compute_forward_randn);
         return tensor;
     }
 
@@ -929,51 +923,24 @@ namespace chatllm
         return tensor;
     }
 
-    ggml::tensor* ggml::map_custom1(ComputeContext* ctx, ggml::tensor* a, const ggml_custom1_op_t fun, int n_tasks, void* userdata)
+    ggml::tensor* ggml::map_custom(ComputeContext* ctx, std::initializer_list<ggml::tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks)
     {
-        ggml::tensor* tensor = ggml_map_custom1(ctx->get_ctx(), a, fun, n_tasks, userdata);
+        ggml::tensor* tensor = ggml_map_custom(ctx->get_ctx(), srcs, fun, n_tasks);
         ctx->cb_op_tensor(tensor);
         return tensor;
     }
 
-    ggml::tensor* ggml::map_custom1_inplace(ComputeContext* ctx, ggml::tensor* a, const ggml_custom1_op_t fun, int n_tasks, void* userdata)
+    ggml::tensor* ggml::map_custom_inplace(ComputeContext* ctx, std::initializer_list<ggml_tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks)
     {
-        ggml::tensor* tensor = ggml_map_custom1_inplace(ctx->get_ctx(), a, fun, n_tasks, userdata);
+        ggml::tensor* tensor = ggml_map_custom_inplace(ctx->get_ctx(), srcs, fun, n_tasks);
         ctx->cb_op_tensor(tensor);
         return tensor;
     }
 
-    ggml::tensor* ggml::map_custom2(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, const ggml_custom2_op_t fun, int n_tasks, void* userdata)
+    ggml::tensor* ggml::custom(ComputeContext* ctx, ggml::type type, std::initializer_list<int64_t> ne,
+        std::initializer_list<ggml_tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks)
     {
-        ggml::tensor* tensor = ggml_map_custom2(ctx->get_ctx(), a, b, fun, n_tasks, userdata);
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::map_custom2_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, const ggml_custom2_op_t fun, int n_tasks, void* userdata)
-    {
-        ggml::tensor* tensor = ggml_map_custom2_inplace(ctx->get_ctx(), a, b, fun, n_tasks, userdata);
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::map_custom3(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, ggml::tensor* c, const ggml_custom3_op_t fun, int n_tasks, void* userdata)
-    {
-        ggml::tensor* tensor = ggml_map_custom3(ctx->get_ctx(), a, b, c, fun, n_tasks, userdata);
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::map_custom3_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, ggml::tensor* c, const ggml_custom3_op_t fun, int n_tasks, void* userdata)
-    {
-        ggml::tensor* tensor = ggml_map_custom3_inplace(ctx->get_ctx(), a, b, c, fun, n_tasks, userdata);
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::custom(ComputeContext* ctx, ggml_custom_op_t fun, int n_tasks, void* userdata, std::vector<ggml::tensor*>inputs, ggml::type type, int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3)
-    {
-        ggml::tensor* tensor = ggml_custom_4d(ctx->get_ctx(), type, ne0, ne1, ne2, ne3, inputs.data(), (int)inputs.size(), fun, n_tasks, userdata);
+        ggml::tensor* tensor = ggml_custom(ctx->get_ctx(), type, ne, srcs, fun, n_tasks);
         ctx->cb_op_tensor(tensor);
         return tensor;
     }
@@ -985,10 +952,10 @@ namespace chatllm
         const int64_t new_height = param->grid_h / kernel_height;
         const int64_t new_width = param->grid_w / kernel_width;
 
-        std::vector<ggml::tensor*> inputs;
-        inputs.push_back(x);
-        auto reshaped_seq = ggml::custom(ctx, ggml_custom_merge_patch, GGML_N_TASKS_MAX, (void*)param, inputs, ggml::type_of(x),
-            ggml::get_dim(x, 0), kernel_height * kernel_width * new_height * new_width * ggml::get_dim(x, 2), 1, 1);
+        auto reshaped_seq = ggml::custom(ctx, ggml::type_of(x),
+            { ggml::get_dim(x, 0), kernel_height * kernel_width * new_height * new_width * ggml::get_dim(x, 2) },
+            { x },
+            ggml_custom_merge_patch(param));
         return reshaped_seq;
     }
 
@@ -1547,11 +1514,11 @@ namespace chatllm
 
     ggml::tensor* GLMSelfAttention::apply_pos_embedding_k(ComputeContext* ctx, ggml::tensor* k, int hidden_size, int qlen, ggml::tensor* past) const
     {
-        return ggml::map_custom2_inplace(ctx, k, past, ggml_compute_forward_chatglm1_rope, GGML_N_TASKS_MAX, (void*)this);    // [qlen, heads, head_size]
+        return ggml::map_custom_inplace(ctx, { k, past }, ggml_compute_forward_chatglm1_rope(this));    // [qlen, heads, head_size]
     }
     ggml::tensor* GLMSelfAttention::apply_pos_embedding_q(ComputeContext* ctx, ggml::tensor* q, int hidden_size, int qlen, ggml::tensor* past) const
     {
-        return ggml::map_custom2_inplace(ctx, q, past, ggml_compute_forward_chatglm1_rope, GGML_N_TASKS_MAX, (void*)this);    // [qlen, heads, head_size]
+        return ggml::map_custom_inplace(ctx, { q, past }, ggml_compute_forward_chatglm1_rope(this));    // [qlen, heads, head_size]
     }
 
     ggml::tensor* GLMBlock::forward(ComputeContext* ctx, ggml::tensor* hidden_states, int n_past)
@@ -2063,13 +2030,13 @@ namespace chatllm
     ggml::tensor* QWenSelfAttention::apply_pos_embedding_k(ComputeContext* ctx, ggml::tensor* k, int hidden_size, int qlen, ggml::tensor* past) const
     {
         // [qlen, heads, head_size]
-        return ggml::map_custom2(ctx, k, past, ggml_compute_forward_ntk_dynamic_rope, GGML_N_TASKS_MAX, const_cast<QWenSelfAttention*>(this));
+        return ggml::map_custom(ctx, { k, past }, ggml_compute_forward_ntk_dynamic_rope(this));
     }
 
     ggml::tensor* QWenSelfAttention::apply_pos_embedding_q(ComputeContext* ctx, ggml::tensor* q, int hidden_size, int qlen, ggml::tensor* past) const
     {
         // [qlen, heads, head_size];
-        ggml::tensor* r = ggml::map_custom2(ctx, q, past, ggml_compute_forward_ntk_dynamic_rope, GGML_N_TASKS_MAX, const_cast<QWenSelfAttention*>(this));
+        ggml::tensor* r = ggml::map_custom(ctx, { q, past }, ggml_compute_forward_ntk_dynamic_rope(this));
         if (use_logn_attn)
         {
             const int* p = (const int*)past->data;
@@ -2077,7 +2044,7 @@ namespace chatllm
             if (last_n > seq_length)
             {
                 ggml::tensor* scale = ggml::view_1d(ctx, logn_list, qlen, p[0] * ggml::element_size(logn_list));
-                r = ggml::map_custom2(ctx, r, scale, ggml_compute_forward_mat_scale, GGML_N_TASKS_MAX, nullptr);
+                r = ggml::map_custom(ctx, { r, scale }, ggml_compute_forward_mat_scale);
             }
         }
         return r;
@@ -2105,7 +2072,7 @@ namespace chatllm
         if (rope_scaling_power > 0.0)
         {
             const_cast<BlueLMSelfAttention*>(this)->build_inv_freq_if_needed(hidden_size);
-            return ggml::map_custom2(ctx, k, past, ggml_compute_forward_ntk_mix_rope, GGML_N_TASKS_MAX, const_cast<BlueLMSelfAttention*>(this));
+            return ggml::map_custom(ctx, { k, past }, ggml_compute_forward_ntk_mix_rope(this));
         }
         else
             return RoPESelfAttention::apply_pos_embedding_k(ctx, k, hidden_size, qlen, past);
@@ -2117,7 +2084,7 @@ namespace chatllm
         if (rope_scaling_power > 0.0)
         {
             const_cast<BlueLMSelfAttention*>(this)->build_inv_freq_if_needed(hidden_size);
-            return ggml::map_custom2(ctx, q, past, ggml_compute_forward_ntk_mix_rope, GGML_N_TASKS_MAX, const_cast<BlueLMSelfAttention*>(this));
+            return ggml::map_custom(ctx, { q, past }, ggml_compute_forward_ntk_mix_rope(this));
         }
         else
             return RoPESelfAttention::apply_pos_embedding_q(ctx, q, hidden_size, qlen, past);
@@ -2277,7 +2244,7 @@ namespace chatllm
                 ggml::get_dim(corrected_score, 1), ggml::get_dim(corrected_score, 2));
             selected_experts = ggml::top_k(ctx, grouped_scores, 1);
 
-            selected_experts = ggml::map_custom1(ctx, selected_experts, ggml_custom_group_index_boost, GGML_N_TASKS_MAX, (void*)(intptr_t)experts_per_group);
+            selected_experts = ggml::map_custom(ctx, { selected_experts }, ggml_custom_group_index_boost(2));
 
             selected_experts = ggml::reshape_3d(ctx, selected_experts, ggml::get_dim(selected_experts, 0) * ggml::get_dim(selected_experts, 1),
                 ggml::get_dim(corrected_score, 1), ggml::get_dim(corrected_score, 2));

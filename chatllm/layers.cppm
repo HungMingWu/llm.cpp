@@ -173,16 +173,12 @@ export namespace chatllm
         ggml::tensor* conv_2d_depthwise(ComputeContext* ctx, ggml::tensor* kernel, ggml::tensor* data,
             int stride0, int stride1, int padding0, int padding1, int dilation0, int dilation1);
 
-        ggml::tensor* map_custom1(ComputeContext* ctx, ggml::tensor* a, const ggml_custom1_op_t fun, int n_tasks, void* userdata);
-        ggml::tensor* map_custom2(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, const ggml_custom2_op_t fun, int n_tasks, void* userdata);
-        ggml::tensor* map_custom3(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, ggml::tensor* c, const ggml_custom3_op_t fun, int n_tasks, void* userdata);
+        ggml::tensor* map_custom(ComputeContext* ctx, std::initializer_list<ggml::tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
 
         // Note: these `inplace` might not work when GPU is used
-        ggml::tensor* map_custom1_inplace(ComputeContext* ctx, ggml::tensor* a, const ggml_custom1_op_t fun, int n_tasks, void* userdata);
-        ggml::tensor* map_custom2_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, const ggml_custom2_op_t fun, int n_tasks, void* userdata);
-        ggml::tensor* map_custom3_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, ggml::tensor* c, const ggml_custom3_op_t fun, int n_tasks, void* userdata);
+        ggml::tensor* map_custom_inplace(ComputeContext* ctx, std::initializer_list<ggml_tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
 
-        ggml::tensor* custom(ComputeContext* ctx, ggml_custom_op_t fun, int n_tasks, void* userdata, std::vector<ggml::tensor*>inputs, ggml::type type, int64_t ne0, int64_t ne1 = 1, int64_t ne2 = 1, int64_t ne3 = 1);
+        ggml::tensor* custom(ComputeContext* ctx, ggml::type type, std::initializer_list<int64_t> ne, std::initializer_list<ggml_tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
 
         struct merge_patch_param
         {

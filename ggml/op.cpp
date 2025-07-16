@@ -6,8 +6,11 @@ module;
 #include <algorithm>
 #include <bit>
 #include <initializer_list>
+#include <iterator>
 #include <limits>
+#include <optional>
 #include <type_traits>
+
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
 module ggml;
@@ -1641,178 +1644,6 @@ ggml_tensor* ggml_conv_1d_dw(
 	return result;
 }
 
-#define GGML_N_TASKS_MAX (-1)
-
-static ggml_tensor* ggml_map_custom1_impl(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	const ggml_custom1_op_t   fun,
-	int n_tasks,
-	void* userdata,
-	bool inplace) {
-	GGML_ASSERT(n_tasks == GGML_N_TASKS_MAX || n_tasks > 0);
-
-	struct ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
-
-	struct ggml_map_custom1_op_params params = {
-		/*.fun      =*/ fun,
-		/*.n_tasks  =*/ n_tasks,
-		/*.userdata =*/ userdata
-	};
-	ggml_set_op_params(*result, &params, sizeof(params));
-
-	result->op = GGML_OP_MAP_CUSTOM1;
-	result->src.push_back(a);
-
-	return result;
-}
-
-ggml_tensor* ggml_map_custom1(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	const ggml_custom1_op_t fun,
-	int n_tasks,
-	void* userdata) {
-	return ggml_map_custom1_impl(ctx, a, fun, n_tasks, userdata, false);
-}
-
-ggml_tensor* ggml_map_custom1_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	 ggml_custom1_op_t fun,
-	int n_tasks,
-	void* userdata) {
-	return ggml_map_custom1_impl(ctx, a, fun, n_tasks, userdata, true);
-}
-
-static struct ggml_tensor* ggml_map_custom2_impl(
-	struct ggml_context* ctx,
-	struct ggml_tensor* a,
-	struct ggml_tensor* b,
-	const  ggml_custom2_op_t   fun,
-	int n_tasks,
-	void* userdata,
-	bool inplace) {
-	GGML_ASSERT(n_tasks == GGML_N_TASKS_MAX || n_tasks > 0);
-
-	struct ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
-
-	struct ggml_map_custom2_op_params params = {
-		/*.fun      =*/ fun,
-		/*.n_tasks  =*/ n_tasks,
-		/*.userdata =*/ userdata
-	};
-	ggml_set_op_params(*result, &params, sizeof(params));
-
-	result->op = GGML_OP_MAP_CUSTOM2;
-	result->src.push_back(a);
-	result->src.push_back(b);
-
-	return result;
-}
-
-ggml_tensor* ggml_map_custom2(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	const ggml_custom2_op_t fun,
-	int n_tasks,
-	void* userdata) {
-	return ggml_map_custom2_impl(ctx, a, b, fun, n_tasks, userdata, false);
-}
-
-ggml_tensor* ggml_map_custom2_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	const ggml_custom2_op_t fun,
-	int n_tasks,
-	void* userdata) {
-	return ggml_map_custom2_impl(ctx, a, b, fun, n_tasks, userdata, true);
-}
-
-static struct ggml_tensor* ggml_map_custom3_impl(
-	struct ggml_context* ctx,
-	struct ggml_tensor* a,
-	struct ggml_tensor* b,
-	struct ggml_tensor* c,
-	const  ggml_custom3_op_t   fun,
-	int n_tasks,
-	void* userdata,
-	bool inplace) {
-	GGML_ASSERT(n_tasks == GGML_N_TASKS_MAX || n_tasks > 0);
-
-	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
-
-	struct ggml_map_custom3_op_params params = {
-		/*.fun      =*/ fun,
-		/*.n_tasks  =*/ n_tasks,
-		/*.userdata =*/ userdata
-	};
-	ggml_set_op_params(*result, &params, sizeof(params));
-
-	result->op = GGML_OP_MAP_CUSTOM3;
-	result->src.push_back(a);
-	result->src.push_back(b);
-	result->src.push_back(c);
-
-	return result;
-}
-
-ggml_tensor* ggml_map_custom3(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	ggml_tensor* c,
-	const ggml_custom3_op_t fun,
-	int n_tasks,
-	void* userdata) {
-	return ggml_map_custom3_impl(ctx, a, b, c, fun, n_tasks, userdata, false);
-}
-
-ggml_tensor* ggml_map_custom3_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	ggml_tensor* c,
-	const ggml_custom3_op_t fun,
-	int n_tasks,
-	void* userdata) {
-	return ggml_map_custom3_impl(ctx, a, b, c, fun, n_tasks, userdata, true);
-}
-
-ggml_tensor* ggml_custom_4d(
-	ggml_context* ctx,
-	enum ggml_type type,
-	int64_t               ne0,
-	int64_t               ne1,
-	int64_t               ne2,
-	int64_t               ne3,
-	ggml_tensor** args,
-	int n_args,
-	ggml_custom_op_t fun,
-	int n_tasks,
-	void* userdata) {
-
-	GGML_ASSERT(n_args < GGML_MAX_SRC);
-
-	ggml_tensor* result = ctx->create(type, { ne0, ne1, ne2, ne3 });
-
-	struct ggml_custom_op_params params = {
-		/*.fun      =*/ fun,
-		/*.n_tasks  =*/ n_tasks,
-		/*.userdata =*/ userdata
-	};
-	ggml_set_op_params(*result, &params, sizeof(params));
-
-	result->op = GGML_OP_CUSTOM;
-	for (int i = 0; i < n_args; i++) {
-		result->src.push_back(args[i]);
-	}
-
-	return result;
-}
-
 ggml_tensor* ggml_rope_ext_inplace(
 	ggml_context* ctx,
 	ggml_tensor* a,
@@ -2476,4 +2307,54 @@ ggml_tensor* ggml_add_rel_pos_inplace(
 	ggml_tensor* pw,
 	ggml_tensor* ph) {
 	return ggml_add_rel_pos_impl(ctx, a, pw, ph, true);
+}
+
+ggml_tensor* ggml_map_custom(
+	ggml_context* ctx,
+	std::initializer_list<ggml_tensor*> srcs,
+	ggml_custom_op_cb fun,
+	std::optional<uint32_t> n_tasks)
+{
+	assert(srcs.size() > 0);
+	const ggml_tensor* a = *srcs.begin();
+	ggml_tensor* result = ggml_dup_tensor(ctx, a);
+	result->hook.func = std::move(fun);
+	result->hook.n_tasks = n_tasks;
+	result->op = GGML_OP_CUSTOM;
+	std::copy(srcs.begin(), srcs.end(), std::back_inserter(result->src));
+
+	return result;
+}
+
+ggml_tensor* ggml_map_custom_inplace(
+	ggml_context* ctx,
+	std::initializer_list<ggml_tensor*> srcs,
+	ggml_custom_op_cb fun,
+	std::optional<uint32_t> n_tasks)
+{
+	assert(srcs.size() > 0);
+	ggml_tensor* a = *srcs.begin();
+	ggml_tensor* result = ggml_view_tensor(ctx, a);
+	result->hook.func = std::move(fun);
+	result->hook.n_tasks = n_tasks;
+	result->op = GGML_OP_CUSTOM;
+	std::copy(srcs.begin(), srcs.end(), std::back_inserter(result->src));
+
+	return result;
+}
+
+ggml_tensor* ggml_custom(
+	ggml_context* ctx,
+	ggml_type type,
+	std::initializer_list<int64_t> ne,
+	std::initializer_list<ggml_tensor*> srcs,
+	ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks)
+{
+	assert(srcs.size() > 0);
+	ggml_tensor* result = ctx->create(type, ne);
+	result->hook.func = std::move(fun);
+	result->hook.n_tasks = n_tasks;
+	result->op = GGML_OP_CUSTOM;
+	std::copy(srcs.begin(), srcs.end(), std::back_inserter(result->src));
+	return result;
 }

@@ -2,7 +2,10 @@ module;
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <functional>
 #include <initializer_list>
+#include <optional>
+#include <span>
 
 export module ggml:op;
 import :ds;
@@ -482,95 +485,22 @@ export {
 		int p0,
 		int d0);
 
-	typedef void (*ggml_custom_op_t)(struct ggml_tensor* dst, int ith, int nth, void* userdata);
-	typedef void (*ggml_custom1_op_t)(struct ggml_tensor* dst, const struct ggml_tensor* a, int ith, int nth, void* userdata);
-	typedef void (*ggml_custom2_op_t)(struct ggml_tensor* dst, const struct ggml_tensor* a, const struct ggml_tensor* b, int ith, int nth, void* userdata);
-	typedef void (*ggml_custom3_op_t)(struct ggml_tensor* dst, const struct ggml_tensor* a, const struct ggml_tensor* b, const struct ggml_tensor* c, int ith, int nth, void* userdata);
-
-	struct ggml_custom_op_params {
-		ggml_custom_op_t fun;
-		int              n_tasks;
-		void* userdata;
-	};
-
-	struct ggml_map_custom1_op_params {
-		ggml_custom1_op_t  fun;
-		int                n_tasks;
-		void* userdata;
-	};
-
-	struct ggml_map_custom2_op_params {
-		ggml_custom2_op_t   fun;
-		int                 n_tasks;
-		void* userdata;
-	};
-
-	struct ggml_map_custom3_op_params {
-		ggml_custom3_op_t fun;
-		int n_tasks;
-		void* userdata;
-	};
-
-	ggml_tensor* ggml_map_custom1(
+	ggml_tensor* ggml_map_custom(
 		ggml_context* ctx,
-		ggml_tensor* a,
-		const ggml_custom1_op_t fun,
-		int n_tasks,
-		void* userdata);
+		std::initializer_list<ggml_tensor*> srcs,
+		ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
 
-	ggml_tensor* ggml_map_custom1_inplace(
+	ggml_tensor* ggml_map_custom_inplace(
 		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_custom1_op_t fun,
-		int n_tasks,
-		void* userdata);
+		std::initializer_list<ggml_tensor*> srcs,
+		ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
 
-	ggml_tensor* ggml_map_custom2(
+	ggml_tensor* ggml_custom(
 		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b,
-		const ggml_custom2_op_t fun,
-		int n_tasks,
-		void* userdata);
-
-	ggml_tensor* ggml_map_custom2_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b,
-		const ggml_custom2_op_t fun,
-		int n_tasks,
-		void* userdata);
-
-	ggml_tensor* ggml_map_custom3(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b,
-		ggml_tensor* c,
-		const ggml_custom3_op_t fun,
-		int n_tasks,
-		void* userdata);
-
-	ggml_tensor* ggml_map_custom3_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b,
-		ggml_tensor* c,
-		const ggml_custom3_op_t fun,
-		int n_tasks,
-		void* userdata);
-
-	ggml_tensor* ggml_custom_4d(
-		ggml_context* ctx,
-		enum ggml_type type,
-		int64_t               ne0,
-		int64_t               ne1,
-		int64_t               ne2,
-		int64_t               ne3,
-		ggml_tensor** args,
-		int n_args,
-		ggml_custom_op_t fun,
-		int n_tasks,
-		void* userdata);
+		ggml_type type,
+		std::initializer_list<int64_t> ne,
+		std::initializer_list<ggml_tensor*> srcs,
+		ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
 
 	ggml_tensor* ggml_rope_ext_inplace(
 		ggml_context* ctx,

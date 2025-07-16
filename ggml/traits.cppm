@@ -483,10 +483,6 @@ static const char* GGML_OP_NAME[GGML_OP_COUNT] = {
 
     "UNARY",
 
-    "MAP_CUSTOM1",
-    "MAP_CUSTOM2",
-    "MAP_CUSTOM3",
-
     "CUSTOM",
 
     "CROSS_ENTROPY_LOSS",

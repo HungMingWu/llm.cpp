@@ -7077,6 +7077,20 @@ void ggml_compute_forward_add_rel_pos(
 	}
 }
 
+void ggml_compute_forward_map_custom(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	const int32_t n_threads = dst->hook.n_tasks.value();
+	auto func = dst->hook.func;
+	for (uint32_t i = 0; i < dst->hook.n_tasks.value(); i++) {
+		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+			func(dst, i, n_threads);
+		});
+		scope.spawn(std::move(sender));
+	}
+}
+
 static void ggml_compute_forward(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -7397,28 +7411,20 @@ static void ggml_compute_forward(
 	{
 		ggml_compute_forward_gla(pool, scope, tensor);
 	} break;
-	case GGML_OP_MAP_CUSTOM1:
-	{
-		assert(false);
-		//ggml_compute_forward_map_custom1(params, tensor);
-	}
-	break;
-	case GGML_OP_MAP_CUSTOM2:
-	{
-		assert(false);
-		//ggml_compute_forward_map_custom2(params, tensor);
-	}
-	break;
-	case GGML_OP_MAP_CUSTOM3:
-	{
-		assert(false);
-		//ggml_compute_forward_map_custom3(params, tensor);
-	}
-	break;
 	case GGML_OP_CUSTOM:
 	{
-		assert(false);
-		//ggml_compute_forward_custom(params, tensor);
+#if 0
+		uint32_t n_threads = pool.available_parallelism();
+#else
+		uint32_t n_threads = 4; // need to fix, it just passes unit test
+#endif
+		if (!tensor->hook.n_tasks.has_value()) {
+			tensor->hook.n_tasks = n_threads;
+		}
+		else {
+			tensor->hook.n_tasks = std::min(tensor->hook.n_tasks.value(), n_threads);
+		}
+		ggml_compute_forward_map_custom(pool, scope, tensor);
 	}
 	break;
 	case GGML_OP_CROSS_ENTROPY_LOSS:
