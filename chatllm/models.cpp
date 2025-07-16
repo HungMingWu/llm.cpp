@@ -826,161 +826,6 @@ namespace chatllm
 #include "../models/oute.cpp"
     }
 #endif
-    template <class Config>
-    void load_config(ModelLoader& loader, Config& config, const ModelObject::extra_args& args)
-    {
-        if (0 == loader.offset_config)
-            loader.offset_config = loader.tell();
-        else
-            loader.seek(loader.offset_config, SEEK_SET);
-
-        // load config
-        config = loader.read_basic<Config>();
-        if (args.max_length > 0)
-            config.max_length = args.max_length;
-        if (args.re_quantize >= 0)
-            config.dtype = (ggml::type)args.re_quantize;
-
-        loader.offset_tokenizer = loader.tell();
-    }
-
-    template <class Config, class Tokenizer>
-    Tokenizer* load_tokenizer(ModelLoader& loader, Config& config)
-    {
-        loader.seek(loader.offset_tokenizer, SEEK_SET);
-
-        // load tokenizer
-        Tokenizer* tokenizer = new Tokenizer(config);
-        tokenizer->load(loader.get_reader(), config.vocab_size);
-        tokenizer->load_config(loader.meta_json);
-        loader.load_all_tensors();
-
-        return tokenizer;
-    }
-
-    static void parse_slice(std::vector<int>& values, const std::string& s, int num_hidden_layers)
-    {
-        int spec[3] = { 0, num_hidden_layers, 1 };
-        int index = 0;
-        std::string t(s);
-        if (t.size() > 0) index = 1;
-
-        while ((t.size() > 0) && (index <= 3))
-        {
-            size_t pos = t.find_first_of(':');
-            std::string part = t.substr(0, pos);
-            if (part.size() > 0)
-                spec[index - 1] = atoi(part.c_str());
-            if (pos == std::string::npos) break;
-            index++;
-            t = t.substr(pos + 1);
-        }
-
-        if (index < 1) return;
-
-        if (index == 1)
-        {
-            values.push_back(spec[0]);
-            return;
-        }
-
-        if (spec[2] == 0) return;
-        if (spec[0] < 0) spec[0] += num_hidden_layers;
-        if (spec[1] < 0) spec[1] += num_hidden_layers;
-
-        if (spec[2] > 0)
-        {
-            for (int i = spec[0]; i < spec[1]; i += spec[2])
-            {
-                values.push_back(i);
-            }
-        }
-        else
-        {
-            for (int i = spec[0]; i > spec[1]; i += spec[2])
-                values.push_back(i);
-        }
-    }
-
-    static int parse_int_lists(std::vector<int>& values, const std::string& s, int num_hidden_layers)
-    {
-        const static std::regex r(R""([\r\n]+)"");
-        std::string t(s);
-        while (t.size() > 0)
-        {
-            size_t pos = t.find_first_of(',');
-            parse_slice(values, t.substr(0, pos), num_hidden_layers);
-            if (pos == std::string::npos) break;
-            t = t.substr(pos + 1);
-        }
-        return 0;
-    }
-
-    template <class Config, class ConditionalGeneration>
-    ConditionalGeneration* load_model(ModelLoader& loader, Config& config, const ModelObject::extra_args& args)
-    {
-        std::vector<int> layers;
-        if (args.layer_spec.size() > 0)
-        {
-            parse_int_lists(layers, args.layer_spec, config.num_hidden_layers);
-            config.num_hidden_layers = (int)layers.size();
-        }
-
-        RuntimeConfig rt_config(args.moe_on_cpu, args.n_threads, args.batch_size, (ggml::type)args.cache_type);
-        rt_config.model_gpu_layers = args.model_n_gpu_layers;
-
-        // load model
-        ConditionalGeneration* model = new ConditionalGeneration(config, rt_config);
-        model->set_type(loader.model_type);
-        model->set_names(loader.model_name, loader.model_native_name);
-        if (layers.size() > 0)
-            model->set_layer_ids(layers);
-
-        loader.push_allocator_manager(model->get_alloc_manager());
-        model->load_more(loader.meta_json);
-        model->load(loader);
-
-        return model;
-    }
-
-    template <class Config, class ConditionalGeneration>
-    ConditionalGeneration* load_model(ModelLoader& loader, const ModelObject::extra_args& args)
-    {
-        Config config;
-
-        load_config<Config>(loader, config, args);
-
-        return load_model<Config, ConditionalGeneration>(loader, config, args);
-    }
-
-    template <class Config, class Tokenizer, class ConditionalGeneration>
-    bool load_model(ModelLoader& loader, ModelFactory::Result& result, const ModelObject::extra_args& args)
-    {
-        // load config
-        Config config;
-
-        load_config<Config>(loader, config, args);
-
-        // load tokenizer
-        result.tokenizer = std::unique_ptr<BaseTokenizer>(load_tokenizer<Config, Tokenizer>(loader, config));
-
-#if (0)
-        // test tokenizer
-        std::vector<int> ids = result.tokenizer->encode("\nAlice:");
-        for (auto x : ids) std::cout << x << ", ";
-        std::cout << std::endl;
-
-        //ids = {0,1,2,195,196};
-        std::cout << result.tokenizer->decode(ids) << std::endl;
-        exit(-1);
-#endif
-        // load model
-        result.model = std::unique_ptr<AbstractModel>(load_model<Config, ConditionalGeneration>(loader, config, args));
-
-        result.model->set_tokenizer(result.tokenizer.get());
-
-        return true;
-    }
 
     static void load_file_header(ModelLoader& loader)
     {
@@ -1104,7 +949,6 @@ namespace chatllm
         CASE(MEGREZ,                megrez::chat, 1)            \
         CASE(FALCON3,               falcon::v3, 1)              \
         CASE(REKA_FLASH3,           reka::flash, 1)             \
-        CASE(EXAONE,                exaone, 1)                  \
         CASE(DEEPSEEK_R1_DISTILL_LLAMA, llama::ds_r1_distill, 1)\
         CASE(LLAMA4,                llama::v4, 1)               \
                                                                 \
@@ -1156,6 +1000,7 @@ namespace chatllm
         CASE(DEEPSEEK_R1_DISTILL_QWEN, qwen::ds_r1_distill, 1)  \
         CASE(DEEPSEEK_R1_DISTILL_QWEN3,qwen::ds_r1_distill_v3, 1)\
         CASE(AQUILA2,               aquila::v2, 1)              \
+        CASE(QWEN2_AUDIO,           qwen::v2_audio, 1)          \
         CASE(QWEN2_5_VL,            qwen::v2_5_vl, 1)           \
         CASE(QWEN3,                 qwen::v3, 1)                \
                                                                 \
@@ -1177,6 +1022,7 @@ namespace chatllm
         CASE(MINICPM2,              minicpm::v2, 1)             \
         CASE(MINICPM_MoE,           minicpm::moe, 1)            \
         CASE(MINICPM3,              minicpm::v3, 1)             \
+        CASE(MINICPM4,              minicpm::v4, 1)             \
                                                                 \
         CASE(PERSIMMON,             adept::persimmon, 1)        \
         CASE(FUYU,                  adept::fuyu, 1)             \
@@ -1200,7 +1046,8 @@ namespace chatllm
                                                                 \
         CASE(INDEX,                 index, 1)                   \
                                                                 \
-        CASE(SMOLLM,                smollm, 1)                  \
+        CASE(SMOLLM,                smol::lm, 1)                \
+        CASE(SMOL_VLM,              smol::vlm, 1)               \
         CASE(LLAMA3_GROQ_TOOL,      groq, 1)                    \
                                                                 \
         CASE(OLMoE,                 allenai::moe, 1)            \
@@ -1214,6 +1061,7 @@ namespace chatllm
         CASE(TELECHAT2,             telechat::v2, 1)            \
                                                                 \
         CASE(HUNYUAN_DENSE,         hunyuan::dense, 1)          \
+        CASE(HUNYUAN_MOE_V1,        hunyuan::moe_v1, 1)         \
                                                                 \
         CASE(MOONLIGHT,             moonshot::moonlight, 1)     \
                                                                 \
@@ -1229,6 +1077,13 @@ namespace chatllm
                                                                 \
         CASE(APRIEL,                apriel, 1)                  \
                                                                 \
+        CASE(ERNIE_DENSE,           ernie::dense, 1)            \
+        CASE(ERNIE_MOE,             ernie::moe, 1)              \
+                                                                \
+        CASE(PANGU_MOE,             pangu::moe, 1)              \
+                                                                \
+        CASE(SMOLLM3,               smol::lm3, 1)               \
+                                                                \
         CASE(BCE_Embedding,         bce::embedding, 1)          \
         CASE(BCE_ReRanker,          bce::ranker, 1)             \
         CASE(BGE_M3,                bge::embedding, 1)          \
@@ -1237,8 +1092,45 @@ namespace chatllm
         CASE(MiniCPM_ReRanker_Light,    minicpm::ranker_light, 1)\
         CASE(ORPHEUS_TTS,               orpheus::tts, 1)        \
         CASE(OUTE_TTS_LLAMA,            oute::tts_llama, 1)     \
-        CASE(OUTE_TTS_QWEN3,            oute::tts_qwen3, 1)
+        CASE(OUTE_TTS_QWEN3,            oute::tts_qwen3, 1)     \
+        CASE(QWEN3_Embedding,           qwen::v3_emb, 1)        \
+        CASE(QWEN3_ReRanker,            qwen::v3_ranker, 1)     \
+        \
 
+    class ModelLoadRegistry
+    {
+    public:
+        static void reg(int model_type, BaseImplModelLoader* loader);
+        static BaseImplModelLoader* get_loader(int model_type);
+    protected:
+        ModelLoadRegistry() {}
+        ModelLoadRegistry(const ModelLoadRegistry&) = delete;
+        static ModelLoadRegistry* get();
+        std::unordered_map<int, BaseImplModelLoader*> loaders;
+    };
+
+    ModelLoadRegistry* ModelLoadRegistry::get()
+    {
+        static ModelLoadRegistry* obj = new ModelLoadRegistry();
+        return obj;
+    }
+
+    void ModelLoadRegistry::reg(int model_type, BaseImplModelLoader* loader)
+    {
+        get()->loaders.insert(std::pair(model_type, loader));
+    }
+
+    BaseImplModelLoader* ModelLoadRegistry::get_loader(int model_type)
+    {
+        auto obj = get();
+        auto v = obj->loaders.find(model_type);
+        return v != obj->loaders.end() ? v->second : nullptr;
+    }
+
+    BaseImplModelLoader::BaseImplModelLoader(int model_type)
+    {
+        ModelLoadRegistry::reg(model_type, this);
+    }
 
     AbstractModel* ModelFactory::load_model_again(ModelLoader& loader, const ModelObject::extra_args& args)
     {
@@ -1260,8 +1152,9 @@ namespace chatllm
         {
             ALL_MODELS
         default:
-            CHATLLM_THROW << "invalid model type " << model_type;
-            return nullptr;
+            auto _loader = ModelLoadRegistry::get_loader(model_type);
+            CHATLLM_CHECK(_loader != nullptr) << "invalid model type " << model_type;
+            return _loader->load_model(loader, args);
         }
 
 #undef CASE
@@ -1294,8 +1187,9 @@ namespace chatllm
                     qwen::v2_tie::ConditionalGeneration>(loader, result, args);
             }
         default:
-            CHATLLM_THROW << "invalid model type " << model_type;
-            return false;
+            auto _loader = ModelLoadRegistry::get_loader(model_type);
+            CHATLLM_CHECK(_loader != nullptr) << "invalid model type " << model_type;
+            return _loader->load_model(loader, result, args);
         }
 
 #undef CASE
