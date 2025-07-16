@@ -7,6 +7,7 @@ import :cpu.op.leaky_relu;
 import :cpu.op.mean;
 import :cpu.op.norm;
 import :cpu.op.pool;
+import :cpu.op.relpos;
 import :cpu.op.repeat_back;
 import :cpu.op.scale;
 import :cpu.op.sum_rows;

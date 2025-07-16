@@ -3,6 +3,7 @@ module;
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
+#include <algorithm>
 #include <bit>
 #include <initializer_list>
 #include <limits>
@@ -2415,4 +2416,64 @@ ggml_tensor* ggml_scale_bias_inplace(
 	float s,
 	float b) {
 	return ggml_scale_impl(ctx, a, s, b, true);
+}
+
+ggml_tensor* ggml_get_rel_pos(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	int qh,
+	int kh)
+{
+	GGML_ASSERT(qh == kh);
+	GGML_ASSERT(2 * std::max(qh, kh) - 1 == a->ne[1]);
+
+	ggml_tensor* result = ctx->create(GGML_TYPE_F16, { a->ne[0], kh, qh });
+
+	result->op = GGML_OP_GET_REL_POS;
+	result->src.push_back(a);
+
+	return result;
+}
+
+static ggml_tensor* ggml_add_rel_pos_impl(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* pw,
+	ggml_tensor* ph,
+	bool inplace) {
+	GGML_ASSERT(ggml_are_same_shape(pw, ph));
+	GGML_ASSERT(ggml_is_contiguous(a));
+	GGML_ASSERT(ggml_is_contiguous(pw));
+	GGML_ASSERT(ggml_is_contiguous(ph));
+	GGML_ASSERT(ph->type == GGML_TYPE_F32);
+	GGML_ASSERT(pw->type == GGML_TYPE_F32);
+	GGML_ASSERT(pw->ne[3] == a->ne[2]);
+	GGML_ASSERT(pw->ne[0] * pw->ne[0] == a->ne[0]);
+	GGML_ASSERT(pw->ne[1] * pw->ne[2] == a->ne[1]);
+
+	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+	result->op_params[0] = std::bit_cast<int32_t>(inplace ? 1 : 0);
+
+	result->op = GGML_OP_ADD_REL_POS;
+	result->src.push_back(a);
+	result->src.push_back(pw);
+	result->src.push_back(ph);
+
+	return result;
+}
+
+ggml_tensor* ggml_add_rel_pos(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* pw,
+	ggml_tensor* ph) {
+	return ggml_add_rel_pos_impl(ctx, a, pw, ph, false);
+}
+
+ggml_tensor* ggml_add_rel_pos_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* pw,
+	ggml_tensor* ph) {
+	return ggml_add_rel_pos_impl(ctx, a, pw, ph, true);
 }

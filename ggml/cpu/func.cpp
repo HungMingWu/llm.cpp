@@ -6997,6 +6997,86 @@ void ggml_compute_forward_diag_mask_zero(
 	}
 }
 
+static void ggml_compute_forward_add_rel_pos_f32(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+
+	const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src1 = dst->src[1];
+	const ggml_tensor* src2 = dst->src[2];
+
+	const bool inplace = (bool)((int32_t*)dst->op_params)[0];
+	if (!inplace) {
+		memcpy((char*)dst->data, (char*)src0->data, dst->nbytes());
+	}
+	// ref: https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/modeling/image_encoder.py#L357-L359
+
+	float* src1_data = (float*)src1->data;
+	float* src2_data = (float*)src2->data;
+	float* dst_data = (float*)dst->data;
+
+	const int64_t ne10 = src1->ne[0];
+	const int64_t ne11 = src1->ne[1];
+	const int64_t ne12 = src1->ne[2];
+	const int64_t ne13 = src1->ne[3];
+
+	const int nth = pool.available_parallelism();
+
+	// total patches in dst
+	const int64_t np = ne13;
+
+	// patches per thread
+	const int64_t dp = (np + nth - 1) / nth;
+
+	// patch range for this thread
+	for (int64_t ip0 = 0; ip0 < np; ip0 += dp) {
+		const int64_t ip1 = std::min(ip0 + dp, np);
+		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+			for (int64_t i13 = ip0; i13 < ip1; ++i13) {
+				for (int64_t i12 = 0; i12 < ne12; ++i12) {
+					for (int64_t i11 = 0; i11 < ne11; ++i11) {
+						const int64_t jp1 = i13 * ne12 * ne11 * ne10 + i12 * ne11 * ne10 + i11 * ne10;
+						for (int64_t i10 = 0; i10 < ne10; ++i10) {
+							const int64_t jp0 = jp1 + i10;
+							const float src1_e = src1_data[jp0];
+							const float src2_e = src2_data[jp0];
+
+							const int64_t jdh = jp0 * ne10;
+							const int64_t jdw = jdh - (ne10 - 1) * i10;
+
+							for (int64_t j = 0; j < ne10; ++j) {
+								dst_data[jdh + j] += src2_e;
+								dst_data[jdw + j * ne10] += src1_e;
+							}
+						}
+					}
+				}
+			}
+		});
+		scope.spawn(std::move(sender));
+	}
+}
+
+void ggml_compute_forward_add_rel_pos(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+
+	const ggml_tensor* src0 = dst->src[0];
+
+	switch (src0->type) {
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_add_rel_pos_f32(pool, scope, dst);
+	} break;
+	default:
+	{
+		GGML_ABORT("fatal error");
+	}
+	}
+}
+
 static void ggml_compute_forward(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -7297,16 +7377,14 @@ static void ggml_compute_forward(
 	{
 		ggml_compute_forward_glu(pool, scope, tensor);
 	} break;
-#if 0
 	case GGML_OP_GET_REL_POS:
 	{
-		ggml_compute_forward_get_rel_pos(params, tensor);
+		ggml_compute_forward_get_rel_pos(tensor);
 	} break;
 	case GGML_OP_ADD_REL_POS:
 	{
-		ggml_compute_forward_add_rel_pos(params, tensor);
+		ggml_compute_forward_add_rel_pos(pool, scope, tensor);
 	} break;
-#endif
 	case GGML_OP_RWKV_WKV6:
 	{
 		ggml_compute_forward_rwkv_wkv6(pool, scope, tensor);

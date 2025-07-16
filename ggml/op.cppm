@@ -807,4 +807,22 @@ export {
 		ggml_tensor* a,
 		float s,
 		float b);
+
+	ggml_tensor* ggml_get_rel_pos(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		int qh,
+		int kh);
+
+	ggml_tensor* ggml_add_rel_pos(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* pw,
+		ggml_tensor* ph);
+
+	ggml_tensor* ggml_add_rel_pos_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* pw,
+		ggml_tensor* ph);
 }

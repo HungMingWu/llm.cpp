@@ -486,7 +486,7 @@ bool ggml_gallocr::alloc_graph(ggml_cgraph* graph) {
 
 	// reset buffers
 	for (auto& buffer : buffers) {
-		if (!buffer) {
+		if (buffer) {
 			buffer->reset();
 		}
 	}
