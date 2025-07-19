@@ -57,6 +57,7 @@ target_sources(libggml
       gguf.cppm
       log.cppm
       op.cppm
+      opt.cppm
       op_back.cppm
       tensor.cppm
       types.cppm

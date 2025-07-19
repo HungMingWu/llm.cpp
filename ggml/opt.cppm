@@ -1,0 +1,141 @@
+module;
+#include <stddef.h>
+#include <stdint.h>
+#include <memory>
+#include <random>
+#include <vector>
+
+export module ggml:opt;
+import :ds;
+
+export
+{
+    // built-in loss types, i.e. the built-in quantities minimized by the optimizer
+    // custom loss types can be defined via mean or sum which simply reduce the outputs for all datapoints to a single value
+    enum ggml_opt_loss_type {
+        GGML_OPT_LOSS_TYPE_MEAN,
+        GGML_OPT_LOSS_TYPE_SUM,
+        GGML_OPT_LOSS_TYPE_CROSS_ENTROPY,
+        GGML_OPT_LOSS_TYPE_MEAN_SQUARED_ERROR,
+    };
+
+    class ggml_opt_dataset {
+        ggml_context ctx;
+        std::unique_ptr<ggml_backend_buffer> buf ;
+        ggml_tensor* data = nullptr;
+        ggml_tensor* labels = nullptr;
+
+        int64_t ndata = -1;
+        int64_t ndata_shard = -1;
+        size_t  nbs_data = -1;
+        size_t  nbs_labels = -1;
+
+        std::vector<int64_t> permutation;
+    public:
+        ggml_opt_dataset(
+            enum ggml_type type_data,    // the type for the internal data tensor
+            enum ggml_type type_label,   // the type for the internal labels tensor
+            int64_t        ne_datapoint, // number of elements per datapoint
+            int64_t        ne_label,     // number of elements per label
+            int64_t        ndata,        // total number of datapoints/labels
+            int64_t        ndata_shard); // number of datapoints/labels per shard (unit at which the dataset is shuffled/copied)
+        
+        ggml_tensor* get_data() { return data; }
+        ggml_tensor* get_labels() { return labels; }
+    };
+
+    // callback to calculate optimizer parameters prior to a backward pass
+    // userdata can be used to pass arbitrary data
+    typedef struct ggml_opt_optimizer_params(*ggml_opt_get_optimizer_params)(void* userdata);
+
+    // parameters for initializing a new optimization context
+    struct ggml_opt_params {
+        ggml_backend_sched_t backend_sched; // defines which backends are used to construct the compute graphs
+
+        // by default the forward graph needs to be reconstructed for each eval
+        // if ctx_compute, inputs, and outputs are set the graphs are instead allocated statically
+        struct ggml_context* ctx_compute;
+        struct ggml_tensor* inputs;
+        struct ggml_tensor* outputs;
+
+        enum ggml_opt_loss_type  loss_type;
+        enum ggml_opt_build_type build_type;
+
+        int32_t opt_period; // after how many gradient accumulation steps an optimizer step should be done
+
+        ggml_opt_get_optimizer_params get_opt_pars; // callback for calculating optimizer parameters
+        void* get_opt_pars_ud;                     // userdata for calculating optimizer parameters
+    };
+
+    struct ggml_opt_context {
+        ggml_backend_sched_t       backend_sched = nullptr;
+        ggml_cgraph* allocated_graph = nullptr;
+        ggml_cgraph* allocated_graph_copy = nullptr;
+        ggml_context ctx_static;
+        ggml_context ctx_cpu;
+        ggml_context* ctx_compute = nullptr;
+        ggml_context* ctx_copy = nullptr;
+        std::unique_ptr<ggml_backend_buffer>      buf_static;
+        std::unique_ptr<ggml_backend_buffer>      buf_cpu;
+        std::mt19937               rng;
+        enum ggml_opt_loss_type    loss_type;
+        enum ggml_opt_build_type   build_type;
+        enum ggml_opt_build_type   build_type_alloc;
+
+        ggml_tensor* inputs = nullptr;
+        ggml_tensor* outputs = nullptr;
+        ggml_tensor* labels = nullptr;
+
+        ggml_tensor* loss = nullptr;
+        ggml_tensor* pred = nullptr;
+        ggml_tensor* ncorrect = nullptr;
+
+        ggml_cgraph gf;
+        ggml_cgraph* gb_grad = nullptr;
+        ggml_cgraph* gb_opt = nullptr;
+        bool static_graphs = false;
+        bool eval_ready = false;
+        std::vector<ggml_tensor*> grad_accs;
+        std::vector<ggml_tensor*> grad_m;
+        std::vector<ggml_tensor*> grad_v;
+
+        int64_t iter = 1;
+        int32_t opt_period = 1;
+        int32_t opt_i = 0;
+        bool    loss_per_datapoint = false;
+
+        ggml_opt_get_optimizer_params get_opt_pars = nullptr;
+        void* get_opt_pars_ud = nullptr;
+        struct ggml_tensor* adamw_params = nullptr;
+    public:
+        ggml_opt_context(ggml_opt_params params);
+    };
+
+    struct ggml_opt_result {
+        int64_t              ndata = 0;
+        std::vector<float>   loss;
+        std::vector<int32_t> pred;
+        int64_t              ncorrect = 0;
+
+        int64_t opt_period = -1;
+        bool    loss_per_datapoint = false;
+    };
+
+    // parameters that control which optimizer is used and how said optimizer tries to find the minimal loss
+    struct ggml_opt_optimizer_params {
+        // AdamW optimizer parameters
+        struct {
+            float alpha; // learning rate
+            float beta1;
+            float beta2;
+            float eps;   // epsilon for numerical stability
+            float wd;    // weight decay for AdamW, use 0.0f to disable
+        } adamw;
+    };
+
+    ggml_opt_optimizer_params ggml_opt_get_default_optimizer_params(void*);
+
+    ggml_opt_params ggml_opt_default_params(
+        ggml_backend_sched_t      backend_sched,
+        enum ggml_opt_loss_type   loss_type);
+}
