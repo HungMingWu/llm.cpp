@@ -96,7 +96,7 @@ public:
             for (auto &src : op->src) {
                 if (!src) continue;
                 if (!src->buffer) continue;
-                if (!to_split_buffer_type(src->buffer->get_type())) {
+                if (to_split_buffer_type(src->buffer->get_type())) {
                     return false;
                 }
             }

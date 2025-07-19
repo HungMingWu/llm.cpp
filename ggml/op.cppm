@@ -755,4 +755,37 @@ export {
 		ggml_tensor* a,
 		ggml_tensor* pw,
 		ggml_tensor* ph);
+
+	ggml_tensor* ggml_neg(ggml_context* ctx, ggml_tensor* a);
+	ggml_tensor* ggml_exp(ggml_context* ctx, ggml_tensor* a);
+	ggml_tensor* ggml_tanh(ggml_context* ctx, ggml_tensor* a);
+	ggml_tensor* ggml_cast(ggml_context* ctx, ggml_tensor* a, enum ggml_type type);
+	ggml_tensor* ggml_set_1d(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		size_t offset);
+	ggml_tensor* ggml_sigmoid(ggml_context* ctx, ggml_tensor* a);
+	ggml_tensor* ggml_conv_1d_ph(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		int s,
+		int d);
+
+	ggml_tensor* ggml_conv_1d_dw_ph(
+		ggml_context* ctx,
+		ggml_tensor* a,   // convolution kernel
+		ggml_tensor* b,   // data
+		int s0,  // stride
+		int d0); // dilation
+
+	ggml_tensor* ggml_relu(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_top_k(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		int k);
 }

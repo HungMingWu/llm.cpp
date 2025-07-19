@@ -540,7 +540,7 @@ export {
     public: // Use for develop
         std::vector<ggml_tensor*> nodes;     // tensors with data that can change if the graph is evaluated
         std::unordered_map<const ggml_tensor*, ggml_tensor*> grads;     // the outputs of these tensors are the gradients of the nodes
-        std::unordered_map<ggml_tensor*, ggml_tensor*> grad_accs; // accumulators for node gradients
+        std::unordered_map<const ggml_tensor*, ggml_tensor*> grad_accs; // accumulators for node gradients
         std::vector<ggml_tensor*> leafs;     // tensors with constant data
         std::unordered_map<const ggml_tensor*, int32_t> use_counts; // number of uses of each tensor
         std::unordered_set<ggml_tensor*> visited_hash_set;
@@ -549,7 +549,7 @@ export {
         void visit_parents(ggml_tensor*);
     public:
         void build_forward_expand(ggml_tensor*);
-        void build_backward_expand(ggml_context*, ggml_tensor** grad_accs);
+        void build_backward_expand(ggml_context*, std::span<ggml_tensor*> grad_accs = {});
         void add_node(ggml_tensor*);
         std::span<ggml_tensor*> getNodes() { return nodes; }
         void reset();
@@ -648,6 +648,7 @@ export {
         // not sure move to public is right direction
         bool alloc_graph(const ggml_cgraph& graph);
         void synchronize();
+        ggml_backend* get_backend(int i) { return backends[i]; }
     };
 
     // GUID types

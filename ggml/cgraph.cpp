@@ -813,24 +813,18 @@ void ggml_cgraph::reset()
     }
 }
 
-void ggml_cgraph::build_backward_expand(ggml_context* ctx, ggml_tensor** grad_accs)
+void ggml_cgraph::build_backward_expand(ggml_context* ctx, std::span<ggml_tensor*> grad_accs)
 {
-#if 0
-    GGML_ASSERT(cgraph->n_nodes > 0);
-    GGML_ASSERT(cgraph->grads);
-    GGML_ASSERT(cgraph->grad_accs);
+    GGML_ASSERT(nodes.size() > 0);
 
-    const int n_nodes_f = cgraph->n_nodes;
-
-    memset(cgraph->grads, 0, cgraph->visited_hash_set.size * sizeof(struct ggml_tensor*));
-    memset(cgraph->grad_accs, 0, cgraph->visited_hash_set.size * sizeof(struct ggml_tensor*));
-    bool* grads_needed = calloc(cgraph->visited_hash_set.size, sizeof(bool));
+    const int n_nodes_f = nodes.size();
+	std::unordered_map<ggml_tensor*, bool> grads_needed;
 
     {
         bool any_params = false;
         bool any_loss = false;
         for (int i = 0; i < n_nodes_f; ++i) {
-            struct ggml_tensor* node = cgraph->nodes[i];
+            ggml_tensor* node = nodes[i];
             any_params = any_params || (node->flags & GGML_TENSOR_FLAG_PARAM);
             any_loss = any_loss || (node->flags & GGML_TENSOR_FLAG_LOSS);
         }
@@ -839,7 +833,7 @@ void ggml_cgraph::build_backward_expand(ggml_context* ctx, ggml_tensor** grad_ac
     }
 
     for (int i = 0; i < n_nodes_f; ++i) {
-        struct ggml_tensor* node = cgraph->nodes[i];
+        ggml_tensor* node = nodes[i];
 
         if (node->type == GGML_TYPE_I32) {
             continue;
@@ -873,7 +867,7 @@ void ggml_cgraph::build_backward_expand(ggml_context* ctx, ggml_tensor** grad_ac
             break;
         }
         for (int j = 0; j < GGML_MAX_SRC; ++j) {
-            if (!node->src[j] || ignore_src[j] || !grads_needed[ggml_hash_find(&cgraph->visited_hash_set, node->src[j])]) {
+            if (!node->src[j] || ignore_src[j] || !grads_needed[node->src[j]]) {
                 continue;
             }
             GGML_ASSERT(node->src[j]->type == GGML_TYPE_F32 || node->src[j]->type == GGML_TYPE_F16);
@@ -888,29 +882,24 @@ void ggml_cgraph::build_backward_expand(ggml_context* ctx, ggml_tensor** grad_ac
         GGML_ASSERT(!node->view_src || node->op == GGML_OP_CPY || node->op == GGML_OP_VIEW ||
             node->op == GGML_OP_RESHAPE || node->op == GGML_OP_PERMUTE || node->op == GGML_OP_TRANSPOSE);
 
-        const size_t ihash = ggml_hash_find(&cgraph->visited_hash_set, node);
-        GGML_ASSERT(ihash != GGML_HASHSET_FULL);
-        GGML_ASSERT(ggml_bitset_get(cgraph->visited_hash_set.used, ihash));
-        if (grad_accs && grad_accs[i]) {
-            cgraph->grad_accs[ihash] = grad_accs[i];
-            cgraph->grads[ihash] = cgraph->grad_accs[ihash];
+        if (i < grad_accs.size()) {
+            this->grad_accs[node] = grad_accs[i];
+            grads[node] = this->grad_accs[node];
         }
         else if (node->flags & GGML_TENSOR_FLAG_LOSS) {
             // loss tensors always need a gradient accumulator
-            cgraph->grad_accs[ihash] = ggml_new_tensor(ctx, GGML_TYPE_F32, GGML_MAX_DIMS, node->ne);
-            cgraph->grads[ihash] = cgraph->grad_accs[ihash];
+            const auto& ne = node->ne;
+            this->grad_accs[node] = ctx->create(GGML_TYPE_F32, { ne[0], ne[1], ne[2], ne[3] });
+            grads[node] = this->grad_accs[node];
         }
-        grads_needed[ihash] = true;
+        grads_needed[node] = true;
     }
 
     for (int i = n_nodes_f - 1; i >= 0; --i) {
         // inplace operations to add gradients are not created by ggml_compute_backward except for gradient accumulation
         // use allocator to automatically make inplace operations
-        ggml_compute_backward(ctx, cgraph, i, grads_needed);
+        ggml_compute_backward(ctx, this, nodes[i], grads_needed);
     }
-
-    free(grads_needed);
-#endif
 }
 
 void graph_print(const ggml_cgraph* cgraph) {

@@ -152,107 +152,6 @@ export {
 		return dev->init_backend(params);
 	}
 
-	struct ggml_tensor* ggml_cast(
-		struct ggml_context* ctx,
-		struct ggml_tensor* a,
-		enum   ggml_type      type) {
-		// TODO
-		return nullptr;
-	}
-
-	ggml_tensor* ggml_tanh(
-		struct ggml_context* ctx,
-		struct ggml_tensor* a)
-	{
-		// TODO
-		return nullptr;
-	}
-
-	struct ggml_tensor* ggml_set_1d(
-		struct ggml_context* ctx,
-		struct ggml_tensor* a,
-		struct ggml_tensor* b,
-		size_t                offset) // in bytes
-	{
-		// TODO
-		return nullptr;
-	}
-
-	// conv_1d with padding = half
-	// alias for ggml_conv_1d(a, b, s, a->ne[0]/2, d)
-	ggml_tensor* ggml_conv_1d_ph(
-		struct ggml_context* ctx,
-		struct ggml_tensor* a,  // convolution kernel
-		struct ggml_tensor* b,  // data
-		int                   s,  // stride
-		int                   d) // dilation
-	{
-		// TODO
-		return nullptr;
-	}
-
-	ggml_tensor* ggml_sigmoid(
-		struct ggml_context* ctx,
-		struct ggml_tensor* a)
-	{
-		// TODO
-		return nullptr;
-	}
-
-	ggml_tensor* ggml_conv_1d_dw_ph(
-		struct ggml_context* ctx,
-		struct ggml_tensor* a,   // convolution kernel
-		struct ggml_tensor* b,   // data
-		int                   s0,  // stride
-		int                   d0) // dilation
-	{
-		// TODO
-		return nullptr;
-	}
-
-	ggml_tensor* ggml_relu(
-		struct ggml_context* ctx,
-		struct ggml_tensor* a)
-	{
-		// TODO
-		return nullptr;
-	}
-
-	 // top k elements per row
-	 ggml_tensor* ggml_top_k(
-		 struct ggml_context* ctx,
-		 struct ggml_tensor* a,
-		 int                   k)
-	 {
-		 // TODO
-		 return nullptr;
-	 }
-
-	 ggml_tensor* ggml_exp(
-		 struct ggml_context* ctx,
-		 struct ggml_tensor* a)
-	 {
-		 // TODO
-		 return nullptr;
-	 }
-
-	 ggml_tensor* ggml_neg(
-		 struct ggml_context* ctx,
-		 struct ggml_tensor* a)
-	 {
-		 // TODO
-		 return nullptr;
-	 }
-
-	 // change the precision of a matrix multiplication
-	 // set to GGML_PREC_F32 for higher precision (useful for phi-2)
-	 void ggml_mul_mat_set_prec(
-		 struct ggml_tensor* a,
-		 enum ggml_prec       prec)
-	 {
-		 // TODO
-	 }
-
 	 void ggml_backend_tensor_set(ggml_tensor* tensor, const void* data, size_t offset, size_t size) {
 		 GGML_ASSERT(tensor);
 
@@ -336,6 +235,11 @@ export {
 		 return (it != cgraph->grads.end()) ? it->second : nullptr;
 	 }
 
+	 struct ggml_tensor* ggml_graph_get_grad_acc(const struct ggml_cgraph* cgraph, const struct ggml_tensor* node) {
+		 auto it = cgraph->grad_accs.find(node);
+		 return (it != cgraph->grad_accs.end()) ? it->second : nullptr;
+	 }
+
 	 void ggml_quantize_init(ggml_type type);
 
 	 ggml_type ggml_ftype_to_ggml_type(ggml_ftype ftype);
@@ -350,6 +254,17 @@ export {
 	 }
 
 	 std::string utf16_to_utf8(const std::wstring& str);
+
+	 const char* ggml_status_to_string(enum ggml_status status) {
+		 switch (status) {
+		 case GGML_STATUS_ALLOC_FAILED: return "GGML status: error (failed to allocate memory)";
+		 case GGML_STATUS_FAILED:       return "GGML status: error (operation failed)";
+		 case GGML_STATUS_SUCCESS:      return "GGML status: success";
+		 case GGML_STATUS_ABORTED:      return "GGML status: warning (operation aborted)";
+		 }
+
+		 return "GGML status: unknown";
+	 }
 
 	 // Remove later
 	 size_t ggml_backend_reg_count() {

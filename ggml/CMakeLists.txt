@@ -57,6 +57,7 @@ target_sources(libggml
       gguf.cppm
       log.cppm
       op.cppm
+      opt.cppm
       op_back.cppm
       tensor.cppm
       types.cppm
@@ -81,6 +82,7 @@ target_sources(libggml
       gguf.cpp
       log.cpp
       op.cpp
+      opt.cpp
       op_back.cpp
       quants.cpp
       sched.cpp

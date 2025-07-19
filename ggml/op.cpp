@@ -5,6 +5,7 @@ module;
 #include <string.h>
 #include <algorithm>
 #include <bit>
+#include <format>
 #include <initializer_list>
 #include <iterator>
 #include <limits>
@@ -2356,5 +2357,93 @@ ggml_tensor* ggml_custom(
 	result->hook.n_tasks = n_tasks;
 	result->op = GGML_OP_CUSTOM;
 	std::copy(srcs.begin(), srcs.end(), std::back_inserter(result->src));
+	return result;
+}
+
+ggml_tensor* ggml_neg(ggml_context* ctx, ggml_tensor* a)
+{
+	return ggml_unary(ctx, a, GGML_UNARY_OP_NEG);
+}
+
+ggml_tensor* ggml_exp(ggml_context* ctx, ggml_tensor* a)
+{
+	return ggml_unary(ctx, a, GGML_UNARY_OP_EXP);
+}
+
+ggml_tensor* ggml_cast(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	enum ggml_type type) {
+	ggml_tensor* result = ctx->create(type, { a->ne[0], a->ne[1], a->ne[2], a->ne[3] });
+	result->set_name(std::format("{} (copy)", a->name));
+
+	result->op = GGML_OP_CPY;
+	result->src.push_back(a);
+	result->src.push_back(result);
+
+	return result;
+}
+
+ggml_tensor* ggml_tanh(
+	ggml_context* ctx,
+	ggml_tensor* a)
+{
+	return ggml_unary(ctx, a, GGML_UNARY_OP_TANH);
+}
+
+ggml_tensor* ggml_set_1d(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	size_t offset) // in bytes
+{
+	return ggml_set_impl(ctx, a, b, a->nb[1], a->nb[2], a->nb[3], offset, false);
+}
+
+ggml_tensor* ggml_sigmoid(ggml_context* ctx, ggml_tensor* a)
+{
+	return ggml_unary(ctx, a, GGML_UNARY_OP_SIGMOID);
+}
+
+ggml_tensor* ggml_conv_1d_ph(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	int s,
+	int d) {
+	return ggml_conv_1d(ctx, a, b, s, a->ne[0] / 2, d);
+}
+
+ggml_tensor* ggml_conv_1d_dw_ph(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	int s0,
+	int d0)
+{
+	return ggml_conv_1d_dw(ctx, a, b, s0, a->ne[0] / 2, d0);
+}
+
+ggml_tensor* ggml_relu(
+	ggml_context* ctx,
+	ggml_tensor* a)
+{
+	return ggml_unary(ctx, a, GGML_UNARY_OP_RELU);
+}
+
+ggml_tensor* ggml_top_k(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	int k)
+{
+	GGML_ASSERT(a->ne[0] >= k);
+
+	ggml_tensor* result = ggml_argsort(ctx, a, GGML_SORT_ORDER_DESC);
+
+	result = ggml_view(ctx, result,
+		{ k, result->ne[1], result->ne[2], result->ne[3] },
+		{ result->nb[1], result->nb[2], result->nb[3] },
+		0);
+
 	return result;
 }

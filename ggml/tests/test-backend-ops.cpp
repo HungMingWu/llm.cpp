@@ -1179,7 +1179,7 @@ struct test_case {
         return true;
     }
 
-    bool eval_grad(ggml_backend_t backend, const char* op_name) {
+    bool eval_grad(ggml_backend_t backend, const char* op_name, printer* output_printer) {
         mode = MODE_GRAD;
         const std::vector<float> expect = grad_expect();
 
@@ -1188,53 +1188,59 @@ struct test_case {
         ggml_tensor* out = build_graph(&ctx);
 
         if ((op_name != nullptr && op_desc(out) != op_name) || out->op == GGML_OP_OPT_STEP_ADAMW) {
-            //std::print("  {}: skipping\n", op_desc(out));
             return true;
         }
-
-        std::print("  {}({}): ", op_desc(out), vars());
-        fflush(stdout);
 
         if (out->type != GGML_TYPE_F32) {
-            std::print("not supported [{}->type != FP32]\n", out->name);
+            output_printer->print_operation(test_operation_info(op_desc(out), vars(), backend->get_name(),
+                test_status_t::NOT_SUPPORTED,
+                out->name + std::string("->type != FP32")));
             return true;
         }
 
+        // Print operation info first
+        output_printer->print_operation(test_operation_info(op_desc(out), vars(), backend->get_name()));
         // check if the backend supports the ops
-        bool supported = true;
-        bool any_params = false;
-        for (auto t : ctx.getTensors()) {
-            if (!backend->get_device()->supports_op(t)) {
-                std::print("not supported [{}] ", backend->get_name());
+        bool        supported = true;
+        bool        any_params = false;
+        std::string failure_reason;
+
+        for (ggml_tensor* t : ctx.getTensors()) {
+            if (!backend->supports_op(t)) {
                 supported = false;
+                failure_reason = backend->get_name();
                 break;
             }
             if ((t->flags & GGML_TENSOR_FLAG_PARAM)) {
                 any_params = true;
                 if (t->type != GGML_TYPE_F32) {
-                    std::print("not supported [{}->type != FP32] ", t->name);
                     supported = false;
+                    failure_reason = std::string(t->name) + "->type != FP32";
                     break;
                 }
             }
         }
         if (!any_params) {
-            std::print("not supported [{}] \n", op_name);
             supported = false;
+            failure_reason = op_desc(out);
         }
+
         if (!supported) {
-            std::println();
+            output_printer->print_operation(test_operation_info(op_desc(out), vars(), backend->get_name(),
+                test_status_t::NOT_SUPPORTED, failure_reason));
             return true;
         }
 
         int64_t ngrads = 0;
-        for (auto t : ctx.getTensors()) {
+        for (ggml_tensor* t : ctx.getTensors()) {
             if (t->flags & GGML_TENSOR_FLAG_PARAM) {
                 ngrads += t->nelements();
             }
         }
         if (ngrads > grad_nmax()) {
-            printf("skipping large tensors for speed \n");
+            test_operation_info info(op_desc(out), vars(), backend->get_name());
+            info.set_large_tensor_skip();
+            output_printer->print_operation(info);
             return true;
         }
 
@@ -1246,47 +1252,59 @@ struct test_case {
 
         gf.build_forward_expand(out);
         gb = gf;
-        gb.build_backward_expand(&ctx, nullptr);
+        gb.build_backward_expand(&ctx);
         if (expect.size() != 1 || expect[0] != 0.0f) {
             GGML_ASSERT(ggml_graph_n_nodes(gb) > ggml_graph_n_nodes(gf));
-            for (auto t : ctx.getTensors()) {
-                GGML_ASSERT(!(t->flags & GGML_TENSOR_FLAG_PARAM) || ggml_graph_get_grad(gb, t)->op != GGML_OP_NONE);
+            for (ggml_tensor* t : ctx.getTensors()) {
+                GGML_ASSERT(!(t->flags & GGML_TENSOR_FLAG_PARAM) || ggml_graph_get_grad(&gb, t)->op != GGML_OP_NONE);
             }
         }
 
-        for (auto t : ctx.getTensors()) {
-            if (!backend->get_device()->supports_op(t)) {
-                std::print("not supported [{}] ", backend->get_name());
+        for (ggml_tensor* t : ctx.getTensors()) {
+            if (!backend->supports_op(t)) {
+                output_printer->print_operation(test_operation_info(op_desc(out), vars(), backend->get_name(),
+                    test_status_t::NOT_SUPPORTED,
+                    backend->get_name()));
                 supported = false;
                 break;
             }
             if ((t->flags & GGML_TENSOR_FLAG_PARAM) && t->type != GGML_TYPE_F32) {
-                std::print("not supported [{}->type != FP32] ", t->name);
+                output_printer->print_operation(test_operation_info(op_desc(out), vars(), backend->get_name(),
+                    test_status_t::NOT_SUPPORTED,
+                    std::string(t->name) + "->type != FP32"));
                 supported = false;
                 break;
             }
         }
         if (!supported) {
-            std::println();
             return true;
         }
 
         // allocate
-        std::unique_ptr<ggml_backend_buffer> buf = backend->alloc_tensors(&ctx);
-        if (!buf) {
-            std::print("failed to allocate tensors [{}] ", backend->get_name());
+        std::unique_ptr<ggml_backend_buffer> buf = backend->alloc_tensors(&ctx); // smart ptr
+        if (buf == NULL) {
+            test_operation_info info(op_desc(out), vars(), backend->get_name());
+            info.set_error("allocation", "");
+            output_printer->print_operation(info);
             return false;
         }
-
 
         initialize_tensors(&ctx); // Randomizes all tensors (including gradients).
         gb.reset();    // Sets gradients to 1 if loss, 0 otherwise.
 
-        backend->graph_compute(&gf);
-        backend->graph_compute(&gb);
+        ggml_status status = backend->graph_compute(&gf);
+        if (status != GGML_STATUS_SUCCESS) {
+            fprintf(stderr, "%s: ggml_backend_graph_compute failed. status=%s \n", __func__, ggml_status_to_string(status));
+            return false;
+        }
+        status = backend->graph_compute(&gb);
+        if (status != GGML_STATUS_SUCCESS) {
+            fprintf(stderr, "%s: ggml_backend_graph_compute failed. status=%s \n", __func__, ggml_status_to_string(status));
+            return false;
+        }
 
         bool ok = true;
-        for (auto t : ctx.getTensors()) {
+        for (struct ggml_tensor* t : ctx.getTensors()) {
             if (!(t->flags & GGML_TENSOR_FLAG_PARAM)) {
                 continue;
             }
@@ -1306,7 +1324,9 @@ struct test_case {
             for (int64_t i = 0; i < ne; ++i) { // gradient algebraic
                 // check for nans
                 if (!std::isfinite(ga[i])) {
-                    std::print("[{}] nonfinite gradient at index {} ({}={}) ", ggml_op_desc(t), i, bn, ga[i]);
+                    test_operation_info info(op_desc(out), vars(), backend->get_name());
+                    info.set_gradient_info(i, bn, ga[i]);
+                    output_printer->print_operation(info);
                     ok = false;
                     break;
                 }
@@ -1332,20 +1352,36 @@ struct test_case {
                 float fu, fuh, fdh, fd; // output values for xiu, xiuh, xid, xidh
 
                 ggml_backend_tensor_set(t, &xiu, i * sizeof(float), sizeof(float));
-                backend->graph_compute(&gf);
+                status = backend->graph_compute(&gf);
+                if (status != GGML_STATUS_SUCCESS) {
+                    fprintf(stderr, "%s: ggml_backend_graph_compute failed. status=%s \n", __func__, ggml_status_to_string(status));
+                    return false;
+                }
                 ggml_backend_tensor_get(out, &fu, 0, out->nbytes());
 
                 ggml_backend_tensor_set(t, &xid, i * sizeof(float), sizeof(float));
-                backend->graph_compute(&gf);
+                status = backend->graph_compute(&gf);
+                if (status != GGML_STATUS_SUCCESS) {
+                    fprintf(stderr, "%s: ggml_backend_graph_compute failed. status=%s \n", __func__, ggml_status_to_string(status));
+                    return false;
+                }
                 ggml_backend_tensor_get(out, &fd, 0, out->nbytes());
 
                 if (grad_precise()) {
                     ggml_backend_tensor_set(t, &xiuh, i * sizeof(float), sizeof(float));
-                    backend->graph_compute(&gf);
+                    status = backend->graph_compute(&gf);
+                    if (status != GGML_STATUS_SUCCESS) {
+                        fprintf(stderr, "%s: ggml_backend_graph_compute failed. status=%s \n", __func__, ggml_status_to_string(status));
+                        return false;
+                    }
                     ggml_backend_tensor_get(out, &fuh, 0, out->nbytes());
 
                     ggml_backend_tensor_set(t, &xidh, i * sizeof(float), sizeof(float));
-                    backend->graph_compute(&gf);
+                    status = backend->graph_compute(&gf);
+                    if (status != GGML_STATUS_SUCCESS) {
+                        fprintf(stderr, "%s: ggml_backend_graph_compute failed. status=%s \n", __func__, ggml_status_to_string(status));
+                        return false;
+                    }
                     ggml_backend_tensor_get(out, &fdh, 0, out->nbytes());
 
                     gn[i] = (8.0 * (double)fuh + (double)fd - (8.0 * (double)fdh + (double)fu)) / (6.0 * (double)eps);
@@ -1359,7 +1395,9 @@ struct test_case {
 
             const double err = mean_abs_asymm(gn.data(), ga.data(), gn.size(), expect);
             if (err > max_maa_err()) {
-                printf("[%s] MAA = %.9f > %.9f ", ggml_op_desc(t), err, max_maa_err());
+                test_operation_info info(op_desc(out), vars(), backend->get_name());
+                info.set_maa_error(err, max_maa_err());
+                output_printer->print_operation(info);
                 ok = false;
                 break;
             }
@@ -1368,16 +1406,17 @@ struct test_case {
             }
         }
 
+        // Create final test result
+        test_operation_info final_info(op_desc(out), vars(), backend->get_name());
         if (!ok) {
-            printf("compare failed ");
+            final_info.set_compare_failure();
         }
+        final_info.status = ok ? test_status_t::OK : test_status_t::FAIL;
+        output_printer->print_operation(final_info);
 
         if (ok) {
-            printf("\033[1;32mOK\033[0m\n");
             return true;
         }
-
-        printf("\033[1;31mFAIL\033[0m\n");
 
         return false;
     }
@@ -5494,11 +5533,11 @@ static bool test_backend(ggml_backend_t backend, test_mode mode, const char* op_
         filter_test_cases(test_cases, params_filter);
         size_t n_ok = 0;
         for (auto& test : test_cases) {
-            if (test->eval_grad(backend, op_name)) {
+            if (test->eval_grad(backend, op_name, output_printer)) {
                 n_ok++;
             }
         }
-        printf("  %zu/%zu tests passed\n", n_ok, test_cases.size());
+        output_printer->print_summary(test_summary_info(n_ok, test_cases.size(), false));
 
         return n_ok == test_cases.size();
     }
