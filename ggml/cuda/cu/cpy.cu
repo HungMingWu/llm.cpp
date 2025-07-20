@@ -4,6 +4,7 @@
 #include "common.cuh"
 #include "table.h"
 #include "dequantize.cuh"
+#include "cpy-utils.cuh"
 
 #define GGML_ASSERT(...)
 
@@ -65,189 +66,28 @@ static __device__ void copy_block(const src_t* xi, float* dsti) {
     }
 };
 
-static __device__ void copy_block(const float* xi, block_q8_0* dsti) {
-    float amax = 0.0f; // absolute max
-
-    for (int j = 0; j < block_q8_0::block_size; j++) {
-        const float v = xi[j];
-        amax = fmaxf(amax, fabsf(v));
-    }
-
-    const float d = amax / ((1 << 7) - 1);
-    const float id = d ? 1.0f / d : 0.0f;
-
-    dsti->d = std::bit_cast<uint16_t>(__float2half(d));
-
-    for (int j = 0; j < block_q8_0::block_size; ++j) {
-        const float x0 = xi[j] * id;
-
-        dsti->qs[j] = roundf(x0);
-    }
-}
-
 static __device__ void copy_block(const float* xi, block_q4_0* dsti) {
-    float amax = 0.0f;
-    float vmax = 0.0f;
-
-    for (int j = 0; j < block_q4_0::block_size; ++j) {
-        const float v = xi[j];
-        if (amax < fabsf(v)) {
-            amax = fabsf(v);
-            vmax = v;
-        }
-    }
-
-    const float d = vmax / -8;
-    const float id = d ? 1.0f / d : 0.0f;
-
-    dsti->d = std::bit_cast<uint16_t>(__float2half(d));
-
-    for (int j = 0; j < block_q4_0::block_size / 2; ++j) {
-        const float x0 = xi[0 + j] * id;
-        const float x1 = xi[block_q4_0::block_size / 2 + j] * id;
-
-        const uint8_t xi0 = min(15, (int8_t)(x0 + 8.5f));
-        const uint8_t xi1 = min(15, (int8_t)(x1 + 8.5f));
-
-        dsti->qs[j] = xi0;
-        dsti->qs[j] |= xi1 << 4;
-    }
+    quantize_block(xi, dsti);
 }
 
 static __device__ void copy_block(const float* xi, block_q4_1* dsti) {
-    float vmin = FLT_MAX;
-    float vmax = -FLT_MAX;
-
-    for (int j = 0; j < block_q4_1::block_size; ++j) {
-        const float v = xi[j];
-
-        if (v < vmin) vmin = v;
-        if (v > vmax) vmax = v;
-    }
-
-    const float d = (vmax - vmin) / ((1 << 4) - 1);
-    const float id = d ? 1.0f / d : 0.0f;
-
-    std::array<half, 2> dm{ __float2half(d), __float2half(vmin) };
-    dsti->dm = std::bit_cast<uint32_t>(dm);
-
-    for (int j = 0; j < block_q4_1::block_size / 2; ++j) {
-        const float x0 = (xi[0 + j] - vmin) * id;
-        const float x1 = (xi[block_q4_1::block_size / 2 + j] - vmin) * id;
-
-        const uint8_t xi0 = min(15, (int8_t)(x0 + 0.5f));
-        const uint8_t xi1 = min(15, (int8_t)(x1 + 0.5f));
-
-        dsti->qs[j] = xi0;
-        dsti->qs[j] |= xi1 << 4;
-    }
+    quantize_block(xi, dsti);
 }
 
 static __device__ void copy_block(const float* xi, block_q5_0* dsti) {
-    float amax = 0.0f;
-    float vmax = 0.0f;
-
-    for (int j = 0; j < block_q5_0::block_size; ++j) {
-        const float v = xi[j];
-        if (amax < fabsf(v)) {
-            amax = fabsf(v);
-            vmax = v;
-        }
-    }
-
-    const float d = vmax / -16;
-    const float id = d ? 1.0f / d : 0.0f;
-
-    dsti->d = std::bit_cast<uint16_t>(__float2half(d));
-
-    uint32_t qh = 0;
-    for (int j = 0; j < block_q5_0::block_size / 2; ++j) {
-        const float x0 = xi[0 + j] * id;
-        const float x1 = xi[block_q5_0::block_size / 2 + j] * id;
-
-        const uint8_t xi0 = min(31, (int8_t)(x0 + 16.5f));
-        const uint8_t xi1 = min(31, (int8_t)(x1 + 16.5f));
-
-        dsti->qs[j] = (xi0 & 0xf) | ((xi1 & 0xf) << 4);
-        qh |= ((xi0 & 0x10u) >> 4) << (j + 0);
-        qh |= ((xi1 & 0x10u) >> 4) << (j + block_q5_0::block_size / 2);
-    }
-    memcpy(dsti->qh, &qh, sizeof(qh));
-}
-
-static __device__ __forceinline__ int best_index_int8(int n, const int8_t* val, float x) {
-    if (x <= val[0]) return 0;
-    if (x >= val[n - 1]) return n - 1;
-    int ml = 0, mu = n - 1;
-    while (mu - ml > 1) {
-        int mav = (ml + mu) / 2;
-        if (x < val[mav]) mu = mav; else ml = mav;
-    }
-    return x - val[mu - 1] < val[mu] - x ? mu - 1 : mu;
-}
-
-static __device__ void copy_block(const float* xi, block_iq4_nl* dsti) {
-    float amax = 0.0f;
-    float vmax = 0.0f;
-
-    for (int j = 0; j < block_iq4_nl::block_size; ++j) {
-        const float v = xi[j];
-        if (amax < fabsf(v)) {
-            amax = fabsf(v);
-            vmax = v;
-        }
-    }
-
-    float d = vmax / kvalues_iq4nl[0];
-    const float id = d ? 1.0f / d : 0.0f;
-
-    float sumqx = 0, sumq2 = 0;
-    for (int j = 0; j < block_iq4_nl::block_size / 2; ++j) {
-        const float x0 = xi[0 + j] * id;
-        const float x1 = xi[block_iq4_nl::block_size / 2 + j] * id;
-        const uint8_t xi0 = best_index_int8(16, kvalues_iq4nl, x0);
-        const uint8_t xi1 = best_index_int8(16, kvalues_iq4nl, x1);
-        dsti->qs[j] = xi0 | (xi1 << 4);
-        const float v0 = kvalues_iq4nl[xi0];
-        const float v1 = kvalues_iq4nl[xi1];
-        const float w0 = xi[0 + j] * xi[0 + j];
-        const float w1 = xi[block_iq4_nl::block_size / 2 + j] * xi[block_iq4_nl::block_size / 2 + j];
-        sumqx += w0 * v0 * xi[j] + w1 * v1 * xi[block_iq4_nl::block_size / 2 + j];
-        sumq2 += w0 * v0 * v0 + w1 * v1 * v1;
-    }
-
-    dsti->d = std::bit_cast<uint16_t>(__float2half(sumq2 > 0 ? sumqx / sumq2 : d));
+    quantize_block(xi, dsti);
 }
 
 static __device__ void copy_block(const float* xi, block_q5_1* dsti) {
-    float min = xi[0];
-    float max = xi[0];
+    quantize_block(xi, dsti);
+}
 
-    for (int j = 1; j < block_q5_1::block_size; ++j) {
-        const float v = xi[j];
-        min = v < min ? v : min;
-        max = v > max ? v : max;
-    }
+static __device__ void copy_block(const float* xi, block_q8_0* dsti) {
+    quantize_block(xi, dsti);
+}
 
-    const float d = (max - min) / 31;
-    const float id = d ? 1.0f / d : 0.0f;
-
-    std::array<half, 2> dm{ __float2half(d), __float2half(min) };
-    dsti->dm = std::bit_cast<uint32_t>(dm);
-
-    uint32_t qh = 0;
-    for (int j = 0; j < block_q5_1::block_size / 2; ++j) {
-        const float x0 = (xi[0 + j] - min) * id;
-        const float x1 = (xi[block_q5_1::block_size / 2 + j] - min) * id;
-
-        const uint8_t xi0 = (uint8_t)(x0 + 0.5f);
-        const uint8_t xi1 = (uint8_t)(x1 + 0.5f);
-
-        dsti->qs[j] = (xi0 & 0xf) | ((xi1 & 0xf) << 4);
-        qh |= ((xi0 & 0x10u) >> 4) << (j + 0);
-        qh |= ((xi1 & 0x10u) >> 4) << (j + block_q5_1::block_size / 2);
-    }
-    memcpy(dsti->qh, &qh, sizeof(qh));
+static __device__ void copy_block(const float* xi, block_iq4_nl* dsti) {
+    quantize_block(xi, dsti);
 }
 
 template <typename src_t, typename dst_t>

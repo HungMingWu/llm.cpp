@@ -645,3 +645,18 @@ void conv_2d_transpose_p0_cuda(conv2d_transpose_context* ctx, cudaStream_t strea
 
 //mean.cu
 void mean_cuda(const float* src0_d, float* dst_d, const int64_t ncols, const int64_t nrows, cudaStream_t stream);
+
+//set-rows.cu
+struct set_rows_context {
+    ggml_type dst_type;
+    const float* src0_d;
+    const int64_t* src1_d;
+    void* dst_d;
+    const int64_t ne00, ne01, ne02, ne03;
+    const size_t nb00, nb01, nb02, nb03;
+    const int64_t ne10, ne11, ne12, ne13;
+    const size_t nb10, nb11, nb12, nb13;
+    size_t nb1, nb2, nb3;
+};
+
+void set_rows_cuda(set_rows_context* context, cudaStream_t stream);

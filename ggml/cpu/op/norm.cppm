@@ -98,6 +98,12 @@ static void ggml_compute_forward_norm_f32(
                         return 1.0f / sqrtf(variance + eps);
                     }
                 }();
+
+                if constexpr (isRms) {
+                    // if you hit this, likely you got an inf somewhere earlier
+                    assert(scale > 0.0f);
+                }
+
                 ggml_vec_scale_f32(src0->ne[0], y, scale);
             }
         }

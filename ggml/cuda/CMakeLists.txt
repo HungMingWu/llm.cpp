@@ -56,6 +56,7 @@ target_sources(libggml
       cu/quantize.cu
       cu/rope.cu
       cu/scale.cu
+      cu/set-rows.cu
       cu/softmax.cu
       cu/ssm-conv.cu
       cu/ssm-scan.cu

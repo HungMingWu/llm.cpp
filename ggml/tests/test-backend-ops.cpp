@@ -2330,15 +2330,22 @@ struct test_cont : public test_case {
     }
 };
 
+// GGML_OP_ADD
+// GGML_OP_SUB
+// GGML_OP_MUL
+// GGML_OP_DIV
 struct test_bin_bcast : public test_case {
     using op_t = ggml_tensor * (*) (ggml_context*, ggml_tensor*, ggml_tensor*);
     op_t op;
     const ggml_type type;
     const std::array<int64_t, 4> ne;
     const std::array<int, 4> nr;
+    int nf; // number of fused ops, nf == 1 -> single op (no fusion)
+
+    bool run_whole_graph() override { return true; }
 
     std::string vars() override {
-        return std::format("type={},ne={},nr={}", type, ne, nr);
+        return std::format("type={},ne={},nr={},nf={}", type, ne, nr, nf);
     }
 
     size_t op_size(ggml_tensor* t) override {
@@ -2347,25 +2354,36 @@ struct test_bin_bcast : public test_case {
 
     test_bin_bcast(op_t op, ggml_type type = GGML_TYPE_F32,
         std::array<int64_t, 4> ne = { 10, 10, 1, 1 },
-        std::array<int, 4> nr = { 1, 2, 1, 1 })
-        : op(op), type(type), ne(ne), nr(nr) {
+        std::array<int, 4> nr = { 1, 2, 1, 1 },
+        int nf = 1)
+        : op(op), type(type), ne(ne), nr(nr), nf(nf) {
     }
 
     ggml_tensor* build_graph(ggml_context* ctx) override {
+        GGML_ASSERT(nf <= 8);
+
         ggml_tensor* a = ggml_new_tensor(ctx, type, { ne[0] * nr[0], ne[1] * nr[1], ne[2] * nr[2], ne[3] * nr[3] });
         a->set_name("a");
 
-        ggml_tensor* b = ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
-        b->set_name("b");
-
-        // The backward pass supports broadcasting only for GGML_ADD:
-        const bool grad_supported = op == ggml_add || ggml_are_same_shape(a, b);
-        if (grad_supported) {
-            a->set_flag(GGML_TENSOR_FLAG_PARAM);
-            b->set_flag(GGML_TENSOR_FLAG_PARAM);
+        ggml_tensor* b[8];
+        for (int i = 0; i < nf; ++i) {
+            b[i] = ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
+            b[i]->set_name(std::string("b") + std::to_string(i));;
         }
 
-        ggml_tensor* out = op(ctx, a, b);
+        // The backward pass supports broadcasting only for GGML_ADD:
+        const bool grad_supported = op == ggml_add && ggml_are_same_shape(a, b[0]) && nf == 1;
+        if (grad_supported) {
+            a->set_flag(GGML_TENSOR_FLAG_PARAM);
+            b[0]->set_flag(GGML_TENSOR_FLAG_PARAM);
+        }
+
+        ggml_tensor* out = a;
+
+        for (int i = 0; i < nf; ++i) {
+            out = op(ctx, out, b[i]);
+        }
+
         out->set_name("out");
 
         return out;
@@ -2576,14 +2594,14 @@ struct test_rms_norm_back : public test_case {
     }
 };
 
-// GGML_OP_RMS_NORM + GGML_OP_MUL
-struct test_rms_norm_mul : public test_case {
+// GGML_OP_RMS_NORM + GGML_OP_MUL + GGML_OP_ADD
+struct test_rms_norm_mul_add : public test_case {
     const ggml_type type;
     const std::array<int64_t, 4> ne;
     const float eps;
 
     std::string op_desc(ggml_tensor*) override {
-        return "RMS_NORM_MUL";
+        return "RMS_NORM_MUL_ADD";
     }
 
     bool run_whole_graph() override { return true; }
@@ -2592,7 +2610,7 @@ struct test_rms_norm_mul : public test_case {
         return std::format("type={},ne={},eps={:6f}", type, ne, eps);
     }
 
-    test_rms_norm_mul(ggml_type type = GGML_TYPE_F32,
+    test_rms_norm_mul_add(ggml_type type = GGML_TYPE_F32,
         std::array<int64_t, 4> ne = { 64, 5, 4, 3 },
         float eps = 1e-6f)
         : type(type), ne(ne), eps(eps) {
@@ -2601,14 +2619,17 @@ struct test_rms_norm_mul : public test_case {
     ggml_tensor* build_graph(ggml_context* ctx) override {
         ggml_tensor* a = ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
         ggml_tensor* b = ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
+        ggml_tensor* c = ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
         a->set_flag(GGML_TENSOR_FLAG_PARAM);
         a->set_name("a");
         b->set_flag(GGML_TENSOR_FLAG_PARAM);
         b->set_name("b");
+        c->set_flag(GGML_TENSOR_FLAG_PARAM);
+        c->set_name("c");
 
-        // Use a and b early, so we don't end up with an OP_NONE between rms_norm and mul
-        a = ggml_add(ctx, a, b);
-        ggml_tensor* out = ggml_mul(ctx, ggml_rms_norm(ctx, a, eps), b);
+        // Use a, b and c early, so we don't end up with an OP_NONE between rms_norm and mul
+        a = ggml_add(ctx, ggml_add(ctx, a, b), c);
+        ggml_tensor* out = ggml_add(ctx, ggml_mul(ctx, ggml_rms_norm(ctx, a, eps), b), c);
         out->set_name("out");
 
         return out;
@@ -2618,10 +2639,6 @@ struct test_rms_norm_mul : public test_case {
         for (ggml_tensor* t : ctx->getTensors()) {
             init_tensor_uniform(t, -10.f, 10.f);
         }
-    }
-
-    double max_nmse_err() override {
-        return 1e-6;
     }
 
     float grad_eps() override {
@@ -4126,7 +4143,7 @@ struct test_flash_attn_ext : public test_case {
 
         ggml_tensor* m = nullptr;
         if (mask) {
-            m = ggml_new_tensor(ctx, GGML_TYPE_F16, { kv, static_cast<int64_t>(GGML_PAD(nb, GGML_KQ_MASK_PAD)), nr23[0], nr23[1] });
+            m = ggml_new_tensor(ctx, GGML_TYPE_F16, { kv, static_cast<int64_t>(GGML_PAD(nb, GGML_KQ_MASK_PAD)), 1, nr23[1] });
             m->set_name("m");
         }
 
@@ -4992,6 +5009,15 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         //add_test_bin_bcast(type, {3, 3, 2560, 1280}, {2, 1, 1, 1});
     }
 
+    // fusion
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 2, 1, 1, 1 }, 2));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 2, 1, 1 }, 3));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 1, 2, 1 }, 4));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 2 }, 5));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 1, 2, 2 }, 6));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 2, 2, 2 }, 7));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 2, 2, 2, 2 }, 8));
+
     test_cases.emplace_back(new test_add1());
     test_cases.emplace_back(new test_scale());
     test_cases.emplace_back(new test_scale(GGML_TYPE_F32, { 10, 10, 10, 10 }, 2.0f, 1.0f));
@@ -5006,14 +5032,18 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         test_cases.emplace_back(new test_l2_norm(GGML_TYPE_F32, { 64, 5, 4, 3 }, eps));
     }
     for (float eps : {0.0f, 1e-6f, 1e-4f, 1e-1f, 1.0f}) {
-        test_cases.emplace_back(new test_rms_norm_mul(GGML_TYPE_F32, { 64, 5, 4, 3 }, eps));
+        test_cases.emplace_back(new test_rms_norm_mul_add(GGML_TYPE_F32, { 64, 5, 4, 3 }, eps));
     }
 
     test_cases.emplace_back(new test_l2_norm(GGML_TYPE_F32, { 64, 5, 4, 3 }, 1e-12f));
 
-    test_cases.emplace_back(new test_ssm_conv(GGML_TYPE_F32, { 4, 1536, 1, 1 }, { 4, 1536, 1, 1 }));
-    test_cases.emplace_back(new test_ssm_conv(GGML_TYPE_F32, { 8, 1536, 1, 1 }, { 4, 1536, 1, 1 }));
-    test_cases.emplace_back(new test_ssm_conv(GGML_TYPE_F32, { 4, 1536, 4, 1 }, { 4, 1536, 1, 1 }));
+    for (int64_t d_conv : {3, 4}) {
+        for (int64_t d_inner : {1024, 1536, 2048}) {
+            test_cases.emplace_back(new test_ssm_conv(GGML_TYPE_F32, { 4, d_inner, 1, 1 }, { d_conv, d_inner, 1, 1 }));
+            test_cases.emplace_back(new test_ssm_conv(GGML_TYPE_F32, { 8, d_inner, 1, 1 }, { d_conv, d_inner, 1, 1 }));
+            test_cases.emplace_back(new test_ssm_conv(GGML_TYPE_F32, { 4, d_inner, 4, 1 }, { d_conv, d_inner, 1, 1 }));
+        }
+    }
 
     test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 16, 1, 1024, 1, 32, 4)); // Mamba-1
     test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2, 32, 4)); // Mamba-2

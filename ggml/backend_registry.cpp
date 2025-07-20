@@ -23,6 +23,9 @@ ggml_backend_registry::ggml_backend_registry() {
 #ifdef GGML_USE_VULKAN
 	register_backend(ggml_backend_vk_reg());
 #endif
+#ifdef GGML_USE_WEBGPU
+	register_backend(ggml_backend_webgpu_reg());
+#endif
 #ifdef GGML_USE_OPENCL
 	register_backend(ggml_backend_opencl_reg());
 #endif
@@ -34,9 +37,6 @@ ggml_backend_registry::ggml_backend_registry() {
 #endif
 #ifdef GGML_USE_RPC
 	register_backend(ggml_backend_rpc_reg());
-#endif
-#ifdef GGML_USE_KOMPUTE
-	register_backend(ggml_backend_kompute_reg());
 #endif
 #ifdef GGML_USE_CPU
 	register_backend(ggml_backend_cpu_reg());

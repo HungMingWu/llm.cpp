@@ -311,8 +311,6 @@ namespace op
             return abs_cuda(&ctx);
         case GGML_UNARY_OP_SGN:
             return sgn_cuda(&ctx);
-        case GGML_UNARY_OP_ELU:
-            return elu_cuda(&ctx);
         case GGML_UNARY_OP_NEG:
             return neg_cuda(&ctx);
         case GGML_UNARY_OP_STEP:
@@ -337,6 +335,8 @@ namespace op
             return hardswish_cuda(&ctx);
         case GGML_UNARY_OP_EXP:
             return exp_cuda(&ctx);
+        case GGML_UNARY_OP_ELU:
+            return elu_cuda(&ctx);
         default:
             assert(false);
         }
@@ -2061,11 +2061,47 @@ namespace op
             std::unreachable();
         }
     }
+
     void mean(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
         GGML_ASSERT(ggml_is_contiguous(src0));
         mean_cuda((const float*)src0->data, (float*)dst->data, src0->ne[0], ggml_nrows(src0), stream);
+    }
+
+    void set_rows(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(src1->type == GGML_TYPE_I64);
+
+        set_rows_context ctx{
+            .dst_type = dst->type,
+            .src0_d = (const float*)src0->data,
+            .src1_d = (const int64_t*)src1->data,
+            .dst_d = dst->data,
+            .ne00 = src0->ne[0],
+            .ne01 = src0->ne[1],
+            .ne02 = src0->ne[2],
+            .ne03 = src0->ne[3],
+            .nb00 = src0->nb[0],
+            .nb01 = src0->nb[1],
+            .nb02 = src0->nb[2],
+            .nb03 = src0->nb[3],
+            .ne10 = src1->ne[0],
+            .ne11 = src1->ne[1],
+            .ne12 = src1->ne[2],
+            .ne13 = src1->ne[3],
+            .nb10 = src1->nb[0],
+            .nb11 = src1->nb[1],
+            .nb12 = src1->nb[2],
+            .nb13 = src1->nb[3],
+            .nb1 = dst->nb[1],
+            .nb2 = dst->nb[2],
+            .nb3 = dst->nb[3]
+        };
+        set_rows_cuda(&ctx, stream);
     }
 }

@@ -31,8 +31,10 @@ using fattn_kernel_t = void (*)(
     const int ne13,
     const int ne31,
     const int ne32,
+    const int ne33,
     const int nb31,
     const int nb32,
+    const int nb33,
     const int nb01,
     const int nb02,
     const int nb03,
@@ -59,16 +61,31 @@ static __global__ void flash_attn_combine_results(
     const float2* __restrict__ VKQ_meta,
     float* __restrict__ dst,
     const int parallel_blocks) {
-    VKQ_parts += parallel_blocks * D * gridDim.z * blockIdx.x;
-    VKQ_meta += parallel_blocks * gridDim.z * blockIdx.x;
-    dst += D * gridDim.z * blockIdx.x;
+    // Dimension 0: threadIdx.x
+    // Dimension 1: blockIdx.x
+    // Dimension 2: blockIdx.y
+    // Dimension 3: blockIdx.z
+    // Memory layout is permuted with [0, 2, 1, 3]
+
+    const int ne01 = gridDim.x;
+    const int ne02 = gridDim.y;
+
+    const int col = blockIdx.x;
+    const int head = blockIdx.y;
+    const int sequence = blockIdx.z;
+
+    const int j_dst_unrolled = (sequence * ne01 + col) * ne02 + head;
+
+    VKQ_parts += j_dst_unrolled * parallel_blocks * D;
+    VKQ_meta += j_dst_unrolled * parallel_blocks;
+    dst += j_dst_unrolled * D;
 
     const int tid = threadIdx.x;
     __builtin_assume(tid < D);
 
     extern __shared__ float2 meta[];
     for (int i = tid; i < 2 * parallel_blocks; i += D) {
-        ((float*)meta)[i] = ((const float*)VKQ_meta)[blockIdx.z * (2 * parallel_blocks) + i];
+        ((float*)meta)[i] = ((const float*)VKQ_meta)[i];
     }
 
     __syncthreads();
@@ -86,17 +103,17 @@ static __global__ void flash_attn_combine_results(
         const uint32_t ftz_mask = 0xFFFFFFFF * (diff > SOFTMAX_FTZ_THRESHOLD);
         *((uint32_t*)&KQ_max_scale) &= ftz_mask;
 
-        VKQ_numerator += KQ_max_scale * VKQ_parts[l * gridDim.z * D + blockIdx.z * D + tid];
+        VKQ_numerator += KQ_max_scale * VKQ_parts[l * D + tid];
         VKQ_denominator += KQ_max_scale * meta[l].y;
     }
 
-    dst[blockIdx.z * D + tid] = VKQ_numerator / VKQ_denominator;
+    dst[tid] = VKQ_numerator / VKQ_denominator;
 }
 
 template<int D, int ncols1, int ncols2> // D == head size
 __launch_bounds__(D, 1)
 static __global__ void flash_attn_stream_k_fixup(
-    float* __restrict__ dst, const float2* __restrict__ dst_fixup, const int ne01, const int ne02, const int ne11) {
+    float* __restrict__ dst, const float2* __restrict__ dst_fixup, const int ne01, const int ne02, const int ne03, const int ne11) {
     constexpr int ncols = ncols1 * ncols2;
 
     const int bidx0 = blockIdx.x;
@@ -110,8 +127,8 @@ static __global__ void flash_attn_stream_k_fixup(
     const int iter_k = ne11 / FATTN_KQ_STRIDE;
     const int iter_j = (ne01 + (ncols1 - 1)) / ncols1;
 
-    const int kbc0 = (bidx0 + 0) * iter_k * iter_j * (ne02 / ncols2) / gridDim.x;
-    const int kbc0_stop = (bidx0 + 1) * iter_k * iter_j * (ne02 / ncols2) / gridDim.x;
+    const int kbc0 = (bidx0 + 0) * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
+    const int kbc0_stop = (bidx0 + 1) * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
 
     const bool did_not_have_any_data = kbc0 == kbc0_stop;
     const bool wrote_beginning_of_tile = kbc0 % iter_k == 0;
@@ -120,14 +137,15 @@ static __global__ void flash_attn_stream_k_fixup(
         return;
     }
 
-    const int channel = kbc0 / (iter_k * iter_j);
-    const int jt = (kbc0 - channel * iter_k * iter_j) / iter_k;
+    const int sequence = kbc0 / (iter_k * iter_j * (ne02 / ncols2));
+    const int head = (kbc0 - iter_k * iter_j * (ne02 / ncols2) * sequence) / (iter_k * iter_j);
+    const int jt = (kbc0 - iter_k * iter_j * (ne02 / ncols2) * sequence - iter_k * iter_j * head) / iter_k; // j index of current tile.
 
     if (jt * ncols1 + j >= ne01) {
         return;
     }
 
-    dst += jt * ne02 * (ncols1 * D) + channel * (ncols2 * D) + (j * ne02 + c) * D + tid;
+    dst += sequence * ne02 * ne01 * D + jt * ne02 * (ncols1 * D) + head * (ncols2 * D) + (j * ne02 + c) * D + tid;
 
     // Load the partial result that needs a fixup:
     float dst_val = 0.0f;
@@ -146,7 +164,7 @@ static __global__ void flash_attn_stream_k_fixup(
     int bidx = bidx0 - 1;
     int kbc_stop = kbc0;
     while (true) {
-        const int kbc = bidx * iter_k * iter_j * (ne02 / ncols2) / gridDim.x;
+        const int kbc = bidx * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
         if (kbc == kbc_stop) { // Did not have any data.
             bidx--;
             kbc_stop = kbc;
@@ -205,8 +223,6 @@ void launch_fattn(
         "the Flash-Attention CUDA kernel requires the mask to be padded to 16 and at least n_queries big");
 
     GGML_ASSERT(ctx.K.ne1 % FATTN_KQ_STRIDE == 0 && "Incorrect KV cache padding.");
-
-    GGML_ASSERT(ctx.Q.ne3 == 1);
 
     ggml_cuda_pool& pool = *ctx.pool;
     cudaStream_t main_stream = ctx.main_stream;
@@ -346,8 +362,8 @@ void launch_fattn(
         scale, ctx.max_bias, m0, m1, n_head_log2, ctx.logit_softcap,
         ctx.Q.ne0, ctx.Q.ne1, ctx.Q.ne2, ctx.Q.ne3,
         ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3,
-        ctx.mask.ne1, ctx.mask.ne2,
-        ctx.mask.nb1, ctx.mask.nb2,
+        ctx.mask.ne1, ctx.mask.ne2, ctx.mask.ne3,
+        ctx.mask.nb1, ctx.mask.nb2, ctx.mask.nb3,
         ctx.Q.nb1, ctx.Q.nb2, ctx.Q.nb3,
         nb11, nb12, nb13,
         nb21, nb22, nb23,
@@ -362,12 +378,12 @@ void launch_fattn(
 
             flash_attn_stream_k_fixup<DV, ncols1, ncols2>
                 << <blocks_num_combine, block_dim_combine, 0, main_stream >> >
-                ((float*)ctx.KQV.data, dst_tmp_meta.ptr, ctx.Q.ne1, ctx.Q.ne2, ctx.K.ne1);
+                ((float*)ctx.KQV.data, dst_tmp_meta.ptr, ctx.Q.ne1, ctx.Q.ne2, ctx.Q.ne3, ctx.K.ne1);
         }
     }
     else if (parallel_blocks > 1) {
         const dim3 block_dim_combine(DV, 1, 1);
-        const dim3 blocks_num_combine(ctx.Q.ne1, 1, blocks_num.z);
+        const dim3 blocks_num_combine(ctx.Q.ne1, ctx.Q.ne2, ctx.Q.ne3);
         const size_t nbytes_shared_combine = parallel_blocks * sizeof(float2);
 
         flash_attn_combine_results<DV>

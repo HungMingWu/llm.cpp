@@ -6728,6 +6728,7 @@ void ggml_compute_forward_glu(
 	}
 }
 
+template <typename dst_t>
 static void ggml_compute_forward_set_rows_f32(
 	const ggml_compute_params* params,
 	ggml_tensor* dst) {
@@ -6769,16 +6770,16 @@ static void ggml_compute_forward_set_rows_f32(
 				const int64_t i1 = *(int64_t*)((char*)src1->data + i10 * nb10 + i11 * nb11 + i12 * nb12);
 
 				GGML_ASSERT(i1 >= 0 && i1 < ne1);
-#if 0
-				from_float(
-					(const float*)((char*)src0->data + i * nb01 + i02 * nb02 + i03 * nb03),
-					((char*)dst->data + i1 * nb1 + i02 * nb2 + i03 * nb3), nc);
-#endif
+				fromFloat(
+					cast_with_offset<const float>(src0->data, i * nb01 + i02 * nb02 + i03 * nb03),
+					cast_with_offset<dst_t>(dst->data, i1 * nb1 + i02 * nb2 + i03 * nb3),
+					nc);
 			}
 		}
 	}
 }
 
+template <typename dst_t>
 void ggml_compute_forward_set_rows(
 	const ggml_compute_params* params,
 	ggml_tensor* dst) {
@@ -6788,11 +6789,61 @@ void ggml_compute_forward_set_rows(
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_set_rows_f32(params, dst);
+		ggml_compute_forward_set_rows_f32<dst_t>(params, dst);
 	} break;
 	default:
 	{
 		GGML_ABORT("src0->type = %d (%s) not supported", src0->type, ggml_type_name(src0->type));
+	}
+	}
+}
+
+void ggml_compute_forward_set_rows(
+	const ggml_compute_params* params,
+	ggml_tensor* dst) {
+
+	const ggml_tensor* src0 = dst->src[0];
+
+	switch (dst->type) {
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_set_rows_f32<ggml_fp32_t>(params, dst);
+	} break;
+	case GGML_TYPE_F16:
+	{
+		ggml_compute_forward_set_rows_f32<ggml_fp16_t>(params, dst);
+	} break;
+	case GGML_TYPE_BF16:
+	{
+		ggml_compute_forward_set_rows_f32<ggml_bf16_t>(params, dst);
+	} break;
+	case GGML_TYPE_Q4_0:
+	{
+		ggml_compute_forward_set_rows_f32<block_q4_0>(params, dst);
+	} break;
+	case GGML_TYPE_Q4_1:
+	{
+		ggml_compute_forward_set_rows_f32<block_q4_1>(params, dst);
+	} break;
+	case GGML_TYPE_Q5_0:
+	{
+		ggml_compute_forward_set_rows_f32<block_q5_0>(params, dst);
+	} break;
+	case GGML_TYPE_Q5_1:
+	{
+		ggml_compute_forward_set_rows_f32<block_q5_1>(params, dst);
+	} break;
+	case GGML_TYPE_Q8_0:
+	{
+		ggml_compute_forward_set_rows_f32<block_q8_0>(params, dst);
+	} break;
+	case GGML_TYPE_IQ4_NL:
+	{
+		ggml_compute_forward_set_rows_f32<block_iq4_nl>(params, dst);
+	} break;
+	default:
+	{
+		assert(false);
 	}
 	}
 }

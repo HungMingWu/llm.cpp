@@ -1505,6 +1505,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     case GGML_OP_GET_ROWS_BACK:
         op::get_rows_back(stream(), dst);
         break;
+    case GGML_OP_SET_ROWS:
+        op::set_rows(stream(), dst);
+        break;
     case GGML_OP_DUP:
     case GGML_OP_CONT:
         op::dup(stream(), dst);
