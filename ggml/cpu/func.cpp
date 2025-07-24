@@ -15,6 +15,7 @@ module;
 #include <exec/async_scope.hpp>
 #include "block.h"
 #include "mdspan.hpp"
+#include "helper.h"
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_ABORT(...)
@@ -5855,13 +5856,7 @@ static void ggml_compute_forward_opt_step_adamw_f32(
 	const int nth = pool.available_parallelism();
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
-	const int64_t nr = ggml_nrows(src0);
-
-	GGML_TENSOR_UNARY_OP_LOCALS
-	GGML_ASSERT(nb00 == sizeof(float));
-
-	// rows per thread
-	const int64_t dr = (nr + nth - 1) / nth;
+	GGML_ASSERT(src0->nb[0] == sizeof(float));
 
 	// row range for this thread
 	const float* adamw_params_ptr = ggml_get_data_f32(adamw_params);
@@ -5873,36 +5868,29 @@ static void ggml_compute_forward_opt_step_adamw_f32(
 	const float beta1h = adamw_params_ptr[5];
 	const float beta2h = adamw_params_ptr[6];
 
-	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
-		const int64_t ir1 = std::min(ir0 + dr, nr);
-		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-			for (int ir = ir0; ir < ir1; ++ir) {
-				const int64_t i03 = ir / (ne02 * ne01);
-				const int64_t i02 = (ir - i03 * ne02 * ne01) / ne01;
-				const int64_t i01 = (ir - i03 * ne02 * ne01 - i02 * ne01);
+	auto w = make_strided_mdspan(static_cast<float*>(src0->data), src0->ne, src0->nb); // weight
+	auto g = make_strided_mdspan(static_cast<const float*>(src0_grad->data), src0->ne, src0->nb); // grad
+	auto m = make_strided_mdspan(static_cast<float*>(src0_grad_m->data), src0->ne, src0->nb);
+	auto v = make_strided_mdspan(static_cast<float*>(src0_grad_v->data), src0->ne, src0->nb);
 
-				const size_t offset = i03 * nb03 + i02 * nb02 + i01 * nb01;
-
-				float* w = (float*)((char*)src0->data + offset); // weight
-				const float* g = (const float*)((const char*)src0_grad->data + offset); // grad
-				float* m = (float*)((char*)src0_grad_m->data + offset);
-				float* v = (float*)((char*)src0_grad_v->data + offset);
-
-				for (int i00 = 0; i00 < ne00; ++i00) {
-					m[i00] = m[i00] * beta1 + g[i00] * (1.0f - beta1);
-					v[i00] = v[i00] * beta2 + g[i00] * g[i00] * (1.0f - beta2);
-
-					const float mh = m[i00] * beta1h;
-					const float vh = sqrtf(v[i00] * beta2h) + eps;
-
-					// The weight decay is applied independently of the Adam momenta m and v.
-					// This is NOT equivalent to l2 regularization that adds w[i00]*w[i00] to the loss.
-					// See: https://arxiv.org/pdf/1711.05101v3.pdf
-					w[i00] = w[i00] * (1.0f - alpha * wd) - alpha * mh / vh;
-				}
+	for (int64_t i03 = 0; i03 < src0->ne[3]; i03++) {
+		for (int64_t i02 = 0; i02 < src0->ne[2]; i02++) {
+			for (int64_t i01 = 0; i01 < src0->ne[1]; i01++) {
+				stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+					for (int i00 = 0; i00 < src0->ne[0]; ++i00) {
+						m[i03, i02, i01, i00] = m[i03, i02, i01, i00] * beta1 + g[i03, i02, i01, i00] * (1.0f - beta1);
+						v[i03, i02, i01, i00] = v[i03, i02, i01, i00] * beta2 + g[i03, i02, i01, i00] * g[i03, i02, i01, i00] * (1.0f - beta2);
+						const float mh = m[i03, i02, i01, i00] * beta1h;
+						const float vh = sqrtf(v[i03, i02, i01, i00] * beta2h) + eps;
+						// The weight decay is applied independently of the Adam momenta m and v.
+						// This is NOT equivalent to l2 regularization that adds w[i00]*w[i00] to the loss.
+						// See: https://arxiv.org/pdf/1711.05101v3.pdf
+						w[i03, i02, i01, i00] = w[i03, i02, i01, i00] * (1.0f - alpha * wd) - alpha * mh / vh;
+					}
+				});
+				scope.spawn(std::move(sender));
 			}
-		});
-		scope.spawn(std::move(sender));
+		}
 	}
 }
 
