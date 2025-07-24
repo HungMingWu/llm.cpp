@@ -29,7 +29,6 @@ target_sources(libggml
       op/relpos.cppm
       op/repeat_back.cppm
       op/scale.cppm
-      op/sum_rows.cppm
       op/unary.cppm
       op/win.cppm
   PRIVATE
@@ -42,6 +41,7 @@ target_sources(libggml
       vec_dot.cpp
       op/concat.cpp
       op/mean.cpp
+      op/sum_rows.cpp
       op/upscale.cpp
 )
 
