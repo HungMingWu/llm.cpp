@@ -6345,15 +6345,13 @@ static void ggml_compute_forward_conv_2d_dw_whcn(
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 	for (int64_t start = 0; start < n; start += per_thread) {
 		const int64_t end = std::min(start + per_thread, n);
+		std::experimental::mdspan dst_data(static_cast<float*>(dst->data), n, p.dst_h, p.dst_w);
+		std::experimental::mdspan knl_data(static_cast<const float*>(kernel->data), n, p.knl_h, p.knl_w);
+		std::experimental::mdspan src_data(static_cast<const float*>(src->data), n, p.src_h, p.src_w);
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
 			for (int64_t i = start; i < end; ++i) {
-				const float* knl_data = (const float*)kernel->data + (i % p.channels) * p.knl_w * p.knl_h;
-				const float* src_data = (const float*)src->data + i * p.src_w * p.src_h;
-				float* dst_data = (float*)dst->data + i * p.dst_w * p.dst_h;
-
 				for (int64_t dst_y = 0; dst_y < p.dst_h; ++dst_y) {
 					for (int64_t dst_x = 0; dst_x < p.dst_w; ++dst_x) {
-
 						float sum = 0.0f;
 						for (int64_t knl_y = 0; knl_y < p.knl_h; ++knl_y) {
 							const int64_t src_y = dst_y * p.stride_y + knl_y * p.dilation_y - p.pad_y;
@@ -6365,11 +6363,11 @@ static void ggml_compute_forward_conv_2d_dw_whcn(
 								if (src_x < 0 || src_x >= p.src_w) {
 									continue;
 								}
-								sum += knl_data[knl_y * p.knl_w + knl_x]
-									* src_data[src_y * p.src_w + src_x];
+								sum += knl_data[i, knl_y, knl_x]
+									* src_data[i, src_y, src_x];
 							}
 						}
-						dst_data[dst_y * p.dst_w + dst_x] = sum;
+						dst_data[i, dst_y, dst_x] = sum;
 					}
 				}
 			}
@@ -6387,8 +6385,9 @@ static void ggml_compute_forward_conv_2d_dw_cwhn(
 	const ggml_conv_2d_dw_params& p) {
 
 	const int64_t c = p.channels;
-	const float* knl_data = (const float*)kernel->data;
-
+	std::experimental::mdspan knl_data(static_cast<const float*>(kernel->data), p.knl_h, p.knl_w, p.channels);
+	std::experimental::mdspan src_data(static_cast<const float*>(src->data), p.batch, p.src_h, p.src_w, p.channels);
+	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), p.dst_h, p.dst_w, p.channels);
 	const int64_t rows_total = p.dst_h * p.batch;
 	const int64_t rows_per_thread = (rows_total + pool.available_parallelism() - 1) / pool.available_parallelism();
 
@@ -6405,9 +6404,7 @@ static void ggml_compute_forward_conv_2d_dw_cwhn(
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
 			for (int64_t row = row_start; row < row_end; ++row) {
 				const int64_t dst_y = row % p.dst_h;
-				const float* src_data = (const float*)src->data + (row / p.dst_h) * p.src_w * p.src_h * c;
 				for (int64_t dst_x = 0; dst_x < p.dst_w; ++dst_x) {
-					float* dst_data = (float*)dst->data + (row * p.dst_w + dst_x) * c;
 					const int64_t src_y_base = dst_y * p.stride_y - p.pad_y;
 					const int64_t src_x_base = dst_x * p.stride_x - p.pad_x;
 
@@ -6446,11 +6443,11 @@ static void ggml_compute_forward_conv_2d_dw_cwhn(
 								if (src_x < 0 || src_x >= p.src_w) {
 									continue;
 								}
-								sum += knl_data[(knl_y * p.knl_w + knl_x) * c + c_i]
-									* src_data[(src_y * p.src_w + src_x) * c + c_i];
+								sum += knl_data[knl_y, knl_x, c_i]
+									* src_data[row / p.dst_h, src_y, src_x, c_i];
 							}
 						}
-						dst_data[c_i] = sum;
+						dst_data[row, dst_x, c_i] = sum;
 					}
 				}
 			}
