@@ -24,7 +24,6 @@ target_sources(libggml
       op/concat.cppm
       op/diag.cppm
       op/leaky_relu.cppm
-      op/mean.cppm
       op/norm.cppm
       op/op.cppm
       op/pool.cppm
@@ -43,6 +42,7 @@ target_sources(libggml
       plan.cpp
       to_float.cpp
       vec_dot.cpp
+      op/mean.cpp
 )
 
 if (GGML_LLAMAFILE)
