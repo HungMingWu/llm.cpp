@@ -4,6 +4,8 @@ module;
 #include <algorithm>
 #include <bit>
 #include <iostream>
+#include "../helper.h"
+
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
 module ggml;
@@ -11,21 +13,6 @@ import :ds;
 import :tensor;
 import :cpu.ds;
 import :cpu.op;
-
-template<typename T>
-auto make_strided_mdspan(T* data, const std::array<int64_t, 4>& extents, const std::array<size_t, 4>& strides) {
-    using extents_type = std::experimental::dims<4>;
-    // Reverse order, maybe chage it.
-    extents_type ext(extents[3], extents[2], extents[1], extents[0]);
-    assert(strides[0] == sizeof(T));
-	std::array<std::size_t, 4> newStride = {
-        strides[3] / strides[0],
-        strides[2] / strides[0],
-        strides[1] / strides[0], 
-        strides[0] / strides[0]};
-    auto mapping = std::experimental::layout_stride::mapping{ ext, newStride };
-    return std::experimental::mdspan(data, mapping);
-}
 
 template <typename T>
 static void ggml_compute_forward_concat(
@@ -47,7 +34,7 @@ static void ggml_compute_forward_concat(
     int64_t o[4] = { 0, 0, 0, 0 };
     o[dim] = src0->ne[dim];
 
-    std::experimental::mdspan dst_mdspan(static_cast<T*>(dst->data), dst->ne[3], dst->ne[2], dst->ne[1], dst->ne[0]);
+    auto dst_mdspan = make_strided_mdspan(static_cast<T*>(dst->data), dst->ne, dst->nb);
     auto src0_mdspan = make_strided_mdspan(static_cast<const T*>(src0->data), src0->ne, src0->nb);
     auto src1_mdspan = make_strided_mdspan(static_cast<const T*>(src1->data), src1->ne, src1->nb);
     // TODO: smarter multi-theading

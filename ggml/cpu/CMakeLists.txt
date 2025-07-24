@@ -31,7 +31,6 @@ target_sources(libggml
       op/scale.cppm
       op/sum_rows.cppm
       op/unary.cppm
-      op/upscale.cppm
       op/win.cppm
   PRIVATE
       backend.cpp
@@ -43,6 +42,7 @@ target_sources(libggml
       vec_dot.cpp
       op/concat.cpp
       op/mean.cpp
+      op/upscale.cpp
 )
 
 if (GGML_LLAMAFILE)
