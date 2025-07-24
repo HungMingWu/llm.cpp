@@ -21,7 +21,6 @@ target_sources(libggml
     FILES
       vec_dot.cppm
       op/argsort.cppm
-      op/concat.cppm
       op/diag.cppm
       op/leaky_relu.cppm
       op/norm.cppm
@@ -42,6 +41,7 @@ target_sources(libggml
       plan.cpp
       to_float.cpp
       vec_dot.cpp
+      op/concat.cpp
       op/mean.cpp
 )
 
