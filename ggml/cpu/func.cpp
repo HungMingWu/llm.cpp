@@ -1505,7 +1505,7 @@ static void ggml_compute_forward_pad_reflect_1d(
 // ggml_compute_forward_im2col
 // src0: kernel [OC, IC, KH, KW]
 // src1: image [N, IC, IH, IW]
-// dst:  result [N, OH, OW, IC*KH*KW]
+// dst:  result [N, OH, OW, IC, KH, KW]
 template <typename T>
 static void ggml_compute_forward_im2col_impl(
 	exec::static_thread_pool& pool,
@@ -1551,10 +1551,10 @@ static void ggml_compute_forward_im2col_impl(
 	}
 	GGML_ASSERT(nb10 == sizeof(float));
 
+	// im2col: [N, IC, IH, IW] => [N, OH, OW, IC, KH, KW]
 	std::experimental::mdspan src_data(static_cast<ggml_fp32_t*>(src1->data), N, IC, IH, IW);
 	std::experimental::mdspan dst_data(static_cast<T*>(dst->data), N, OH, OW, IC, KH, KW);
 
-	// im2col: [N, IC, IH, IW] => [N, OH, OW, IC*KH*KW]
 	for (int64_t in = 0; in < N; in++) {
 		for (int64_t ioh = 0; ioh < OH; ioh++) { // 1
 			for (int64_t iow = 0; iow < OW; iow++) {
@@ -2478,37 +2478,23 @@ static void ggml_compute_forward_count_equal_i32(
 	GGML_ASSERT(ggml_is_scalar(dst));
 	GGML_ASSERT(dst->type == GGML_TYPE_I64);
 
-	const int64_t nr = ggml_nrows(src0);
-
-	const int nth = pool.available_parallelism();
-
 	std::atomic<int64_t> sum_thread{ 0 };
+	auto src0_data = make_strided_mdspan(static_cast<const int32_t*>(src0->data), src0->ne, src0->nb);
+	auto src1_data = make_strided_mdspan(static_cast<const int32_t*>(src1->data), src1->ne, src1->nb);
 
-	// rows per thread
-	const int64_t dr = (nr + nth - 1) / nth;
-
-	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
-		const int64_t ir1 = std::min(ir0 + dr, nr);
-		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=, &sum_thread] {
-			int64_t sum = 0;
-			for (int64_t ir = ir0; ir < ir1; ++ir) {
-				const int64_t i03 = ir / (ne02 * ne01);
-				const int64_t i02 = (ir - i03 * ne03) / ne01;
-				const int64_t i01 = ir - i03 * ne03 - i02 * ne02;
-
-				const char* data0 = (const char*)src0->data + i03 * nb03 + i02 * nb02 + i01 * nb01;
-				const char* data1 = (const char*)src1->data + i03 * nb13 + i02 * nb12 + i01 * nb11;
-
-				for (int64_t i00 = 0; i00 < ne00; ++i00) {
-					const int32_t val0 = *((const int32_t*)(data0 + i00 * nb00));
-					const int32_t val1 = *((const int32_t*)(data1 + i00 * nb10));
-
-					sum += val0 == val1;
-				}
+	for (int64_t i03 = 0; i03 < src0_data.extent(0); ++i03) {
+		for (int64_t i02 = 0; i02 < src0_data.extent(1); ++i02) {
+			for (int64_t i01 = 0; i01 < src0_data.extent(2); ++i01) {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=, &sum_thread] {
+					int64_t sum = 0;
+					for (int64_t i00 = 0; i00 < src0_data.extent(3); ++i00) {
+						sum += src0_data[i03, i02, i01, i00] == src1_data[i03, i02, i01, i00];
+					}
+					sum_thread += sum;
+				});
+				scope.spawn(std::move(sender));
 			}
-			sum_thread += sum;
-		});
-		scope.spawn(std::move(sender));
+		}
 	}
 
 	stdexec::sync_wait(scope.on_empty());
