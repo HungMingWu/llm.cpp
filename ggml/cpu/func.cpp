@@ -1535,8 +1535,6 @@ static void ggml_compute_forward_im2col_impl(
 	const int32_t d1 = ((const int32_t*)(dst->op_params))[5];
 	const bool is_2D = ((const int32_t*)(dst->op_params))[6] == 1;
 
-	const int nth = pool.available_parallelism();
-
 	const int64_t N = is_2D ? ne13 : ne12;
 	const int64_t IC = is_2D ? ne12 : ne11;
 	const int64_t IH = is_2D ? ne11 : 1;
@@ -1548,51 +1546,39 @@ static void ggml_compute_forward_im2col_impl(
 	const int64_t OH = is_2D ? ne2 : 1;
 	const int64_t OW = ne1;
 
-	int ofs0 = is_2D ? nb13 : nb12;
-	int ofs1 = is_2D ? nb12 : nb11;
-
 	if constexpr (std::is_same_v<T, ggml_fp16_t>) {
 		GGML_ASSERT(nb00 == sizeof(T));
 	}
 	GGML_ASSERT(nb10 == sizeof(float));
 
+	std::experimental::mdspan src_data(static_cast<ggml_fp32_t*>(src1->data), N, IC, IH, IW);
+	std::experimental::mdspan dst_data(static_cast<T*>(dst->data), N, OH, OW, IC, KH, KW);
+
 	// im2col: [N, IC, IH, IW] => [N, OH, OW, IC*KH*KW]
-	{
-		for (int64_t start = 0; start < IC; start += nth) {
-			int64_t end = std::min(start + nth, IC);
-			stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) |
-				stdexec::then([=] {
-					for (int64_t in = 0; in < N; in++) {
-						for (int64_t ioh = 0; ioh < OH; ioh++) { // 1
-							for (int64_t iow = 0; iow < OW; iow++) {
-								for (int64_t iic = start; iic < end; iic++) {
-									// micro kernel
-									const auto dst_data =
-										cast_with_offset<T>(dst->data,
-											sizeof(T) * (in * OH * OW + ioh * OW + iow) * (IC * KH * KW)); // [IC, KH, KW]
-									const auto src_data = cast_with_offset<ggml_fp32_t>(src1->data, in * ofs0 + iic * ofs1); // [IH, IW]
+	for (int64_t in = 0; in < N; in++) {
+		for (int64_t ioh = 0; ioh < OH; ioh++) { // 1
+			for (int64_t iow = 0; iow < OW; iow++) {
+				for (int64_t iic = 0; iic < IC; iic++) {
+					stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) |
+						stdexec::then([=] {
+							for (int64_t ikh = 0; ikh < KH; ikh++) {  // 1
+								for (int64_t ikw = 0; ikw < KW; ikw++) {
+									const int64_t iiw = iow * s0 + ikw * d0 - p0;
+									const int64_t iih = ioh * s1 + ikh * d1 - p1;
 
-									for (int64_t ikh = 0; ikh < KH; ikh++) {  // 1
-										for (int64_t ikw = 0; ikw < KW; ikw++) {
-											const int64_t iiw = iow * s0 + ikw * d0 - p0;
-											const int64_t iih = ioh * s1 + ikh * d1 - p1;
-
-											if (iih < 0 || iih >= IH || iiw < 0 || iiw >= IW) {
-												dst_data[iic * (KH * KW) + ikh * KW + ikw] = 0;
-											}
-											else {
-												dst_data[iic * (KH * KW) + ikh * KW + ikw] = fromFloat32<T>(src_data[iih * IW + iiw]);
-											}
-										}
+									if (iih < 0 || iih >= IH || iiw < 0 || iiw >= IW) {
+										dst_data[in, ioh, iow, iic, ikh, ikw] = 0;
+									}
+									else {
+										dst_data[in, ioh, iow, iic, ikh, ikw] = fromFloat32<T>(src_data[in, iic, iih, iiw]);
 									}
 								}
 							}
-						}
-					}
-				});
-			scope.spawn(std::move(sender));
+						});
+					scope.spawn(std::move(sender));
+				}
+			}
 		}
-
 	}
 }
 
