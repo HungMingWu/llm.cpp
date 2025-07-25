@@ -5161,39 +5161,29 @@ static void ggml_compute_forward_pad_f32(
 
 	GGML_ASSERT(src0->nb[0] == sizeof(float));
 	GGML_ASSERT(dst->nb[0] == sizeof(float));
-
-	GGML_TENSOR_UNARY_OP_LOCALS
 	
 	const int nth = pool.available_parallelism();
-	const int64_t dr = (ne1 + nth - 1) / nth;
+	const int64_t dr = (dst->ne[1] + nth - 1) / nth;
 
-	float* dst_ptr = (float*)dst->data;
+	auto src_ptr = make_strided_mdspan(static_cast<float*>(src0->data), src0->ne, src0->nb);
+	auto dst_ptr = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
 
-	// TODO: optimize
-
-	for (int64_t ir0 = 0; ir0 < ne1; ir0 += dr) {
-		const int64_t ir1 = std::min(ir0 + dr, ne1);
-		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
-			for (int64_t i2 = 0; i2 < ne2; ++i2) {
-				for (int64_t i1 = ir0; i1 < ir1; i1++) {
-					for (int64_t i0 = 0; i0 < ne0; ++i0) {
-						for (int64_t i3 = 0; i3 < ne3; ++i3) {
-							const int64_t dst_idx = i3 * (ne0 * ne1 * ne2) + i2 * (ne0 * ne1) + i1 * ne0 + i0;
-
-							const float* src_ptr = (const float*)((char*)src0->data + i3 * nb03 + i2 * nb02 + i1 * nb01 + i0 * nb00);
-
-							if (i0 < ne00 && i1 < ne01 && i2 < ne02 && i3 < ne03) {
-								dst_ptr[dst_idx] = *src_ptr;
-							}
-							else {
-								dst_ptr[dst_idx] = 0;
-							}
+	for (int64_t i3 = 0; i3 < dst_ptr.extent(0); i3++) {
+		for (int64_t i2 = 0; i2 < dst_ptr.extent(1); i2++) {
+			for (int64_t i1 = 0; i1 < dst_ptr.extent(2); i1++) {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+					for (int64_t i0 = 0; i0 < dst_ptr.extent(3); i0++) {
+						if (i0 < src_ptr.extent(3) && i1 < src_ptr.extent(2) && i2 < src_ptr.extent(1) && i3 < src_ptr.extent(0)) {
+							dst_ptr[i3, i2, i1, i0] = src_ptr[i3, i2, i1, i0];
+						}
+						else {
+							dst_ptr[i3, i2, i1, i0] = 0;
 						}
 					}
-				}
+				});
+				scope.spawn(std::move(sender));
 			}
-		});
-		scope.spawn(std::move(sender));
+		}
 	}
 }
 
