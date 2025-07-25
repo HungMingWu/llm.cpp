@@ -100,17 +100,6 @@ void fromFloat(const float* x, T* y, int64_t n)
 	}
 }
 
-template <typename T>
-void toFloat(const T* x, float* y, int64_t n)
-{
-	if constexpr (is_quant_type_v<T>) {
-		dequantize_row(x, y, n);
-	}
-	else {
-		to_float(x, y, n);
-	}
-}
-
 template <typename src0_t>
 static void ggml_compute_forward_mul_mat_one_chunk(
 	const ggml_compute_params* params,
@@ -2185,40 +2174,40 @@ static void ggml_compute_forward_get_rows(
 	const ggml_tensor* src0 = dst->src[0];
 	const ggml_tensor* src1 = dst->src[1];
 
-	GGML_TENSOR_BINARY_OP_LOCALS
-
-	const int64_t nc = ne00;
+	const int64_t nc = src0->ne[0];
 	const int64_t nr = src1->nelements();
 
-	assert(ne0 == nc);
-	assert(ne02 == ne11);
-	assert(nb00 == sizeof(T));
+	assert(dst->ne[0] == nc);
+	assert(src0->ne[2] == src1->ne[1]);
+	assert(src0->nb[0] == sizeof(T));
 	assert(ggml_nrows(dst) == nr);
 
-	const int nth = pool.available_parallelism();
+	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	auto src0_data = make_strided_mdspan(static_cast<const T*>(src0->data), src0->ne, src0->nb);
+	auto src1_data = make_strided_mdspan(static_cast<const int32_t*>(src1->data), src1->ne, src1->nb);
 
-	// rows per thread
-	const int64_t dr = (nr + nth - 1) / nth;
+	GGML_ASSERT(src1_data.extent(0) == 1);
 
-	// row range for this thread
+	for (int64_t i12 = 0; i12 < src1_data.extent(1); i12++) {
+		for (int64_t i11 = 0; i11 < src1_data.extent(2); i11++) {
+			for (int64_t i10 = 0; i10 < src1_data.extent(3); i10++) {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+					const int32_t i01 = src1_data[0, i12, i11, i10];
 
-	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
-		const int64_t ir1 = std::min(ir0 + dr, nr);
-		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
-			for (int64_t i = ir0; i < ir1; ++i) {
-				const int64_t i12 = i / (ne11 * ne10);
-				const int64_t i11 = (i - i12 * ne11 * ne10) / ne10;
-				const int64_t i10 = (i - i12 * ne11 * ne10 - i11 * ne10);
-				const int64_t i01 = *(int32_t*)((char*)src1->data + i10 * nb10 + i11 * nb11 + i12 * nb12);
+					GGML_ASSERT(i01 >= 0 && i01 < src0_data.extent(2));
 
-				GGML_ASSERT(i01 >= 0 && i01 < ne01);
-
-				toFloat(
-					(const T*)((char*)src0->data + i01 * nb01 + i11 * nb02 + i12 * nb03),
-					(float*)((char*)dst->data + i10 * nb1 + i11 * nb2 + i12 * nb3), nc);
+					if constexpr (is_quant_type_v<T>) {
+						dequantize_row(&src0_data[i12, i11, i01, 0], &dst_data[i12, i11, i10, 0], src0_data.extent(3));
+					}
+					else {
+						for (int64_t i0 = 0; i0 < src0_data.extent(3); i0++) {
+							dst_data[i12, i11, i10, i0] = toFloat32(src0_data[i12, i11, i01, i0]);
+						}
+					}
+				});
+				scope.spawn(std::move(sender));
 			}
-		});
-		scope.spawn(std::move(sender));
+		}
 	}
 }
 
