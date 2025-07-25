@@ -4,24 +4,14 @@
 #include "block.h"
 #include "table.h"
 
-static __device__ __forceinline__ void convert_f32_f32(const float* src, float* dst) {
-    *dst = *src;
-}
-
-static __device__ __forceinline__ void convert_f32_f16(const float* src, half* dst) {
-    *dst = __float2half(*src);
-}
-
-static __device__ __forceinline__ void convert_f32_bf16(const float* src, nv_bfloat16* dst) {
-    *dst = *src;
-}
-
-static __device__ __forceinline__ void convert_f16_f16(const half* src, half* dst) {
-    *dst = *src;
-}
-
-static __device__ __forceinline__ void convert_f16_f32(const half* src, float* dst) {
-    *dst = *src;
+template<typename src_t, typename dst_t>
+static __device__ __forceinline__ void convert_flt(const src_t* src, dst_t* dst) {
+    if constexpr (std::is_same_v<src_t, dst_t>) {
+        *dst = *src;
+    }
+    else {
+        *dst = float(*src);
+    }
 }
 
 static __device__ __forceinline__ int best_index_int8(int n, const int8_t* val, float x) {

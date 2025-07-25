@@ -61,10 +61,12 @@ void norm_f32_cuda(
     }
 }
 
-template <int block_size>
+template <int block_size, bool do_multiply = false>
 static __global__ void rms_norm_f32(
     const float* x, float* dst, const int ncols, const int64_t stride_row, const int64_t stride_channel,
-    const int64_t stride_sample, const float eps) {
+    const int64_t stride_sample, const float eps, const float* mul = nullptr, const int64_t mul_stride_row = 0,
+    const int64_t mul_stride_channel = 0, const int64_t mul_stride_sample = 0, const int mul_ncols = 0,
+    const int mul_nrows = 0, const int mul_nchannels = 0, const int mul_nsamples = 0) {
     const int nrows = gridDim.x;
     const int nchannels = gridDim.y;
 
@@ -75,6 +77,13 @@ static __global__ void rms_norm_f32(
 
     x += sample * stride_sample + channel * stride_channel + row * stride_row;
     dst += ((sample * nchannels + channel) * nrows + row) * ncols;
+
+    if constexpr (do_multiply) {
+        const int mul_row = row % mul_nrows;
+        const int mul_channel = channel % mul_nchannels;
+        const int mul_sample = sample % mul_nsamples;
+        mul += mul_sample * mul_stride_sample + mul_channel * mul_stride_channel + mul_row * mul_stride_row;
+    }
 
     float tmp = 0.0f; // partial sum for thread in warp
 
@@ -102,7 +111,13 @@ static __global__ void rms_norm_f32(
     const float scale = rsqrtf(mean + eps);
 
     for (int col = tid; col < ncols; col += block_size) {
-        dst[col] = scale * x[col];
+        if constexpr (do_multiply) {
+            const int mul_col = col % mul_ncols;
+            dst[col] = scale * x[col] * mul[mul_col];
+        }
+        else {
+            dst[col] = scale * x[col];
+        }
     }
 }
 
@@ -112,11 +127,11 @@ void rms_norm_f32_cuda(
     const dim3 blocks_num(nrows, nchannels, nsamples);
     if (ncols < 1024) {
         const dim3 block_dims(WARP_SIZE, 1, 1);
-        rms_norm_f32<WARP_SIZE> << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
+        rms_norm_f32<WARP_SIZE, false> << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
     }
     else {
         const dim3 block_dims(1024, 1, 1);
-        rms_norm_f32<1024> << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
+        rms_norm_f32<1024, false> << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
     }
 }
 
@@ -343,5 +358,27 @@ void l2_norm_f32_cuda(
     else {
         const dim3 block_dims(1024, 1, 1);
         l2_norm_f32<1024> << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
+    }
+}
+
+void rms_norm_mul_f32_cuda(
+    const float* x, const float* mul, float* dst, const int ncols, const int nrows, const int nchannels, const int nsamples,
+    const int64_t stride_row, const int64_t stride_channel, const int64_t stride_sample,
+    const int64_t mul_stride_row, const int64_t mul_stride_channel, const int64_t mul_stride_sample,
+    const int mul_ncols, const int mul_nrows, const int mul_nchannels, const int mul_nsamples,
+    const float eps, cudaStream_t stream)
+{
+    const dim3 blocks_num(nrows, nchannels, nsamples);
+    if (mul == nullptr) {
+        rms_norm_f32_cuda(x, dst, ncols, nrows, nchannels, nsamples, stride_row, stride_channel, stride_sample, eps, stream);
+        return;
+    }
+    if (ncols < 1024) {
+        const dim3 block_dims(WARP_SIZE, 1, 1);
+        rms_norm_f32<WARP_SIZE, true> << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps, mul, mul_stride_row, mul_stride_channel, mul_stride_sample, mul_ncols, mul_nrows, mul_nchannels, mul_nsamples);
+    }
+    else {
+        const dim3 block_dims(1024, 1, 1);
+        rms_norm_f32<1024, true> << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps, mul, mul_stride_row, mul_stride_channel, mul_stride_sample, mul_ncols, mul_nrows, mul_nchannels, mul_nsamples);
     }
 }

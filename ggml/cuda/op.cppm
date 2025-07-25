@@ -3,7 +3,7 @@ module;
 #include <bit>
 #include <vector>
 #include "common.h"
-#include "cu/cuda_func.h"
+#include "op/cuda_func.h"
 #include "vendor_constant.h"
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
@@ -1655,23 +1655,12 @@ namespace op
             }
         };
 
-        if (cc >= GGML_CUDA_CC_OFFSET_AMD) {
 #if defined(GGML_HIP_ROCWMMA_FATTN)
-            if (fp16_mma_available(cc)) {
-                ggml_cuda_flash_attn_ext_wmma_f16(ctx);
-                return;
-            }
-#endif // defined(GGML_HIP_ROCWMMA_FATTN)
-
-            // On AMD the tile kernels perform poorly, use the vec kernel instead:
-            if (prec == GGML_PREC_DEFAULT && fast_fp16_available(cc)) {
-                ggml_cuda_flash_attn_ext_vec_f16(ctx);
-            }
-            else {
-                ggml_cuda_flash_attn_ext_vec_f32(ctx);
-            }
+        if (GGML_CUDA_CC_IS_AMD(cc) && fp16_mma_available(cc)) {
+            ggml_cuda_flash_attn_ext_wmma_f16(ctx, dst);
             return;
         }
+#endif // defined(GGML_HIP_ROCWMMA_FATTN)
 
         if (!fast_fp16_available(cc)) {
             if (Q->ne[1] <= 8 || Q->ne[0] == 256) {
@@ -1682,9 +1671,10 @@ namespace op
             }
             return;
         }
+
         if (!fp16_mma_available(cc)) {
             if (prec == GGML_PREC_DEFAULT) {
-                if (Q->ne[1] <= 8) {
+                if (Q->ne[1] <= 8 || Q->ne[0] == 256) {
                     ggml_cuda_flash_attn_ext_vec_f16(ctx);
                 }
                 else {
@@ -1692,7 +1682,7 @@ namespace op
                 }
             }
             else {
-                if (Q->ne[1] <= 8) {
+                if (Q->ne[1] <= 8 || Q->ne[0] == 256) {
                     ggml_cuda_flash_attn_ext_vec_f32(ctx);
                 }
                 else {
@@ -1701,10 +1691,12 @@ namespace op
             }
             return;
         }
-        const int gqa_ratio = Q->ne[2] / K->ne[2];
-        const bool mma_fast_for_bs1 = fp16_mma_available(cc) && gqa_ratio % 2 == 0 &&
-            K->type == GGML_TYPE_F16 && V->type == GGML_TYPE_F16 && mask;
-        if (Q->ne[1] == 1 && Q->ne[0] % (2 * warp_size) == 0 && !mma_fast_for_bs1) {
+
+        const bool gqa_opt_applies = ((Q->ne[2] / K->ne[2]) % 2 == 0) && mask; // The mma-based kernels have GQA-specific optimizations
+        const bool mma_needs_data_conversion = K->type != GGML_TYPE_F16 || V->type != GGML_TYPE_F16;
+        const bool mma_faster_for_bs1 = new_mma_available(cc) && gqa_opt_applies && cc < GGML_CUDA_CC_ADA_LOVELACE && !mma_needs_data_conversion;
+        const bool can_use_vector_kernel = Q->ne[0] <= 256 && Q->ne[0] % (2 * warp_size) == 0;
+        if (Q->ne[1] == 1 && can_use_vector_kernel && !mma_faster_for_bs1) {
             if (prec == GGML_PREC_DEFAULT) {
                 ggml_cuda_flash_attn_ext_vec_f16(ctx);
                 return;
@@ -2103,5 +2095,59 @@ namespace op
             .nb3 = dst->nb[3]
         };
         set_rows_cuda(&ctx, stream);
+    }
+
+    void rms_norm_fused(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* mul_tensor) {
+        const ggml_tensor* rms_norm_src = dst->src[0];
+        float eps = 0.0f;
+
+        memcpy(&eps, dst->op_params, sizeof(float));
+
+        const float* src0_d = (const float*)rms_norm_src->data;
+        const float* mul_d = nullptr;
+        const ggml_tensor* mul_src = nullptr;
+
+        if (mul_tensor->src[0] == dst) {
+            mul_d = (float*)mul_tensor->src[1]->data;
+            mul_src = mul_tensor->src[1];
+        }
+        else if (mul_tensor->src[1] == dst) {
+            mul_d = (float*)mul_tensor->src[0]->data;
+            mul_src = mul_tensor->src[0];
+        }
+        else {
+            GGML_ASSERT(false);
+        }
+
+        float* dst_d = (float*)mul_tensor->data;
+
+        GGML_ASSERT(rms_norm_src->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+        GGML_ASSERT(mul_tensor->type == GGML_TYPE_F32);
+        GGML_ASSERT(eps >= 0.0f);
+
+        const int64_t ne00 = rms_norm_src->ne[0];
+        const int64_t ne01 = rms_norm_src->ne[1];
+        const int64_t ne02 = rms_norm_src->ne[2];
+        const int64_t ne03 = rms_norm_src->ne[3];
+
+        const size_t ts0 = ggml_type_size(rms_norm_src->type);
+        GGML_ASSERT(rms_norm_src->nb[0] == ts0);
+        const int64_t s01 = rms_norm_src->nb[1] / ts0;
+        const int64_t s02 = rms_norm_src->nb[2] / ts0;
+        const int64_t s03 = rms_norm_src->nb[3] / ts0;
+
+        const size_t ts_mul = ggml_type_size(mul_src->type);
+        GGML_ASSERT(mul_src->nb[0] == ts_mul);
+        const int64_t mul_s01 = mul_src->nb[1] / ts_mul;
+        const int64_t mul_s02 = mul_src->nb[2] / ts_mul;
+        const int64_t mul_s03 = mul_src->nb[3] / ts_mul;
+
+        const int mul_ncols = mul_src->ne[0];
+        const int mul_nrows = mul_src->ne[1];
+        const int mul_nchannels = mul_src->ne[2];
+        const int mul_nsamples = mul_src->ne[3];
+
+        rms_norm_mul_f32_cuda(src0_d, mul_d, dst_d, ne00, ne01, ne02, ne03, s01, s02, s03, mul_s01, mul_s02, mul_s03, mul_ncols, mul_nrows, mul_nchannels, mul_nsamples, eps, stream);
     }
 }

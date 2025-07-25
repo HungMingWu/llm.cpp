@@ -9,8 +9,8 @@ module;
 #include "common.h"
 #include "cuda_pool.h"
 #include "config.h"
-#include "cu/convert.cuh"
-#include "cu/cuda_func.h"
+#include "op/convert.cuh"
+#include "op/cuda_func.h"
 #include "cuda_config.h"
 #include "vendor_constant.h"
 
@@ -1297,6 +1297,44 @@ void ggml_backend_cuda::synchronize()
     CUDA_CHECK(cudaStreamSynchronize(stream()));
 }
 
+// nicer C++ syntax for ggml_can_fuse
+inline bool ggml_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, std::initializer_list<enum ggml_op> ops) {
+    return ggml_can_fuse(cgraph, node_idx, ops.begin(), (int)ops.size());
+}
+
+static bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, std::initializer_list<enum ggml_op> ops) {
+    if (!ggml_can_fuse(cgraph, node_idx, ops)) {
+        return false;
+    }
+
+    if (ops.size() == 2 && ops.begin()[0] == GGML_OP_RMS_NORM && ops.begin()[1] == GGML_OP_MUL) {
+        const ggml_tensor* rms_norm = cgraph->nodes[node_idx];
+        const ggml_tensor* mul = cgraph->nodes[node_idx + 1];
+
+        GGML_ASSERT(rms_norm->src[0]->type == GGML_TYPE_F32);
+        GGML_ASSERT(rms_norm->type == GGML_TYPE_F32);
+
+        //rms norm only supports F32
+        if (mul->src[0]->type != GGML_TYPE_F32 ||
+            mul->src[1]->type != GGML_TYPE_F32 ||
+            mul->type != GGML_TYPE_F32) {
+            return false;
+        }
+
+        //if rms norm is the B operand, then we don't handle broadcast
+        if (rms_norm == mul->src[1] && !ggml_are_same_shape(mul->src[0], rms_norm->src[1])) {
+            return false;
+        }
+
+        //rms_norm kernel assumes contigous rows
+        if (!ggml_is_contiguous_rows(mul->src[0]) || !ggml_is_contiguous_rows(mul->src[1])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
     [[maybe_unused]] std::vector<void*>& ggml_cuda_cpy_fn_ptrs, bool& graph_evaluated_or_captured, bool& use_cuda_graph,
     bool& cuda_graph_update_required) {
@@ -1307,11 +1345,18 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
         // Only perform the graph execution if CUDA graphs are not enabled, or we are capturing the graph.
         // With the use of CUDA graphs, the execution will be performed by the graph launch.
         if (!use_cuda_graph || cuda_graph_update_required) {
-            for (auto& node : cgraph->nodes) {
+            for (size_t i = 0; i < cgraph->nodes.size(); i++) {
+                auto node = cgraph->nodes[i];
                 if (ggml_is_empty(node) || node->op == GGML_OP_RESHAPE || node->op == GGML_OP_TRANSPOSE || node->op == GGML_OP_VIEW || node->op == GGML_OP_PERMUTE || node->op == GGML_OP_NONE) {
                     continue;
                 }
 
+                static bool disable_fusion = (getenv("GGML_CUDA_DISABLE_FUSION") != nullptr);
+                if (!disable_fusion && ggml_cuda_can_fuse(cgraph, i, { GGML_OP_RMS_NORM, GGML_OP_MUL })) {
+                    op::rms_norm_fused(stream(), node, cgraph->nodes[i + 1]);
+                    i++;
+                    continue;
+                }
 #ifndef NDEBUG
                 assert(node->buffer->get_type() == ggml_backend_cuda_buffer_type(device));
                 for (auto& src : node->src) {

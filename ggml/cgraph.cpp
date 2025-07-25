@@ -1163,7 +1163,7 @@ static inline bool ggml_node_has_n_uses(const ggml_cgraph* cgraph, int node_idx,
 // - all nodes except the last are a src of the following node.
 // - all nodes are the same shape.
 // TODO: Consider allowing GGML_OP_NONE nodes in between
-static inline bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* ops, int num_ops) {
+bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* ops, int num_ops) {
     if (node_idx + num_ops > cgraph->nodes.size()) {
         return false;
     }

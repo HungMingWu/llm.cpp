@@ -266,6 +266,8 @@ export {
 		 return "GGML status: unknown";
 	 }
 
+	 bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* ops, int num_ops);
+
 	 // Remove later
 	 size_t ggml_backend_reg_count() {
 		 return get_reg().backends.size();

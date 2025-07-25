@@ -21,33 +21,13 @@ using fattn_kernel_t = void (*)(
     const float m1,
     const uint32_t n_head_log2,
     const float logit_softcap,
-    const int ne00,
-    const int ne01,
-    const int ne02,
-    const int ne03,
-    const int ne10,
-    const int ne11,
-    const int ne12,
-    const int ne13,
-    const int ne31,
-    const int ne32,
-    const int ne33,
-    const int nb31,
-    const int nb32,
-    const int nb33,
-    const int nb01,
-    const int nb02,
-    const int nb03,
-    const int nb11,
-    const int nb12,
-    const int nb13,
-    const int nb21,
-    const int nb22,
-    const int nb23,
-    const int ne0,
-    const int ne1,
-    const int ne2,
-    const int ne3);
+    const int32_t ne00, const int32_t ne01, const int32_t ne02, const int32_t ne03,
+    const int32_t nb01, const int32_t nb02, const int32_t nb03,
+    const int32_t ne10, const int32_t ne11, const int32_t ne12, const int32_t ne13,
+    const int32_t nb11, const int32_t nb12, const int64_t nb13,
+    const int32_t nb21, const int32_t nb22, const int64_t nb23,
+    const int32_t ne31, const int32_t ne32, const int32_t ne33,
+    const int32_t nb31, const int32_t nb32, const int64_t nb33);
 
 // Softmax exp. of values smaller than this are flushed to zero to avoid NaNs.
 static constexpr float SOFTMAX_FTZ_THRESHOLD = -20.0f;
@@ -246,31 +226,58 @@ void launch_fattn(
     size_t nb23 = ctx.V.exist ? ctx.V.nb3 : nb13;
 
     if (need_f16_K && ctx.K.type != GGML_TYPE_F16) {
-        GGML_ASSERT(ctx.K.contiguously_allocated);
-        K_f16.alloc(ctx.K.elements);
-        to_fp16_cuda(ctx.K.type, K_data, K_f16.ptr, ctx.K.elements, main_stream);
-        K_data = (char*)K_f16.ptr;
-
         const size_t bs = ctx.K.block_size;
         const size_t ts = ctx.K.type_size;
 
-        nb11 = nb11 * bs * sizeof(half) / ts;
-        nb12 = nb12 * bs * sizeof(half) / ts;
-        nb13 = nb13 * bs * sizeof(half) / ts;
+        K_f16.alloc(ctx.K.elements);
+        if (ctx.K.contiguously_allocated) {
+            to_fp16_cuda(ctx.K.type, K_data, K_f16.ptr, ctx.K.elements, main_stream);
+
+            nb11 = nb11 * bs * sizeof(half) / ts;
+            nb12 = nb12 * bs * sizeof(half) / ts;
+            nb13 = nb13 * bs * sizeof(half) / ts;
+        }
+        else {
+            GGML_ASSERT(ctx.K.nb0 == ts);
+            to_fp16_nc_cuda_t to_fp16 = ggml_get_to_fp16_nc_cuda(ctx.K.type);
+            const int64_t s01 = nb11 / ts;
+            const int64_t s02 = nb12 / ts;
+            const int64_t s03 = nb13 / ts;
+            to_fp16(K_data, K_f16.ptr, ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3, s01, s02, s03, main_stream);
+
+            nb11 = ctx.K.ne0 * sizeof(half);
+            nb12 = ctx.K.ne1 * nb11;
+            nb13 = ctx.K.ne2 * nb12;
+        }
+        K_data = (char*)K_f16.ptr;
     }
 
     if (ctx.V.exist && need_f16_V && ctx.V.type != GGML_TYPE_F16) {
-        GGML_ASSERT(ctx.V.contiguously_allocated);
-        V_f16.alloc(ctx.V.elements);
-        to_fp16_cuda(ctx.V.type, V_data, V_f16.ptr, ctx.K.elements, main_stream);
-        V_data = (char*)V_f16.ptr;
-
         const size_t bs = ctx.V.block_size;
         const size_t ts = ctx.V.type_size;
 
-        nb21 = nb21 * bs * sizeof(half) / ts;
-        nb22 = nb22 * bs * sizeof(half) / ts;
-        nb23 = nb23 * bs * sizeof(half) / ts;
+        V_f16.alloc(ctx.V.elements);
+        if (ctx.V.contiguously_allocated) {
+            to_fp16_cuda(ctx.V.type, V_data, V_f16.ptr, ctx.K.elements, main_stream);
+            V_data = (char*)V_f16.ptr;
+
+            nb21 = nb21 * bs * sizeof(half) / ts;
+            nb22 = nb22 * bs * sizeof(half) / ts;
+            nb23 = nb23 * bs * sizeof(half) / ts;
+        }
+        else {
+            GGML_ASSERT(ctx.V.nb0 == ts);
+            to_fp16_nc_cuda_t to_fp16 = ggml_get_to_fp16_nc_cuda(ctx.V.type);
+            const int64_t s01 = nb21 / ts;
+            const int64_t s02 = nb22 / ts;
+            const int64_t s03 = nb23 / ts;
+            to_fp16(V_data, V_f16.ptr, ctx.V.ne0, ctx.V.ne1, ctx.V.ne2, ctx.V.ne3, s01, s02, s03, main_stream);
+
+            nb21 = ctx.V.ne0 * sizeof(half);
+            nb22 = ctx.V.ne1 * nb21;
+            nb23 = ctx.V.ne2 * nb22;
+        }
+        V_data = (char*)V_f16.ptr;
     }
 
     int parallel_blocks = 1;
@@ -360,14 +367,11 @@ void launch_fattn(
         (const char*)ctx.mask.data,
         !stream_k && parallel_blocks > 1 ? dst_tmp.ptr : (float*)ctx.KQV.data, dst_tmp_meta.ptr,
         scale, ctx.max_bias, m0, m1, n_head_log2, ctx.logit_softcap,
-        ctx.Q.ne0, ctx.Q.ne1, ctx.Q.ne2, ctx.Q.ne3,
-        ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3,
-        ctx.mask.ne1, ctx.mask.ne2, ctx.mask.ne3,
-        ctx.mask.nb1, ctx.mask.nb2, ctx.mask.nb3,
-        ctx.Q.nb1, ctx.Q.nb2, ctx.Q.nb3,
-        nb11, nb12, nb13,
+        ctx.Q.ne0, ctx.Q.ne1, ctx.Q.ne2, ctx.Q.ne3, ctx.Q.nb1, ctx.Q.nb2, ctx.Q.nb3,
+        ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3, nb11, nb12, nb13,
         nb21, nb22, nb23,
-        ctx.KQV.ne0, ctx.KQV.ne1, ctx.KQV.ne2, ctx.KQV.ne3
+        ctx.mask.ne1, ctx.mask.ne2, ctx.mask.ne3,
+        ctx.mask.nb1, ctx.mask.nb2, ctx.mask.nb3
     );
     CUDA_CHECK(cudaGetLastError());
 

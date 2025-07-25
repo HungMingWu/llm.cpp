@@ -318,6 +318,13 @@ void l2_norm_f32_cuda(
     const int64_t stride_row, const int64_t stride_channel,
     const int64_t stride_sample, const float eps, cudaStream_t stream);
 
+void rms_norm_mul_f32_cuda(
+    const float* x, const float* mul, float* dst, const int ncols, const int nrows, const int nchannels, const int nsamples,
+    const int64_t stride_row, const int64_t stride_channel, const int64_t stride_sample,
+    const int64_t mul_stride_row, const int64_t mul_stride_channel, const int64_t mul_stride_sample,
+    const int mul_ncols, const int mul_nrows, const int mul_nchannels, const int mul_nsamples,
+    const float eps, cudaStream_t stream);
+
 // gla
 struct gla_context {
     const int64_t B;

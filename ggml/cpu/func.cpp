@@ -1305,6 +1305,10 @@ static void ggml_compute_forward_dup(
 	{
 		ggml_compute_forward_dup<ggml_fp32_t>(pool, scope, dst);
 	} break;
+	case GGML_TYPE_BF16:
+	{
+		ggml_compute_forward_dup<ggml_bf16_t>(pool, scope, dst);
+	} break;
 	case GGML_TYPE_Q4_0:
 	{
 		ggml_compute_forward_dup<block_q4_0>(pool, scope, dst);

@@ -8,12 +8,6 @@
 
 #define GGML_ASSERT(...)
 
-template <typename src_t, typename dst_t>
-concept simplest_case_v =
-    (std::is_same_v<src_t, float> && (
-        std::is_same_v<dst_t, float> || std::is_same_v<dst_t, half> || std::is_same_v<dst_t, nv_bfloat16>)) ||
-    (std::is_same_v<src_t, half> && (std::is_same_v<dst_t, float> || std::is_same_v<dst_t, half>));
-
 template <typename T>
 concept block_v =
     std::is_same_v<T, block_q8_0> ||
@@ -24,7 +18,11 @@ concept block_v =
     std::is_same_v<T, block_q5_0>;
 
 template <typename src_t, typename dst_t>
+concept simplest_case_v = !block_v<src_t> && !block_v<dst_t>;
+
+template <typename src_t, typename dst_t>
 static __device__ void copy_block(const src_t* xi, dst_t* dsti) {
+#if 0
     if constexpr (std::is_same_v<src_t, float>) {
         if constexpr (std::is_same_v<dst_t, float>) {
             *dsti = *xi;
@@ -44,6 +42,8 @@ static __device__ void copy_block(const src_t* xi, dst_t* dsti) {
             *dsti = __half2float(*xi);
         }
     }
+#endif
+    convert_flt(xi, dsti);
 }
 
 template <block_v src_t>
@@ -114,30 +114,18 @@ static __global__ void cpy(dup_context ctx) {
     const int64_t i10 = i - i13 * ctx.ne10 * ctx.ne11 * ctx.ne12 - i12 * ctx.ne10 * ctx.ne11 - i11 * ctx.ne10;;
     
     const int64_t x_offset = [=] {
-        if constexpr (simplest_case_v<src_t, dst_t>) {
-            return i00 * ctx.nb00 + i01 * ctx.nb01 + i02 * ctx.nb02 + i03 * ctx.nb03;
-        }
-        else if constexpr (std::is_same_v<src_t, float> && block_v<dst_t>) {
-            return i00 * ctx.nb00 + i01 * ctx.nb01 + i02 * ctx.nb02 + i03 * ctx.nb03;
-        }
-        else if constexpr (block_v<src_t> && std::is_same_v<dst_t, float>) {
+        if constexpr (block_v<src_t> && std::is_same_v<dst_t, float>) {
             return (i00 / src_t::block_size) * ctx.nb00 + i01 * ctx.nb01 + i02 * ctx.nb02 + i03 * ctx.nb03;
         }
         else {
-            return 0;
+            return i00 * ctx.nb00 + i01 * ctx.nb01 + i02 * ctx.nb02 + i03 * ctx.nb03;
         }
     }();
     const int64_t dst_offset = [=] {
-        if constexpr (simplest_case_v<src_t, dst_t>) {
-            return i10 * ctx.nb10 + i11 * ctx.nb11 + i12 * ctx.nb12 + i13 * ctx.nb13;
-        }
-        else if constexpr (std::is_same_v<src_t, float> && block_v<dst_t>) {
+        if constexpr (std::is_same_v<src_t, float> && block_v<dst_t>) {
             return (i10 / dst_t::block_size) * ctx.nb10 + i11 * ctx.nb11 + i12 * ctx.nb12 + i13 * ctx.nb13;
-        }
-        else if constexpr (block_v<src_t> && std::is_same_v<dst_t, float>) {
-            return i10 * ctx.nb10 + i11 * ctx.nb11 + i12 * ctx.nb12 + i13 * ctx.nb13;
         } else {
-            return 0;
+            return i10 * ctx.nb10 + i11 * ctx.nb11 + i12 * ctx.nb12 + i13 * ctx.nb13;
         }
     }();
     copy_block(
@@ -214,8 +202,20 @@ void dup_cuda(const dup_context* ctx, cudaStream_t stream)
     else if (ctx->src_type == GGML_TYPE_F16 && ctx->dst_type == GGML_TYPE_F16) {
         ggml_cpy_cuda<half, half>(*ctx, stream);
     }
+    else if (ctx->src_type == GGML_TYPE_F16 && ctx->dst_type == GGML_TYPE_BF16) {
+        ggml_cpy_cuda<half, nv_bfloat16>(*ctx, stream);
+    }
     else if (ctx->src_type == GGML_TYPE_F16 && ctx->dst_type == GGML_TYPE_F32) {
         ggml_cpy_cuda<half, float>(*ctx, stream);
+    }
+    else if (ctx->src_type == GGML_TYPE_BF16 && ctx->dst_type == GGML_TYPE_BF16) {
+        ggml_cpy_cuda<nv_bfloat16, nv_bfloat16>(*ctx, stream);
+    }
+    else if (ctx->src_type == GGML_TYPE_BF16 && ctx->dst_type == GGML_TYPE_F16) {
+        ggml_cpy_cuda<nv_bfloat16, half>(*ctx, stream);
+    }
+    else if (ctx->src_type == GGML_TYPE_BF16 && ctx->dst_type == GGML_TYPE_F32) {
+        ggml_cpy_cuda<nv_bfloat16, float>(*ctx, stream);
     }
     else {
         assert(false);
