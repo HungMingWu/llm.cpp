@@ -41,6 +41,7 @@ target_sources(libggml
       vec_dot.cpp
       op/concat.cpp
       op/mean.cpp
+      op/repeat.cpp
       op/sum_rows.cpp
       op/upscale.cpp
 )
