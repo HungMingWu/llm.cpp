@@ -511,33 +511,39 @@ static void ggml_compute_forward_conv_transpose_1d(
 	GGML_ASSERT(src1->type == GGML_TYPE_F32);
 	GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-	GGML_TENSOR_BINARY_OP_LOCALS
+	const int nk = src0->ne[0] * src0->ne[1] * src0->ne[2];
 
-	const int nth = pool.available_parallelism();
+	GGML_ASSERT(src0->nb[0] == sizeof(T));
+	GGML_ASSERT(src1->nb[0] == sizeof(float));
+	GGML_ASSERT(src0->ne[2] == src1->ne[1]);
+	GGML_ASSERT(dst->ne[1] == src0->ne[1]);
 
-	const int nk = ne00 * ne01 * ne02;
+	const int64_t Cin = src0->ne[2];
+	const int64_t Cout = src0->ne[1];
+	const int64_t K = src0->ne[0];
+	const int64_t L = src1->ne[0];
 
-	GGML_ASSERT(nb00 == sizeof(T));
-	GGML_ASSERT(nb10 == sizeof(float));
+	std::vector<T> wdata(nk);
+	std::vector<float> wdata_src(src1->ne[0] * src1->ne[1]);
+	std::experimental::mdspan src0_data(static_cast<const T*>(src0->data), Cin, Cout, K);
+	std::experimental::mdspan src1_data(static_cast<const float*>(src1->data), Cin, L);
+	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), Cout, dst->ne[0]);
+	std::experimental::mdspan permute_kernel(wdata.data(), Cout, K, Cin);
+	std::experimental::mdspan permute_source(wdata_src.data(), L, Cin);
 
-	std::vector<T> wdata(nk), wdata_src(ne10 * ne11);
-
-	// permute kernel data (src0) from (K x Cout x Cin) to (Cin x K x Cout)
-	for (int64_t i02 = 0; i02 < ne02; i02++) {
-		for (int64_t i01 = 0; i01 < ne01; i01++) {
-			const auto src = cast_with_offset<T>(src0->data, i02 * nb02 + i01 * nb01);
-			auto dst_data = &wdata[i01 * ne00 * ne02];
-			for (int64_t i00 = 0; i00 < ne00; i00++) {
-				dst_data[i00 * ne02 + i02] = src[i00];
+	// permute kernel data (src0) from (Cin x Cout K K) to (Cout x K x Cin)
+	for (int64_t i = 0; i < Cin; i++) {
+		for (int64_t j = 0; j < Cout; j++) {
+			for (int64_t k = 0; k < K; k++) {
+				permute_kernel[j, k, i] = src0_data[i, j, k];
 			}
 		}
 	}
 
-	// permute source data (src1) from (L x Cin) to (Cin x L)
-	for (int64_t i11 = 0; i11 < ne11; i11++) {
-		const auto src = cast_with_offset<float>(src1->data, i11 * nb11);
-		for (int64_t i10 = 0; i10 < ne10; i10++) {
-			wdata_src[i10 * ne11 + i11] = fromFloat32<T>(src[i10]);
+	// permute source data (src1) from (Cin x L) to (L x Cin)
+	for (int64_t i = 0; i < Cin; i++) {
+		for (int64_t j = 0; j < L; j++) {
+			permute_source[j, i] = src1_data[i, j];
 		}
 	}
 
@@ -546,30 +552,18 @@ static void ggml_compute_forward_conv_transpose_1d(
 
 	const int32_t s0 = ((const int32_t*)(dst->op_params))[0];
 
-	// total rows in dst
-	const int nr = ne1;
-
-	// rows per thread
-	const int dr = (nr + nth - 1) / nth;
-
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
-	// calculate range for each thread and run in the background
-	for (int ir0 = 0; ir0 < nr; ir0 += dr) {
-		const int ir1 = std::min(ir0 + dr, nr);
+	for (int64_t i = 0; i < Cout; i++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) |
 			stdexec::then([=, &wdata, &wdata_src] {
-				for (int i1 = ir0; i1 < ir1; i1++) {
-					auto dst_data = cast_with_offset<float>(dst->data, i1 * nb1);
-					auto wdata_kernel = &wdata[i1 * ne02 * ne00];
-					for (int i10 = 0; i10 < ne10; i10++) {
-						const int i1n = i10 * ne11;
-						for (int i00 = 0; i00 < ne00; i00++) {
-							float v = ggml_vec_dot<T>(ne02,
-								&wdata_src[i1n],
-								wdata_kernel + i00 * ne02, 1);
-							dst_data[i10 * s0 + i00] += v;
+				for (int64_t l = 0; l < L; l++) {
+					for (int64_t j = 0; j < K; j++) {
+						float v = 0.0;
+						for (int64_t k = 0; k < Cin; k++) {
+							v += permute_source[l, k] * toFloat32(permute_kernel[i, j, k]);
 						}
+						dst_data[i, l * s0 + j] += v;
 					}
 				}
 			});
@@ -590,37 +584,44 @@ static void ggml_compute_forward_conv_transpose_2d(
 	GGML_ASSERT(src1->type == GGML_TYPE_F32);
 	GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-	GGML_TENSOR_BINARY_OP_LOCALS
+	const int nk = src0->ne[0] * src0->ne[1] * src0->ne[2] * src0->ne[3];
 
-	const int nth = pool.available_parallelism();
+	GGML_ASSERT(src0->nb[0] == sizeof(T));
+	GGML_ASSERT(src1->nb[0] == sizeof(float));
+	GGML_ASSERT(src0->ne[3] == src1->ne[2]);
+	GGML_ASSERT(dst->ne[2] == src0->ne[2]);
 
-	const int nk = ne00 * ne01 * ne02 * ne03;
+	const int64_t Cin = src0->ne[3];
+	const int64_t Cout = src0->ne[2];
+	const int64_t Kh = src0->ne[1];
+	const int64_t Kw = src0->ne[0];
+	const int64_t Sh = src1->ne[1];
+	const int64_t Sw = src1->ne[0];
 
-	GGML_ASSERT(nb00 == sizeof(T));
-	GGML_ASSERT(nb10 == sizeof(float));
+	std::vector<T> wdata(nk);
+	std::vector<float> wdata_src(Cin * Sw * Sh);
+	std::experimental::mdspan src0_data(static_cast<const T*>(src0->data), Cin, Cout, Kh, Kw);
+	std::experimental::mdspan src1_data(static_cast<const float*>(src1->data), Cin, Sh, Sw);
+	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), Cout, dst->ne[1], dst->ne[0]);
+	std::experimental::mdspan permute_kernel(wdata.data(), Cout, Kh, Kw, Cin);
+	std::experimental::mdspan permute_source(wdata_src.data(), Sh, Sw, Cin);
 
-	std::vector<T> wdata(nk), wdata_src(ne10 * ne11 * ne12);
-
-	// permute kernel data (src0) from (Kw x Kh x Cout x Cin) to (Cin x Kw x Kh x Cout)
-	for (int64_t i03 = 0; i03 < ne03; i03++) {
-		for (int64_t i02 = 0; i02 < ne02; i02++) {
-			const auto src = cast_with_offset<T>(src0->data, i03 * nb03 + i02 * nb02);
-			T* dst_data = &wdata[i02 * ne01 * ne00 * ne03];
-			for (int64_t i01 = 0; i01 < ne01; i01++) {
-				for (int64_t i00 = 0; i00 < ne00; i00++) {
-					dst_data[i01 * ne00 * ne03 + i00 * ne03 + i03] = src[i01 * ne00 + i00];
+	// permute kernel data (src0) from (Cin x Cout x Kh x Kw) to (Cout x Kh x Kw x Cin)
+	for (int64_t i = 0; i < Cin; i++) {
+		for (int64_t j = 0; j < Cout; j++) {
+			for (int64_t k = 0; k < Kh; k++) {
+				for (int64_t l = 0; l < Kw; l++) {
+					permute_kernel[j, k, l, i] = src0_data[i, j, k, l];
 				}
 			}
 		}
 	}
 
-	// permute source data (src1) from (Sw x Sh x Cin) to (Cin x Sw x Sh)
-	for (int i12 = 0; i12 < ne12; i12++) {
-		for (int i11 = 0; i11 < ne11; i11++) {
-			const auto src = cast_with_offset<float>(src1->data, i12 * nb12 + i11 * nb11);
-			T* dst_data = &wdata_src[i11 * ne10 * ne12];
-			for (int i10 = 0; i10 < ne10; i10++) {
-				dst_data[i10 * ne12 + i12] = fromFloat32<T>(src[i10]);
+	// permute source data (src1) from (Cin x Sh x Sw) to (Sh x Sw x Cin)
+	for (int64_t i = 0; i < Cin; i++) {
+		for (int64_t j = 0; j < Sh; j++) {
+			for (int64_t k = 0; k < Sw; k++) {
+				permute_source[j, k, i] = src1_data[i, j, k];
 			}
 		}
 	}
@@ -629,32 +630,20 @@ static void ggml_compute_forward_conv_transpose_2d(
 
 	const int32_t stride = std::bit_cast<int32_t>(dst->op_params[0]);
 
-	// total patches in dst
-	const int np = ne2;
-
-	// patches per thread
-	const int dp = (np + nth - 1) / nth;
-
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
-	// calculate range for each thread and run in the background
-	for (int ip0 = 0; ip0 < np; ip0 += dp) {
-		const int ip1 = std::min(ip0 + dp, np);
+	for (int64_t i = 0; i < Cout; i++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) |
 			stdexec::then([=, &wdata, &wdata_src] {
-				for (int i2 = ip0; i2 < ip1; i2++) { // Cout
-					const auto dst_data = cast_with_offset<float>(dst->data, i2 * nb2);
-					const T* wdata_kernel = &wdata[i2 * ne01 * ne00 * ne03];
-					for (int i11 = 0; i11 < ne11; i11++) {
-						for (int i10 = 0; i10 < ne10; i10++) {
-							const int i1n = i11 * ne10 * ne12 + i10 * ne12;
-							for (int i01 = 0; i01 < ne01; i01++) {
-								for (int i00 = 0; i00 < ne00; i00++) {
-									float v = ggml_vec_dot<T>(ne03,
-										&wdata_src[i1n],
-										wdata_kernel + i01 * ne00 * ne03 + i00 * ne03, 1);
-									dst_data[(i11 * stride + i01) * ne0 + i10 * stride + i00] += v;
+				for (int64_t h = 0; h < Sh; h++) {
+					for (int64_t w = 0; w < Sw; w++) {
+						for (int64_t j = 0; j < Kh; j++) {
+							for (int64_t k = 0; k < Kw; k++) {
+								float v = 0.0f;
+								for (int64_t l = 0; l < Cin; l++) {
+									v += permute_source[h, w, l] * toFloat32(permute_kernel[i, j, k, l]);
 								}
+								dst_data[i, (h * stride + j), w * stride + k] += v;
 							}
 						}
 					}
@@ -5161,9 +5150,6 @@ static void ggml_compute_forward_pad_f32(
 
 	GGML_ASSERT(src0->nb[0] == sizeof(float));
 	GGML_ASSERT(dst->nb[0] == sizeof(float));
-	
-	const int nth = pool.available_parallelism();
-	const int64_t dr = (dst->ne[1] + nth - 1) / nth;
 
 	auto src_ptr = make_strided_mdspan(static_cast<float*>(src0->data), src0->ne, src0->nb);
 	auto dst_ptr = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
