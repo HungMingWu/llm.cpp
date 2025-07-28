@@ -4287,6 +4287,7 @@ inline static void ggml_vec_scale_f32(const int n, float* y, const float   v) {
 #endif
 }
 
+template <typename src1_t>
 static void ggml_compute_forward_soft_max_f32(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -4301,20 +4302,9 @@ static void ggml_compute_forward_soft_max_f32(
 	float scale = std::bit_cast<float>(dst->op_params[0]);
 	float max_bias = std::bit_cast<float>(dst->op_params[1]);
 
-	const int nth = pool.available_parallelism();
-
-	GGML_TENSOR_UNARY_OP_LOCALS
-
-	const int64_t nb11 = src1 ? src1->nb[1] : 1;
-	const int64_t nb12 = src1 ? src1->nb[2] : 1;
-	const int64_t nb13 = src1 ? src1->nb[3] : 1;
-
-	const int64_t ne12 = src1 ? src1->ne[2] : 1;
-	const int64_t ne13 = src1 ? src1->ne[3] : 1;
-
 	// TODO: is this supposed to be ceil instead of floor?
 	//       https://huggingface.co/mosaicml/mpt-7b/blob/main/attention.py#L370
-	const uint32_t n_head = ne02;
+	const uint32_t n_head = src0->ne[2];
 	const uint32_t n_head_log2 = 1u << (uint32_t)floor(log2(n_head));
 
 	const float m0 = powf(2.0f, -(max_bias) / n_head_log2);
@@ -4322,71 +4312,58 @@ static void ggml_compute_forward_soft_max_f32(
 
 	const int nc = src0->ne[0];
 
-	// rows per thread
-	const int64_t nh = ne01;
-	const int64_t dh = (nh + nth - 1) / nth;
-	const bool use_f16 = (src1 && src1->type == GGML_TYPE_F16);
+	const int64_t nh = src0->ne[1];
+
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
+	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	auto src0_data = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
+	auto src1_data = [=]() {
+		using type_t = decltype(make_strided_mdspan(static_cast<const src1_t*>(src1 ? src1->data : nullptr), src1->ne, src1->nb));
+		if (!src1) return type_t{};
+		return make_strided_mdspan(static_cast<const src1_t*>(src1->data), src1->ne, src1->nb);
+	}();
+
 	// row range for this thread
-	for (int64_t ih0 = 0; ih0 < nh; ih0 += dh) {
-		const int64_t ih1 = std::min(ih0 + dh, nh);
+	for (int64_t i01 = 0; i01 < nh; i01 ++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
 			std::vector<float> wp(nc);
-			for (int64_t i03 = 0; i03 < ne03; i03++) {
-				for (int64_t i02 = 0; i02 < ne02; i02++) {
-					for (int64_t i01 = ih0; i01 < ih1; i01++) {
-						const int64_t i11 = i01;
-						const int64_t i12 = i02 % ne12;
-						const int64_t i13 = i03 % ne13;
+			for (int64_t i03 = 0; i03 < src0->ne[3]; i03++) {
+				for (int64_t i02 = 0; i02 < src0->ne[2]; i02++) {
+					// ALiBi
+					const uint32_t h = i02; // head
+					const float slope = (max_bias > 0.0f) ? h < n_head_log2 ? powf(m0, h + 1) : powf(m1, 2 * (h - n_head_log2) + 1) : 1.0f;
 
-						// ALiBi
-						const uint32_t h = i02; // head
-						const float slope = (max_bias > 0.0f) ? h < n_head_log2 ? powf(m0, h + 1) : powf(m1, 2 * (h - n_head_log2) + 1) : 1.0f;
+					// broadcast the mask across rows
 
-						float* sp = (float*)((char*)src0->data + i01 * nb01 + i02 * nb02 + i03 * nb03);
-						float* dp = (float*)((char*)dst->data + i01 * nb1 + i02 * nb2 + i03 * nb3);
-
-						// broadcast the mask across rows
-						ggml_fp16_t* mp_f16 = src1 ? (ggml_fp16_t*)((char*)src1->data + i11 * nb11 + i12 * nb12 + i13 * nb13) : NULL;
-						float* mp_f32 = src1 ? (float*)((char*)src1->data + i11 * nb11 + i12 * nb12 + i13 * nb13) : NULL;
-
-						ggml_vec_cpy_f32(ne00, wp.data(), sp);
-						ggml_vec_scale_f32(ne00, wp.data(), scale);
-						if (mp_f32) {
-							if (use_f16) {
-								for (int i = 0; i < ne00; ++i) {
-									wp[i] += slope * toFloat32(mp_f16[i]);
-								}
-							}
-							else {
-								for (int i = 0; i < ne00; ++i) {
-									wp[i] += slope * mp_f32[i];
-								}
+					for (size_t i00 = 0; i00 < src0->ne[0]; i00++) {
+						wp[i00] = src0_data[i03, i02, i01, i00] * scale;
+						if (!src1_data.empty()) {
+							if constexpr (std::is_same_v<src1_t, ggml_fp16_t> || std::is_same_v<src1_t, ggml_fp32_t>) {
+								wp[i00] += slope * toFloat32(src1_data[i03 % src1_data.extent(0), i02 % src1_data.extent(1), i01, i00]);
 							}
 						}
-
 #ifndef NDEBUG
-						for (int i = 0; i < ne00; ++i) {
-							//printf("p[%d] = %f\n", i, p[i]);
-							assert(!isnan(wp[i]));
-						}
+						//printf("p[%d] = %f\n", i, p[i]);
+						assert(!isnan(wp[i00]));
 #endif
+					}
 
-						float max = -INFINITY;
-						ggml_vec_max_f32(ne00, &max, wp.data());
+					float max = *std::max_element(wp.begin(), wp.end());
 
-						ggml_float sum = ggml_vec_soft_max_f32(ne00, dp, wp.data(), max);
-						assert(sum > 0.0);
+					double sum = 0;
+					for (int64_t i00 = 0; i00 < src0->ne[0]; i00++) {
+						float val = expf(wp[i00] - max);
+						sum += (ggml_float)val;
+						wp[i00] = val;
+					}
+					assert(sum > 0.0);
 
-						sum = 1.0 / sum;
-						ggml_vec_scale_f32(ne00, dp, sum);
-
+					for (int64_t i00 = 0; i00 < src0->ne[0]; i00++) {
+						dst_data[i03, i02, i01, i00] = wp[i00] / sum;
 #ifndef NDEBUG
-						for (int i = 0; i < ne00; ++i) {
-							assert(!isnan(dp[i]));
-							assert(!isinf(dp[i]));
-						}
+						assert(!isnan(dst_data[i03, i02, i01, i00]));
+						assert(!isinf(dst_data[i03, i02, i01, i00]));
 #endif
 					}
 				}
@@ -4396,17 +4373,18 @@ static void ggml_compute_forward_soft_max_f32(
 	}
 }
 
+template <typename src1_t>
 static void ggml_compute_forward_soft_max(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
-	struct ggml_tensor* dst) {
+	ggml_tensor* dst) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_soft_max_f32(pool, scope, dst);
+		ggml_compute_forward_soft_max_f32<src1_t>(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -4414,6 +4392,33 @@ static void ggml_compute_forward_soft_max(
 	}
 	}
 }
+
+static void ggml_compute_forward_soft_max(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+
+	const ggml_tensor* src1 = dst->src[1];
+	if (!src1) {
+		ggml_compute_forward_soft_max_f32<std::nullptr_t>(pool, scope, dst);
+		return;
+	}
+	switch (src1->type) {
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_soft_max_f32<ggml_fp32_t>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_F16:
+	{
+		ggml_compute_forward_soft_max_f32<ggml_fp16_t>(pool, scope, dst);
+	} break;
+	default:
+	{
+		assert(false);
+	}
+	}
+}
+
 
 static void ggml_vec_dot_f32(int n, float* s, size_t bs, const float* x, size_t bx, const float* y, size_t by, int nrc) {
 	// scalar
