@@ -2183,113 +2183,7 @@ static void ggml_compute_forward_get_rows(
 	//}
 }
 
-static void ggml_compute_forward_get_rows_back_f32_f16(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-	const struct ggml_tensor* src1 = dst->src[1];
-
-	if (params->ith != 0) {
-		return;
-	}
-
-	GGML_ASSERT(ggml_is_contiguous(dst));
-
-	// ggml_compute_forward_dup_same_cont(params, opt0, dst);
-
-	memset(dst->data, 0, dst->nbytes());
-
-	const int nc = src0->ne[0];
-	const int nr = src1->nelements();
-
-	GGML_ASSERT(dst->ne[0] == nc);
-	GGML_ASSERT(src0->nb[0] == sizeof(ggml_fp16_t));
-
-	for (int i = 0; i < nr; ++i) {
-		const int r = ((int32_t*)src1->data)[i];
-
-		for (int j = 0; j < nc; ++j) {
-			ggml_fp16_t v = ((ggml_fp16_t*)((char*)src0->data + i * src0->nb[1]))[j];
-			((float*)((char*)dst->data + r * dst->nb[1]))[j] += toFloat32(v);
-		}
-	}
-}
-
 void ggml_vec_add_f32(const int n, float* z, const float* x, const float* y) { for (int i = 0; i < n; ++i) z[i] = x[i] + y[i]; }
-
-static void ggml_compute_forward_get_rows_back_f32(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-	const struct ggml_tensor* src1 = dst->src[1];
-
-	if (params->ith != 0) {
-		return;
-	}
-
-	GGML_ASSERT(ggml_is_contiguous(dst));
-
-	// ggml_compute_forward_dup_same_cont(params, opt0, dst);
-
-	memset(dst->data, 0, dst->nbytes());
-
-	const int nc = src0->ne[0];
-	const int nr = src1->nelements();
-
-	GGML_ASSERT(dst->ne[0] == nc);
-	GGML_ASSERT(src0->nb[0] == sizeof(float));
-
-	for (int i = 0; i < nr; ++i) {
-		const int r = ((int32_t*)src1->data)[i];
-
-		ggml_vec_add_f32(nc,
-			(float*)((char*)dst->data + r * dst->nb[1]),
-			(float*)((char*)dst->data + r * dst->nb[1]),
-			(float*)((char*)src0->data + i * src0->nb[1]));
-	}
-}
-
-static void ggml_compute_forward_get_rows_back(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
-
-	switch (src0->type) {
-	case GGML_TYPE_F16:
-	{
-		ggml_compute_forward_get_rows_back_f32_f16(params, dst);
-	} break;
-	case GGML_TYPE_F32:
-	{
-		ggml_compute_forward_get_rows_back_f32(params, dst);
-	} break;
-	default:
-	{
-		GGML_ABORT("fatal error");
-	}
-	}
-
-	//static bool first = true;
-	//printf("ne0 = %d, ne1 = %d, ne2 = %d\n", dst->ne[0], dst->ne[1], dst->ne[2]);
-	//if (first) {
-	//    first = false;
-	//} else {
-	//    for (int k = 0; k < dst->ne[1]; ++k) {
-	//        for (int j = 0; j < dst->ne[0]/16; ++j) {
-	//            for (int i = 0; i < 16; ++i) {
-	//                printf("%8.4f ", ((float *) dst->data)[k*dst->ne[0] + j*16 + i]);
-	//            }
-	//            printf("\n");
-	//        }
-	//        printf("\n");
-	//    }
-	//    printf("\n");
-	//    exit(0);
-	//}
-}
 
 static void ggml_compute_forward_count_equal_i32(
 	exec::static_thread_pool& pool,
@@ -6766,7 +6660,7 @@ static void ggml_compute_forward(
 	} break;
 	case GGML_OP_GET_ROWS_BACK:
 	{
-		ggml_compute_forward_get_rows_back(params, tensor);
+		ggml_compute_forward_get_rows_back(tensor);
 	} break;
 	case GGML_OP_DIAG:
 	{
