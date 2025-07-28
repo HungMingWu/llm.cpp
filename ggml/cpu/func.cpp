@@ -3976,11 +3976,8 @@ static void ggml_compute_forward_clamp(
 	float max = std::bit_cast<float>(dst->op_params[1]);
 	GGML_ASSERT(min <= max);
 
-	const int nth = pool.available_parallelism();
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
-	const int64_t n = ggml_nrows(src0);
-	const int64_t dr = (n + nth - 1) / nth;
 	const int nc = src0->ne[0];
 
 	const size_t nb00 = src0->nb[0];
@@ -3992,21 +3989,21 @@ static void ggml_compute_forward_clamp(
 	GGML_ASSERT(nb0 == sizeof(T));
 	GGML_ASSERT(nb00 == sizeof(T));
 
-	for (int64_t ir0 = 0; ir0 < n; ir0 += dr) {
-		const int64_t ir1 = std::min(ir0 + dr, n);
-		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-			for (int j = ir0; j < ir1; j++) {
-				T* dst_ptr = (T*)((char*)dst->data + j * nb1);
-				T* src0_ptr = (T*)((char*)src0->data + j * nb01);
+	auto dst_data = make_strided_mdspan(static_cast<T*>(dst->data), dst->ne, dst->nb);
+	auto src0_data = make_strided_mdspan(static_cast<const T*>(src0->data), src0->ne, src0->nb);
 
-				for (int i = 0; i < nc; i++) {
-					dst_ptr[i] = fromFloat32<T>(std::clamp(toFloat32(src0_ptr[i]), min, max));
-				}
+	for (int64_t i = 0; i < src0_data.extent(0); i++) {
+		for (int64_t j = 0; j < src0_data.extent(1); j++) {
+			for (int64_t k = 0; k < src0_data.extent(2); k++) {
+				stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+					for (int64_t l = 0; l < src0_data.extent(3); l++) {
+						dst_data[i, j, k, l] = fromFloat32<T>(std::clamp(toFloat32(src0_data[i, j, k, l]), min, max));
+					}
+				});
+				scope.spawn(std::move(sender));
 			}
-		});
-		scope.spawn(std::move(sender));
+		}
 	}
-
 }
 
 static void ggml_compute_forward_clamp(
