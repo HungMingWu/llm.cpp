@@ -2978,49 +2978,40 @@ static void ggml_compute_forward_ssm_conv_f32(
 	const ggml_tensor* src0 = dst->src[0]; // conv_x
 	const ggml_tensor* src1 = dst->src[1]; // conv1d.weight
 
-	const int nth = pool.available_parallelism();
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
-	const int nc = src1->ne[0]; // d_conv
-	const int ncs = src0->ne[0]; // d_conv - 1 + n_t
-	const int nr = src0->ne[1]; // d_inner
+	const int d_conv = src1->ne[0];
+	const int d_inner = src0->ne[1];
 	const int n_t = dst->ne[1]; // tokens per sequence
 	const int n_s = dst->ne[2]; // number of sequences in the batch
 
-	GGML_ASSERT(dst->ne[0] == nr);
+	GGML_ASSERT(dst->ne[0] == d_inner);
+	GGML_ASSERT(src0->ne[1] == d_inner);
 	GGML_ASSERT(src0->nb[0] == sizeof(float));
 	GGML_ASSERT(src1->nb[0] == sizeof(float));
 	GGML_ASSERT(src0->nb[1] == src0->ne[0] * sizeof(float));
+	GGML_ASSERT(dst->ne[2] == src0->ne[2]);
 
-	// rows per thread
-	const int dr = (nr + nth - 1) / nth;
+	// { n_s, n_t, d_inner }
+	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), n_s, n_t, d_inner);
+	// { n_s, d_inner, d_conv - 1 + n_t }
+	std::experimental::mdspan conv_x(static_cast<const float*>(src0->data), n_s, d_inner, src0->ne[0]);
+	// { d_inner, d_conv }
+	std::experimental::mdspan conv1d_weight(static_cast<const float*>(src1->data), d_inner, d_conv);
 
-	// row range for this thread
-	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
-		const int64_t ir1 = std::min<int64_t>(ir0 + dr, nr);
-		const int ir = ir1 - ir0;
+	for (int64_t i1 = 0; i1 < d_inner; i1++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
 			for (int i3 = 0; i3 < n_s; ++i3) {
 				for (int i2 = 0; i2 < n_t; ++i2) {
-					// {d_conv - 1 + n_t, d_inner, n_seqs}
 					// sliding window
-					const float* s = (const float*)((const char*)src0->data + ir0 * (src0->nb[1]) + i2 * (src0->nb[0]) + i3 * (src0->nb[2])); // {d_conv, d_inner, n_s}
-					const float* c = (const float*)((const char*)src1->data + ir0 * (src1->nb[1])); // {d_conv, d_inner}
-					float* x = (float*)((char*)dst->data + ir0 * (dst->nb[0]) + i2 * (dst->nb[1]) + i3 * (dst->nb[2])); // {d_inner, n_t, n_s}
-
 					// TODO: transpose the output for smaller strides for big batches?
-					// d_inner
-					for (int i1 = 0; i1 < ir; ++i1) {
-						// rowwise dot product
-						// NOTE: not using ggml_vec_dot_f32, because its sum is in double precision
-						float sumf = 0.0f;
+					// rowwise dot product
+					float sumf = 0.0f;
 
-						// d_conv
-						for (int i0 = 0; i0 < nc; ++i0) {
-							sumf += s[i0 + i1 * ncs] * c[i0 + i1 * nc];
-						}
-						x[i1] = sumf;
+					for (int64_t i0 = 0; i0 < d_conv; ++i0) {
+						sumf += conv_x[i3, i1, i2 + i0] * conv1d_weight[i1, i0];
 					}
+					dst_data[i3, i2, i1] = sumf;
 				}
 			}
 		});
