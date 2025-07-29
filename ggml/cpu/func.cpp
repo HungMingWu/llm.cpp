@@ -5698,41 +5698,30 @@ static void ggml_compute_forward_l2_norm_f32(
 
 	GGML_ASSERT(src0->nb[0] == sizeof(float));
 
-	const int nth = pool.available_parallelism();
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
 	float eps = std::bit_cast<float>(dst->op_params[0]);
 	GGML_ASSERT(eps >= 0.0f);
-	const int64_t dr = (src0->ne[1] + nth - 1) / nth;
+
+	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	auto src0_data = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
 
 	// TODO: optimize
-	for (int64_t ir0 = 0; ir0 < src0->ne[1]; ir0 += dr) {
-		const int64_t ir1 = std::min(ir0 + dr, src0->ne[1]);
+	for (int64_t i01 = 0; i01 < src0->ne[1]; i01++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
 			for (int64_t i03 = 0; i03 < src0->ne[3]; i03++) {
 				for (int64_t i02 = 0; i02 < src0->ne[2]; i02++) {
-					for (int64_t i01 = ir0; i01 < ir1; i01++) {
-						const float* x = (float*)((char*)src0->data + i01 * src0->nb[1] + i02 * src0->nb[2] + i03 * src0->nb[3]);
-
-						ggml_float sum = 0.0;
-						for (int64_t i00 = 0; i00 < src0->ne[0]; i00++) {
-							sum += (ggml_float)(x[i00] * x[i00]);
-						}
-
-						float* y = (float*)((char*)dst->data + i01 * dst->nb[1] + i02 * dst->nb[2] + i03 * dst->nb[3]);
-
-						memcpy(y, x, src0->ne[0] * sizeof(float));
-
-						const float scale = 1.0f / fmaxf(sqrtf(sum), eps);
-
-						ggml_vec_scale_f32(src0->ne[0], y, scale);
-					}
+					double sum = 0.0;
+					for (int64_t i00 = 0; i00 < src0->ne[0]; i00++)
+						sum += (double)(src0_data[i03, i02, i01, i00] * src0_data[i03, i02, i01, i00]);
+					const float scale = fmaxf(sqrtf(sum), eps);
+					for (int64_t i00 = 0; i00 < src0->ne[0]; i00++)
+						dst_data[i03, i02, i01, i00] = src0_data[i03, i02, i01, i00] / scale;
 				}
 			}
 		});
 		scope.spawn(std::move(sender));
 	}
-
 }
 
 static void ggml_compute_forward_l2_norm(
