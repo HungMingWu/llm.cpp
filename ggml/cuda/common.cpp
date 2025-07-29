@@ -145,6 +145,13 @@ int ggml_backend_cuda_get_device_count() {
     return ggml_cuda_info().device_count;
 }
 
+// To be used for feature selection of external libraries, e.g. cuBLAS.
+static bool fp16_mma_hardware_available(const int cc) {
+    return (GGML_CUDA_CC_IS_NVIDIA(cc) && cc >= GGML_CUDA_CC_VOLTA) ||
+        GGML_CUDA_CC_IS_CDNA(cc) || GGML_CUDA_CC_IS_RDNA3(cc) || GGML_CUDA_CC_IS_RDNA4(cc) ||
+        (GGML_CUDA_CC_IS_MTHREADS(cc) && cc >= GGML_CUDA_CC_QY2);
+}
+
 bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11) {
     if constexpr (force_enable_cuda_blas_v) {
         return false;
@@ -182,11 +189,11 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11) {
         return false;
     }
 
-    if (int8_mma_available(cc)) {
+    if (new_mma_available(cc) || amd_mfma_available(cc)) {
         return true;
     }
 
-    if (cc < GGML_CUDA_CC_DP4A) {
+    if (ggml_cuda_highest_compiled_arch(cc) < GGML_CUDA_CC_DP4A) {
         return false;
     }
 
@@ -194,22 +201,15 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11) {
         return true;
     }
 
-    if (cc < GGML_CUDA_CC_OFFSET_AMD) {
-        return cc < GGML_CUDA_CC_VOLTA || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;
+    if (GGML_CUDA_CC_IS_NVIDIA(cc)) {
+        return !fp16_mma_hardware_available(cc) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;
     }
 
-    return (cc < GGML_CUDA_CC_RDNA3 && cc != GGML_CUDA_CC_CDNA && cc != GGML_CUDA_CC_VEGA20) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;
+    return (!GGML_CUDA_CC_IS_RDNA4(cc) && !GGML_CUDA_CC_IS_RDNA3(cc) && !GGML_CUDA_CC_IS_CDNA(cc)) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;
 }
 
 static bool fp32_mma_hardware_available(const int cc) {
     return GGML_CUDA_CC_IS_CDNA(cc);
-}
-
-// To be used for feature selection of external libraries, e.g. cuBLAS.
-static bool fp16_mma_hardware_available(const int cc) {
-    return (GGML_CUDA_CC_IS_NVIDIA(cc) && cc >= GGML_CUDA_CC_VOLTA) ||
-        GGML_CUDA_CC_IS_CDNA(cc) || GGML_CUDA_CC_IS_RDNA3(cc) || GGML_CUDA_CC_IS_RDNA4(cc) ||
-        (GGML_CUDA_CC_IS_MTHREADS(cc) && cc >= GGML_CUDA_CC_QY2);
 }
 
 bool bf16_mma_hardware_available(const int cc) {
@@ -299,4 +299,9 @@ void CUDA_SET_SHARED_MEMORY_LIMIT(const void* kernel, size_t nbytes)
     }
 #else
 #endif
+}
+
+bool amd_mfma_available(const int cc)
+{
+    return cc >= GGML_CUDA_CC_OFFSET_AMD && GGML_CUDA_CC_IS_CDNA3(cc);
 }

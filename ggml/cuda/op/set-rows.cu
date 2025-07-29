@@ -52,6 +52,9 @@ static __global__ void k_set_rows_quant(
     block_type* dst_block = dst_row_ptr + i00 / qk;
 
     quantize_block(src_block, dst_block);
+
+    GGML_UNUSED(ne10);
+    GGML_UNUSED(ne13);
 }
 
 template<typename src_t, typename dst_t>

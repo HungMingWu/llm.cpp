@@ -82,8 +82,9 @@ static void ggml_cuda_op_mul_mat_q(
     // The stream-k decomposition is only faster for recent NVIDIA GPUs.
     // Also its fixup needs to allocate a temporary buffer in the memory pool.
     // There are multiple parallel CUDA streams for src1_ncols != ne11 which would introduce a race condition for this buffer.
-    const bool use_stream_k = GGML_CUDA_CC_IS_NVIDIA(cc) &&
-        ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA && src1_ncols == ne11;
+    const bool use_stream_k = ((GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA)
+                              || (GGML_CUDA_CC_IS_AMD(cc) && GGML_CUDA_CC_IS_CDNA3(cc)))
+                              && src1_ncols == ne11;
     const mmq_args args = {
         src0_dd_i, src0->type, (const int*)src1_ddq_i, nullptr, nullptr, dst_dd_i,
         src0->ne[0], row_diff, src1_ncols, stride01, nrows_dst,

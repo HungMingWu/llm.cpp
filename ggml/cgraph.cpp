@@ -960,11 +960,9 @@ static void ggml_graph_dump_dot_node_edge(
 {
     ggml_tensor* gparent = ggml_graph_get_parent(gb, node);
     ggml_tensor* gparent0 = ggml_graph_get_parent(gb, parent);
-    os << std::format(R"(  "{}":{} -> "{}":{} [ arrowhead = {}; style = {}; label = "{}"; ])",
+    os << std::format(R"(  "{}" -> "{}" [ arrowhead = {}; style = {}; label = "{}"; ])",
         gparent0 ? (void*)gparent0 : (void*)parent,
-        gparent0 ? "g" : "x",
         gparent ? (void*)gparent : (void*)node,
-        gparent ? "g" : "x",
         gparent ? "empty" : "vee",
         gparent ? "dashed" : "solid",
         label) << "\n";
@@ -975,9 +973,9 @@ static void ggml_graph_dump_dot_leaf_edge(
     ggml_tensor* node,
     ggml_tensor* parent, 
     std::string_view label) {
-    os << std::format(R"(  "{}":{} -> "{}":{} [ label = "{}"; ]\n)",
-        (void*)parent, "x",
-        (void*)node, "x",
+    os << std::format(R"(  "{}" -> "{}" [ label = "{}"; ]\n)",
+        (void*)parent,
+        (void*)node,
         label);
 }
 

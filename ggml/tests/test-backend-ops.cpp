@@ -578,16 +578,30 @@ struct sql_printer : public printer {
 
 struct csv_printer : public printer {
     void print_header() override {
+
         std::vector<std::string> fields = test_result::get_fields();
+        std::vector<std::string> fields_csv = get_fields_csv();
         for (size_t i = 0; i < fields.size(); i++) {
+            if (std::find(std::begin(fields_csv), std::end(fields_csv), fields[i]) == std::end(fields_csv)) {
+                continue;
+            }
             printf("\"%s\"%s", fields[i].c_str(), i < fields.size() - 1 ? "," : "");
         }
         printf("\n");
     }
 
     void print_test_result(const test_result& result) override {
+
         std::vector<std::string> values = result.get_values();
+        std::vector<std::string> fields = test_result::get_fields();
+        std::vector<std::string> fields_csv = get_fields_csv();
+
         for (size_t i = 0; i < values.size(); i++) {
+
+            if (std::find(std::begin(fields_csv), std::end(fields_csv), fields[i]) == std::end(fields_csv)) {
+                continue;
+            }
+
             // Escape quotes and wrap in quotes for CSV
             std::string escaped_value = values[i];
             size_t pos = 0;
@@ -599,6 +613,19 @@ struct csv_printer : public printer {
         }
         printf("\n");
     }
+
+    static std::vector<std::string> get_fields_csv() {
+        return {
+            "op_name",
+            "op_params",
+            "supported",
+            "error_message",
+            "test_mode",
+            "backend_reg_name",
+            "backend_name",
+        };
+    }
+
 };
 
 static std::unique_ptr<printer> create_printer(output_formats format) {
@@ -1927,6 +1954,7 @@ struct test_im2col : public test_case {
 struct test_conv_2d : public test_case {
     const std::array<int64_t, 4> ne_input;
     const std::array<int64_t, 4> ne_kernel;
+    const ggml_type              type_kernel;
     const int                    stride0;
     const int                    stride1;
     const int                    padding0;
@@ -1944,9 +1972,13 @@ struct test_conv_2d : public test_case {
     // IM2COL -> MUL_MM graph will be built.
 
     std::string vars() override {
-        return std::format("ne_input={},ne_kernel={},stride0={},stride1={},padding0={},padding1={}"
+        return std::format("ne_input={},ne_kernel={},type_kernel={},stride0={},stride1={},padding0={},padding1={}"
             ",dilation0={},dilation1={},cwhn={}",
-            ne_input, ne_kernel, stride0, stride1, padding0, padding1, dilation0, dilation1, static_cast<int>(cwhn));
+            ne_input, ne_kernel, type_kernel, stride0, stride1, padding0, padding1, dilation0, dilation1, static_cast<int>(cwhn));
+    }
+
+    double max_nmse_err() override {
+        return 5e-4;
     }
 
     uint64_t op_flops(ggml_tensor*) override {
@@ -1976,10 +2008,11 @@ struct test_conv_2d : public test_case {
     }
 
     test_conv_2d(std::array<int64_t, 4> ne_input = { 64, 64, 16, 1 },
-        std::array<int64_t, 4> ne_kernel = { 3, 3, 1, 16 }, int stride0 = 1, int stride1 = 1, int padding0 = 0,
-        int padding1 = 0, int dilation0 = 1, int dilation1 = 1, bool cwhn = false) :
+        std::array<int64_t, 4> ne_kernel = { 3, 3, 1, 16 }, ggml_type type_kernel = GGML_TYPE_F32, int stride0 = 1,
+        int stride1 = 1, int padding0 = 0, int padding1 = 0, int dilation0 = 1, int dilation1 = 1, bool cwhn = false) :
         ne_input(ne_input),
         ne_kernel(ne_kernel),
+        type_kernel(type_kernel),
         stride0(stride0),
         stride1(stride1),
         padding0(padding0),
@@ -4991,43 +5024,46 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F16, { 12, 12, 2, 2560 }, { 3, 3, 2, 2560 }, 1, 1, 1, 1, 1, 1, true));
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F16, { 5, 5, 1, 32 }, { 3, 4, 1, 32 }, 1, 1, 0, 0, 1, 1, true));
 
-    // Conv_2D test cases
+// Conv_2D test cases
 #ifdef DETAILED_TESTS
     // Probably we do not have enough time to execute these in the pipeline.
-    uint32_t iwh_idx = 0;
-    uint32_t kwh_idx = 1;
+    uint32_t iwh_idx  = 0;
+    uint32_t kwh_idx  = 1;
     uint32_t Cout_idx = 2;
-    uint32_t Cin_idx = 3;
-    uint32_t B_idx = 4;
+    uint32_t Cin_idx  = 3;
+    uint32_t B_idx    = 4;
 
     std::vector<std::array<int, 5>> cases = {
-        //{IWH, KWH, Cout, Cin, B}
-        // K=CRS=NPQ=4096 conv_2d matmul performance
-              {19,   4, 4096, 256, 16},
-              // K=128, CRS=128, NPQ=4096
-                     { 19,  4, 128,  8,   16},
-                     // K=130, CRS=128, NPQ=4096
-                            { 19,  4, 130,  8,   16},
-                            // Edge case: K x CRS is small
-                                   { 19,  2, 4,    4,   16},
-                                   // A ConvNet's first layer
-                                          { 224, 3, 8,    3,   1 },
-                                          // A ConvNet's first layer with 2x2 convolution, and 1 channel
-                                                 { 224, 2, 8,    1,   1 },
-                                                 // A ConvNet's first layer with 2x2 convolution, and 1 channel, several images in the batch
-                                                        { 224, 2, 8,    1,   8 },
-                                                        // A middle layer of a ConvNet
-                                                               { 58,  3, 64,   32,  1 },
-                                                               // A middle layer of a ConvNet, several images in the batch
-                                                                      { 58,  3, 64,   32,  8 },
-                                                                      // A deep layer of a ConvNet, several images in the batch
-                                                                             { 16,  3, 256,  128, 8 }
+  //{IWH, KWH, Cout, Cin, B}
+  // K=CRS=NPQ=4096 conv_2d matmul performance
+        {19,   4, 4096, 256, 16},
+ // K=128, CRS=128, NPQ=4096
+        { 19,  4, 128,  8,   16},
+ // K=130, CRS=128, NPQ=4096
+        { 19,  4, 130,  8,   16},
+ // Edge case: K x CRS is small
+        { 19,  2, 4,    4,   16},
+ // A ConvNet's first layer
+        { 224, 3, 8,    3,   1 },
+ // A ConvNet's first layer with 2x2 convolution, and 1 channel
+        { 224, 2, 8,    1,   1 },
+ // A ConvNet's first layer with 2x2 convolution, and 1 channel, several images in the batch
+        { 224, 2, 8,    1,   8 },
+ // A middle layer of a ConvNet
+        { 58,  3, 64,   32,  1 },
+ // A middle layer of a ConvNet, several images in the batch
+        { 58,  3, 64,   32,  8 },
+ // A deep layer of a ConvNet, several images in the batch
+        { 16,  3, 256,  128, 8 }
     };
 
-    for (auto act_case : cases) {
-        test_cases.emplace_back(new test_conv_2d(
-            { act_case[iwh_idx], act_case[iwh_idx], act_case[Cin_idx], act_case[B_idx] },
-            { act_case[kwh_idx], act_case[kwh_idx], act_case[Cin_idx], act_case[Cout_idx] }, 1, 1, 0, 0, 1, 1, false));
+    for (auto kernel_type : {GGML_TYPE_F32, GGML_TYPE_F16}) {
+        for (auto act_case : cases) {
+            test_cases.emplace_back(new test_conv_2d(
+                { act_case[iwh_idx], act_case[iwh_idx], act_case[Cin_idx], act_case[B_idx] },
+                { act_case[kwh_idx], act_case[kwh_idx], act_case[Cin_idx], act_case[Cout_idx] },
+                kernel_type, 1, 1, 0, 0, 1, 1, false));
+        }
     }
 #endif
 
@@ -5053,8 +5089,10 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
                                 for (uint32_t W : { 1, 141 }) {
                                     if (calc_conv_output_size(W, KW, s0, p0, d0) > 0 &&
                                         calc_conv_output_size(H, KH, s1, p1, d1) > 0) {
-                                        test_cases.emplace_back(new test_conv_2d(
-                                            { W, H, Cin, 2 }, { KW, KH, Cin, Cout }, s0, s1, p0, p1, d0, d1, false));
+                                        for (auto kernel_type : { GGML_TYPE_F32, GGML_TYPE_F16 }) {
+                                            test_cases.emplace_back(new test_conv_2d(
+                                                { W, H, Cin, 2 }, { KW, KH, Cin, Cout }, kernel_type, s0, s1, p0, p1, d0, d1, false));
+                                        }
                                     }
                                 }
                             }
