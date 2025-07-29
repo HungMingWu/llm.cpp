@@ -2291,53 +2291,6 @@ static void ggml_compute_forward_get_rows_back(
 	//}
 }
 
-inline static void ggml_vec_argmax_f32(const int n, int* s, const float* x) {
-	float maxValue = -INFINITY;
-	int idx = 0;
-	for (int i = 0; i < n; ++i) {
-		maxValue = std::max(maxValue, x[i]);
-		if (maxValue == x[i]) { idx = i; }
-	}
-	*s = idx;
-}
-
-static void ggml_compute_forward_argmax_f32(ggml_tensor* dst) {
-	const ggml_tensor* src0 = dst->src[0];
-
-	assert(src0->nb[0] == sizeof(float));
-	assert(dst->nb[0] == sizeof(float));
-
-	const int64_t ne00 = src0->ne[0];
-	const int64_t ne01 = src0->ne[1];
-
-	const size_t nb01 = src0->nb[1];
-	const size_t nb0 = dst->nb[0];
-
-	for (int64_t i1 = 0; i1 < ne01; i1++) {
-		float* src = (float*)((char*)src0->data + i1 * nb01);
-		int32_t* dst_ = (int32_t*)((char*)dst->data + i1 * nb0);
-		int v = 0;
-		ggml_vec_argmax_f32(ne00, &v, src);
-		dst_[0] = v;
-	}
-}
-
-static void ggml_compute_forward_argmax(ggml_tensor* dst) {
-
-	const ggml_tensor* src0 = dst->src[0];
-
-	switch (src0->type) {
-	case GGML_TYPE_F32:
-	{
-		ggml_compute_forward_argmax_f32(dst);
-	} break;
-	default:
-	{
-		GGML_ABORT("fatal error");
-	}
-	}
-}
-
 static void ggml_compute_forward_count_equal_i32(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,

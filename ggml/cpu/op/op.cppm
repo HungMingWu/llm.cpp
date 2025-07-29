@@ -12,6 +12,7 @@ import :cpu.op.scale;
 import :cpu.op.unary;
 import :cpu.op.win;
 
+void ggml_compute_forward_argmax(ggml_tensor* dst);
 void ggml_compute_forward_concat(const ggml_compute_params* params, ggml_tensor* dst);
 void ggml_compute_forward_mean(ggml_tensor* dst);
 void ggml_compute_forward_repeat(ggml_tensor* dst);

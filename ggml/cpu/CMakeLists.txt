@@ -39,6 +39,7 @@ target_sources(libggml
       plan.cpp
       to_float.cpp
       vec_dot.cpp
+      op/argmax.cpp
       op/concat.cpp
       op/mean.cpp
       op/repeat.cpp
