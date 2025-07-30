@@ -4079,8 +4079,6 @@ static void ggml_compute_forward_diag_mask_inf(
 	}
 }
 
-static void ggml_vec_cpy_f321(const int n, float* y, const float* x) { for (int i = 0; i < n; ++i) y[i] = x[i]; }
-
 inline static void ggml_vec_scale_f322(const int n, float* y, const float   v) {
 #if defined(GGML_USE_ACCELERATE)
 	vDSP_vsmul(y, 1, &v, y, 1, n);
@@ -4372,23 +4370,7 @@ static void ggml_compute_forward_soft_max(
 	}
 }
 
-
-static void ggml_vec_dot_f32(int n, float* s, size_t bs, const float* x, size_t bx, const float* y, size_t by, int nrc) {
-	// scalar
-	ggml_float sumf = 0.0;
-	for (int i = 0; i < n; ++i) {
-		sumf += (ggml_float)(x[i] * y[i]);
-	}
-	*s = sumf;
-}
-
 static void ggml_vec_mul_f32(const int n, float* z, const float* x, const float* y) { for (int i = 0; i < n; ++i) z[i] = x[i] * y[i]; }
-static void ggml_vec_scale_f321(const int n, float* y, const float   v) {
-	// scalar
-	for (int i = 0; i < n; ++i) {
-		y[i] *= v;
-	}
-}
 
 static void ggml_compute_forward_soft_max_ext_back_f32(
 	exec::static_thread_pool& pool,
@@ -4411,63 +4393,48 @@ static void ggml_compute_forward_soft_max_ext_back_f32(
 
 	// TODO: handle transposed/permuted matrices
 
-	const int nth = pool.available_parallelism();
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
-	const int nc = src0->ne[0];
-	const int64_t nr = ggml_nrows(src0);
-
-	// rows per thread
-	const int64_t dr = (nr + nth - 1) / nth;
+	std::experimental::mdspan dx(static_cast<float*>(dst->data), dst->ne[1], dst->ne[0]);
+	std::experimental::mdspan dy(static_cast<const float*>(src0->data), src0->ne[1], src0->ne[0]);
+	std::experimental::mdspan y(static_cast<const float*>(src1->data), src1->ne[1], src1->ne[0]);
 
 	// row range for this thread
-	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
-		const int64_t ir1 = std::min(ir0 + dr, nr);
+	for (int64_t i1 = 0; i1 < dx.extent(0); i1++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-			for (int i1 = ir0; i1 < ir1; i1++) {
-				float* dy = (float*)((char*)src0->data + i1 * src0->nb[1]);
-				float* y = (float*)((char*)src1->data + i1 * src1->nb[1]);
-				float* dx = (float*)((char*)dst->data + i1 * dst->nb[1]);
+			// Jii = yi - yi*yi
+			// Jij = -yi*yj
+			// J = diag(y)-y.T*y
+			// dx = J * dy
+			// dxk = sum_i(Jki * dyi)
+			// dxk = sum_i(-yk*yi * dyi) - (-yk*yk)*dyk + (yk - yk*yk)*dyk
+			// dxk = sum_i(-yk*yi * dyi) + yk*yk*dyk + yk*dyk - yk*yk*dyk
+			// dxk = sum_i(-yk*yi * dyi) + yk*dyk
+			// dxk = -yk * sum_i(yi * dyi) + yk*dyk
+			// dxk = -yk * dot(y, dy) + yk*dyk
+			// dxk = yk * (- dot(y, dy) + dyk)
+			// dxk = yk * (dyk - dot(y, dy))
+			//
+			// post-order:
+			// dot_y_dy := dot(y, dy)
+			// dx := dy
+			// dx := dx - dot_y_dy
+			// dx := dx * y
 
+			// linear runtime, no additional memory
+			float dot_y_dy = 0;
+			for (int64_t i0 = 0; i0 < dx.extent(1); i0++) {
 #ifndef NDEBUG
-				for (int i = 0; i < nc; ++i) {
-					//printf("p[%d] = %f\n", i, p[i]);
-					assert(!isnan(dy[i]));
-					assert(!isnan(y[i]));
-				}
+				assert(!isnan(dy[i1, i0]));
+				assert(!isnan(y[i1, i0]));
 #endif
-				// Jii = yi - yi*yi
-				// Jij = -yi*yj
-				// J = diag(y)-y.T*y
-				// dx = J * dy
-				// dxk = sum_i(Jki * dyi)
-				// dxk = sum_i(-yk*yi * dyi) - (-yk*yk)*dyk + (yk - yk*yk)*dyk
-				// dxk = sum_i(-yk*yi * dyi) + yk*yk*dyk + yk*dyk - yk*yk*dyk
-				// dxk = sum_i(-yk*yi * dyi) + yk*dyk
-				// dxk = -yk * sum_i(yi * dyi) + yk*dyk
-				// dxk = -yk * dot(y, dy) + yk*dyk
-				// dxk = yk * (- dot(y, dy) + dyk)
-				// dxk = yk * (dyk - dot(y, dy))
-				//
-				// post-order:
-				// dot_y_dy := dot(y, dy)
-				// dx := dy
-				// dx := dx - dot_y_dy
-				// dx := dx * y
-
-				// linear runtime, no additional memory
-				float dot_y_dy = 0;
-				ggml_vec_dot_f32(nc, &dot_y_dy, 0, y, 0, dy, 0, 1);
-				ggml_vec_cpy_f321(nc, dx, dy);
-				ggml_vec_acc1_f32(nc, dx, -dot_y_dy);
-				ggml_vec_mul_f32(nc, dx, dx, y);
-				ggml_vec_scale_f321(nc, dx, scale);
-
+				dot_y_dy += y[i1, i0] * dy[i1, i0];
+			}
+			for (int64_t i0 = 0; i0 < dx.extent(1); i0++) {
+				dx[i1, i0] = (dy[i1, i0] - dot_y_dy) * y[i1, i0] * scale;
 #ifndef NDEBUG
-				for (int i = 0; i < nc; ++i) {
-					assert(!isnan(dx[i]));
-					assert(!isinf(dx[i]));
-				}
+				assert(!isnan(dx[i1, i0]));
+				assert(!isinf(dx[i1, i0]));
 #endif
 			}
 		});
@@ -5188,8 +5155,6 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 
 	const int64_t rv2 = neq2 / nev2;
 	const int64_t rv3 = neq3 / nev3;
-
-	// parallelize by q rows using ggml_vec_dot_f32
 
 	// total rows in q
 	const int64_t nr = neq1 * neq2 * neq3;
