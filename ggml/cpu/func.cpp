@@ -4079,37 +4079,6 @@ static void ggml_compute_forward_diag_mask_inf(
 	}
 }
 
-inline static void ggml_vec_scale_f322(const int n, float* y, const float   v) {
-#if defined(GGML_USE_ACCELERATE)
-	vDSP_vsmul(y, 1, &v, y, 1, n);
-#elif defined(GGML_SIMD)
-	const int np = (n & ~(GGML_F32_STEP - 1));
-
-	GGML_F32_VEC vx = GGML_F32_VEC_SET1(v);
-
-	GGML_F32_VEC ay[GGML_F32_ARR];
-
-	for (int i = 0; i < np; i += GGML_F32_STEP) {
-		for (int j = 0; j < GGML_F32_ARR; j++) {
-			ay[j] = GGML_F32_VEC_LOAD(y + i + j * GGML_F32_EPR);
-			ay[j] = GGML_F32_VEC_MUL(ay[j], vx);
-
-			GGML_F32_VEC_STORE(y + i + j * GGML_F32_EPR, ay[j]);
-		}
-	}
-
-	// leftovers
-	for (int i = np; i < n; ++i) {
-		y[i] *= v;
-	}
-#else
-	// scalar
-	for (int i = 0; i < n; ++i) {
-		y[i] *= v;
-	}
-#endif
-}
-
 inline static void ggml_vec_max_f32(const int n, float* s, const float* x) {
 #ifndef GGML_USE_ACCELERATE
 	float max = -INFINITY;
@@ -4120,59 +4089,6 @@ inline static void ggml_vec_max_f32(const int n, float* s, const float* x) {
 #else
 	vDSP_maxv(x, 1, s, n);
 #endif
-}
-
-static ggml_float ggml_vec_soft_max_f32(const int n, float* y, const float* x, float max) {
-	int i = 0;
-	ggml_float sum = 0;
-#if defined(__AVX512F__) && defined(__AVX512DQ__)
-	for (; i + 15 < n; i += 16) {
-		__m512 val = ggml_v_expf(_mm512_sub_ps(_mm512_loadu_ps(x + i),
-			_mm512_set1_ps(max)));
-		_mm512_storeu_ps(y + i, val);
-		sum += (ggml_float)_mm512_reduce_add_ps(val);
-	}
-#elif defined(__AVX2__) && defined(__FMA__)
-	for (; i + 7 < n; i += 8) {
-		__m256 val = ggml_v_expf(_mm256_sub_ps(_mm256_loadu_ps(x + i),
-			_mm256_set1_ps(max)));
-		_mm256_storeu_ps(y + i, val);
-		__m128 val2 = _mm_add_ps(_mm256_extractf128_ps(val, 1),
-			_mm256_castps256_ps128(val));
-		val2 = _mm_add_ps(val2, _mm_movehl_ps(val2, val2));
-		val2 = _mm_add_ss(val2, _mm_movehdup_ps(val2));
-		sum += (ggml_float)_mm_cvtss_f32(val2);
-	}
-#elif defined(__SSE21__)
-	for (; i + 3 < n; i += 4) {
-		__m128 val = ggml_v_expf(_mm_sub_ps(_mm_loadu_ps(x + i),
-			_mm_set1_ps(max)));
-		_mm_storeu_ps(y + i, val);
-#if defined(__AVX__) || defined(__AVX2__) || defined(__AVX512F__)
-		val = _mm_add_ps(val, _mm_movehl_ps(val, val));
-		val = _mm_add_ss(val, _mm_movehdup_ps(val));
-#else
-		__m128 tmp = _mm_shuffle_ps(val, val, _MM_SHUFFLE(2, 3, 0, 1));
-		val = _mm_add_ps(val, tmp);
-		tmp = _mm_movehl_ps(tmp, val);
-		val = _mm_add_ss(val, tmp);
-#endif
-		sum += (ggml_float)_mm_cvtss_f32(val);
-	}
-#elif defined(__ARM_NEON) && defined(__aarch64__)
-	for (; i + 3 < n; i += 4) {
-		float32x4_t val = ggml_v_expf(vsubq_f32(vld1q_f32(x + i),
-			vdupq_n_f32(max)));
-		vst1q_f32(y + i, val);
-		sum += (ggml_float)vaddvq_f32(val);
-	}
-#endif
-	for (; i < n; ++i) {
-		float val = expf(x[i] - max);
-		sum += (ggml_float)val;
-		y[i] = val;
-	}
-	return sum;
 }
 
 inline static void ggml_vec_cpy_f32(const int n, float* y, const float* x) {
@@ -4275,7 +4191,6 @@ static void ggml_compute_forward_soft_max_f32(
 		return make_strided_mdspan(static_cast<const src1_t*>(src1->data), src1->ne, src1->nb);
 	}();
 
-	// row range for this thread
 	for (int64_t i01 = 0; i01 < nh; i01 ++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
 			std::vector<float> wp(nc);
@@ -4302,10 +4217,10 @@ static void ggml_compute_forward_soft_max_f32(
 
 					float max = *std::max_element(wp.begin(), wp.end());
 
-					double sum = 0;
+					float sum = 0;
 					for (int64_t i00 = 0; i00 < src0->ne[0]; i00++) {
 						float val = expf(wp[i00] - max);
-						sum += (ggml_float)val;
+						sum += val;
 						wp[i00] = val;
 					}
 					assert(sum > 0.0);
@@ -5488,8 +5403,6 @@ static void ggml_compute_forward_cross_entropy_loss(
 	}
 }
 
-inline static void ggml_vec_sub_f32(const int n, float* z, const float* x, const float* y) { for (int i = 0; i < n; ++i) z[i] = x[i] - y[i]; }
-
 static void ggml_compute_forward_cross_entropy_loss_back_f32(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -5505,51 +5418,48 @@ static void ggml_compute_forward_cross_entropy_loss_back_f32(
 	GGML_ASSERT(ggml_is_contiguous(grad));
 	GGML_ASSERT(ggml_are_same_shape(src0f, src1f) && ggml_are_same_shape(src0f, dst));
 
-	const int nth = pool.available_parallelism();
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
 	// TODO: handle transposed/permuted matrices
 	const int64_t nc = src0f->ne[0];
 	const int64_t nr = ggml_nrows(src0f);
 
-	// rows per thread
-	const int64_t dr = (nr + nth - 1) / nth;
+	std::experimental::mdspan ds0(static_cast<float*>(dst->data), nr, nc);
+	std::experimental::mdspan s0(static_cast<const float*>(src0f->data), nr, nc);
+	std::experimental::mdspan s1(static_cast<const float*>(src1f->data), nr, nc);
+	const float d_by_nr = ((const float*)grad->data)[0] / (float)nr;
 
 	// row range for this thread
-	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
-		const int64_t ir1 = std::min(ir0 + dr, nr);
+	for (int64_t i1 = 0; i1 < nr; i1++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-			const float d_by_nr = ((const float*)grad->data)[0] / (float)nr;
-
-			for (int64_t i1 = ir0; i1 < ir1; i1++) {
-				float* ds0 = (float*)((char*)dst->data + i1 * dst->nb[1]);
-				const float* s0 = (const float*)((const char*)src0f->data + i1 * src0f->nb[1]);
-				const float* s1 = (const float*)((const char*)src1f->data + i1 * src1f->nb[1]);
-
 #ifndef NDEBUG
-				for (int64_t i = 0; i < nc; ++i) {
-					//printf("p[%d] = %f\n", i, p[i]);
-					assert(!isnan(s0[i]));
-					assert(!isnan(s1[i]));
-				}
+			for (int64_t i0 = 0; i0 < nc; i0++) {
+				assert(!isnan(s0[i1, i0]));
+				assert(!isnan(s1[i1, i0]));
+			}
 #endif
 
-				// soft_max
-				float max = -INFINITY;
-				ggml_vec_max_f32(nc, &max, s0);
-				const ggml_float sum = ggml_vec_soft_max_f32(nc, ds0, s0, max);
-				assert(sum > 0.0);
-				ggml_vec_scale_f32(nc, ds0, 1.0 / sum);
-
-				// grad(src0f) = (softmax(src0f) - src1f) * grad(cross_entropy_loss(src0f, src1f)) / nr
-				ggml_vec_sub_f32(nc, ds0, ds0, s1);
-				ggml_vec_scale_f32(nc, ds0, d_by_nr);
-
-#ifndef NDEBUG
-				for (int64_t i = 0; i < nc; ++i) {
-					assert(!isnan(ds0[i]));
-					assert(!isinf(ds0[i]));
+			// soft_max
+			float max = -INFINITY;
+			for (int64_t i0 = 0; i0 < nc; i0++) {
+				if (s0[i1, i0] > max) {
+					max = s0[i1, i0];
 				}
+			}
+			float sum = 0.0f;
+			for (int64_t i0 = 0; i0 < nc; i0++) {
+				float val = expf(s0[i1, i0] - max);
+				sum += val;
+				ds0[i1, i0] = val;
+			}
+			assert(sum > 0.0);
+
+			// grad(src0f) = (softmax(src0f) - src1f) * grad(cross_entropy_loss(src0f, src1f)) / nr
+			for (int64_t i0 = 0; i0 < nc; i0++) {
+				ds0[i1, i0] = ((ds0[i1, i0] / sum) - s1[i1, i0]) * d_by_nr;
+#ifndef NDEBUG
+				assert(!isnan(ds0[i1, i0]));
+				assert(!isinf(ds0[i1, i0]));
 #endif
 			}
 		});
