@@ -4095,65 +4095,6 @@ inline static void ggml_vec_cpy_f32(const int n, float* y, const float* x) {
 	for (int i = 0; i < n; ++i) y[i] = x[i];
 }
 
-inline static void ggml_vec_scale_f32(const int n, float* y, const float   v) {
-#if defined(GGML_USE_ACCELERATE)
-	vDSP_vsmul(y, 1, &v, y, 1, n);
-#elif defined(GGML_SIMD)
-#if defined(__ARM_FEATURE_SVE)
-	const int sve_register_length = ggml_cpu_get_sve_cnt() * 8;
-	const int ggml_f32_epr = sve_register_length / 32;//8;//svcntw(); // SVE128:4, SVE256:8, SVE512:16
-	const int ggml_f32_step = 2 * ggml_f32_epr;
-
-	GGML_F32_VEC vx = GGML_F32_VEC_SET1(v);
-	const int np = (n & ~(ggml_f32_step - 1));
-	svfloat32_t ay1;
-	svfloat32_t ay2;
-	for (int i = 0; i < np; i += ggml_f32_step) {
-		ay1 = GGML_F32_VEC_LOAD(y + i);
-		ay1 = GGML_F32_VEC_MUL(ay1, vx);
-		GGML_F32_VEC_STORE(y + i, ay1);
-
-		ay2 = GGML_F32_VEC_LOAD(y + i + 1 * ggml_f32_epr);
-		ay2 = GGML_F32_VEC_MUL(ay2, vx);
-		GGML_F32_VEC_STORE(y + i + 1 * ggml_f32_epr, ay2);
-	}
-	// leftovers
-	// maximum number of leftover elements will be less that ggml_f32_epr. Apply predicated svmad on available elements only
-	if (np < n) {
-		svbool_t pg = svwhilelt_b32(np, n);
-		ay1 = svld1_f32(pg, y + np);
-		ay1 = svmul_f32_m(pg, ay1, vx);
-		svst1_f32(pg, y + np, ay1);
-	}
-#else
-	const int np = (n & ~(GGML_F32_STEP - 1));
-
-	GGML_F32_VEC vx = GGML_F32_VEC_SET1(v);
-
-	GGML_F32_VEC ay[GGML_F32_ARR];
-
-	for (int i = 0; i < np; i += GGML_F32_STEP) {
-		for (int j = 0; j < GGML_F32_ARR; j++) {
-			ay[j] = GGML_F32_VEC_LOAD(y + i + j * GGML_F32_EPR);
-			ay[j] = GGML_F32_VEC_MUL(ay[j], vx);
-
-			GGML_F32_VEC_STORE(y + i + j * GGML_F32_EPR, ay[j]);
-		}
-	}
-
-	// leftovers
-	for (int i = np; i < n; ++i) {
-		y[i] *= v;
-	}
-#endif
-#else
-	// scalar
-	for (int i = 0; i < n; ++i) {
-		y[i] *= v;
-	}
-#endif
-}
-
 template <typename src1_t>
 static void ggml_compute_forward_soft_max_f32(
 	exec::static_thread_pool& pool,
@@ -4958,68 +4899,8 @@ static void ggml_compute_forward_timestep_embedding(
 	}
 }
 
-inline static void ggml_vec_scale_f16(const int n, ggml_fp16_t* y, const float v) {
-#if defined(GGML_SIMD)
-	const int np = (n & ~(GGML_F16_STEP - 1));
-
-	GGML_F16_VEC vx = GGML_F16_VEC_SET1(v);
-
-	GGML_F16_VEC ay[GGML_F16_ARR];
-
-	for (int i = 0; i < np; i += GGML_F16_STEP) {
-		for (int j = 0; j < GGML_F16_ARR; j++) {
-			ay[j] = GGML_F16_VEC_LOAD(y + i + j * GGML_F16_EPR, j);
-			ay[j] = GGML_F16_VEC_MUL(ay[j], vx);
-
-			GGML_F16_VEC_STORE(y + i + j * GGML_F16_EPR, ay, j);
-		}
-	}
-
-	// leftovers
-	for (int i = np; i < n; ++i) {
-		y[i] = GGML_FP32_TO_FP16(GGML_FP16_TO_FP32(y[i]) * v);
-	}
-#else
-	// scalar
-	for (int i = 0; i < n; ++i) {
-		y[i] = fromFloat32<ggml_fp16_t>(toFloat32(y[i]) * v);
-	}
-#endif
-}
-
-inline static void ggml_vec_mad_f16(const int n, ggml_fp16_t* y, const ggml_fp16_t* x, const float v) {
-#if defined(GGML_SIMD)
-	const int np = (n & ~(GGML_F16_STEP - 1));
-
-	GGML_F16_VEC vx = GGML_F16_VEC_SET1(v);
-
-	GGML_F16_VEC ax[GGML_F16_ARR];
-	GGML_F16_VEC ay[GGML_F16_ARR];
-
-	for (int i = 0; i < np; i += GGML_F16_STEP) {
-		for (int j = 0; j < GGML_F16_ARR; j++) {
-			ax[j] = GGML_F16_VEC_LOAD(x + i + j * GGML_F16_EPR, j);
-			ay[j] = GGML_F16_VEC_LOAD(y + i + j * GGML_F16_EPR, j);
-			ay[j] = GGML_F16_VEC_FMA(ay[j], ax[j], vx);
-
-			GGML_F16_VEC_STORE(y + i + j * GGML_F16_EPR, ay, j);
-		}
-	}
-
-	// leftovers
-	for (int i = np; i < n; ++i) {
-		y[i] = GGML_FP32_TO_FP16(GGML_FP16_TO_FP32(y[i]) + GGML_FP16_TO_FP32(x[i]) * v);
-	}
-#else
-	// scalar
-	for (int i = 0; i < n; ++i) {
-		y[i] = fromFloat32<ggml_fp16_t>(toFloat32(y[i]) + toFloat32(x[i]) * v);
-	}
-#endif
-}
-
 template <typename V_TYPE, typename K_TYPE> 
-static void ggml_compute_forward_flash_attn_ext_f16(
+static void ggml_compute_forward_flash_attn_ext(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	const ggml_tensor* q,
@@ -5029,53 +4910,34 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 	ggml_tensor* dst) {
 
 	using q_to_vec_dot_t = typename vec_dot_trait<K_TYPE>::type;
-	GGML_TENSOR_LOCALS(int64_t, neq, q, ne)
-	GGML_TENSOR_LOCALS(size_t, nbq, q, nb)
-	GGML_TENSOR_LOCALS(int64_t, nek, k, ne)
-	GGML_TENSOR_LOCALS(size_t, nbk, k, nb)
-	GGML_TENSOR_LOCALS(int64_t, nev, v, ne)
-	GGML_TENSOR_LOCALS(size_t, nbv, v, nb)
-	GGML_TENSOR_LOCALS(int64_t, ne, dst, ne)
-	GGML_TENSOR_LOCALS(size_t, nb, dst, nb)
 
-	const int nth = pool.available_parallelism();
+	const int64_t DK = k->ne[0];
+	const int64_t DV = v->ne[0];
+	const int64_t N = q->ne[1];
 
-	const int64_t DK = nek0;
-	const int64_t DV = nev0;
-	const int64_t N = neq1;
-
-	GGML_ASSERT(ne0 == DV);
-	GGML_ASSERT(ne2 == N);
+	GGML_ASSERT(dst->ne[0] == DV);
+	GGML_ASSERT(dst->ne[2] == N);
 
 	// input tensor rows must be contiguous
-	GGML_ASSERT(nbq0 == ggml_type_size(q->type));
-	GGML_ASSERT(nbk0 == ggml_type_size(k->type));
-	GGML_ASSERT(nbv0 == ggml_type_size(v->type));
+	GGML_ASSERT(q->nb[0] == ggml_type_size(q->type));
+	GGML_ASSERT(k->nb[0] == ggml_type_size(k->type));
+	GGML_ASSERT(v->nb[0] == ggml_type_size(v->type));
 
-	GGML_ASSERT(neq0 == DK);
-	GGML_ASSERT(nek0 == DK);
-	GGML_ASSERT(nev0 == DV);
-
-	GGML_ASSERT(neq1 == N);
+	GGML_ASSERT(q->ne[0] == DK);
+	GGML_ASSERT(q->ne[3] == dst->ne[3]);
 
 	// dst cannot be transposed or permuted
-	GGML_ASSERT(nb0 == sizeof(float));
-	GGML_ASSERT(nb0 <= nb1);
-	GGML_ASSERT(nb1 <= nb2);
-	GGML_ASSERT(nb2 <= nb3);
+	GGML_ASSERT(dst->nb[0] == sizeof(float));
+	GGML_ASSERT(dst->nb[0] <= dst->nb[1]);
+	GGML_ASSERT(dst->nb[1] <= dst->nb[2]);
+	GGML_ASSERT(dst->nb[2] <= dst->nb[3]);
 
 	// broadcast factors
-	const int64_t rk2 = neq2 / nek2;
-	const int64_t rk3 = neq3 / nek3;
+	const int64_t rk2 = q->ne[2] / k->ne[2];
+	const int64_t rk3 = q->ne[3] / k->ne[3];
 
-	const int64_t rv2 = neq2 / nev2;
-	const int64_t rv3 = neq3 / nev3;
-
-	// total rows in q
-	const int64_t nr = neq1 * neq2 * neq3;
-
-	// rows per thread
-	const int64_t dr = (nr + nth - 1) / nth;
+	const int64_t rv2 = q->ne[2] / v->ne[2];
+	const int64_t rv3 = q->ne[3] / v->ne[3];
 
 	float scale = std::bit_cast<float>(dst->op_params[0]);
 	float max_bias = std::bit_cast<float>(dst->op_params[1]);
@@ -5085,102 +4947,86 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 		scale /= logit_softcap;
 	}
 
-	const uint32_t n_head = neq2;
+	const uint32_t n_head = q->ne[2];
+	GGML_ASSERT(dst->ne[1] == n_head);
+
 	const uint32_t n_head_log2 = 1u << (uint32_t)floor(log2(n_head));
 
 	const float m0 = powf(2.0f, -(max_bias) / n_head_log2);
 	const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
 
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
+	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	auto v_data = make_strided_mdspan(static_cast<const V_TYPE*>(v->data), v->ne, v->nb);
+	auto k_data = make_strided_mdspan(static_cast<const K_TYPE*>(k->data), k->ne, k->nb);
+	auto q_data = make_strided_mdspan(static_cast<const float*>(q->data), q->ne, q->nb);
 
 	// loop over n_batch and n_head
-	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
-		const int64_t ir1 = std::min(ir0 + dr, nr);
-		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-			std::vector<float> VKQ32(DV); // FP32 VKQ accumulator
-			std::vector<float> V32(DV); // (temporary) FP32 V buffer
-			std::vector<ggml_fp16_t> VKQ16(DV); // (temporary) FP16 VKQ accumulator
-			std::vector<q_to_vec_dot_t> Q_q(DK); // (temporary) buffer for Q converted to quantized/FP16
+	for (int64_t iq3 = 0; iq3 < q->ne[3]; iq3++) {
+		for (int64_t iq2 = 0; iq2 < n_head; iq2++) {
+			for (int64_t iq1 = 0; iq1 < N; iq1++) {
+				stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+					std::vector<float> VKQ(DV); // FP32 VKQ accumulator
+					std::vector<float> V32(DV); // (temporary) FP32 V buffer
+					std::vector<q_to_vec_dot_t> Q_q(DK); // (temporary) buffer for Q converted to quantized/FP16
+					const uint32_t h = iq2; // head index
+					const float slope = (max_bias > 0.0f) ? h < n_head_log2 ? powf(m0, h + 1) : powf(m1, 2 * (h - n_head_log2) + 1) : 1.0f;
 
-			for (int64_t ir = ir0; ir < ir1; ++ir) {
-				// q indices
-				const int iq3 = ir / (neq2 * neq1);
-				const int iq2 = (ir - iq3 * neq2 * neq1) / neq1;
-				const int iq1 = (ir - iq3 * neq2 * neq1 - iq2 * neq1);
+					float S = 0.0f;      // sum
+					float M = -INFINITY; // maximum KQ value
 
-				const uint32_t h = iq2; // head index
-				const float slope = (max_bias > 0.0f) ? h < n_head_log2 ? powf(m0, h + 1) : powf(m1, 2 * (h - n_head_log2) + 1) : 1.0f;
+					const ggml_fp16_t* mp = mask ? (ggml_fp16_t*)((char*)mask->data + iq1 * mask->nb[1] + (iq2 % mask->ne[2]) * mask->nb[2] + (iq3 % mask->ne[3]) * mask->nb[3]) : NULL;
 
-				float S = 0.0f;      // sum
-				float M = -INFINITY; // maximum KQ value
+					// k indices
+					const int ik3 = iq3 / rk3;
+					const int ik2 = iq2 / rk2;
 
-				const ggml_fp16_t* mp = mask ? (ggml_fp16_t*)((char*)mask->data + iq1 * mask->nb[1] + (iq2 % mask->ne[2]) * mask->nb[2] + (iq3 % mask->ne[3]) * mask->nb[3]) : NULL;
+					// v indices
+					const int iv3 = iq3 / rv3;
+					const int iv2 = iq2 / rv2;
 
-				// k indices
-				const int ik3 = iq3 / rk3;
-				const int ik2 = iq2 / rk2;
-
-				// v indices
-				const int iv3 = iq3 / rv3;
-				const int iv2 = iq2 / rv2;
-
-				const float* pq = (const float*)((char*)q->data + (iq1 * nbq1 + iq2 * nbq2 + iq3 * nbq3));
-				fromFloat(pq, Q_q.data(), DK);
-
-				// online softmax / attention
-				// loop over n_kv and n_head_kv
-				// ref: https://arxiv.org/pdf/2112.05682.pdf
-				for (int64_t ic = 0; ic < nek1; ++ic) {
-					const float mv = mp ? slope * toFloat32(mp[ic]) : 0.0f;
-					if (mv == -INFINITY) {
-						continue;
-					}
-
-					float s; // KQ value
-
-					const K_TYPE* k_data = cast_with_offset<K_TYPE>(k->data, ic * nbk1 + ik2 * nbk2 + ik3 * nbk3);
-					ggml_vec_dot<K_TYPE, q_to_vec_dot_t>(DK, &s, 0, k_data, 0, Q_q.data(), 0, 1);
-
-					s = s * scale; // scale KQ value
-
-					if (logit_softcap != 0.0f) {
-						s = logit_softcap * tanhf(s);
-					}
-
-					s += mv; // apply mask
-
-					const float Mold = M;
-
-					float ms = 1.0f; // upon new higher max val, scale VKQ and KQ sum with this value
-					float vs = 1.0f; // post-softmax KQ value, expf(s - M)
-
-					const void* v_data = ((const char*)v->data + (ic * nbv1 + iv2 * nbv2 + iv3 * nbv3));
-
-					if (v->type == GGML_TYPE_F16) {
-						if (s > M) {
-							// s is new maximum, ms < 1.0f, vs == expf(s - s) == 1.0f
-							M = s;
-							ms = expf(Mold - M);
-
-							// V = V*expf(Mold - M)
-							ggml_vec_scale_f16(DV, VKQ16.data(), ms);
-						}
-						else {
-							// no new maximum, ms == 1.0f, vs != 1.0f
-							vs = expf(s - M);
-						}
-
-						// V += v*expf(s - M)
-						ggml_vec_mad_f16(DV, VKQ16.data(), (const ggml_fp16_t*)v_data, vs);
+					if constexpr (is_quant_type_v<q_to_vec_dot_t>) {
+						quantize_row(&q_data[iq3, iq2, iq1, 0], Q_q.data(), DK);
 					}
 					else {
+						from_float(&q_data[iq3, iq2, iq1, 0], Q_q.data(), DK);
+					}
+
+					// online softmax / attention
+					// loop over n_kv and n_head_kv
+					// ref: https://arxiv.org/pdf/2112.05682.pdf
+					for (int64_t ic = 0; ic < k->ne[1]; ++ic) {
+						const float mv = mp ? slope * toFloat32(mp[ic]) : 0.0f;
+						if (mv == -INFINITY) {
+							continue;
+						}
+
+						float s; // KQ value
+
+						ggml_vec_dot(DK, &s, 0, &k_data[ik3, ik2, ic, 0], 0, Q_q.data(), 0, 1);
+
+						s = s * scale; // scale KQ value
+
+						if (logit_softcap != 0.0f) {
+							s = logit_softcap * tanhf(s);
+						}
+
+						s += mv; // apply mask
+
+						const float Mold = M;
+
+						float ms = 1.0f; // upon new higher max val, scale VKQ and KQ sum with this value
+						float vs = 1.0f; // post-softmax KQ value, expf(s - M)
+
 						if (s > M) {
 							// s is new maximum, ms < 1.0f, vs == expf(s - s) == 1.0f
 							M = s;
 							ms = expf(Mold - M);
 
 							// V = V*expf(Mold - M)
-							ggml_vec_scale_f32(DV, VKQ32.data(), ms);
+							for (int i = 0; i < DV; ++i) {
+								VKQ[i] = VKQ[i] * ms;
+							}
 						}
 						else {
 							// no new maximum, ms == 1.0f, vs != 1.0f
@@ -5188,46 +5034,43 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 						}
 
 						if constexpr (is_quant_type_v<V_TYPE>) {
-							dequantize_row(static_cast<const V_TYPE*>(v_data), V32.data(), DV);
-						} else {
-							to_float(static_cast<const V_TYPE*>(v_data), V32.data(), DV);
-						} 
+							dequantize_row(&v_data[iv3, iv2, ic, 0], V32.data(), DV);
+						}
+						else {
+							to_float(&v_data[iv3, iv2, ic, 0], V32.data(), DV);
+						}
 
 						// V += v*expf(s - M)
-						ggml_vec_mad_f32(DV, VKQ32.data(), V32.data(), vs);
+						for (int i = 0; i < DV; ++i) {
+							VKQ[i] += V32[i] * vs;
+						}
+
+						S = S * ms + vs; // scale and increment sum with partial sum
 					}
 
-					S = S * ms + vs; // scale and increment sum with partial sum
-				}
-
-				if (v->type == GGML_TYPE_F16) {
-					for (int64_t d = 0; d < DV; ++d) {
-						VKQ32[d] = toFloat32(VKQ16[d]);
+					// V /= S
+					for (int i = 0; i < DV; ++i) {
+						VKQ[i] /= S;
 					}
-				}
 
-				// V /= S
-				const float S_inv = 1.0f / S;
-				ggml_vec_scale_f32(DV, VKQ32.data(), S_inv);
+					// dst indices
+					const int i1 = iq1;
+					const int i2 = iq2;
+					const int i3 = iq3;
 
-				// dst indices
-				const int i1 = iq1;
-				const int i2 = iq2;
-				const int i3 = iq3;
-
-				// original
-				//memcpy((char *) dst->data + (i1*nb1 + i2*nb2 + i3*nb3), V, nev0*sizeof(float));
-
-				// permute(0, 2, 1, 3)
-				memcpy((char*)dst->data + (i3 * ne2 * ne1 + i2 + i1 * ne1) * nb1, VKQ32.data(), nb1);
+					// permute(3, 1, 2, 0)
+					for (int64_t i0 = 0; i0 < DV; i0++) {
+						dst_data[i3, i1, i2, i0] = VKQ[i0];
+					}
+				});
+				scope.spawn(std::move(sender));
 			}
-		});
-		scope.spawn(std::move(sender));
+		}
 	}
 }
 
 template <typename V_TYPE>
-static void ggml_compute_forward_flash_attn_ext_f16(
+static void ggml_compute_forward_flash_attn_ext(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	const ggml_tensor* q,
@@ -5237,20 +5080,20 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 	ggml_tensor* dst) {
 	switch (k->type) {
 	case GGML_TYPE_F16: {
-		ggml_compute_forward_flash_attn_ext_f16<V_TYPE, ggml_fp16_t>(pool, scope, q, k, v, mask, dst);
+		ggml_compute_forward_flash_attn_ext<V_TYPE, ggml_fp16_t>(pool, scope, q, k, v, mask, dst);
 	} break;
 	case GGML_TYPE_Q4_0: {
-		ggml_compute_forward_flash_attn_ext_f16<V_TYPE, block_q4_0>(pool, scope, q, k, v, mask, dst);
+		ggml_compute_forward_flash_attn_ext<V_TYPE, block_q4_0>(pool, scope, q, k, v, mask, dst);
 	} break;
 	case GGML_TYPE_Q8_0: {
-		ggml_compute_forward_flash_attn_ext_f16<V_TYPE, block_q8_0>(pool, scope, q, k, v, mask, dst);
+		ggml_compute_forward_flash_attn_ext<V_TYPE, block_q8_0>(pool, scope, q, k, v, mask, dst);
 	} break;
 	default:
 		assert(false);
 	}
 }
 
-static void ggml_compute_forward_flash_attn_ext_f16(
+static void ggml_compute_forward_flash_attn_ext(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	const ggml_tensor* q,
@@ -5260,13 +5103,13 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 	ggml_tensor* dst) {
 	switch (v->type) {
 	case GGML_TYPE_F16: {
-		ggml_compute_forward_flash_attn_ext_f16<ggml_fp16_t>(pool, scope, q, k, v, mask, dst);
+		ggml_compute_forward_flash_attn_ext<ggml_fp16_t>(pool, scope, q, k, v, mask, dst);
 	} break;
 	case GGML_TYPE_Q4_0: {
-		ggml_compute_forward_flash_attn_ext_f16<block_q4_0>(pool, scope, q, k, v, mask, dst);
+		ggml_compute_forward_flash_attn_ext<block_q4_0>(pool, scope, q, k, v, mask, dst);
 	} break;
 	case GGML_TYPE_Q8_0: {
-		ggml_compute_forward_flash_attn_ext_f16<block_q8_0>(pool, scope, q, k, v, mask, dst);
+		ggml_compute_forward_flash_attn_ext<block_q8_0>(pool, scope, q, k, v, mask, dst);
 	} break;
 	default:
 		GGML_ASSERT(false && "fattn: unsupported V-type");
@@ -5286,7 +5129,7 @@ static void ggml_compute_forward_flash_attn_ext(
 	case GGML_PREC_F32:
 	{
 		// uses F32 accumulators
-		ggml_compute_forward_flash_attn_ext_f16(pool, scope, q, k, v, mask, dst);
+		ggml_compute_forward_flash_attn_ext(pool, scope, q, k, v, mask, dst);
 	} break;
 	default:
 	{
