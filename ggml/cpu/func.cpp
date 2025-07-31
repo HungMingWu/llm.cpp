@@ -4273,18 +4273,6 @@ static void ggml_compute_forward_rope_back(
 	}
 }
 
-inline static void ggml_vec_sum_f32(const int n, float* s, const float* x) {
-#ifndef GGML_USE_ACCELERATE
-	ggml_float sum = 0.0;
-	for (int i = 0; i < n; ++i) {
-		sum += (ggml_float)x[i];
-	}
-	*s = sum;
-#else
-	vDSP_sve(x, 1, s, n);
-#endif
-}
-
 static void ggml_compute_forward_acc_f32(
 	const struct ggml_compute_params* params,
 	struct ggml_tensor* dst) {
