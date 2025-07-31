@@ -1591,64 +1591,6 @@ static void ggml_compute_forward_im2col(
 	}
 }
 
-template <typename T>
-void vec_sum(const int n, ggml_fp32_t* s, const T* x) {
-	ggml_fp32_t sum = 0.0;
-	for (int i = 0; i < n; ++i) {
-		sum += toFloat32(x[i]);
-	}
-	*s = sum;
-}
-
-template <typename T>
-static void ggml_compute_forward_sum(ggml_tensor* dst) {
-
-	const ggml_tensor* src0 = dst->src[0];
-
-	assert(ggml_is_scalar(dst));
-	assert(src0->nb[0] == sizeof(T));
-
-	GGML_TENSOR_LOCALS(int64_t, ne0, src0, ne)
-	GGML_TENSOR_LOCALS(size_t, nb0, src0, nb)
-
-	float sum = 0;
-	float row_sum = 0;
-
-	for (int64_t i03 = 0; i03 < ne03; i03++) {
-		for (int64_t i02 = 0; i02 < ne02; i02++) {
-			for (int64_t i01 = 0; i01 < ne01; i01++) {
-				vec_sum<T>(ne00, &row_sum,
-					(T*)((char*)src0->data + i01 * nb01 + i02 * nb02 + i03 * nb03));
-				sum += row_sum;
-			}
-		}
-	}
-	((T*)dst->data)[0] = fromFloat32<T>(sum);
-}
-
-static void ggml_compute_forward_sum(ggml_tensor* dst) {
-	const ggml_tensor* src0 = dst->src[0];
-
-	switch (src0->type) {
-	case GGML_TYPE_F32:
-	{
-		ggml_compute_forward_sum<ggml_fp32_t>(dst);
-	} break;
-	case GGML_TYPE_F16:
-	{
-		ggml_compute_forward_sum<ggml_fp16_t>(dst);
-	} break;
-	case GGML_TYPE_BF16:
-	{
-		ggml_compute_forward_sum<ggml_bf16_t>(dst);
-	} break;
-	default:
-	{
-		GGML_ABORT("fatal error");
-	}
-	}
-}
-
 #define GGML_VEC_MAD_UNROLL  32
 
 // xs and vs are byte strides of x and v

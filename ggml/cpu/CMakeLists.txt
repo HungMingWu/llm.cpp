@@ -44,6 +44,7 @@ target_sources(libggml
       op/get_rows_back.cpp
       op/mean.cpp
       op/repeat.cpp
+      op/sum.cpp
       op/sum_rows.cpp
       op/upscale.cpp
 )
