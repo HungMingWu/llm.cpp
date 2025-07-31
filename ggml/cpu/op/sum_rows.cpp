@@ -2,7 +2,7 @@ module;
 #include <assert.h>
 #include <stdint.h>
 #include "mdspan.hpp"
-#include <algorithm>>
+#include <algorithm>
 #include <ranges>
 #define GGML_ABORT(...)
 

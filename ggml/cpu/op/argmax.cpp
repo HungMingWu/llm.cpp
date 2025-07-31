@@ -1,7 +1,7 @@
 module;
 #include <assert.h>
 #include <stdint.h>
-#include <algorithm>>
+#include <algorithm>
 #include <limits>
 #include "mdspan.hpp"
 
