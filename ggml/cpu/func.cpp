@@ -2334,8 +2334,6 @@ static void ggml_compute_forward_div(
 	binary_op<op_div>(pool, scope, dst);
 }
 
-static void ggml_vec_add1_f32(const int n, float* z, const float* x, const float   v) { for (int i = 0; i < n; ++i) z[i] = x[i] + v; }
-
 template <typename src0_t, typename src1_t>
 static void ggml_compute_forward_add1(
 	exec::static_thread_pool& pool,
@@ -3709,18 +3707,6 @@ static void ggml_compute_forward_diag_mask_inf(
 	}
 }
 
-inline static void ggml_vec_max_f32(const int n, float* s, const float* x) {
-#ifndef GGML_USE_ACCELERATE
-	float max = -INFINITY;
-	for (int i = 0; i < n; ++i) {
-		max = std::max(max, x[i]);
-	}
-	*s = max;
-#else
-	vDSP_maxv(x, 1, s, n);
-#endif
-}
-
 template <typename src1_t>
 static void ggml_compute_forward_soft_max_f32(
 	exec::static_thread_pool& pool,
@@ -3851,8 +3837,6 @@ static void ggml_compute_forward_soft_max(
 	}
 	}
 }
-
-static void ggml_vec_mul_f32(const int n, float* z, const float* x, const float* y) { for (int i = 0; i < n; ++i) z[i] = x[i] * y[i]; }
 
 static void ggml_compute_forward_soft_max_ext_back_f32(
 	exec::static_thread_pool& pool,
@@ -4764,19 +4748,6 @@ static void ggml_compute_forward_flash_attn_ext(
 	}
 }
 
-static ggml_float ggml_vec_log_soft_max_f32(const int n, float* y, const float* x, float max) {
-	// log(soft_max) = log(soft_max_i / soft_max_sum) = log(soft_max_i) - log(soft_max_sum) = (logit_i - max) - log(soft_max_i)
-
-	int i = 0;
-	ggml_float sum = 0;
-	for (; i < n; ++i) {
-		float val = x[i] - max;
-		y[i] = val;
-		sum += (ggml_float)expf(val);
-	}
-	return sum = (ggml_float)logf(sum);
-}
-
 static void ggml_compute_forward_cross_entropy_loss_f32(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -4797,51 +4768,45 @@ static void ggml_compute_forward_cross_entropy_loss_f32(
 	const int64_t nc = src0->ne[0];
 	const int64_t nr = ggml_nrows(src0);
 
-	const int nth = pool.available_parallelism();
-
 	std::atomic<float> sums;
-
-	// rows per thread
-	const int64_t dr = (nr + nth - 1) / nth;
-
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
+	std::experimental::mdspan src0_data(static_cast<float*>(src0->data), src0->ne[1], src0->ne[0]);
+	std::experimental::mdspan src1_data(static_cast<float*>(src1->data), src1->ne[1], src1->ne[0]);
 
-	// row range for this thread
-	for (int64_t ir0 = 0; ir0 < nr; ir0 += dr) {
-		const int64_t ir1 = std::min(ir0 + dr, nr);
+	for (int64_t i1 = 0; i1 < nr; i1++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=, &sums] {
 			std::vector<float> st(nc);
 			float sum_thread = 0.0f;
-			for (int64_t i1 = ir0; i1 < ir1; ++i1) {
-				const float* s0 = (const float*)((const char*)src0->data + i1 * src0->nb[1]);
-				const float* s1 = (const float*)((const char*)src1->data + i1 * src1->nb[1]);
 
 #ifndef NDEBUG
-				for (int64_t i = 0; i < nc; ++i) {
-					//printf("p[%d] = %f\n", i, p[i]);
-					assert(!isnan(s0[i]));
-					assert(!isnan(s1[i]));
-				}
+			for (int64_t i0 = 0; i0 < nc; i0++) {
+				assert(!isnan(src0_data[i1, i0]));
+				assert(!isnan(src1_data[i1, i0]));
+			}
 #endif
 
-				float max = -INFINITY;
-				ggml_vec_max_f32(nc, &max, s0);
-				const ggml_float sum_softmax = ggml_vec_log_soft_max_f32(nc, &st[0], s0, max);
-				assert(sum_softmax >= 0.0);
+			float max = -INFINITY;
+			for (int64_t i0 = 0; i0 < nc; i0++) {
+				max = std::max(max, src0_data[i1, i0]);
+			}
 
-				ggml_vec_add1_f32(nc, &st[0], &st[0], -sum_softmax);
-				ggml_vec_mul_f32(nc, &st[0], &st[0], s1);
+			// log soft max
+			float sum_softmax = 0.0;
+			for (int64_t i0 = 0; i0 < nc; i0++) {
+				float val = src0_data[i1, i0] - max;
+				st[i0] = val;
+				sum_softmax += expf(val);
+			}
+			sum_softmax = logf(sum_softmax);
+			assert(sum_softmax >= 0.0);
 
-				float sum_st = 0.0f;
-				ggml_vec_sum_f32(nc, &sum_st, &st[0]);
-				sum_thread += sum_st;
-
+			for (int64_t i0 = 0; i0 < nc; i0++) {
+				st[i0] = (st[i0] - sum_softmax) * src1_data[i1, i0];
 #ifndef NDEBUG
-				for (int64_t i = 0; i < nc; ++i) {
-					assert(!isnan(st[i]));
-					assert(!isinf(st[i]));
-				}
+				assert(!isnan(st[i0]));
+				assert(!isinf(st[i0]));
 #endif
+				sum_thread += st[i0];
 			}
 			sums += sum_thread;
 		});
