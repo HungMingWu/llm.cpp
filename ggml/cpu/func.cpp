@@ -3985,10 +3985,6 @@ inline static void ggml_vec_max_f32(const int n, float* s, const float* x) {
 #endif
 }
 
-inline static void ggml_vec_cpy_f32(const int n, float* y, const float* x) {
-	for (int i = 0; i < n; ++i) y[i] = x[i];
-}
-
 template <typename src1_t>
 static void ggml_compute_forward_soft_max_f32(
 	exec::static_thread_pool& pool,
@@ -5877,42 +5873,32 @@ static void ggml_compute_forward_roll_f32(
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
-	const float* src_data = (const float*)src0->data;
-	float* dst_data = (float*)dst->data;
-
-	GGML_TENSOR_UNARY_OP_LOCALS
+	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	auto src0_data = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
 
 	const int s0 = ggml_get_op_params_i32(dst, 0);
 	const int s1 = ggml_get_op_params_i32(dst, 1);
 	const int s2 = ggml_get_op_params_i32(dst, 2);
 	const int s3 = ggml_get_op_params_i32(dst, 3);
 
-	const int64_t total = ne1 * ne2 * ne3;
-	const int nth = pool.available_parallelism();
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
-	const int64_t per_thread = (total + nth - 1) / nth;
 
-	for (int64_t start = 0; start < total; start += per_thread) {
-		const int64_t end = std::min(start + per_thread, total);
-		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-			for (int64_t i = start; i < end; ++i) {
-				const int64_t i1 = i % ne1;
-				const int64_t i2 = (i / ne1) % ne2;
-				const int64_t i3 = i / (ne2 * ne1);
-				float* dst_row = dst_data + (i3 * nb3 + i2 * nb2 + i1 * nb1) / sizeof(float);
+	for (int64_t i3 = 0; i3 < dst_data.extent(0); i3++) {
+		for (int64_t i2 = 0; i2 < dst_data.extent(1); i2++) {
+			for (int64_t i1 = 0; i1 < dst_data.extent(2); i1++) {
+				stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+					const int64_t i01 = ggml_wrap_index(i1 - s1, src0_data.extent(2));
+					const int64_t i02 = ggml_wrap_index(i2 - s2, src0_data.extent(1));
+					const int64_t i03 = ggml_wrap_index(i3 - s3, src0_data.extent(0));
 
-				const int64_t i01 = ggml_wrap_index(i1 - s1, ne01);
-				const int64_t i02 = ggml_wrap_index(i2 - s2, ne02);
-				const int64_t i03 = ggml_wrap_index(i3 - s3, ne03);
-				const float* src_row = src_data + (i03 * nb03 + i02 * nb02 + i01 * nb01) / sizeof(float);
-
-				const int64_t s = ggml_wrap_index(-s0, ne00);
-				const int64_t n = ne00 - s;
-				ggml_vec_cpy_f32(n, dst_row, src_row + s);
-				ggml_vec_cpy_f32(s, dst_row + n, src_row);
+					const int64_t s = ggml_wrap_index(-s0, src0_data.extent(3));
+					const int64_t n = src0_data.extent(3) - s;
+					for (int64_t i = 0; i < n; ++i) dst_data[i3, i2, i1, i] = src0_data[i03, i02, i01, s + i];
+					for (int64_t i = 0; i < s; ++i) dst_data[i3, i2, i1, n + i] = src0_data[i03, i02, i01, i];
+				});
+				scope.spawn(std::move(sender));
 			}
-		});
-		scope.spawn(std::move(sender));
+		}
 	}
 }
 
