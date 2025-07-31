@@ -1591,37 +1591,6 @@ static void ggml_compute_forward_im2col(
 	}
 }
 
-inline static void ggml_vec_mad_f32(const int n, float* y, const float* x, const float v) {
-#if defined(GGML_SIMD)
-	const int np = (n & ~(GGML_F32_STEP - 1));
-
-	GGML_F32_VEC vx = GGML_F32_VEC_SET1(v);
-
-	GGML_F32_VEC ax[GGML_F32_ARR];
-	GGML_F32_VEC ay[GGML_F32_ARR];
-
-	for (int i = 0; i < np; i += GGML_F32_STEP) {
-		for (int j = 0; j < GGML_F32_ARR; j++) {
-			ax[j] = GGML_F32_VEC_LOAD(x + i + j * GGML_F32_EPR);
-			ay[j] = GGML_F32_VEC_LOAD(y + i + j * GGML_F32_EPR);
-			ay[j] = GGML_F32_VEC_FMA(ay[j], ax[j], vx);
-
-			GGML_F32_VEC_STORE(y + i + j * GGML_F32_EPR, ay[j]);
-		}
-	}
-
-	// leftovers
-	for (int i = np; i < n; ++i) {
-		y[i] += x[i] * v;
-	}
-#else
-	// scalar
-	for (int i = 0; i < n; ++i) {
-		y[i] += x[i] * v;
-	}
-#endif
-}
-
 template <typename T>
 static void ggml_compute_forward_out_prod(
 	exec::static_thread_pool& pool,
