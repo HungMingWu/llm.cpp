@@ -6,9 +6,9 @@ module;
 
 #define GGML_ABORT(...)
 
-module ggml:cpu.op.pool;
+module ggml;
 import :types;
-import :cpu.ds;
+import :cpu.op;
 
 void ggml_compute_forward_pool_2d_back(
     ggml_tensor* dst) {

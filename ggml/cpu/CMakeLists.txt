@@ -25,7 +25,6 @@ target_sources(libggml
       op/leaky_relu.cppm
       op/norm.cppm
       op/op.cppm
-      op/pool.cppm
       op/relpos.cppm
       op/repeat_back.cppm
       op/scale.cppm
@@ -43,6 +42,8 @@ target_sources(libggml
       op/concat.cpp
       op/get_rows_back.cpp
       op/mean.cpp
+      op/pool.cpp
+      op/pool_back.cpp
       op/repeat.cpp
       op/sum.cpp
       op/sum_rows.cpp

@@ -31,13 +31,11 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
+        auto output = run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f32, 0, t->nbytes());
             }
         });
-
-        const float* output = ggml_get_data_f32(t_pooled);
 
         GGML_ASSERT(output[0] == 2);
         GGML_ASSERT(output[1] == 5);
@@ -61,13 +59,11 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
+        auto output = run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f16, 0, t->nbytes());
             }
         });
-
-        const float* output = ggml_get_data_f32(t_pooled);
 
         GGML_ASSERT(output[0] == 2);
         GGML_ASSERT(output[1] == 5);
@@ -91,13 +87,12 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
+        auto output = run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f32, 0, t->nbytes());
             }
         });
 
-        const float* output = ggml_get_data_f32(t_pooled);
         GGML_ASSERT(output[0] == 3);
         GGML_ASSERT(output[1] == 6);
         GGML_ASSERT(output[2] == 9);
@@ -120,13 +115,12 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
+        auto output = run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f16, 0, t->nbytes());
             }
         });
 
-        const float* output = ggml_get_data_f32(t_pooled);
         GGML_ASSERT(output[0] == 3);
         GGML_ASSERT(output[1] == 6);
         GGML_ASSERT(output[2] == 9);
@@ -150,13 +144,12 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
+        auto output = run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f32, 0, t->nbytes());
             }
         });
 
-        const float* output = ggml_get_data_f32(t_pooled);
         GGML_ASSERT(output[0] == 17);
         GGML_ASSERT(output[1] == 20);
         GGML_ASSERT(output[2] == 23);
@@ -186,13 +179,12 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
+        auto output = run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f16, 0, t->nbytes());
             }
         });
 
-        const float* output = ggml_get_data_f32(t_pooled);
         GGML_ASSERT(output[0] == 17);
         GGML_ASSERT(output[1] == 20);
         GGML_ASSERT(output[2] == 23);
@@ -222,13 +214,12 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
+        auto output = run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f32, 0, t->nbytes());
             }
         });
 
-        const float* output = ggml_get_data_f32(t_pooled);
         GGML_ASSERT(output[0] == 33);
         GGML_ASSERT(output[1] == 36);
         GGML_ASSERT(output[2] == 39);
@@ -258,13 +249,12 @@ int main(int argc, const char** argv) {
         ggml_cgraph graph;
         graph.build_forward_expand(t_pooled);
 
-        run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
+        auto output = run_graph_in_cpu(&ctx, graph, [&](ggml_tensor* tensor) {
             if (tensor == t) {
                 ggml_backend_tensor_set(t, buf_f16, 0, t->nbytes());
             }
         });
 
-        const float* output = ggml_get_data_f32(t_pooled);
         GGML_ASSERT(output[0] == 33);
         GGML_ASSERT(output[1] == 36);
         GGML_ASSERT(output[2] == 39);
