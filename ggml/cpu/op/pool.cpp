@@ -3,6 +3,7 @@ module;
 #include <stdint.h>
 #include <algorithm>
 #include <bit>
+#include <limits>
 #include "mdspan.hpp"
 
 #define GGML_ABORT(...)
@@ -28,7 +29,7 @@ static void ggml_compute_forward_pool_1d_sk_p0(
 		for (int64_t i0 = 0; i0 < rs; ++i0) {
 			switch (op) {
 			case GGML_OP_POOL_AVG:   dst_data[i1, i0] = 0;        break;
-			case GGML_OP_POOL_MAX:   dst_data[i1, i0] = -FLT_MAX; break;
+			case GGML_OP_POOL_MAX:   dst_data[i1, i0] = -std::numeric_limits<float>::infinity(); break;
 			case GGML_OP_POOL_COUNT: GGML_ABORT("fatal error");
 			}
 			for (int ki = 0; ki < k; ++ki) {
@@ -99,7 +100,7 @@ static void ggml_compute_forward_pool_2d(
 				float& out = dst_data[i2, i1, i0];
 				switch (op) {
 				case GGML_OP_POOL_AVG:     out = 0;        break;
-				case GGML_OP_POOL_MAX:     out = -FLT_MAX; break;
+				case GGML_OP_POOL_MAX:     out = -std::numeric_limits<float>::infinity(); break;
 				case GGML_OP_POOL_COUNT: GGML_ABORT("fatal error");
 				}
 
