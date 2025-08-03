@@ -83,8 +83,8 @@ static void ggml_cuda_op_mul_mat_q(
     // Also its fixup needs to allocate a temporary buffer in the memory pool.
     // There are multiple parallel CUDA streams for src1_ncols != ne11 which would introduce a race condition for this buffer.
     const bool use_stream_k = ((GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA)
-                              || (GGML_CUDA_CC_IS_AMD(cc) && GGML_CUDA_CC_IS_CDNA3(cc)))
-                              && src1_ncols == ne11;
+                            || GGML_CUDA_CC_IS_CDNA(cc))
+                            && src1_ncols == ne11;
     const mmq_args args = {
         src0_dd_i, src0->type, (const int*)src1_ddq_i, nullptr, nullptr, dst_dd_i,
         src0->ne[0], row_diff, src1_ncols, stride01, nrows_dst,
@@ -619,6 +619,9 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
     ggml_cuda_pool_alloc<cuda_t> src0_alloc(ctx.pool());
     ggml_cuda_pool_alloc<cuda_t> src1_alloc(ctx.pool());
 
+    bool is_src0_cont_2 = ggml_is_contiguous_2(src0);
+    bool is_src1_cont_2 = ggml_is_contiguous_2(src1);
+
     // Handle src0
     src0_ptr = (const cuda_t*)src0->data;
 
@@ -638,6 +641,8 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
         s11 = ne10;
         s12 = ne11 * s11;
         s13 = ne12 * s12;
+
+        is_src1_cont_2 = true;
     }
 
     // Setup destination buffer
@@ -688,15 +693,19 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
     const int64_t r2 = ne12 / ne02;
     const int64_t r3 = ne13 / ne03;
 
-    if (r2 == 1 && r3 == 1 && ggml_is_contiguous_2(src0) && ggml_is_contiguous_2(src1)) {
+    if (r2 == 1 && r3 == 1 && is_src0_cont_2 && is_src1_cont_2) {
+        // with a [0, 2, 1, 3] perm. and ne02==1 the matrix strides need to be determined from dim 3:
+        const int64_t sma = ne02 == 1 ? nb03 / nb00 : nb02 / nb00;
+        const int64_t smb = ne12 == 1 ? s13 : s12;
+
         // there is no broadcast and src0, src1 are contiguous across dims 2, 3
         // use cublasGemmStridedBatchedEx
         CUBLAS_CHECK(
             cublasGemmStridedBatchedEx(ctx.cublas_handle(), CUBLAS_OP_T, CUBLAS_OP_N,
                 ne01, ne11, ne10,
-                alpha, src0_ptr, cu_data_type_a, nb01 / nb00, nb02 / nb00, // strideA
-                src1_ptr, cu_data_type_b, s11, s12,       // strideB
-                beta, dst_t, cu_data_type, ne0, ne1 * ne0,   // strideC
+                alpha, src0_ptr, cu_data_type_a, nb01 / nb00, sma,     // strideA
+                src1_ptr, cu_data_type_b, s11, smb,     // strideB
+                beta, dst_t, cu_data_type, ne0, ne1 * ne0, // strideC
                 ne12 * ne13,
                 cu_compute_type,
                 CUBLAS_GEMM_DEFAULT_TENSOR_OP));
@@ -710,6 +719,7 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
 
         size_t src1_stride_size = sizeof(cuda_t);
 
+        dim3 block_dims(ne13, ne12);
         k_compute_batched_ptrs_cuda(
             src0_ptr, src1_ptr, dst_t,
             ptrs_src.get(), ptrs_dst.get(),
@@ -1303,7 +1313,12 @@ inline bool ggml_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, std::i
     return ggml_can_fuse(cgraph, node_idx, ops.begin(), (int)ops.size());
 }
 
-static bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, std::initializer_list<enum ggml_op> ops) {
+static bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, std::initializer_list<enum ggml_op> ops, std::initializer_list<enum ggml_unary_op> unary_ops) {
+#ifndef NDEBUG
+    const size_t num_unary = std::count(ops.begin(), ops.end(), GGML_OP_UNARY);
+    GGML_ASSERT(unary_ops.size() == num_unary);
+#endif
+
     if (!ggml_can_fuse(cgraph, node_idx, ops)) {
         return false;
     }
@@ -1331,9 +1346,32 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, s
         if (!ggml_is_contiguous_rows(mul->src[0]) || !ggml_is_contiguous_rows(mul->src[1])) {
             return false;
         }
+
+        return true;
     }
 
-    return true;
+    if (ops.size() == 3 && ops.begin()[0] == GGML_OP_SCALE && ops.begin()[1] == GGML_OP_UNARY && ops.begin()[2] == GGML_OP_SCALE
+        && unary_ops.size() == 1 && unary_ops.begin()[0] == GGML_UNARY_OP_TANH) {
+        const ggml_tensor* scale = cgraph->nodes[node_idx];
+        const ggml_tensor* tanh = cgraph->nodes[node_idx + 1];
+        const ggml_tensor* scale2 = cgraph->nodes[node_idx + 2];
+
+        GGML_ASSERT(scale->src[0]->type == GGML_TYPE_F32);
+        GGML_ASSERT(scale->type == GGML_TYPE_F32);
+
+        if (ggml_get_unary_op(tanh) != GGML_UNARY_OP_TANH) {
+            return false;
+        }
+
+        // Check for bias
+        if (std::bit_cast<float>(scale->op_params[1]) != 0.0f || std::bit_cast<float>(scale2->op_params[1]) != 0.0f) {
+            return false;
+        }
+
+        return true;
+    }
+
+    return false;
 }
 
 void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
@@ -1353,10 +1391,18 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
                 }
 
                 static bool disable_fusion = (getenv("GGML_CUDA_DISABLE_FUSION") != nullptr);
-                if (!disable_fusion && ggml_cuda_can_fuse(cgraph, i, { GGML_OP_RMS_NORM, GGML_OP_MUL })) {
-                    op::rms_norm_fused(stream(), node, cgraph->nodes[i + 1]);
-                    i++;
-                    continue;
+                if (!disable_fusion) {
+                    if (ggml_cuda_can_fuse(cgraph, i, { GGML_OP_RMS_NORM, GGML_OP_MUL }, {})) {
+                        op::rms_norm_fused(stream(), node, cgraph->nodes[i + 1]);
+                        i++;
+                        continue;
+                    }
+
+                    if (ggml_cuda_can_fuse(cgraph, i, { GGML_OP_SCALE, GGML_OP_UNARY, GGML_OP_SCALE }, { GGML_UNARY_OP_TANH })) {
+                        i += 2;
+                        op::softcap(stream(), cgraph->nodes[i], node);
+                        continue;
+                    }
                 }
 #ifndef NDEBUG
                 assert(node->buffer->get_type() == ggml_backend_cuda_buffer_type(device));
@@ -1679,6 +1725,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     case GGML_OP_ROPE:
     case GGML_OP_ROPE_BACK:
         op::rope(stream(), dst, (dst->op == GGML_OP_ROPE) ? true : false);
+        break;
+    case GGML_OP_ROLL:
+        op::roll(stream(), dst);
         break;
     case GGML_OP_IM2COL:
         op::im2col(stream(), dst);

@@ -37,12 +37,79 @@ int ggml_cuda_get_device() {
     return id;
 }
 
+#if defined(GGML_USE_HIP)
+static int ggml_cuda_parse_id(char devName[]) {
+    // A list of possible Target IDs can be found under the rocclr/clr repo in device.cpp
+    // these values are not stable so this is susceptible to breakage
+    // https://github.com/ROCm/clr/blob/amd-staging/rocclr/device/device.cpp
+    int archMajor = 0x0;
+    int archMinor = 0x0;
+    int archNum = GGML_CUDA_CC_OFFSET_AMD;
+    int archLen = strlen(devName);
+    char archName[archLen + 1];
+
+    // strip leading 'gfx' while copying into our buffer
+    if (archLen > 3) {
+        strcpy(archName, &devName[3]);
+        archLen -= 3;
+    }
+
+    // trim trailing :xnack- or :sramecc- statuses
+    archLen = strcspn(archName, ":");
+    archName[archLen] = '\0';
+
+    // tease out the version information
+    if (archLen > 8) {
+        // versions labeled generic use '-' as delimiter
+        // strip the trailing "-generic" then iterate through what remains
+        if ((strstr(archName, "-generic"))) {
+            archName[archLen - 8] = '\0';
+            char* pch;
+            if ((pch = strtok(archName, "-"))) {
+                archMajor = (int)strtoul(pch, 0, 16);
+                if ((pch = strtok(NULL, "-"))) {
+                    archMinor = 0x10 * (int)strtoul(pch, 0, 16);
+                }
+            }
+        }
+    }
+    else if (archLen >= 3) {
+        // last two digits should be the minor * 0x10 + stepping
+        archMinor = (int)strtoul(&archName[archLen - 2], 0, 16);
+        archName[archLen - 2] = '\0';
+
+        // only the major version remains
+        archMajor = (int)strtoul(archName, 0, 16);
+    }
+    archNum += archMajor * 0x100;
+    archNum += archMinor;
+    return archNum;
+}
+#endif // defined(GGML_USE_HIP)
+
 static ggml_cuda_device_info ggml_cuda_init() {
-#ifdef __HIP_PLATFORM_AMD__
+#if defined(GGML_USE_HIP)
     // Workaround for a rocBLAS bug when using multiple graphics cards:
     // https://github.com/ROCmSoftwarePlatform/rocBLAS/issues/1346
-    rocblas_initialize();
-    CUDA_CHECK(cudaDeviceSynchronize());
+    {
+        int major_version = 0;
+        size_t version_length = 0;
+        if (rocblas_get_version_string_size(&version_length) == rocblas_status_success) {
+            std::vector<char> version(version_length + 1, '\0');
+            if (rocblas_get_version_string(version.data(), version.size()) == rocblas_status_success) {
+                version.resize(::strlen(version.data()));
+                int parsed_value = 0;
+                if (std::from_chars(version.data(), version.data() + version.size(), parsed_value).ec == std::errc()) {
+                    major_version = parsed_value;
+                }
+            }
+        }
+        if (major_version < 4) {
+            GGML_LOG_DEBUG(GGML_CUDA_NAME " calling rocblas_initialize as a workaround for a rocBLAS bug\n");
+            rocblas_initialize();
+            CUDA_CHECK(cudaDeviceSynchronize());
+        }
+    }
 #endif
 
     ggml_cuda_device_info info = {};
@@ -70,7 +137,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
     for (int id = 0; id < info.device_count; ++id) {
         int device_vmm = 0;
 
-#if !defined(GGML_USE_HIP) && !defined(GGML_CUDA_NO_VMM)
+#if defined(GGML_USE_VMM)
         CUdevice device;
         CU_CHECK(cuDeviceGet(&device, id));
         CU_CHECK(cuDeviceGetAttribute(&device_vmm, CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED, device));
@@ -82,12 +149,11 @@ static ggml_cuda_device_info ggml_cuda_init() {
             alloc_prop.location.id = id;
             CU_CHECK(cuMemGetAllocationGranularity(&info.devices[id].vmm_granularity, &alloc_prop, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED));
         }
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_CUDA_NO_VMM)
+#endif // defined(GGML_USE_VMM)
         info.devices[id].vmm = !!device_vmm;
 
         cudaDeviceProp prop;
         CUDA_CHECK(cudaGetDeviceProperties(&prop, id));
-        GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}", id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no");
 
         info.default_tensor_split[id] = total_vram;
         total_vram += prop.totalGlobalMem;
@@ -95,7 +161,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
         info.devices[id].nsm = prop.multiProcessorCount;
         info.devices[id].smpb = prop.sharedMemPerBlock;
         info.devices[id].warp_size = prop.warpSize;
-#if defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#if defined(GGML_USE_HIP)
         info.devices[id].smpbo = prop.sharedMemPerBlock;
 
         info.devices[id].cc = ggml_cuda_parse_id(prop.gcnArchName);
@@ -113,9 +179,11 @@ static ggml_cuda_device_info ggml_cuda_init() {
             id, prop.name, prop.gcnArchName, info.devices[id].cc & 0xffff,
             device_vmm ? "yes" : "no", prop.warpSize);
 #elif defined(GGML_USE_MUSA)
-        // TODO: refine the .cc to reflect MUSA's actual CC capabilities
+        // FIXME: Ensure compatibility with varying warp sizes across different MUSA archs.
+        info.devices[id].warp_size = 32;
         info.devices[id].smpbo = prop.sharedMemPerBlockOptin;
-        info.devices[id].cc = 100 * prop.major + 10 * prop.minor;
+        info.devices[id].cc = GGML_CUDA_CC_OFFSET_MTHREADS + prop.major * 0x100;
+        info.devices[id].cc += prop.minor * 0x10;
         GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}",
             id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no");
 #else
@@ -123,7 +191,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
         info.devices[id].cc = 100 * prop.major + 10 * prop.minor;
         GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}",
             id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no");
-#endif // defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#endif // defined(GGML_USE_HIP)
     }
 
     for (int id = 0; id < info.device_count; ++id) {
@@ -203,6 +271,22 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11) {
 
     if (GGML_CUDA_CC_IS_NVIDIA(cc)) {
         return !fp16_mma_hardware_available(cc) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;
+    }
+
+    if (amd_mfma_available(cc)) {
+        // As of ROCM 7.0 rocblas/tensile performs very poorly on CDNA3 and hipblaslt (via ROCBLAS_USE_HIPBLASLT)
+        // performs better but is currently suffering from a crash on this architecture.
+        // TODO: Revisit when hipblaslt is fixed on CDNA3
+        if (GGML_CUDA_CC_IS_CDNA3(cc)) {
+            return true;
+        }
+        if (ne11 <= 128 || type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q4_1 || type == GGML_TYPE_Q5_0 || type == GGML_TYPE_Q5_1) {
+            return true;
+        }
+        if (ne11 <= 256 && (type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K)) {
+            return true;
+        }
+        return false;
     }
 
     return (!GGML_CUDA_CC_IS_RDNA4(cc) && !GGML_CUDA_CC_IS_RDNA3(cc) && !GGML_CUDA_CC_IS_CDNA(cc)) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;
@@ -290,7 +374,7 @@ bool fast_fp16_hardware_available(const int cc)
 
 void CUDA_SET_SHARED_MEMORY_LIMIT(const void* kernel, size_t nbytes)
 {
-#if !(defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)) && !defined(GGML_USE_MUSA)
+#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
     static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = { false };
     const int id = ggml_cuda_get_device();
     if (!shared_memory_limit_raised[id]) {
@@ -298,10 +382,14 @@ void CUDA_SET_SHARED_MEMORY_LIMIT(const void* kernel, size_t nbytes)
         shared_memory_limit_raised[id] = true;
     }
 #else
-#endif
+#endif // !(defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 }
 
 bool amd_mfma_available(const int cc)
 {
-    return cc >= GGML_CUDA_CC_OFFSET_AMD && GGML_CUDA_CC_IS_CDNA3(cc);
+#if !defined(GGML_HIP_NO_MMQ_MFMA)
+    return GGML_CUDA_CC_IS_CDNA(cc);
+#else
+    return false;
+#endif //!defined(GGML_HIP_NO_MMQ_MFMA)
 }

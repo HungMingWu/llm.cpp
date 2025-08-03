@@ -551,6 +551,7 @@ export {
         void build_forward_expand(ggml_tensor*);
         void build_backward_expand(ggml_context*, std::span<ggml_tensor*> grad_accs = {});
         void add_node(ggml_tensor*);
+        size_t getGraphSize() const { return std::max(nodes.size(), leafs.size()); }
         std::span<ggml_tensor*> getNodes() { return nodes; }
         void reset();
         ggml_tensor* get_tensor(std::string_view name);

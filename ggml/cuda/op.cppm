@@ -269,15 +269,15 @@ namespace op
         const int64_t OH = is_2D ? dst->ne[2] : 1;
         const int64_t OW = dst->ne[1];
 
-        const size_t  delta_offset = src1->nb[is_2D ? 2 : 1] / 4; // nb is byte offset, src is type float32
-        const int64_t batch = src1->ne[is_2D ? 3 : 2];
-        const size_t  batch_offset = src1->nb[is_2D ? 3 : 2] / 4; // nb is byte offset, src is type float32
+        const int64_t IC_IH_IW = src1->nb[is_2D ? 2 : 1] / 4; // nb is byte offset, src is type float32
+        const int64_t N = src1->ne[is_2D ? 3 : 2];
+        const int64_t IH_IW = src1->nb[is_2D ? 3 : 2] / 4; // nb is byte offset, src is type float32
 
         if (dst->type == GGML_TYPE_F16) {
-            im2col_cuda_f16(src1_d, (half*)dst_d, IW, IH, OW, OH, KW, KH, IC, batch, batch_offset, delta_offset, s0, s1, p0, p1, d0, d1, stream);
+            im2col_cuda_f16(src1_d, (half*)dst_d, IW, IH, OW, OH, KW, KH, IC, N, IC_IH_IW, IH_IW, s0, s1, p0, p1, d0, d1, stream);
         }
         else {
-            im2col_cuda_f32(src1_d, (float*)dst_d, IW, IH, OW, OH, KW, KH, IC, batch, batch_offset, delta_offset, s0, s1, p0, p1, d0, d1, stream);
+            im2col_cuda_f32(src1_d, (float*)dst_d, IW, IH, OW, OH, KW, KH, IC, N, IC_IH_IW, IH_IW, s0, s1, p0, p1, d0, d1, stream);
         }
     }
 
@@ -793,8 +793,8 @@ namespace op
         const int64_t s03 = src0->nb[3] / ts_src0;
         const int64_t s3 = dst->nb[3] / ts_dst;
 
-        const bool use_stream_k = ((GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA)
-            || (GGML_CUDA_CC_IS_AMD(cc) && GGML_CUDA_CC_IS_CDNA3(cc)));
+        const bool use_stream_k = (GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA)
+                                || GGML_CUDA_CC_IS_CDNA(cc);
 
         if (!ids) {
             const size_t nbytes_src1_q8_1 = src1->ne[3] * src1->ne[2] * src1->ne[1] * ne10_padded * sizeof(block_q8_1) / QK8_1 +
@@ -1695,7 +1695,8 @@ namespace op
 
         const bool gqa_opt_applies = ((Q->ne[2] / K->ne[2]) % 2 == 0) && mask; // The mma-based kernels have GQA-specific optimizations
         const bool mma_needs_data_conversion = K->type != GGML_TYPE_F16 || V->type != GGML_TYPE_F16;
-        const bool mma_faster_for_bs1 = new_mma_available(cc) && gqa_opt_applies && cc < GGML_CUDA_CC_ADA_LOVELACE && !mma_needs_data_conversion;
+        const bool mma_faster_for_bs1 = new_mma_available(cc) && gqa_opt_applies &&
+            (Q->ne[3] > 1 || cc < GGML_CUDA_CC_ADA_LOVELACE) && !mma_needs_data_conversion;
         const bool can_use_vector_kernel = Q->ne[0] <= 256 && Q->ne[0] % (2 * warp_size) == 0;
         if (Q->ne[1] == 1 && can_use_vector_kernel && !mma_faster_for_bs1) {
             if (prec == GGML_PREC_DEFAULT) {
@@ -2150,5 +2151,39 @@ namespace op
         const int mul_nsamples = mul_src->ne[3];
 
         rms_norm_mul_f32_cuda(src0_d, mul_d, dst_d, ne00, ne01, ne02, ne03, s01, s02, s03, mul_s01, mul_s02, mul_s03, mul_ncols, mul_nrows, mul_nchannels, mul_nsamples, eps, stream);
+    }
+
+    void roll(cudaStream_t stream, ggml_tensor* dst) {
+        int s0 = dst->op_params[0];
+        int s1 = dst->op_params[1];
+        int s2 = dst->op_params[2];
+        int s3 = dst->op_params[3];
+
+        const ggml_tensor* src0 = dst->src[0];
+        const float* src0_d = (const float*)dst->src[0]->data;
+        float* dst_d = (float*)dst->data;
+
+        GGML_ASSERT(dst->src[0]->type == GGML_TYPE_F32);
+        GGML_ASSERT(ggml_are_same_shape(dst->src[0], dst));
+
+        roll_f32_cuda(
+            src0_d, dst_d, src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3], s0, s1, s2, s3, stream);
+    }
+
+    // fused GGML_OP_SCALE + GGML_UNARY_OP_TANH + GGML_OP_SCALE
+    void softcap(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* src) {
+        const ggml_tensor* src0 = src->src[0];
+        const float* src0_d = (const float*)src0->data;
+        float* dst_d = (float*)dst->data;
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+
+        float scale;
+        float softcap;
+        memcpy(&scale, (float*)src->op_params + 0, sizeof(float));
+        memcpy(&softcap, (float*)dst->op_params + 0, sizeof(float));
+
+        softcap_f32_cuda(src0_d, dst_d, scale, softcap, src0->nelements(), stream);
     }
 }

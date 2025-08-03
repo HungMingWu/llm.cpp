@@ -371,6 +371,11 @@ public:
             return true;
         case GGML_OP_SOFT_MAX_BACK:
             return std::bit_cast<float>(op->op_params[1]) == 0.0f;
+        case GGML_OP_ROLL:
+            if (op->src[0]->type == GGML_TYPE_F32) {
+                return true;
+            }
+            return false;
         case GGML_OP_ROPE:
         case GGML_OP_ROPE_BACK: {
             return op->src[0]->nb[0] == ggml_type_size(op->src[0]->type) && ggml_is_contiguous_2(op->src[0]);

@@ -54,9 +54,11 @@ target_sources(libggml
       op/pad.cu
       op/pool2d.cu
       op/quantize.cu
+      op/roll.cu
       op/rope.cu
       op/scale.cu
       op/set-rows.cu
+      op/softcap.cu
       op/softmax.cu
       op/ssm-conv.cu
       op/ssm-scan.cu

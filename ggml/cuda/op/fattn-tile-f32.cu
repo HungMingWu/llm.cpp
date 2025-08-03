@@ -35,6 +35,12 @@ static __device__ __forceinline__ half2 __tohalf21(uint32_t value)
     return half2(x, y);
 }
 
+// Currenlty llvm with the amdgcn target dose not support unrolling loops
+// that contain a break that can not be resolved at compile time.
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpass-failed"
+#endif // __clang__
 template<int D, int ncols, ggml_type type_K, ggml_type type_V, bool use_logit_softcap> // D == head size
 #ifndef GGML_USE_HIP
 __launch_bounds__(D, 1)
@@ -44,6 +50,7 @@ static __global__ void flash_attn_vec_ext_f16(
     const char* __restrict__ K,
     const char* __restrict__ V,
     const char* __restrict__ mask,
+    const int* __restrict__ KV_max,
     float* __restrict__ dst,
     float2* __restrict__ dst_meta,
     const float scale,
@@ -206,10 +213,14 @@ static __global__ void flash_attn_vec_ext_f16(
 
     half2 VKQ[ncols] = { {0.0f, 0.0f} };
 
+    const int k_VKQ_max = KV_max ? KV_max[sequence * gridDim.x + blockIdx.x] : ne11;
     K += blockIdx.y * D * nb11;
     V += blockIdx.y * D * nb21;
     maskh += blockIdx.y * D;
-    for (int k_VKQ_0 = blockIdx.y * D; k_VKQ_0 < ne11; k_VKQ_0 += gridDim.y * D) {
+    for (int k_VKQ_0 = blockIdx.y * D; k_VKQ_0 < k_VKQ_max; k_VKQ_0 += gridDim.y * D,
+        // Increment pointers after each loop:
+        K += gridDim.y * D * nb11, V += gridDim.y * D * nb21, maskh += gridDim.y * D) {
+
         // Calculate KQ tile and keep track of new maximum KQ values:
 
         if (mask) {
@@ -217,29 +228,7 @@ static __global__ void flash_attn_vec_ext_f16(
             for (int j = 0; j < ncols; ++j) {
                 maskh_shared[j * D + tid] = slopeh * maskh[j * ne11 + tid];
             }
-
             __syncthreads();
-
-            // When using multiple parallel sequences in llama.cpp, some KV slices can be fully masked out.
-            // In such cases, skip the KV slice.
-            // On AMD __all_sync would not work correctly because it assumes a warp size of 64.
-#ifndef GGML_USE_HIP
-            bool skip = true;
-#pragma unroll
-            for (int j = 0; j < ncols; ++j) {
-#pragma unroll
-                for (int i0 = 0; i0 < D / 2; i0 += WARP_SIZE) {
-                    const int i = i0 + threadIdx.x;
-
-                    const float2 tmp = __half22float2(((const half2*)maskh_shared)[j * (D / 2) + i]);
-                    skip = skip && isinf(tmp.x) && isinf(tmp.y);
-                }
-            }
-            if (__all_sync(0xFFFFFFFF, skip)) {
-                __syncthreads();
-                continue;
-            }
-#endif // GGML_USE_HIP
         }
 
         // For unknown reasons using a half array of size 1 for kqmax_new causes a performance regression,
@@ -327,10 +316,6 @@ static __global__ void flash_attn_vec_ext_f16(
             }
         }
 
-        K += gridDim.y * D * nb11;
-        V += gridDim.y * D * nb21;
-        maskh += gridDim.y * D;
-
         __syncthreads();
     }
 
@@ -378,6 +363,9 @@ static __global__ void flash_attn_vec_ext_f16(
     NO_DEVICE_CODE;
 #endif // defined(FLASH_ATTN_AVAILABLE) && defined(FP16_AVAILABLE)
 }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif // __clang__
 
 using vec_dot_KQ_f32_t = float (*)(
     const char* __restrict__ K_c, const void* __restrict__ Q_v, const int* __restrict__ Q_q8, const void* __restrict__ Q_ds);
@@ -836,6 +824,12 @@ static __device__ __forceinline__ void quantize_q8_1_to_shared(
     }
 }
 
+// Currenlty llvm with the amdgcn target dose not support unrolling loops
+// that contain a break that can not be resolved at compile time.
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpass-failed"
+#endif // __clang__
 template<int D, int ncols, ggml_type type_K, ggml_type type_V, bool use_logit_softcap> // D == head size
 #ifndef GGML_USE_HIP
 __launch_bounds__(D, 1)
@@ -845,6 +839,7 @@ static __global__ void flash_attn_vec_ext_f32(
     const char* __restrict__ K,
     const char* __restrict__ V,
     const char* __restrict__ mask,
+    const int* __restrict__ KV_max,
     float* __restrict__ dst,
     float2* __restrict__ dst_meta,
     const float scale,
@@ -1013,10 +1008,14 @@ static __global__ void flash_attn_vec_ext_f32(
 
     float VKQ[ncols] = { 0.0f };
 
+    const int k_VKQ_max = KV_max ? KV_max[sequence * gridDim.x + blockIdx.x] : ne11;
     K += blockIdx.y * D * nb11;
     V += blockIdx.y * D * nb21;
     maskh += blockIdx.y * D;
-    for (int k_VKQ_0 = blockIdx.y * D; k_VKQ_0 < ne11; k_VKQ_0 += gridDim.y * D) {
+    for (int k_VKQ_0 = blockIdx.y * D; k_VKQ_0 < k_VKQ_max; k_VKQ_0 += gridDim.y * D,
+        // Increment pointers after each loop:
+        K += gridDim.y * D * nb11, V += gridDim.y * D * nb21, maskh += gridDim.y * D) {
+
         // Calculate KQ tile and keep track of new maximum KQ values:
 
         if (mask) {
@@ -1024,28 +1023,7 @@ static __global__ void flash_attn_vec_ext_f32(
             for (int j = 0; j < ncols; ++j) {
                 maskf_shared[j * D + tid] = slope * __half2float(maskh[j * ne11 + tid]);
             }
-
             __syncthreads();
-
-            // When using multiple parallel sequences in llama.cpp, some KV slices can be fully masked out.
-            // In such cases, skip the KV slice.
-            // On AMD __all_sync would not work correctly because it assumes a warp size of 64.
-#ifndef GGML_USE_HIP
-            bool skip = true;
-#pragma unroll
-            for (int j = 0; j < ncols; ++j) {
-#pragma unroll
-                for (int i0 = 0; i0 < D; i0 += WARP_SIZE) {
-                    const int i = i0 + threadIdx.x;
-
-                    skip = skip && isinf(maskf_shared[j * D + i]);
-                }
-            }
-            if (__all_sync(0xFFFFFFFF, skip)) {
-                __syncthreads();
-                continue;
-            }
-#endif // GGML_USE_HIP
         }
 
         float kqmax_new_arr[ncols];
@@ -1122,10 +1100,6 @@ static __global__ void flash_attn_vec_ext_f32(
             }
         }
 
-        K += gridDim.y * D * nb11;
-        V += gridDim.y * D * nb21;
-        maskh += gridDim.y * D;
-
         __syncthreads();
     }
 
@@ -1173,6 +1147,9 @@ static __global__ void flash_attn_vec_ext_f32(
     NO_DEVICE_CODE;
 #endif // FLASH_ATTN_AVAILABLE
 }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif // __clang__
 
 template <int D, int cols_per_block, ggml_type type_K, ggml_type type_V, bool use_logit_softcap>
 void ggml_cuda_flash_attn_ext_vec_f16_case_impl(const flash_attn_ext_context& ctx) {
@@ -1477,14 +1454,15 @@ void ggml_cuda_flash_attn_ext_vec_f32(const flash_attn_ext_context& ctx)
 }
 
 template<int D, int ncols, int nwarps, bool use_logit_softcap> // D == head size
-#if !(defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__))
+#if !defined(GGML_USE_HIP)
 __launch_bounds__(nwarps* WARP_SIZE, 2)
-#endif // !(defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__))
+#endif // !defined(GGML_USE_HIP)
 static __global__ void flash_attn_tile_ext_f32(
     const char* __restrict__ Q,
     const char* __restrict__ K,
     const char* __restrict__ V,
     const char* __restrict__ mask,
+    const int* __restrict__ KV_max,
     float* __restrict__ dst,
     float2* __restrict__ dst_meta,
     const float scale,
@@ -1571,7 +1549,8 @@ static __global__ void flash_attn_tile_ext_f32(
 
     __syncthreads();
 
-    for (int k_VKQ_0 = blockIdx.y * FATTN_KQ_STRIDE_TILE_F32; k_VKQ_0 < ne11; k_VKQ_0 += gridDim.y * FATTN_KQ_STRIDE_TILE_F32) {
+    const int k_VKQ_max = KV_max ? KV_max[sequence * gridDim.x + blockIdx.x] : ne11;
+    for (int k_VKQ_0 = blockIdx.y * FATTN_KQ_STRIDE_TILE_F32; k_VKQ_0 < k_VKQ_max; k_VKQ_0 += gridDim.y * FATTN_KQ_STRIDE_TILE_F32) {
         // Calculate KQ tile and keep track of new maximum KQ values:
 
         float kqmax_new[ncols / nwarps];

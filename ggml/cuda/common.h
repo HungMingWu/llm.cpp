@@ -218,7 +218,7 @@ constexpr int get_mmq_y_host(const int cc) {
 
 // Any FP16 tensor core instructions are available for ggml code.
 constexpr bool fp16_mma_available(const int cc) {
-#if defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__) && !defined(GGML_HIP_ROCWMMA_FATTN)
+#if defined(GGML_USE_HIP) && !defined(GGML_HIP_ROCWMMA_FATTN)
     return false;
 #else
     if ((GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA) ||
@@ -236,7 +236,7 @@ constexpr bool fp16_mma_available(const int cc) {
     else {
         return false;
     }
-#endif // defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__) && !defined(GGML_HIP_ROCWMMA_FATTN)
+#endif // defined(GGML_USE_HIP) && !defined(GGML_HIP_ROCWMMA_FATTN)
 }
 
 #if !defined(GGML_CUDA_NO_FA) && !(defined(GGML_USE_MUSA) && __MUSA_ARCH__ <= GGML_CUDA_CC_QY1)
@@ -256,11 +256,11 @@ static __device__ __forceinline__ float get_alibi_slope(
 }
 
 static constexpr __device__ int ggml_cuda_get_physical_warp_size() {
-#if defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__) && (defined(__GFX9__) || defined(__GFX8__))
+#if defined(GGML_USE_HIP) && (defined(__GFX9__) || defined(__GFX8__))
     return 64;
 #else
     return 32;
-#endif // defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__) && (defined(__GFX9__) || defined(__GFX8__))
+#endif // defined(GGML_USE_HIP) && (defined(__GFX9__) || defined(__GFX8__))
 }
 
 static constexpr bool int8_mma_available(const int cc) {
@@ -278,5 +278,4 @@ bool fast_fp16_hardware_available(const int cc);
 
 void CUDA_SET_SHARED_MEMORY_LIMIT(const void* kernel, size_t nbytes);
 
-// AMD CDNA3 matrix cores.. Will add support for other CDNA generations later.
 bool amd_mfma_available(const int cc);

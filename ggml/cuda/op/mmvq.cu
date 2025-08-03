@@ -42,15 +42,15 @@ static __host__ mmvq_parameter_table_id get_device_table_id(int cc) {
     return MMVQ_PARAMETERS_GENERIC;
 }
 
-#if defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
-static int mmq_get_nwarps_host(const int cc) {
-    return amd_mfma_available(cc) ? 8 : 4;
+#if defined(GGML_USE_HIP)
+static int mmq_get_nwarps_host(const int cc, const int warp_size) {
+    return amd_mfma_available(cc) ? 8 : 256 / warp_size;
 }
 #else
-static int mmq_get_nwarps_host(const int /*cc*/) {
-    return 8;
+static int mmq_get_nwarps_host(const int /*cc*/, const int warp_size) {
+    return 256 / warp_size;
 }
-#endif // (GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#endif // (GGML_USE_HIP)
 
 static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int table_id) {
     if (table_id == MMVQ_PARAMETERS_GENERIC || table_id == MMVQ_PARAMETERS_GCN) {
@@ -534,9 +534,9 @@ static constexpr __device__ int get_mmq_x_max_device() {
     return 128;
 #else // defined(AMD_MFMA_AVAILABLE) || defined(NEW_MMA_AVAILABLE)
 
-#if defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#if defined(GGML_USE_HIP)
     return 64;
-#else // defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#else // defined(GGML_USE_HIP)
 
 #if __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
 #ifdef GGML_CUDA_FORCE_MMQ
@@ -548,7 +548,7 @@ static constexpr __device__ int get_mmq_x_max_device() {
     return 64;
 #endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
 
-#endif // defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#endif // defined(GGML_USE_HIP)
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(NEW_MMA_AVAILABLE)
 }
 
@@ -568,19 +568,15 @@ static constexpr __device__ int mmq_get_granularity_device(const int mmq_x) {
 #endif
 
 static constexpr __device__ int mmq_get_nwarps_device() {
-#if defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
 #if defined(AMD_MFMA_AVAILABLE)
     return 8;
 #else
-    return 4;
+    return 256 / ggml_cuda_get_physical_warp_size();
 #endif // AMD_MFMA_AVAILABLE
-#else
-    return 8;
-#endif // defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
 }
 
 static constexpr __device__ int get_mmq_y_device() {
-#if defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#if defined(GGML_USE_HIP)
 #if defined(RDNA1)
     return 64;
 #else
@@ -592,7 +588,7 @@ static constexpr __device__ int get_mmq_y_device() {
 #else
     return 64;
 #endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-#endif // defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#endif // defined(GGML_USE_HIP)
 }
 
 using vec_dot_mmq_t = void (*)(const int* __restrict__ x, const int* __restrict__ y, float* __restrict__ sum, const int k00);
@@ -3844,7 +3840,7 @@ static __device__ __forceinline__ void mul_mat_q_process_tile(
 // The mul_mat_q kernel implements "stream-k" work partitioning as described in https://arxiv.org/abs/2301.03598
 
 template <ggml_type type, typename src_t, int mmq_x, bool need_check>
-#if defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#if defined(GGML_USE_HIP)
 #if defined(RDNA4) || defined(RDNA3) || defined(RDNA2) || defined(CDNA) || defined(GCN)
 __launch_bounds__(ggml_cuda_get_physical_warp_size()* mmq_get_nwarps_device(), 2)
 #endif // defined(RDNA4) || defined(RDNA3) || defined(RDNA2) || defined(CDNA) || defined(GCN)
@@ -3854,7 +3850,7 @@ __launch_bounds__(ggml_cuda_get_physical_warp_size()* mmq_get_nwarps_device(), 1
 #else
 __launch_bounds__(ggml_cuda_get_physical_warp_size()* mmq_get_nwarps_device(), 2)
 #endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-#endif // defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#endif // defined(GGML_USE_HIP)
 static __global__ void mul_mat_q(
     const char* __restrict__ x, const int* __restrict__ y, const int32_t* __restrict__ ids_dst,
     const int32_t* __restrict__ expert_bounds, float* __restrict__ dst, float* __restrict__ tmp_fixup,
@@ -3893,8 +3889,8 @@ static __global__ void mul_mat_q(
     }
     __syncthreads();
 
-    // On AMD or old CUDA the performance with stream-k was worse, use conventional tiling instead:
-#if (defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__) && !defined(CDNA3)) || __CUDA_ARCH__ < GGML_CUDA_CC_VOLTA
+    // On non-CDNA AMD or old CUDA the performance with stream-k was worse, use conventional tiling instead:
+#if (defined(GGML_USE_HIP) && !defined(CDNA)) || __CUDA_ARCH__ < GGML_CUDA_CC_VOLTA
     {
         const int wt = blockIdx.z / nchannels_y;
         const int zt = blockIdx.z - wt * nchannels_y;
@@ -3948,7 +3944,7 @@ static __global__ void mul_mat_q(
                 tile_x_max_i, tile_y_max_j, 0, ncols_x / qk);
         return;
     }
-#endif // (defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__) && !defined(CDNA3)) || __CUDA_ARCH__ < GGML_CUDA_CC_VOLTA
+#endif // (defined(GGML_USE_HIP) && !defined(CDNA3)) || __CUDA_ARCH__ < GGML_CUDA_CC_VOLTA
 
     const     int64_t blocks_per_ne00 = ncols_x / qk;
     constexpr int     blocks_per_iter = MMQ_ITER_K / qk;
@@ -4304,7 +4300,7 @@ static void launch_mul_mat_q(ggml_cuda_pool& pool, const mmq_args& args, cudaStr
     const int cc = ggml_cuda_info().devices[id].cc;
     const int nsm = ggml_cuda_info().devices[id].nsm;
     const int warp_size = ggml_cuda_info().devices[id].warp_size;
-    const int nwarps = mmq_get_nwarps_host(cc);
+    const int nwarps = mmq_get_nwarps_host(cc, warp_size);
     const int mmq_y = get_mmq_y_host(cc);
 
     const dim3 block_dims(warp_size, nwarps, 1);
@@ -4406,7 +4402,7 @@ void mul_mat_q_case(ggml_cuda_pool& pool, const mmq_args& args, cudaStream_t str
     const int    cc = ggml_cuda_info().devices[id].cc;
     const size_t smpbo = ggml_cuda_info().devices[id].smpbo;
     const int warp_size = ggml_cuda_info().devices[id].warp_size;
-    const int nwarps = mmq_get_nwarps_host(cc);
+    const int nwarps = mmq_get_nwarps_host(cc, warp_size);
 
     const int mmq_x_max = get_mmq_x_max_host(cc);
     const int mmq_y = get_mmq_y_host(cc);

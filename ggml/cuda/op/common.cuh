@@ -6,21 +6,28 @@
 #include "../common.h"
 #include "block.h"
 
+#define GGML_UNUSED(x) (void)(x)
+
 [[noreturn]]
 static __device__ void no_device_code(
     const char* file_name, const int line, const char* function_name, const int arch, const char* arch_list)
 {
-#if defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+
+#if defined(GGML_USE_HIP)
     printf("%s:%d: ERROR: HIP kernel %s has no device code compatible with HIP arch %d.\n",
         file_name, line, function_name, arch);
     GGML_UNUSED(arch_list);
 #else
     printf("%s:%d: ERROR: CUDA kernel %s has no device code compatible with CUDA arch %d. ggml-cuda.cu was compiled for: %s\n",
         file_name, line, function_name, arch, arch_list);
-#endif // defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#endif // defined(GGML_USE_HIP)
     __trap();
 
-    //GGML_UNUSED(no_device_code); // suppress unused function warning
+    GGML_UNUSED(no_device_code); // suppress unused function warning
+
+#if defined(GGML_USE_MUSA)
+    __builtin_unreachable();
+#endif // defined(GGML_USE_MUSA)
 }
 
 #ifdef __CUDA_ARCH__
@@ -28,6 +35,19 @@ static __device__ void no_device_code(
 #else
 #define NO_DEVICE_CODE //GGML_ABORT("NO_DEVICE_CODE not valid in host code.")
 #endif // __CUDA_ARCH__
+
+template<int width = WARP_SIZE>
+static __device__ __forceinline__ int warp_reduce_sum(int x) {
+#if !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+    return __reduce_add_sync(0xffffffff, x);
+#else
+#pragma unroll
+    for (int offset = width / 2; offset > 0; offset >>= 1) {
+        x += __shfl_xor_sync(0xffffffff, x, offset, width);
+    }
+    return x;
+#endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+}
 
 template<int width = WARP_SIZE>
 static __device__ __forceinline__ float warp_reduce_sum(float x) {
@@ -56,6 +76,7 @@ static __device__ __forceinline__ float warp_reduce_max(float x) {
     return x;
 }
 
+
 // Row reduction kernel template - compute sum (norm=false) or mean (norm=true)
 template<bool norm>
 static __global__ void reduce_rows_f32(const float* x, float* dst, const int ncols) {
@@ -74,6 +95,53 @@ static __global__ void reduce_rows_f32(const float* x, float* dst, const int nco
     }
 
     dst[row] = norm ? sum / ncols : sum;
+}
+
+template<int width = WARP_SIZE>
+static __device__ __forceinline__ int warp_reduce_all(int x) {
+#ifdef GGML_USE_HIP
+#pragma unroll
+    for (int offset = width / 2; offset > 0; offset >>= 1) {
+        x = x && __shfl_xor_sync(0xffffffff, x, offset, width);
+    }
+    return x;
+#else
+    static_assert(width == WARP_SIZE, "width != WARP_SIZE not implemented");
+    return __all_sync(0xffffffff, x);
+#endif // GGML_USE_HIP
+}
+
+static __device__ __forceinline__ half ggml_cuda_hmax(const half a, const half b) {
+#ifdef FP16_AVAILABLE
+
+#if !defined(GGML_USE_HIP) && CUDART_VERSION < CUDART_HMAX
+    return __float2half(fmaxf(__half2float(a), __half2float(b)));
+#else
+    return __hmax(a, b);
+#endif // !defined(GGML_USE_HIP) && CUDART_VERSION < CUDART_HMAX
+
+#else
+    NO_DEVICE_CODE;
+    GGML_UNUSED(b);
+    return a;
+#endif // FP16_AVAILABLE
+}
+
+static __device__ __forceinline__ half2 ggml_cuda_hmax2(const half2 a, const half2 b) {
+#if defined(GGML_USE_HIP) && HIP_VERSION >= 50700000
+    return half2(__hmax(a.x, b.x), __hmax(a.y, b.y));
+#elif !defined(GGML_USE_HIP) && CUDART_VERSION >= CUDART_HMAX
+    return __hmax2(a, b);
+#elif !defined(GGML_USE_HIP)
+    half2 ret;
+    reinterpret_cast<half&>(ret.x) = __float2half(fmaxf(__low2float(a), __low2float(b)));
+    reinterpret_cast<half&>(ret.y) = __float2half(fmaxf(__high2float(a), __high2float(b)));
+    return ret;
+#else
+    GGML_UNUSED(a);
+    GGML_UNUSED(b);
+    NO_DEVICE_CODE;
+#endif
 }
 
 // QR = QK / number of values before dequantization
@@ -318,12 +386,12 @@ struct ggml_cuda_type_traits<block_iq3_s> {
 };
 
 static __device__ __forceinline__ int ggml_cuda_dp4a(const int a, const int b, int c) {
-#if defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
-#if defined(__gfx906__) || defined(__gfx908__) || defined(__gfx90a__) || defined(RDNA2)
+#if defined(GGML_USE_HIP)
+#if defined(CDNA) || defined(RDNA2) || defined(__gfx906__)
     c = __builtin_amdgcn_sdot4(a, b, c, false);
-#elif defined(RDNA3)
+#elif defined(RDNA3) || defined(RDNA4)
     c = __builtin_amdgcn_sudot4(true, a, true, b, c, false);
-#elif defined(__gfx1010__) || defined(__gfx900__)
+#elif defined(RDNA1) || defined(__gfx900__)
     int tmp1;
     int tmp2;
     asm("\n \
@@ -344,17 +412,17 @@ static __device__ __forceinline__ int ggml_cuda_dp4a(const int a, const int b, i
 #endif
     return c;
 
-#else // defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#else // defined(GGML_USE_HIP)
 
-#if __CUDA_ARCH__ >= GGML_CUDA_CC_DP4A
+#if __CUDA_ARCH__ >= GGML_CUDA_CC_DP4A || defined(GGML_USE_MUSA)
     return __dp4a(a, b, c);
-#else // __CUDA_ARCH__ >= GGML_CUDA_CC_DP4A
+#else // __CUDA_ARCH__ >= GGML_CUDA_CC_DP4A || defined(GGML_USE_MUSA)
     const int8_t* a8 = (const int8_t*)&a;
     const int8_t* b8 = (const int8_t*)&b;
     return c + a8[0] * b8[0] + a8[1] * b8[1] + a8[2] * b8[2] + a8[3] * b8[3];
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_DP4A
+#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_DP4A || defined(GGML_USE_MUSA)
 
-#endif // defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)
+#endif // defined(GGML_USE_HIP)
 }
 
 static bool cp_async_available(const int cc) {

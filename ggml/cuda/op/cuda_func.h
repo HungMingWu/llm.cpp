@@ -143,12 +143,12 @@ void pool2d_nchw_kernel_f32_f32_cuda(
 
 void im2col_cuda_f16(const float* x, half* dst,
     int64_t IW, int64_t IH, int64_t OW, int64_t OH, int64_t KW, int64_t KH, int64_t IC,
-    int64_t batch, int64_t batch_offset, int64_t offset_delta,
+    int64_t N, int64_t IC_IH_IW, int64_t IH_IW,
     int s0, int s1, int p0, int p1, int d0, int d1, cudaStream_t stream);
 
 void im2col_cuda_f32(const float* x, float* dst,
     int64_t IW, int64_t IH, int64_t OW, int64_t OH, int64_t KW, int64_t KH, int64_t IC,
-    int64_t batch, int64_t batch_offset, int64_t offset_delta,
+    int64_t N, int64_t IC_IH_IW, int64_t IH_IW,
     int s0, int s1, int p0, int p1, int d0, int d1, cudaStream_t stream);
 
 // unary
@@ -667,3 +667,19 @@ struct set_rows_context {
 };
 
 void set_rows_cuda(set_rows_context* context, cudaStream_t stream);
+
+// softcap.cu
+void softcap_f32_cuda(const float* x, float* dst, const float scale, const float softcap, const int k, cudaStream_t stream);
+
+// roll.cu
+void roll_f32_cuda(const float* __restrict__ src,
+    float* __restrict__ dst,
+    const int64_t ne00,
+    const int64_t ne01,
+    const int64_t ne02,
+    const int64_t ne03,
+    const int     s0,
+    const int     s1,
+    const int     s2,
+    const int     s3,
+    cudaStream_t stream);
