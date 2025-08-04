@@ -2609,183 +2609,52 @@ static void ggml_compute_forward_rwkv_wkv6_f32(
 	const int64_t n_seqs = dst->src[5]->ne[1];
 	const int64_t head_size = C / HEADS;
 
-	float* dst_data = (float*)dst->data;
+
 	float* state = ((float*)dst->data) + C * T;
 
-	const int nth = pool.available_parallelism();
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
+	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), T, HEADS, head_size);
+	std::experimental::mdspan k(static_cast<const float*>(dst->src[0]->data), T, HEADS, head_size);
+	std::experimental::mdspan v(static_cast<const float*>(dst->src[1]->data), T, HEADS, head_size);
+	std::experimental::mdspan r(static_cast<const float*>(dst->src[2]->data), T, HEADS, head_size);
+	std::experimental::mdspan time_faaaa(static_cast<const float*>(dst->src[3]->data), HEADS, head_size);
+	std::experimental::mdspan time_decay(static_cast<const float*>(dst->src[4]->data), T, HEADS, head_size);
 
-	const int64_t dr = (HEADS + nth - 1) / nth;
-
-	float* k = (float*)dst->src[0]->data;
-	float* v = (float*)dst->src[1]->data;
-	float* r = (float*)dst->src[2]->data;
-	float* time_faaaa = (float*)dst->src[3]->data;
-	float* time_decay = (float*)dst->src[4]->data;
-
-	size_t t_stride = HEADS * head_size; // Same to C
-
-	size_t h_stride = C / HEADS;
+	GGML_ASSERT(HEADS * head_size == C);
 	GGML_ASSERT(C % HEADS == 0); // C must be divisible by HEADS
-	size_t h_stride_2d = head_size * head_size;
 
-	memset(dst_data, 0, T * C * sizeof(float));
+	memset(dst->data, 0, T * C * sizeof(float));
 
-#if defined(__AVX__) && !defined(__AVX512F__)
-#define GGML_F32X GGML_F32x8
-#define GGML_F32X_SET1 GGML_F32x8_SET1
-#define GGML_F32X_LOAD GGML_F32x8_LOAD
-#define GGML_F32X_STORE GGML_F32x8_STORE
-#define GGML_F32X_MUL GGML_F32x8_MUL
-#define GGML_F32X_FMA GGML_F32x8_FMA
-#define WKV_VECTOR_SIZE 8
-#elif defined(__AVX512F__)
-#define GGML_F32X GGML_F32x16
-#define GGML_F32X_SET1 GGML_F32x16_SET1
-#define GGML_F32X_LOAD GGML_F32x16_LOAD
-#define GGML_F32X_STORE GGML_F32x16_STORE
-#define GGML_F32X_MUL GGML_F32x16_MUL
-#define GGML_F32X_FMA GGML_F32x16_FMA
-#define WKV_VECTOR_SIZE 16
-#elif defined(__ARM_FEATURE_SVE) && defined(__aarch64__)
-#define GGML_F32X GGML_F32xt
-#define GGML_F32X_SET1 GGML_F32xt_SET1
-#define GGML_F32X_LOAD GGML_F32xt_LOAD
-#define GGML_F32X_STORE GGML_F32xt_STORE
-#define GGML_F32X_MUL GGML_F32xt_MUL
-#define GGML_F32X_FMA GGML_F32xt_FMA
-#define WKV_VECTOR_SIZE 8
-#elif defined(__ARM_NEON) && defined(__aarch64__)
-#define GGML_F32X GGML_F32x4
-#define GGML_F32X_SET1 GGML_F32x4_SET1
-#define GGML_F32X_LOAD GGML_F32x4_LOAD
-#define GGML_F32X_STORE GGML_F32x4_STORE
-#define GGML_F32X_MUL GGML_F32x4_MUL
-#define GGML_F32X_FMA GGML_F32x4_FMA
-#define WKV_VECTOR_SIZE 4
-#endif
-
-	for (int64_t h_start = 0; h_start < HEADS; h_start += dr) {
-		const int64_t h_end = std::min(h_start + dr, HEADS);
+	for (int64_t h = 0; h < HEADS; h++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-#ifdef WKV_VECTOR_SIZE
-			int wkv_vector_size;
-#if defined(__ARM_FEATURE_SVE)
-			wkv_vector_size = svcntw();
-#else
-			wkv_vector_size = WKV_VECTOR_SIZE;
-#endif
-			const int64_t vec_count = head_size / wkv_vector_size;
-
-			for (int64_t t = 0; t < T; t++) {
-				size_t t_offset = t * t_stride;
-				size_t state_offset = head_size * C * (t / (T / n_seqs));
-				float* state_cur = state + state_offset;
-				float* state_prev = t % (T / n_seqs) ? state_cur : (float*)dst->src[5]->data + state_offset;
-
-				for (int64_t h = h_start; h < h_end; h++) {
-					size_t h_offset = h * h_stride;
-					size_t t_h_offset = t_offset + h_offset;
-					size_t h_2d_offset = h * h_stride_2d;
-
-					for (int64_t i = 0; i < head_size; i++) {
-						size_t t_h_i_offset = t_h_offset + i;
-						size_t h_i_offset = h_offset + i;
-						size_t h_2d_i_offset = h_2d_offset + i * h_stride;
-
-						float k_val = k[t_h_i_offset];
-						float r_val = r[t_h_i_offset];
-						float time_faaaa_val = time_faaaa[h_i_offset];
-						float time_decay_val = time_decay[t_h_i_offset];
-
-						// Broadcast scalar values to vectors
-						GGML_F32X k_vec = GGML_F32X_SET1(k_val);
-						GGML_F32X r_vec = GGML_F32X_SET1(r_val);
-						GGML_F32X time_faaaa_vec = GGML_F32X_SET1(time_faaaa_val);
-						GGML_F32X time_decay_vec = GGML_F32X_SET1(time_decay_val);
-
-						for (int64_t j = 0; j < vec_count; j++) {
-							size_t base_j = j * wkv_vector_size;
-							size_t t_h_j_offset = t_h_offset + base_j;
-							size_t h_2d_i_j_offset = h_2d_i_offset + base_j;
-
-							// Load x elements at once
-							GGML_F32X v_vec = GGML_F32X_LOAD(&v[t_h_j_offset]);
-							GGML_F32X prev_state_vec = GGML_F32X_LOAD(&state_prev[h_2d_i_j_offset]);
-							GGML_F32X dst_vec = GGML_F32X_LOAD(&dst_data[t_h_j_offset]);
-
-							// Compute kv = v * k
-							GGML_F32X kv_vec = GGML_F32X_MUL(v_vec, k_vec);
-
-							// Compute temp = kv * time_faaaa + prev_state
-							GGML_F32X temp_vec = GGML_F32X_FMA(prev_state_vec, kv_vec, time_faaaa_vec);
-
-							// Update dst: dst += temp * r
-							dst_vec = GGML_F32X_FMA(dst_vec, temp_vec, r_vec);
-							GGML_F32X_STORE(&dst_data[t_h_j_offset], dst_vec);
-
-							// Update state: state = prev_state * time_decay + kv
-							GGML_F32X new_state_vec = GGML_F32X_FMA(kv_vec, prev_state_vec, time_decay_vec);
-							GGML_F32X_STORE(&state_cur[h_2d_i_j_offset], new_state_vec);
-						}
-
-						// Handle remaining elements, this will not be used.
-						for (int64_t j = vec_count * wkv_vector_size; j < head_size; j++) {
-							size_t t_h_j_offset = t_h_offset + j;
-							size_t h_2d_i_j_offset = h_2d_i_offset + j;
-							float v_val = v[t_h_j_offset];
-							float kv_val = v_val * k_val;
-							float prev_state_val = state_prev[h_2d_i_j_offset];
-							float temp_val = kv_val * time_faaaa_val + prev_state_val;
-							dst_data[t_h_j_offset] += temp_val * r_val;
-							state_cur[h_2d_i_j_offset] = prev_state_val * time_decay_val + kv_val;
-						}
-					}
-				}
-			}
-
-#else
 			// basically fused operations:
 			// dst = r @ (time_faaaa * (k @ v) + state),
 			// state = time_decay * state + (k @ v),
 			// recursive through each token
 			for (int64_t t = 0; t < T; t++) {
-				size_t t_offset = t * t_stride;
 				size_t state_offset = head_size * C * (t / (T / n_seqs));
 				float* state_cur = state + state_offset;
+				std::experimental::mdspan state_cur1(static_cast<float*>(state_cur), HEADS, head_size, head_size);
 				float* state_prev = t % (T / n_seqs) ? state_cur : (float*)dst->src[5]->data + state_offset;
+				std::experimental::mdspan state_prev1(static_cast<float*>(state_prev), HEADS, head_size, head_size);
 
-				for (int64_t h = h_start; h < h_end; h++) {
-					size_t h_offset = h * h_stride;
-					size_t t_h_offset = t_offset + h_offset;
-					size_t h_2d_offset = h * h_stride_2d;
+				for (int64_t i = 0; i < head_size; i++) {
+					float k_val = k[t, h, i];
+					float r_val = r[t, h, i];
+					float time_faaaa_val = time_faaaa[h, i];
+					// RWKV v6: different time_decay for each token.
+					float time_decay_val = time_decay[t, h, i];
 
-					for (int64_t i = 0; i < head_size; i++) {
-						size_t t_h_i_offset = t_h_offset + i;
-						size_t h_i_offset = h_offset + i;
-						size_t h_2d_i_offset = h_2d_offset + i * h_stride;
-
-						float k_val = k[t_h_i_offset];
-						float r_val = r[t_h_i_offset];
-						float time_faaaa_val = time_faaaa[h_i_offset];
-						// RWKV v6: different time_decay for each token.
-						float time_decay_val = time_decay[t_h_i_offset];
-
-						for (int64_t j = 0; j < head_size; j++) {
-							size_t t_h_j_offset = t_h_offset + j;
-							size_t h_2d_i_j_offset = h_2d_i_offset + j;
-
-							float v_val = v[t_h_j_offset];
-							float kv_val = v_val * k_val;
-							float prev_state_val = state_prev[h_2d_i_j_offset];
-							float temp_val = kv_val * time_faaaa_val + prev_state_val;
-							dst_data[t_h_j_offset] += temp_val * r_val;
-							state_cur[h_2d_i_j_offset] = prev_state_val * time_decay_val + kv_val;
-						}
+					for (int64_t j = 0; j < head_size; j++) {
+						float v_val = v[t, h, j];
+						float kv_val = v_val * k_val;
+						float prev_state_val = state_prev1[h, i, j];
+						float temp_val = kv_val * time_faaaa_val + prev_state_val;
+						dst_data[t, h, j] += temp_val * r_val;
+						state_cur1[h, i, j] = prev_state_val * time_decay_val + kv_val;
 					}
 				}
 			}
-#endif
 		});
 		scope.spawn(std::move(sender));
 	}
