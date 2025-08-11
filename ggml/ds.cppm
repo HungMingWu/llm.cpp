@@ -656,8 +656,6 @@ export {
     using ggml_guid = uint8_t[16];
     using ggml_guid_t = ggml_guid*;
 
-    using ggml_backend_graph_plan_t = void*;
-
     //
     // Backend (stream)
     //
@@ -683,15 +681,6 @@ export {
 
         // (optional) complete all pending operations (required if the backend supports async operations)
         virtual void synchronize() {}
-
-        // (optional) graph plans (not used currently)
-        // compute graph with a plan
-        virtual ggml_backend_graph_plan_t graph_plan_create(const ggml_cgraph* cgraph) { return {}; }
-        virtual void graph_plan_free(ggml_backend_graph_plan_t plan) {}
-        // update the plan with a new graph - this should be faster than creating a new plan when the graph has the same topology
-        virtual void graph_plan_update(ggml_backend_graph_plan_t plan, const ggml_cgraph* cgraph) {}
-        // compute the graph with the plan
-        virtual enum ggml_status graph_plan_compute(ggml_backend_graph_plan_t plan) { return {}; }
 
         ggml_status graph_compute(ggml_cgraph* cgraph);
         std::unique_ptr<ggml_backend_buffer> alloc_tensors(const ggml_context* ctx);

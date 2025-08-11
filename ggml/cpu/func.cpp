@@ -5382,14 +5382,22 @@ static void ggml_compute_forward_conv_2d_impl(const ggml_compute_params* params,
 	const int64_t patch_total = dst->ne[3] * dst_w * dst_h;
 
 	const int64_t space_per_patch = knl_n * traits->type_size + c_out * sizeof(float);
+	// Fix Here
+#if 0
 	const int64_t batch_size = params->wsize / space_per_patch;
+#else
+	const int64_t batch_size = 0;
+#endif
 	const int64_t patches_per_batch = batch_size > 8 ? (batch_size / 8) * 8 : batch_size;
 	const int64_t batch_n = (patch_total + patches_per_batch - 1) / patches_per_batch;
 
 	GGML_ASSERT(patches_per_batch > 0 && batch_size >= 1);
-
+	// Fix Here
+#if 0
 	void* tmp = params->wdata;
-
+#else
+	void* tmp = nullptr;
+#endif
 	for (int64_t batch_i = 0; batch_i < batch_n; ++batch_i) {
 
 		const int64_t patch_start_batch = batch_i * patches_per_batch;
@@ -5443,8 +5451,10 @@ static void ggml_compute_forward_conv_2d_impl(const ggml_compute_params* params,
 
 		float* gemm_output = (float*)((char*)tmp + patches_per_batch * knl_n * traits->type_size);
 
+		// TOFIX
+#if 0
 		GGML_ASSERT(gemm_output + patch_n * c_out <= (float*)tmp + params->wsize);
-
+#endif
 		// GEMM: patches[patch_n, knl_n] กั kernel[knl_n, c_out] = output[patch_n, c_out]
 		ggml_call_mul_mat(kernel_type, params, patch_n, c_out, knl_n, tmp, knl_data, gemm_output);
 
@@ -5593,7 +5603,7 @@ void ggml_compute_forward_map_custom(
 	}
 }
 
-static void ggml_compute_forward(
+void ggml_compute_forward(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	ggml_compute_params* params, 
@@ -5953,60 +5963,4 @@ static void ggml_compute_forward(
 		GGML_ABORT("fatal error");
 	}
 	}
-}
-
-static void ggml_graph_compute_thread(ggml_compute_state* state)
-{
-	exec::static_thread_pool pool(8);
-	exec::async_scope scope;
-	ggml_compute_params params = {
-		/*.ith       =*/ 0, //state->ith,
-		/*.nth       =*/ 1, //atomic_load_explicit(&tp->n_threads_cur, memory_order_relaxed),
-		/*.wsize     =*/ state->cplan->work_size,
-		/*.wdata     =*/ state->cplan->work_data,
-		/*.threadpool=*/ state->threadpool
-	};
-
-	for (auto& node : state->cgraph->nodes) {
-		ggml_compute_forward(pool, scope, &params, node);
-#if 0
-		if (state->ith == 0 && cplan->abort_callback &&
-			cplan->abort_callback(cplan->abort_callback_data)) {
-			tp->abort = true;
-			tp->ec = GGML_STATUS_ABORTED;
-		}
-		state->threadpool->barrier();
-#endif
-		stdexec::sync_wait(scope.on_empty());
-	}
-}
-
-ggml_status ggml_graph_compute(ggml_cgraph* cgraph, ggml_cplan& cplan)
-{
-	GGML_ASSERT(cplan.n_threads > 0);
-	GGML_ASSERT(cplan.work_size == 0 || cplan.work_data != nullptr);
-	std::optional<ggml_threadpool> default_thread_pools;
-	ggml_threadpool* threadpool = [&] {
-		if (cplan.threadpool == nullptr) {
-			default_thread_pools.emplace(cplan.n_threads);
-			return std::addressof(default_thread_pools.value());
-		}
-		else {
-			return cplan.threadpool;
-		}
-	}();
-
-	int n_threads = cplan.n_threads;
-	if (n_threads > 1) {
-
-	}
-	else {
-		ggml_compute_state state{ 
-			.cgraph = cgraph,
-			.cplan = &cplan,
-			.threadpool = threadpool
-		};
-		ggml_graph_compute_thread(&state);
-	}
-	return {};
 }

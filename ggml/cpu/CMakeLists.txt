@@ -10,7 +10,6 @@ target_sources(libggml
       buffer_type.cppm
       device.cppm
       ds.cppm
-      func.cppm
       from_float.cppm
       to_float.cppm
       traits.cppm
@@ -35,7 +34,6 @@ target_sources(libggml
       buffer_type.cpp
       device.cpp
       func.cpp
-      plan.cpp
       to_float.cpp
       vec_dot.cpp
       op/argmax.cpp

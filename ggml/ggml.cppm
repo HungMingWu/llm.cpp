@@ -16,7 +16,6 @@ export import :traits;
 export import :types;
 export import :cpu.backend;
 export import :cpu.from_float;
-export import :cpu.func;
 export import :cpu.registry;
 export import :cpu.to_float; // remove later
 export import :cpu.traits;
