@@ -20,20 +20,20 @@ target_sources(chatllm
       audio_process.cpp
       backend.cpp
       chat.cpp
-  	  layers.cpp
+      layers.cpp
       main.cpp
       tokenizer.cpp
       unicode.cpp
       unicode-data.cpp
-	  vectorstore.cpp
+      vectorstore.cpp
       models.cpp
       vision_process.cpp
       models/models_priv.cpp
       models/qwen.cpp
 )
 target_link_libraries(chatllm
-	PRIVATE
-		libllm
+  PRIVATE
+    libllm
 )
 target_compile_features(chatllm
   PUBLIC

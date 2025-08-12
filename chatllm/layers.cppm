@@ -1,5 +1,6 @@
 module;
 #include <assert.h>
+#include <math.h>
 #include <memory>
 #include <sstream>
 #include <unordered_map>
@@ -73,6 +74,7 @@ export namespace chatllm
 
         ggml::tensor* add(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
         ggml::tensor* add_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
+        ggml::tensor* add_id(ComputeContext* ctx, ggml::tensor* as, ggml::tensor* b, ggml::tensor* ids);
 
         ggml::tensor* sub(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
         ggml::tensor* sub_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
@@ -146,7 +148,8 @@ export namespace chatllm
 
         ggml::tensor* soft_max(ComputeContext* ctx, ggml::tensor* a);
         ggml::tensor* soft_max_inplace(ComputeContext* ctx, ggml::tensor* a);
-        ggml_tensor* soft_max_ext(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* mask, float scale, float max_bias);
+        ggml::tensor* soft_max_ext(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* mask, float scale, float max_bias);
+        void          soft_max_attach_sinks(ggml::tensor* soft_max_result, ggml::tensor* sinks);
 
         ggml::tensor* sigmoid(ComputeContext* ctx, ggml::tensor* a);
 
@@ -174,6 +177,12 @@ export namespace chatllm
         ggml::tensor* conv_2d_depthwise(ComputeContext* ctx, ggml::tensor* kernel, ggml::tensor* data,
             int stride0, int stride1, int padding0, int padding1, int dilation0, int dilation1);
 
+        // gate = gate.clamp(min=None, max=self.limit)
+        // up   = up.clamp(min=-self.limit, max=self.limit)
+        // glu  = gate * torch.sigmoid(gate * self.alpha)
+        // result: ((up + 1) * glu)
+        ggml::tensor* swiglu_oai(ComputeContext* ctx, ggml::tensor* gate, ggml::tensor* up, float alpha, float limit);
+
         ggml::tensor* map_custom(ComputeContext* ctx, std::initializer_list<ggml::tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
 
         // Note: these `inplace` might not work when GPU is used
@@ -192,6 +201,7 @@ export namespace chatllm
         void mul_mat_set_prec(ggml::tensor* a, ggml::prec prec);
         bool is_contiguous(const ggml::tensor* a);
 
+        struct ggml_cgraph* new_graph_custom(ComputeContext* ctx, size_t size, bool grads);
         void build_forward_expand(ComputeContext* ctx, ggml::tensor* tensor);
     };
 
@@ -218,6 +228,16 @@ export namespace chatllm
         protected:
             static bool active;
             static bool biased;
+        };
+
+        class CoreAttentionUseSinks
+        {
+        public:
+            CoreAttentionUseSinks(int size);
+            ~CoreAttentionUseSinks();
+            static int get();
+        protected:
+            static int size;
         };
     };
 
@@ -527,22 +547,32 @@ export namespace chatllm
     public:
         MultiLinear() : weight(nullptr) {}
         MultiLinear(InitContext* ctx, int in_features, int out_features, int multi)
-            : weight(ggml::new_tensor_3d(ctx, ctx->dtype, in_features, out_features, multi)) {
+            : MultiLinear(ctx, in_features, out_features, multi, false)
+        {
+        }
+
+        MultiLinear(InitContext* ctx, int in_features, int out_features, int multi, bool use_bias)
+            : weight(ggml::new_tensor_3d(ctx, ctx->dtype, in_features, out_features, multi)),
+            bias(use_bias ? ggml::new_tensor_2d(ctx, ggml::type::GGML_TYPE_F32, out_features, multi) : nullptr)
+        {
         }
 
         using Block::forward;
         ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* input) override { return nullptr; }
 
-        virtual ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* input, ggml::tensor* selected);
+        ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* input, ggml::tensor* selected) override;
 
         int64_t get_param_num(bool effective_only) const override
         {
-            int64_t r = ggml::nelements(weight);
+            int64_t r = 0;
+            r += ggml::nelements(weight);
+            r += ggml::nelements(bias);
             return r;
         }
 
     public:
-        ggml::tensor* weight; // [out_features, in_features, multi]
+        ggml::tensor* weight; // [in_features, out_features, multi]
+        ggml::tensor* bias;   // [out_features, multi]
     };
 
     class LayerNorm : public Block
@@ -1215,7 +1245,10 @@ export namespace chatllm
             shift_pending(),
             attn_scaling(true),
             causal(true),
-            last_attn_scores(nullptr)
+            last_attn_scores(nullptr),
+            sinks(BlockParams::CoreAttentionUseSinks::get() > 0 ?
+                ggml::new_tensor_1d(ctx, ggml::type::GGML_TYPE_F32, BlockParams::CoreAttentionUseSinks::get())
+                : nullptr)
         {
             allocate_pos_tensor(ctx);
         }
@@ -1230,8 +1263,11 @@ export namespace chatllm
             int64_t r = 0;
             if (attn_scores_pp)
                 r += attn_scores_pp->get_param_num(effective_only);
+            r += ggml::nelements(sinks);
             return r;
         }
+
+        void load(const std::string& path, TensorLoader* loader) override;
 
     protected:
         virtual void allocate_pos_tensor(InitContext* ctx);
@@ -1291,6 +1327,7 @@ export namespace chatllm
         bool attn_scaling;
         bool causal;
         ggml::tensor* last_attn_scores;
+        ggml::tensor* sinks;
         std::vector<int> v_pos;
     };
 
@@ -1348,7 +1385,7 @@ export namespace chatllm
         size_t write_cache_data(std::span<const std::byte> buffer) override;
 
     protected:
-        virtual void before_forward(ComputeContext* ctx, const int n_past, const int qlen);
+        void before_forward(ComputeContext* ctx, const int n_past, const int qlen) override;
 
         // k: [qlen, heads, head_size]
         // v: [qlen, hidden_size]
@@ -1930,6 +1967,23 @@ export namespace chatllm
         {
         }
 
+        void setup_yarn(float rope_theta, int original_max_position_embeddings, float beta_fast, float beta_slow, float factor)
+        {
+            auto get_mscale = [](float scale, float mscale = 1.0f)
+                {
+                    if (scale <= 1.0f) return 1.0f;
+                    return 0.1f * mscale * logf(scale) + 1.0f;
+                };
+
+            this->freq_base = rope_theta;
+            this->n_original_ctx = original_max_position_embeddings;
+            this->beta_slow = beta_slow;
+            this->beta_fast = beta_fast;
+            this->freq_scale = 1 / factor;
+            this->attn_factor = get_mscale(factor);
+            this->ext_factor = 1.0f;
+        }
+
     public:
         // rope param
         float freq_base;
@@ -2219,7 +2273,7 @@ export namespace chatllm
         };
         BaseSparseMLP() = default;
         BaseSparseMLP(InitContext* ctx, int hidden_size, int intermediate_size, int num_local_experts, int num_experts_per_tok,
-            ActFunc act, bool gate_use_bias, bool grouped_max = false, bool router_scale = false);
+            ActFunc act, bool gate_score_use_bias, bool grouped_max = false, bool router_scale = false, bool experts_use_bias = false, bool gate_use_bias = false);
 
         using Block::forward;
         ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* hidden_states) override;
@@ -2253,6 +2307,8 @@ export namespace chatllm
         virtual ggml::tensor* forward_with_experts(ComputeContext* ctx, ggml::tensor* hidden_states,
             ggml::tensor* selected_experts,
             ggml::tensor* weights);
+        virtual ggml::tensor* calc_experts_outputs(ComputeContext* ctx, ggml::tensor* hidden_states,
+            ggml::tensor* selected_experts);
     };
 
     template <bool bias> class InternLMBlock : public LMBlock1<RMSNorm, InternLMSelfAttention<bias>, RMSNorm, SiLUMLP>
@@ -2769,6 +2825,11 @@ export namespace chatllm
     public:
         QWen2Block(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size, int num_kv_heads, int max_length)
             : LMBlock1(ctx, hidden_size, num_attention_heads, intermediate_size, num_kv_heads, max_length)
+        {
+        }
+
+        QWen2Block(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size, int num_kv_heads, int head_dim, int max_length)
+            : LMBlock1(ctx, hidden_size, num_attention_heads, intermediate_size, num_kv_heads, head_dim, max_length)
         {
         }
     };
