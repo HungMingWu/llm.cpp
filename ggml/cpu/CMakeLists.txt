@@ -21,7 +21,6 @@ target_sources(libggml
       vec_dot.cppm
       op/argsort.cppm
       op/diag.cppm
-      op/leaky_relu.cppm
       op/norm.cppm
       op/op.cppm
       op/relpos.cppm
@@ -39,6 +38,7 @@ target_sources(libggml
       op/argmax.cpp
       op/concat.cpp
       op/get_rows_back.cpp
+      op/leaky_relu.cpp
       op/mean.cpp
       op/pool.cpp
       op/pool_back.cpp

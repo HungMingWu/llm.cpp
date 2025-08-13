@@ -3,7 +3,6 @@ import :ds;
 
 import :cpu.op.argsort;
 import :cpu.op.diag;
-import :cpu.op.leaky_relu;
 import :cpu.op.norm;
 import :cpu.op.relpos;
 import :cpu.op.repeat_back;
@@ -14,6 +13,7 @@ import :cpu.op.win;
 void ggml_compute_forward_argmax(ggml_tensor* dst);
 void ggml_compute_forward_concat(const ggml_compute_params* params, ggml_tensor* dst);
 void ggml_compute_forward_get_rows_back(ggml_tensor* dst);
+void ggml_compute_forward_leaky_relu(ggml_tensor* dst);
 void ggml_compute_forward_mean(ggml_tensor* dst);
 void ggml_compute_forward_pool_1d(ggml_tensor* dst);
 void ggml_compute_forward_pool_2d(ggml_tensor* dst);
