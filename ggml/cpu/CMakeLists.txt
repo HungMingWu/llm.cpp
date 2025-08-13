@@ -23,7 +23,6 @@ target_sources(libggml
       op/norm.cppm
       op/op.cppm
       op/relpos.cppm
-      op/scale.cppm
       op/unary.cppm
       op/win.cppm
   PRIVATE
@@ -43,6 +42,7 @@ target_sources(libggml
       op/pool_back.cpp
       op/repeat.cpp
       op/repeat_back.cpp
+      op/scale.cpp
       op/silu_back.cpp
       op/sum.cpp
       op/sum_rows.cpp

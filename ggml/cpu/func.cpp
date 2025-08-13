@@ -5745,7 +5745,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_SCALE:
 	{
-		ggml_compute_forward_scale(params, tensor);
+		ggml_compute_forward_scale(tensor);
 	} break;
 	case GGML_OP_SET:
 	{
