@@ -5860,7 +5860,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_ARGSORT:
 	{
-		ggml_compute_forward_argsort(params, tensor);
+		ggml_compute_forward_argsort(tensor);
 	} break;
 	case GGML_OP_LEAKY_RELU:
 	{

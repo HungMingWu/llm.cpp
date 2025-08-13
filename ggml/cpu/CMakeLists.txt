@@ -19,7 +19,6 @@ target_sources(libggml
     TYPE CXX_MODULES
     FILES
       vec_dot.cppm
-      op/argsort.cppm
       op/diag.cppm
       op/norm.cppm
       op/op.cppm
@@ -36,6 +35,7 @@ target_sources(libggml
       to_float.cpp
       vec_dot.cpp
       op/argmax.cpp
+      op/argsort.cpp
       op/concat.cpp
       op/get_rows_back.cpp
       op/leaky_relu.cpp

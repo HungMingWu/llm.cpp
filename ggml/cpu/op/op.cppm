@@ -1,7 +1,6 @@
 module ggml:cpu.op;
 import :ds;
 
-import :cpu.op.argsort;
 import :cpu.op.diag;
 import :cpu.op.norm;
 import :cpu.op.relpos;
@@ -22,3 +21,6 @@ void ggml_compute_forward_repeat(ggml_tensor* dst);
 void ggml_compute_forward_sum(ggml_tensor* dst);
 void ggml_compute_forward_sum_rows(ggml_tensor* dst);
 void ggml_compute_forward_upscale(const ggml_compute_params* params, ggml_tensor* dst);
+
+// may parallelism after msvc module fix
+void ggml_compute_forward_argsort(ggml_tensor* dst);
