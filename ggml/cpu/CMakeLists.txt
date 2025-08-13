@@ -43,6 +43,7 @@ target_sources(libggml
       op/pool.cpp
       op/pool_back.cpp
       op/repeat.cpp
+      op/silu_back.cpp
       op/sum.cpp
       op/sum_rows.cpp
       op/upscale.cpp

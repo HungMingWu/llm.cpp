@@ -24,3 +24,4 @@ void ggml_compute_forward_upscale(const ggml_compute_params* params, ggml_tensor
 
 // may parallelism after msvc module fix
 void ggml_compute_forward_argsort(ggml_tensor* dst);
+void ggml_compute_forward_silu_back(ggml_tensor* dst);

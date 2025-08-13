@@ -5709,7 +5709,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_SILU_BACK:
 	{
-		ggml_compute_forward_silu_back(params, tensor);
+		ggml_compute_forward_silu_back(tensor);
 	} break;
 	case GGML_OP_NORM:
 	{
