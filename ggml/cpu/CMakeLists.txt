@@ -21,7 +21,6 @@ target_sources(libggml
       vec_dot.cppm
       op/norm.cppm
       op/op.cppm
-      op/unary.cppm
       op/win.cppm
   PRIVATE
       backend.cpp
@@ -46,6 +45,7 @@ target_sources(libggml
       op/silu_back.cpp
       op/sum.cpp
       op/sum_rows.cpp
+      op/unary.cpp
       op/upscale.cpp
 )
 

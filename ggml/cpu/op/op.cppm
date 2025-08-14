@@ -2,7 +2,6 @@ module ggml:cpu.op;
 import :ds;
 
 import :cpu.op.norm;
-import :cpu.op.unary;
 import :cpu.op.win;
 
 void ggml_compute_forward_argmax(ggml_tensor* dst);
@@ -23,5 +22,11 @@ void ggml_compute_forward_upscale(const ggml_compute_params* params, ggml_tensor
 
 // may parallelism after msvc module fix
 void ggml_compute_forward_argsort(ggml_tensor* dst);
+void ggml_compute_forward_cos(ggml_tensor* dst);
+void ggml_compute_forward_log(ggml_tensor * dst);
 void ggml_compute_forward_scale(ggml_tensor* dst);
+void ggml_compute_forward_sin(ggml_tensor* dst);
 void ggml_compute_forward_silu_back(ggml_tensor* dst);
+void ggml_compute_forward_sqr(ggml_tensor* dst);
+void ggml_compute_forward_sqrt(ggml_tensor* dst);
+void ggml_compute_forward_unary(ggml_tensor* dst);

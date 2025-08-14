@@ -5657,23 +5657,23 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_SQR:
 	{
-		ggml_compute_forward_sqr(params, tensor);
+		ggml_compute_forward_sqr(tensor);
 	} break;
 	case GGML_OP_SQRT:
 	{
-		ggml_compute_forward_sqrt(params, tensor);
+		ggml_compute_forward_sqrt(tensor);
 	} break;
 	case GGML_OP_LOG:
 	{
-		ggml_compute_forward_log(params, tensor);
+		ggml_compute_forward_log(tensor);
 	} break;
 	case GGML_OP_SIN:
 	{
-		ggml_compute_forward_sin(params, tensor);
+		ggml_compute_forward_sin(tensor);
 	} break;
 	case GGML_OP_COS:
 	{
-		ggml_compute_forward_cos(params, tensor);
+		ggml_compute_forward_cos(tensor);
 	} break;
 	case GGML_OP_SUM:
 	{
@@ -5897,7 +5897,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_UNARY:
 	{
-		ggml_compute_forward_unary(params, tensor);
+		ggml_compute_forward_unary(tensor);
 	} break;
 	case GGML_OP_GLU:
 	{

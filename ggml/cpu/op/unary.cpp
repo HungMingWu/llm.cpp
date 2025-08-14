@@ -1,0 +1,269 @@
+module;
+#include <assert.h>
+#include <math.h>
+#include <print>
+#include "../helper.h"
+
+#define GGML_ASSERT(...) assert(__VA_ARGS__)
+#define GGML_ABORT(...)
+
+module ggml;
+
+import :cpu.op;
+
+static float sgn(float x) {
+	return (x > 0.f) ? 1.f : ((x < 0.f) ? -1.f : 0.f);
+}
+
+static float step(float x) {
+	return (x > 0.f) ? 1.f : 0.f;
+}
+
+static float neg(float x) {
+	return -x;
+}
+
+static float gelu(float x) {
+	static const float GELU_COEF_A = 0.044715f;
+	static const float SQRT_2_OVER_PI = 0.79788456080286535587989211986876f;
+	return 0.5f * x * (1.0f + tanhf(SQRT_2_OVER_PI * x * (1.0f + GELU_COEF_A * x * x)));
+}
+
+static float gelu_erf(float x) {
+	static const float SQRT_2_INV = 0.70710678118654752440084436210484f;
+	return 0.5f * x * (1.0f + erff(x * SQRT_2_INV));
+}
+
+static float gelu_quick(float x) {
+	static const float GELU_QUICK_COEF = -1.702f;
+	return x * (1.0f / (1.0f + expf(GELU_QUICK_COEF * x)));
+}
+
+// Sigmoid Linear Unit (SiLU) function
+static float silu(float x) {
+	return x / (1.0f + expf(-x));
+}
+
+static float sigmoid(float x) {
+	return 1.f / (1.f + expf(-x));;
+}
+
+static float relu(float x) {
+	return (x > 0.f) ? x : 0.f;
+}
+
+static float hardswish(float x) {
+	return x * fminf(1.0f, fmaxf(0.0f, (x + 3.0f) / 6.0f));
+}
+
+static float hardsigmoid(float x) {
+	return fminf(1.0f, fmaxf(0.0f, (x + 3.0f) / 6.0f));
+}
+
+static float elu(float x) {
+	return (x > 0.f) ? x : expm1f(x);
+}
+
+template <typename T, float (*Func)(float)>
+static void ggml_compute_forward_unary(ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+
+	auto dst_data = make_strided_mdspan(static_cast<T*>(dst->data), dst->ne, dst->nb);
+	auto src0_data = make_strided_mdspan(static_cast<const T*>(src0->data), src0->ne, src0->nb);
+
+	for (int64_t i03 = 0; i03 < dst_data.extent(0); i03++)
+		for (int64_t i02 = 0; i02 < dst_data.extent(1); i02++)
+			for (int64_t i01 = 0; i01 < dst_data.extent(2); i01++)
+				for (int64_t i00 = 0; i00 < dst_data.extent(3); i00++) {
+					dst_data[i03, i02, i01, i00] = fromFloat32<T>(Func(toFloat32(src0_data[i03, i02, i01, i00])));
+					if constexpr (
+						Func == gelu ||
+						Func == gelu_erf ||
+						Func == gelu_quick ||
+						Func == silu
+						) {
+#ifndef NDEBUG
+						assert(!isnan(toFloat32(dst_data[i03, i02, i01, i00])));
+						assert(!isinf(toFloat32(dst_data[i03, i02, i01, i00])));
+#endif
+					}
+				}
+}
+
+template <float (*Func)(float)>
+static void ggml_compute_forward_unary(ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+
+	switch (src0->type) {
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_unary<ggml_fp32_t, Func>(dst);
+	} break;
+	case GGML_TYPE_F16:
+	{
+		ggml_compute_forward_unary<ggml_fp16_t, Func>(dst);
+	} break;
+	default:
+	{
+		GGML_ABORT("fatal error");
+	}
+	}
+}
+
+void ggml_compute_forward_unary(
+	ggml_tensor* dst) {
+
+	const ggml_unary_op op = ggml_get_unary_op(dst);
+
+	switch (op) {
+	case GGML_UNARY_OP_ABS:
+	{
+		ggml_compute_forward_unary<fabsf>(dst);
+	} break;
+	case GGML_UNARY_OP_SGN:
+	{
+		ggml_compute_forward_unary<sgn>(dst);
+	} break;
+	case GGML_UNARY_OP_NEG:
+	{
+		ggml_compute_forward_unary<neg>(dst);
+	} break;
+	case GGML_UNARY_OP_STEP:
+	{
+		ggml_compute_forward_unary<step>(dst);
+	} break;
+	case GGML_UNARY_OP_TANH:
+	{
+		ggml_compute_forward_unary<tanhf>(dst);
+	} break;
+	case GGML_UNARY_OP_ELU:
+	{
+		ggml_compute_forward_unary<elu>(dst);
+	} break;
+	case GGML_UNARY_OP_RELU:
+	{
+		ggml_compute_forward_unary<relu>(dst);
+	} break;
+	case GGML_UNARY_OP_SIGMOID:
+	{
+		ggml_compute_forward_unary<sigmoid>(dst);
+	} break;
+	case GGML_UNARY_OP_GELU:
+	{
+		ggml_compute_forward_unary<gelu>(dst);
+	} break;
+	case GGML_UNARY_OP_GELU_ERF:
+	{
+		ggml_compute_forward_unary<gelu_erf>(dst);
+	} break;
+	case GGML_UNARY_OP_GELU_QUICK:
+	{
+		ggml_compute_forward_unary<gelu_quick>(dst);
+	} break;
+	case GGML_UNARY_OP_SILU:
+	{
+		ggml_compute_forward_unary<silu>(dst);
+	} break;
+	case GGML_UNARY_OP_HARDSWISH:
+	{
+		ggml_compute_forward_unary<hardswish>(dst);
+	} break;
+	case GGML_UNARY_OP_HARDSIGMOID:
+	{
+		ggml_compute_forward_unary<hardsigmoid>(dst);
+	} break;
+	case GGML_UNARY_OP_EXP:
+	{
+		ggml_compute_forward_unary<expf>(dst);
+	} break;
+	default:
+	{
+		GGML_ABORT("fatal error");
+	}
+	}
+}
+
+template <float (*op)(float), typename src0_t, typename dst_t>
+static void apply_unary_op(ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+
+	GGML_ASSERT(ggml_is_contiguous_1(src0) && ggml_is_contiguous_1(dst) && ggml_are_same_shape(src0, dst));
+	GGML_ASSERT(dst->nb[0] == sizeof(dst_t));
+	GGML_ASSERT(src0->nb[0] == sizeof(src0_t));
+
+	auto dst_data = make_strided_mdspan(static_cast<dst_t*>(dst->data), dst->ne, dst->nb);
+	auto src0_data = make_strided_mdspan(static_cast<const src0_t*>(src0->data), src0->ne, src0->nb);
+
+	for (int64_t i03 = 0; i03 < dst_data.extent(0); i03++)
+		for (int64_t i02 = 0; i02 < dst_data.extent(1); i02++)
+			for (int64_t i01 = 0; i01 < dst_data.extent(2); i01++)
+				for (int64_t i00 = 0; i00 < dst_data.extent(3); i00++)
+					dst_data[i03, i02, i01, i00] = fromFloat32<dst_t>(op(toFloat32(src0_data[i03, i02, i01, i00])));
+}
+
+// TODO: Use the 'traits' lookup table (for type conversion fns), instead of a mass of 'if' conditions with long templates
+template <float (*op)(float)>
+static void unary_op(ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+
+	/*  */ if (src0->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) { // all f32
+		apply_unary_op<op, float, float>(dst);
+	}
+	else if (src0->type == GGML_TYPE_F16 && dst->type == GGML_TYPE_F16) { // all f16
+		apply_unary_op<op, ggml_fp16_t, ggml_fp16_t>(dst);
+	}
+	else if (src0->type == GGML_TYPE_BF16 && dst->type == GGML_TYPE_BF16) { // all bf16
+		apply_unary_op<op, ggml_bf16_t, ggml_bf16_t>(dst);
+	}
+	else if (src0->type == GGML_TYPE_BF16 && dst->type == GGML_TYPE_F32) {
+		apply_unary_op<op, ggml_bf16_t, float>(dst);
+	}
+	else if (src0->type == GGML_TYPE_F16 && dst->type == GGML_TYPE_F32) {
+		apply_unary_op<op, ggml_fp16_t, float>(dst);
+	}
+	else {
+		std::println(stderr, "{}: unsupported types: dst: {}, src0: {}", __func__,
+			ggml_type_name(dst->type), ggml_type_name(src0->type));
+		GGML_ABORT("fatal error");
+	}
+}
+
+static inline float op_sqr(float x) {
+	return x * x;
+}
+
+static inline float op_sqrt(float x) {
+	return sqrtf(x);
+}
+
+static inline float op_sin(float x) {
+	return sinf(x);
+}
+
+static inline float op_cos(float x) {
+	return cosf(x);
+}
+
+static inline float op_log(float x) {
+	return logf(x);
+}
+
+void ggml_compute_forward_sqr(ggml_tensor* dst) {
+	unary_op<op_sqr>(dst);
+}
+
+void ggml_compute_forward_sqrt(ggml_tensor* dst) {
+	unary_op<op_sqrt>(dst);
+}
+
+void ggml_compute_forward_sin(ggml_tensor* dst) {
+	unary_op<op_sin>(dst);
+}
+
+void ggml_compute_forward_cos(ggml_tensor* dst) {
+	unary_op<op_cos>(dst);
+}
+
+void ggml_compute_forward_log(ggml_tensor* dst) {
+	unary_op<op_log>(dst);
+}
