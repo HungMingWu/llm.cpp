@@ -20,7 +20,6 @@ target_sources(libggml
     FILES
       vec_dot.cppm
       op/op.cppm
-      op/win.cppm
   PRIVATE
       backend.cpp
       buffer_type.cpp
@@ -48,6 +47,7 @@ target_sources(libggml
       op/sum_rows.cpp
       op/unary.cpp
       op/upscale.cpp
+      op/win.cpp
 )
 
 if (GGML_LLAMAFILE)

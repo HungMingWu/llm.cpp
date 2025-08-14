@@ -5705,7 +5705,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_CONCAT:
 	{
-		ggml_compute_forward_concat(params, tensor);
+		ggml_compute_forward_concat(tensor);
 	} break;
 	case GGML_OP_SILU_BACK:
 	{
@@ -5836,7 +5836,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_UPSCALE:
 	{
-		ggml_compute_forward_upscale(params, tensor);
+		ggml_compute_forward_upscale(tensor);
 	} break;
 	case GGML_OP_PAD:
 	{

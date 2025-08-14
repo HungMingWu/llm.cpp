@@ -3,12 +3,10 @@ module;
 #include <stdint.h>
 #define GGML_ABORT(...)
 
-module ggml:cpu.op.win;
-import :cpu.ds;
+module ggml;
+import :cpu.op;
 
-static void ggml_compute_forward_win_part_f32(
-	ggml_tensor* dst) {
-
+static void ggml_compute_forward_win_part_f32(ggml_tensor* dst) {
 	const ggml_tensor* src0 = dst->src[0];
 
 	const int32_t nep0 = ((const int32_t*)(dst->op_params))[0];
@@ -45,9 +43,7 @@ static void ggml_compute_forward_win_part_f32(
 	}
 }
 
-void ggml_compute_forward_win_part(
-	ggml_tensor* dst) {
-
+void ggml_compute_forward_win_part(ggml_tensor* dst) {
 	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
@@ -62,9 +58,7 @@ void ggml_compute_forward_win_part(
 	}
 }
 
-static void ggml_compute_forward_win_unpart_f32(
-	ggml_tensor* dst) {
-
+static void ggml_compute_forward_win_unpart_f32(ggml_tensor* dst) {
 	const ggml_tensor* src0 = dst->src[0];
 
 	const int32_t w = ((const int32_t*)(dst->op_params))[0];
@@ -98,9 +92,7 @@ static void ggml_compute_forward_win_unpart_f32(
 	}
 }
 
-void ggml_compute_forward_win_unpart(
-	ggml_tensor* dst) {
-
+void ggml_compute_forward_win_unpart(ggml_tensor* dst) {
 	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {

@@ -16,16 +16,10 @@ import :tensor;
 import :cpu.ds;
 import :cpu.op;
 
-static void ggml_compute_forward_upscale_f32(
-    const ggml_compute_params* params,
-    ggml_tensor* dst) {
-
+static void ggml_compute_forward_upscale_f32(ggml_tensor* dst) {
     const ggml_tensor* src0 = dst->src[0];
 
     GGML_ASSERT(src0->type == GGML_TYPE_F32);
-
-    const int ith = params->ith;
-    const int nth = params->nth;
 
     float sf0 = (float)dst->ne[0] / src0->ne[0];
     float sf1 = (float)dst->ne[1] / src0->ne[1];
@@ -41,7 +35,7 @@ static void ggml_compute_forward_upscale_f32(
     if (mode == GGML_SCALE_MODE_NEAREST) {
         for (int64_t i3 = 0; i3 < dst_mdspan.extent(0); i3++) {
             const int64_t i03 = i3 / sf3;
-            for (int64_t i2 = ith; i2 < dst_mdspan.extent(1); i2 += nth) {
+            for (int64_t i2 = 0; i2 < dst_mdspan.extent(1); i2++) {
                 const int64_t i02 = i2 / sf2;
                 for (int64_t i1 = 0; i1 < dst_mdspan.extent(2); i1++) {
                     const int64_t i01 = i1 / sf1;
@@ -63,7 +57,7 @@ static void ggml_compute_forward_upscale_f32(
 
         for (int64_t i3 = 0; i3 < dst_mdspan.extent(0); i3++) {
             const int64_t i03 = i3 / sf3;
-            for (int64_t i2 = ith; i2 < dst_mdspan.extent(1); i2 += nth) {
+            for (int64_t i2 = 0; i2 < dst_mdspan.extent(1); i2++) {
                 const int64_t i02 = i2 / sf2;
                 for (int64_t i1 = 0; i1 < dst_mdspan.extent(2); i1++) {
                     const float y = ((float)i1 + pixel_offset) / sf1 - pixel_offset;
@@ -106,16 +100,13 @@ static void ggml_compute_forward_upscale_f32(
     }
 }
 
-void ggml_compute_forward_upscale(
-	const ggml_compute_params* params,
-	ggml_tensor* dst) {
-
+void ggml_compute_forward_upscale(ggml_tensor* dst) {
 	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_upscale_f32(params, dst);
+		ggml_compute_forward_upscale_f32(dst);
 	} break;
 	default:
 	{
