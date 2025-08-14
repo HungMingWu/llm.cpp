@@ -19,7 +19,6 @@ target_sources(libggml
     TYPE CXX_MODULES
     FILES
       vec_dot.cppm
-      op/norm.cppm
       op/op.cppm
       op/win.cppm
   PRIVATE
@@ -36,6 +35,8 @@ target_sources(libggml
       op/get_rows_back.cpp
       op/leaky_relu.cpp
       op/mean.cpp
+      op/norm.cpp
+      op/norm_back.cpp
       op/pool.cpp
       op/pool_back.cpp
       op/relpos.cpp

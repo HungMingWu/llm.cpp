@@ -5713,19 +5713,19 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_NORM:
 	{
-		ggml_compute_forward_norm(params, tensor);
+		ggml_compute_forward_norm(tensor);
 	} break;
 	case GGML_OP_RMS_NORM:
 	{
-		ggml_compute_forward_rms_norm(params, tensor);
+		ggml_compute_forward_rms_norm(tensor);
 	} break;
 	case GGML_OP_RMS_NORM_BACK:
 	{
-		ggml_compute_forward_rms_norm_back(params, tensor);
+		ggml_compute_forward_rms_norm_back(tensor);
 	} break;
 	case GGML_OP_GROUP_NORM:
 	{
-		ggml_compute_forward_group_norm(params, tensor);
+		ggml_compute_forward_group_norm(tensor);
 	} break;
 	case GGML_OP_L2_NORM:
 	{
