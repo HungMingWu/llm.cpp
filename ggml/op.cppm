@@ -788,4 +788,23 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,
 		int k);
+
+	ggml_tensor* ggml_swiglu_oai(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		float alpha,
+		float limit);
+
+	ggml_tensor* ggml_add_id(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		ggml_tensor* ids);
+
+	ggml_tensor* ggml_opt_step_sgd(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* grad,
+		ggml_tensor* params);
 }

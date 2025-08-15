@@ -56,6 +56,9 @@ ggml_opt_optimizer_params ggml_opt_get_default_optimizer_params(void *) {
     result.adamw.eps = 1e-8f;
     result.adamw.wd = 0.0f;
 
+    result.sgd.alpha = 1e-3f;
+    result.sgd.wd = 0.0f;
+
     return result;
 }
 
@@ -622,6 +625,7 @@ void ggml_opt_fit(
     ggml_tensor* outputs,
     ggml_opt_dataset*               dataset,
     enum ggml_opt_loss_type         loss_type,
+    enum ggml_opt_optimizer_type    optimizer,
     ggml_opt_get_optimizer_params   get_opt_pars,
     int64_t                         nepoch,
     int64_t                         nbatch_logical,
@@ -652,6 +656,7 @@ void ggml_opt_fit(
     params.opt_period = opt_period;
     params.get_opt_pars = get_opt_pars;
     params.get_opt_pars_ud = &epoch;
+    params.optimizer = optimizer;
     ggml_opt_context opt_ctx(params);
 
     // Shuffling the data is generally useful but there is only a point if not all data is used in a single batch.
@@ -784,4 +789,15 @@ void ggml_opt_epoch(
             callback_eval(false, opt_ctx, dataset, result_eval, ibatch + 1 - ibatch_split, nbatches - ibatch_split, t_loop_start);
         }
     }
+}
+
+const char* ggml_opt_optimizer_name(enum ggml_opt_optimizer_type o) {
+    switch (o) {
+    case GGML_OPT_OPTIMIZER_TYPE_ADAMW:
+        return "adamw";
+    case GGML_OPT_OPTIMIZER_TYPE_SGD:
+        return "sgd";
+    default:
+        return "undefined";
+    };
 }

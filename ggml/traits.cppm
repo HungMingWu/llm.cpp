@@ -403,6 +403,7 @@ static const char* GGML_OP_NAME[GGML_OP_COUNT] = {
 
     "DUP",
     "ADD",
+    "ADD_ID",
     "ADD1",
     "ACC",
     "SUB",
@@ -608,6 +609,7 @@ static const char* GGML_GLU_OP_NAME[GGML_GLU_OP_COUNT] = {
     "REGLU",
     "GEGLU",
     "SWIGLU",
+    "SWIGLU_OAI",
     "GEGLU_ERF",
     "GEGLU_QUICK",
 };

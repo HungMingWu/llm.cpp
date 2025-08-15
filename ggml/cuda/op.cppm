@@ -2186,4 +2186,60 @@ namespace op
 
         softcap_f32_cuda(src0_d, dst_d, scale, softcap, src0->nelements(), stream);
     }
+
+    void add_id(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+        const ggml_tensor* src2 = dst->src[2];
+
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(src1->type == GGML_TYPE_F32);
+        GGML_ASSERT(src2->type == GGML_TYPE_I32);
+
+        GGML_ASSERT(src0->nb[0] == sizeof(float));
+        GGML_ASSERT(src1->nb[0] == sizeof(float));
+        GGML_ASSERT(src2->nb[0] == sizeof(int32_t));
+
+        add_id_context ctx{
+            .ne00 = src0->ne[0],
+            .ne01 = src0->ne[1],
+            .ne02 = src0->ne[2],
+            .ne03 = src0->ne[3],
+            .ne0 = dst->ne[0],
+            .ne1 = dst->ne[1],
+            .nb01 = src0->nb[1],
+			.nb02 = src0->nb[2],
+			.nb11 = src1->nb[1],
+			.nb21 = src2->nb[1],
+            .src0_d = (const float*)src0->data,
+            .src1_d = (const float*)src1->data,
+            .src2_d = (const int32_t*)src2->data,
+            .dst_d = (float*)dst->data
+        };
+        add_id_cuda(&ctx, stream);
+    }
+
+    void opt_step_sgd(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src0_grad = dst->src[1];
+        const ggml_tensor* params = dst->src[2];
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(src0_grad->type == GGML_TYPE_F32);
+        GGML_ASSERT(params->type == GGML_TYPE_F32);
+        GGML_ASSERT(ggml_is_contiguous(src0));
+        GGML_ASSERT(ggml_is_contiguous(src0_grad));
+        GGML_ASSERT(ggml_is_contiguous(params));
+        GGML_ASSERT(ggml_are_same_shape(src0, src0_grad));
+        GGML_ASSERT(ggml_nelements(params) == 2);
+
+        float* src0_d = (float*)src0->data;
+        const float* src0_grad_d = (const float*)src0_grad->data;
+        const float* params_d = (const float*)params->data;
+
+        const int64_t ne = src0->nelements();
+
+        opt_step_sgd_f32_cuda(src0_d, src0_grad_d, params_d, ne, stream);
+    }
 }

@@ -1611,6 +1611,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     case GGML_OP_ADD1: // TODO: more efficient implementation
         op::add(stream(), dst);
         break;
+    case GGML_OP_ADD_ID:
+        op::add_id(stream(), dst);
+        break;
     case GGML_OP_SUB:
         op::sub(stream(), dst);
         break;
@@ -1782,6 +1785,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         break;
     case GGML_OP_OPT_STEP_ADAMW:
         op::opt_step_adamw(stream(), dst);
+        break;
+    case GGML_OP_OPT_STEP_SGD:
+        op::opt_step_sgd(stream(), dst);
         break;
     default:
         return false;

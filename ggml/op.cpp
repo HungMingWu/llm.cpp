@@ -2447,3 +2447,56 @@ ggml_tensor* ggml_top_k(
 
 	return result;
 }
+
+ggml_tensor* ggml_swiglu_oai(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	float alpha,
+	float limit) {
+	ggml_tensor* result = ggml_glu_impl(ctx, a, b, GGML_GLU_OP_SWIGLU_OAI, false);
+	result->op_params[2] = std::bit_cast<float>(alpha);
+	result->op_params[3] = std::bit_cast<float>(limit);
+	return result;
+}
+
+ggml_tensor* ggml_add_id(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	ggml_tensor* ids)
+{
+	GGML_ASSERT(a->ne[0] == b->ne[0]);
+	GGML_ASSERT(a->ne[1] == ids->ne[0]);
+	GGML_ASSERT(a->ne[2] == ids->ne[1]);
+	GGML_ASSERT(ids->type == GGML_TYPE_I32);
+
+	ggml_tensor* result = ggml_dup_tensor(ctx, a);
+
+	result->op = GGML_OP_ADD_ID;
+	result->src.push_back(a);
+	result->src.push_back(b);
+	result->src.push_back(ids);
+
+	return result;
+}
+
+ggml_tensor* ggml_opt_step_sgd(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* grad,
+	ggml_tensor* params) {
+	GGML_ASSERT(a->flags & GGML_TENSOR_FLAG_PARAM);
+	GGML_ASSERT(ggml_are_same_shape(a, grad));
+	GGML_ASSERT(params->type == GGML_TYPE_F32);
+	GGML_ASSERT(params->nelements() == 2);
+
+	ggml_tensor* result = ggml_view_tensor(ctx, a);
+
+	result->op = GGML_OP_OPT_STEP_SGD;
+	result->src.push_back(a);
+	result->src.push_back(grad);
+	result->src.push_back(params);
+
+	return result;
+}

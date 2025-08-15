@@ -335,6 +335,7 @@ public:
         case GGML_OP_PERMUTE:
         case GGML_OP_TRANSPOSE:
         case GGML_OP_ADD:
+        case GGML_OP_ADD_ID:
         case GGML_OP_ADD1:
         case GGML_OP_SUB:
         case GGML_OP_MUL:
@@ -437,6 +438,7 @@ public:
         case GGML_OP_CROSS_ENTROPY_LOSS:
         case GGML_OP_CROSS_ENTROPY_LOSS_BACK:
         case GGML_OP_OPT_STEP_ADAMW:
+        case GGML_OP_OPT_STEP_SGD:
             return true;
         default:
             return false;

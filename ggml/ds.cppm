@@ -62,6 +62,7 @@ export {
 
         GGML_OP_DUP,
         GGML_OP_ADD,
+        GGML_OP_ADD_ID,
         GGML_OP_ADD1,
         GGML_OP_ACC,
         GGML_OP_SUB,
@@ -147,6 +148,7 @@ export {
         GGML_OP_CROSS_ENTROPY_LOSS,
         GGML_OP_CROSS_ENTROPY_LOSS_BACK,
         GGML_OP_OPT_STEP_ADAMW,
+        GGML_OP_OPT_STEP_SGD,
 
         GGML_OP_GLU,
 
@@ -185,6 +187,7 @@ export {
         GGML_GLU_OP_REGLU,
         GGML_GLU_OP_GEGLU,
         GGML_GLU_OP_SWIGLU,
+        GGML_GLU_OP_SWIGLU_OAI,
         GGML_GLU_OP_GEGLU_ERF,
         GGML_GLU_OP_GEGLU_QUICK,
 

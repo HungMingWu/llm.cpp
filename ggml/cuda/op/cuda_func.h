@@ -683,3 +683,20 @@ void roll_f32_cuda(const float* __restrict__ src,
     const int     s2,
     const int     s3,
     cudaStream_t stream);
+
+// add_id.cu
+struct add_id_context {
+    int64_t ne00, ne01, ne02, ne03;
+    int64_t ne0, ne1;
+    size_t nb01, nb02, nb11, nb21;
+    const float* src0_d;
+    const float* src1_d;
+    const int32_t* src2_d;
+    float* dst_d;
+};
+
+void add_id_cuda(const add_id_context* ctx, cudaStream_t stream);
+
+// opt-step-sgd.cu
+void opt_step_sgd_f32_cuda(
+    float* x, const float* g, const float* pars, const int64_t k, cudaStream_t stream);

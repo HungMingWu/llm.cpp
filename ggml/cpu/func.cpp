@@ -5583,6 +5583,73 @@ void ggml_compute_forward_add_rel_pos(
 	}
 }
 
+static void ggml_compute_forward_add_id_f32(
+	const ggml_compute_params* params,
+	ggml_tensor* dst) {
+
+	const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src1 = dst->src[1];
+	const ggml_tensor* src2 = dst->src[2];
+
+	GGML_ASSERT(dst->type == GGML_TYPE_F32);
+	GGML_ASSERT(src0->type == GGML_TYPE_F32);
+	GGML_ASSERT(src1->type == GGML_TYPE_F32);
+	GGML_ASSERT(src2->type == GGML_TYPE_I32);
+
+	GGML_ASSERT(src0->nb[0] == sizeof(float));
+	GGML_ASSERT(src1->nb[0] == sizeof(float));
+
+	const int ith = params->ith;
+	const int nth = params->nth;
+
+	const int nr = ggml_nrows(src0);
+
+	GGML_ASSERT(dst->nb[0] == sizeof(float));
+	GGML_ASSERT(src1->nb[0] == sizeof(float));
+
+	// rows per thread
+	const int dr = (nr + nth - 1) / nth;
+
+	// row range for this thread
+	const int ir0 = dr * ith;
+	const int ir1 = std::min(ir0 + dr, nr);
+
+	for (int ir = ir0; ir < ir1; ++ir) {
+		// src0 indices
+		const int i3 = ir / (dst->ne[2] * dst->ne[1]);
+		const int i2 = (ir - i3 * dst->ne[2] * dst->ne[1]) / dst->ne[1];
+		const int i1 = (ir - i3 * dst->ne[2] * dst->ne[1] - i2 * dst->ne[1]);
+
+		// src1 indices
+		const int i11 = *(int32_t*)((char*)src2->data + i1 * src2->nb[0] + i2 * src2->nb[1]);
+
+		GGML_ASSERT(i11 >= 0 && i11 < src1->ne[1]);
+
+		ggml_vec_add_f32(dst->ne[0],
+			(float*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1]),
+			(float*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1]),
+			(float*)((char*)src1->data + i11 * src1->nb[1]));
+	}
+}
+
+void ggml_compute_forward_add_id(
+	const ggml_compute_params* params,
+	ggml_tensor* dst) {
+
+	const ggml_tensor* src0 = dst->src[0];
+
+	switch (src0->type) {
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_add_id_f32(params, dst);
+	} break;
+	default:
+	{
+		GGML_ABORT("unsupported type for ggml_compute_forward_add_id: %s", ggml_type_name(src0->type));
+	}
+	}
+}
+
 void ggml_compute_forward_map_custom(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -5594,6 +5661,66 @@ void ggml_compute_forward_map_custom(
 			func(dst, i, n_threads);
 		});
 		scope.spawn(std::move(sender));
+	}
+}
+
+static void ggml_compute_forward_opt_step_sgd_f32(const ggml_compute_params* params, ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src0_grad = dst->src[1];
+	const ggml_tensor* sgd_params = dst->src[2];
+
+	GGML_ASSERT(ggml_are_same_shape(src0, src0_grad));
+	GGML_ASSERT(sgd_params->nelements() == 2);
+
+	const int ith = params->ith;
+	const int nth = params->nth;
+
+	const int nr = ggml_nrows(src0);
+
+	GGML_TENSOR_UNARY_OP_LOCALS
+		GGML_ASSERT(nb00 == sizeof(float));
+
+	// rows per thread
+	const int dr = (nr + nth - 1) / nth;
+
+	// row range for this thread
+	const int ir0 = dr * ith;
+	const int ir1 = std::min(ir0 + dr, nr);
+
+	// using adamw param subset we care about - alpha, wd - could have a separate struct
+	const float* sgd_params_ptr = (float*)(sgd_params->data);
+	const float   alpha = sgd_params_ptr[0];
+	const float   keep = 1.f - alpha * sgd_params_ptr[1];
+
+	for (int ir = ir0; ir < ir1; ++ir) {
+		const int64_t i03 = ir / (ne02 * ne01);
+		const int64_t i02 = (ir - i03 * ne02 * ne01) / ne01;
+		const int64_t i01 = (ir - i03 * ne02 * ne01 - i02 * ne01);
+
+		const size_t offset = i03 * nb03 + i02 * nb02 + i01 * nb01;
+
+		float* w = (float*)((char*)src0->data + offset);                   // weight
+		const float* g = (const float*)((const char*)src0_grad->data + offset);  // grad
+
+		for (int i00 = 0; i00 < ne00; ++i00) {
+			w[i00] = w[i00] * keep - alpha * g[i00];
+		}
+	}
+}
+
+void ggml_compute_forward_opt_step_sgd(const ggml_compute_params* params, ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+
+	switch (src0->type) {
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_opt_step_sgd_f32(params, dst);
+	}
+	break;
+	default:
+	{
+		GGML_ABORT("fatal error - sgd is F32 only");
+	}
 	}
 }
 
@@ -5628,6 +5755,10 @@ void ggml_compute_forward(
 	case GGML_OP_ADD:
 	{
 		ggml_compute_forward_add(pool, scope, tensor);
+	} break;
+	case GGML_OP_ADD_ID:
+	{
+		ggml_compute_forward_add_id(params, tensor);
 	} break;
 	case GGML_OP_ADD1:
 	{
@@ -5946,6 +6077,11 @@ void ggml_compute_forward(
 	case GGML_OP_OPT_STEP_ADAMW:
 	{
 		ggml_compute_forward_opt_step_adamw(pool, scope, tensor);
+	}
+	break;
+	case GGML_OP_OPT_STEP_SGD:
+	{
+		ggml_compute_forward_opt_step_sgd(params, tensor);
 	}
 	break;
 	case GGML_OP_NONE:

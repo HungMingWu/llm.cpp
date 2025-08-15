@@ -22,6 +22,7 @@ target_sources(libggml
       buffer_type.cpp
       common.cpp
       op/acc.cu
+      op/add-id.cu
       op/arange.cu
       op/argmax.cu
       op/argsort.cu
@@ -51,6 +52,7 @@ target_sources(libggml
       op/mmvq.cu
       op/norm.cu
       op/opt-step-adamw.cu
+      op/opt-step-sgd.cu
       op/pad.cu
       op/pool2d.cu
       op/quantize.cu

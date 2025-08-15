@@ -44,7 +44,8 @@ enum ggml_type : int {
     GGML_TYPE_IQ4_NL_4_4 = 36, // support has been removed
     GGML_TYPE_IQ4_NL_4_8 = 37, // support has been removed
     GGML_TYPE_IQ4_NL_8_8 = 38, // support has been removed
-    GGML_TYPE_COUNT = 39,
+    GGML_TYPE_MXFP4 = 39, // MXFP4 (1 block)
+    GGML_TYPE_COUNT = 40,
 };
 
 // precision
