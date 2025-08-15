@@ -4,6 +4,7 @@
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
 static constexpr size_t CUDA_RELU_BLOCK_SIZE = 256;
+static constexpr size_t CUDA_GLU_BLOCK_SIZE = 256;
 
 static __host__ __device__ float neg(float x) {
     return -x;
@@ -274,7 +275,6 @@ static __global__ void unary_gated_op_kernel(const T* x, const T* g, T* dst, con
 
 template <float (*op)(float), typename T>
 static void unary_gated_cuda(const T* x, const T* g, T* dst, const int64_t k, const int64_t n, const int64_t o0, const int64_t o1, cudaStream_t stream) {
-    static constexpr size_t CUDA_GLU_BLOCK_SIZE = 256;
     const int64_t num_blocks = (k + CUDA_GLU_BLOCK_SIZE - 1) / CUDA_GLU_BLOCK_SIZE;
     unary_gated_op_kernel<op> << <num_blocks, CUDA_GLU_BLOCK_SIZE, 0, stream >> > (x, g, dst, k, n, o0, o1);
 }
@@ -324,6 +324,34 @@ void geglu_cuda(const gated_context* ctx)
 void swiglu_cuda(const gated_context* ctx)
 {
 	ggml_cuda_op_unary_gated<silu>(ctx);
+}
+
+template <typename T>
+static __global__ void swiglu_oai_kernel(const T* x, const T* g, T* dst, const int64_t k, const int64_t n, const int64_t o0, const int64_t o1, float alpha, float limit) {
+    const int64_t i = int64_t(blockDim.x) * blockIdx.x + threadIdx.x;
+
+    if (i >= k) {
+        return;
+    }
+
+    // perform base op and multiply with gate (either offset in same tensor or a separate one)
+    const int64_t j0 = (i / n) * o0 + (i % n);
+    const int64_t j1 = o0 == o1 ? j0 : (i / n) * o1 + (i % n);
+
+    float xi = x[j0];
+    float gi = g[j1];
+    xi = fminf(xi, limit);
+    gi = fmaxf(fminf(gi, limit), -limit);
+
+    float out_glu = xi / (1.0f + expf(-xi * alpha));
+    out_glu = out_glu * (1.0f + gi);
+
+    dst[i] = out_glu;
+}
+
+void swiglu_oai_cuda(const float* x, const float* g, float* dst, const int64_t k, const int64_t n, const int64_t o0, const int64_t o1, const float alpha, const float limit, cudaStream_t stream) {
+    const int64_t num_blocks = (k + CUDA_GLU_BLOCK_SIZE - 1) / CUDA_GLU_BLOCK_SIZE;
+    swiglu_oai_kernel << <num_blocks, CUDA_GLU_BLOCK_SIZE, 0, stream >> > (x, g, dst, k, n, o0, o1, alpha, limit);
 }
 
 void geglu_erf_cuda(const gated_context* ctx)

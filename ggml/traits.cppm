@@ -218,6 +218,16 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
         }
     },
     {
+        GGML_TYPE_MXFP4,
+        {
+            .type_name = "mxfp4",
+            .blck_size = block_mxfp4::block_size,
+            .type_size = sizeof(block_mxfp4),
+            .is_quantized = true,
+            //.from_float_ref = (ggml_from_float_t)quantize_row_q8_1_ref,
+        }
+    },
+    {
         GGML_TYPE_Q2_K,
         {
             .type_name = "q2_K",
@@ -403,6 +413,7 @@ static const char* GGML_OP_NAME[GGML_OP_COUNT] = {
 
     "DUP",
     "ADD",
+    "ADD_ID",
     "ADD1",
     "ACC",
     "SUB",
@@ -488,6 +499,7 @@ static const char* GGML_OP_NAME[GGML_OP_COUNT] = {
     "CROSS_ENTROPY_LOSS",
     "CROSS_ENTROPY_LOSS_BACK",
     "OPT_STEP_ADAMW",
+    "OPT_STEP_SGD",
 
     "GLU",
 };
@@ -497,6 +509,7 @@ static const char* GGML_OP_SYMBOL[GGML_OP_COUNT] = {
 
     "x",
     "x+y",
+    "x[i]+y",
     "x+y",
     "view(x,nb,offset)+=y->x",
     "x-y",
@@ -536,6 +549,7 @@ static const char* GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "transpose(x)",
     "get_rows(x)",
     "get_rows_back(x)",
+    "set_rows(x)",
     "diag(x)",
     "diag_mask_inf(x)",
     "diag_mask_zero(x)",
@@ -547,6 +561,7 @@ static const char* GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "conv_transpose_1d(x)",
     "im2col(x)",
     "im2col_back(x)",
+    "conv_2d(x)",
     "conv_2d_dw(x)",
     "conv_transpose_2d(x)",
     "pool_1d(x)",
@@ -575,15 +590,14 @@ static const char* GGML_OP_SYMBOL[GGML_OP_COUNT] = {
 
     "unary(x)",
 
-    "map_custom(x)",
-    "map_custom(x,y)",
-    "map_custom(x,y,z)",
-
     "custom(x)",
 
     "cross_entropy_loss(x,y)",
     "cross_entropy_loss_back(x,y)",
     "adamw(x)",
+    "sgd(x)",
+
+    "glu(x)",
 };
 
 static const char* GGML_UNARY_OP_NAME[GGML_UNARY_OP_COUNT] = {
@@ -608,6 +622,7 @@ static const char* GGML_GLU_OP_NAME[GGML_GLU_OP_COUNT] = {
     "REGLU",
     "GEGLU",
     "SWIGLU",
+    "SWIGLU_OAI",
     "GEGLU_ERF",
     "GEGLU_QUICK",
 };
@@ -691,6 +706,11 @@ export
     template <>
     struct vec_dot_trait<block_q4_1> {
         using type = block_q8_1;
+    };
+
+    template <>
+    struct vec_dot_trait<block_mxfp4> {
+        using type = block_q8_0;
     };
 
     template <>

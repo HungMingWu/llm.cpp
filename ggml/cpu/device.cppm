@@ -29,7 +29,7 @@ import :cpu.traits;
 
 static bool ggml_backend_cpu_is_extra_buffer_type(ggml_backend_buffer_type_t buft) {
 #if 0
-	for (auto* extra : ggml_backend_cpu_get_extra_buffers_type()) {
+	for (auto* extra : ggml_backend_cpu_get_extra_buffer_types()) {
 		if (extra && extra == buft) {
 			return true;
 		}
@@ -166,12 +166,17 @@ struct ggml_backend_cpu_device : public ggml_backend_device {
 			return true;
 		}
 
-		// check whether ettra buffer type support op
-		for (auto extra : extra_bufts) {
-			if (extra->supports_op(op))
-				return true;
+#if 0
+		// check extra buffer types
+		// note: only the first sources are checked for extra buffer types to reduce overhead, increase if necessary
+		for (auto src : op->src) {
+			if (src && src->buffer &&
+				src->buffer->buft->is_extra_buffer_type()) {
+				auto* buf_extra = (ggml::cpu::extra_buffer_type*)src->buffer->buft->context;
+				return buf_extra->supports_op(this, op);
+			}
 		}
-
+#endif
 		switch (op->op) {
 		case GGML_OP_CPY:
 		case GGML_OP_SET_ROWS:

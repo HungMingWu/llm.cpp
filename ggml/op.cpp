@@ -610,6 +610,7 @@ static ggml_tensor* ggml_soft_max_impl(
 	result->op = GGML_OP_SOFT_MAX;
 	result->src.push_back(a);
 	result->src.push_back(mask);
+	result->src.push_back(nullptr); // placeholder for sink
 
 	return result;
 }
@@ -624,71 +625,22 @@ ggml_tensor* ggml_soft_max(
 	return ggml_soft_max_impl(ctx, a, mask, scale, max_bias, false);
 }
 
-ggml_tensor* ggml_rope_multi(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	ggml_tensor* c,
-	int n_dims,
-	int sections[4],
-	int mode,
-	int n_ctx_orig,
-	float freq_base,
-	float freq_scale,
-	float ext_factor,
-	float attn_factor,
-	float beta_fast,
-	float beta_slow) {
-	// Multimodal Rotary Position Embedding
-	GGML_ASSERT((mode & 1) == 0 && "mode & 1 == 1 is no longer supported");
-
-	GGML_ASSERT(ggml_is_vector(b));
-	GGML_ASSERT(b->type == GGML_TYPE_I32);
-	GGML_ASSERT(a->ne[2] * 4 == b->ne[0]); // mrope expecting 4 position ids per token
-
-	if (c) {
-		GGML_ASSERT(c->type == GGML_TYPE_F32);
-		GGML_ASSERT(c->ne[0] >= n_dims / 2);
-	}
-
-	ggml_tensor* result = ggml_dup_tensor(ctx, a);
-
-	int32_t params[11 + 4] = { /*n_past*/ 0, n_dims, mode, /*n_ctx*/ 0, n_ctx_orig };
-	memcpy(params + 5, &freq_base, sizeof(float));
-	memcpy(params + 6, &freq_scale, sizeof(float));
-	memcpy(params + 7, &ext_factor, sizeof(float));
-	memcpy(params + 8, &attn_factor, sizeof(float));
-	memcpy(params + 9, &beta_fast, sizeof(float));
-	memcpy(params + 10, &beta_slow, sizeof(float));
-	memcpy(&params[11], sections, sizeof(int) * 4);
-	ggml_set_op_params(*result, params, sizeof(params));
-
-	result->op = GGML_OP_ROPE;
-	result->src.push_back(a);
-	result->src.push_back(b);
-	result->src.push_back(c);
-
-	return result;
-}
-
-static constexpr size_t GGML_MROPE_SECTIONS = 4;
-
-static ggml_tensor* ggml_rope_impl(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	ggml_tensor* c,
-	int n_dims,
-	int sections[GGML_MROPE_SECTIONS],
-	int mode,
-	int n_ctx_orig,
-	float freq_base,
-	float freq_scale,
-	float ext_factor,
-	float attn_factor,
-	float beta_fast,
-	float beta_slow,
-	bool inplace) {
+static struct ggml_tensor* ggml_rope_impl(
+	struct ggml_context* ctx,
+	struct ggml_tensor* a,
+	struct ggml_tensor* b,
+	struct ggml_tensor* c,
+	int                   n_dims,
+	int                   sections[GGML_MROPE_SECTIONS],
+	int                   mode,
+	int                   n_ctx_orig,
+	float                 freq_base,
+	float                 freq_scale,
+	float                 ext_factor,
+	float                 attn_factor,
+	float                 beta_fast,
+	float                 beta_slow,
+	bool                  inplace) {
 	GGML_ASSERT((mode & 1) == 0 && "mode & 1 == 1 is no longer supported");
 
 	GGML_ASSERT(ggml_is_vector(b));
@@ -707,7 +659,7 @@ static ggml_tensor* ggml_rope_impl(
 		GGML_ASSERT(c->ne[0] >= n_dims / 2);
 	}
 
-	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+	struct ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
 
 	int32_t params[15] = { /*n_past*/ 0, n_dims, mode, /*n_ctx*/ 0, n_ctx_orig };
 	memcpy(params + 5, &freq_base, sizeof(float));
@@ -716,11 +668,13 @@ static ggml_tensor* ggml_rope_impl(
 	memcpy(params + 8, &attn_factor, sizeof(float));
 	memcpy(params + 9, &beta_fast, sizeof(float));
 	memcpy(params + 10, &beta_slow, sizeof(float));
-	if (mrope_used)
+	if (mrope_used) {
 		memcpy(params + 11, sections, sizeof(int32_t) * GGML_MROPE_SECTIONS);
-	else
+	}
+	else {
 		memset(params + 11, 0, sizeof(int32_t) * GGML_MROPE_SECTIONS);
-	ggml_set_op_params(*result, params, sizeof(params));
+	}
+	memcpy(result->op_params, params, sizeof(params));
 
 	result->op = GGML_OP_ROPE;
 	result->src.push_back(a);
@@ -728,6 +682,27 @@ static ggml_tensor* ggml_rope_impl(
 	result->src.push_back(c);
 
 	return result;
+}
+
+ggml_tensor* ggml_rope_multi(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	ggml_tensor* c,
+	int n_dims,
+	int sections[GGML_MROPE_SECTIONS],
+	int mode,
+	int n_ctx_orig,
+	float freq_base,
+	float freq_scale,
+	float ext_factor,
+	float attn_factor,
+	float beta_fast,
+	float beta_slow) {
+	return ggml_rope_impl(
+		ctx, a, b, c, n_dims, sections, mode, n_ctx_orig, freq_base, freq_scale,
+		ext_factor, attn_factor, beta_fast, beta_slow, false
+	);
 }
 
 ggml_tensor* ggml_rope_ext(
@@ -745,7 +720,7 @@ ggml_tensor* ggml_rope_ext(
 	float beta_fast,
 	float beta_slow) {
 	return ggml_rope_impl(
-		ctx, a, b, c, n_dims, nullptr, mode, n_ctx_orig, freq_base, freq_scale,
+		ctx, a, b, c, n_dims, NULL, mode, n_ctx_orig, freq_base, freq_scale,
 		ext_factor, attn_factor, beta_fast, beta_slow, false
 	);
 }
@@ -1017,6 +992,7 @@ ggml_tensor* ggml_flash_attn_ext(
 	result->src.push_back(k);
 	result->src.push_back(v);
 	result->src.push_back(mask);
+	result->src.push_back(nullptr); // placeholder for sink
 
 	return result;
 }
@@ -1661,7 +1637,7 @@ ggml_tensor* ggml_rope_ext_inplace(
 	float beta_slow)
 {
 	return ggml_rope_impl(
-		ctx, a, b, c, n_dims, nullptr, mode, n_ctx_orig, freq_base, freq_scale,
+		ctx, a, b, c, n_dims, NULL, mode, n_ctx_orig, freq_base, freq_scale,
 		ext_factor, attn_factor, beta_fast, beta_slow, true
 	);
 }
@@ -2446,4 +2422,78 @@ ggml_tensor* ggml_top_k(
 		0);
 
 	return result;
+}
+
+ggml_tensor* ggml_swiglu_oai(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	float alpha,
+	float limit) {
+	ggml_tensor* result = ggml_glu_impl(ctx, a, b, GGML_GLU_OP_SWIGLU_OAI, false);
+	result->op_params[2] = std::bit_cast<float>(alpha);
+	result->op_params[3] = std::bit_cast<float>(limit);
+	return result;
+}
+
+ggml_tensor* ggml_add_id(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	ggml_tensor* ids)
+{
+	GGML_ASSERT(a->ne[0] == b->ne[0]);
+	GGML_ASSERT(a->ne[1] == ids->ne[0]);
+	GGML_ASSERT(a->ne[2] == ids->ne[1]);
+	GGML_ASSERT(ids->type == GGML_TYPE_I32);
+
+	ggml_tensor* result = ggml_dup_tensor(ctx, a);
+
+	result->op = GGML_OP_ADD_ID;
+	result->src.push_back(a);
+	result->src.push_back(b);
+	result->src.push_back(ids);
+
+	return result;
+}
+
+ggml_tensor* ggml_opt_step_sgd(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* grad,
+	ggml_tensor* params) {
+	GGML_ASSERT(a->flags & GGML_TENSOR_FLAG_PARAM);
+	GGML_ASSERT(ggml_are_same_shape(a, grad));
+	GGML_ASSERT(params->type == GGML_TYPE_F32);
+	GGML_ASSERT(params->nelements() == 2);
+
+	ggml_tensor* result = ggml_view_tensor(ctx, a);
+
+	result->op = GGML_OP_OPT_STEP_SGD;
+	result->src.push_back(a);
+	result->src.push_back(grad);
+	result->src.push_back(params);
+
+	return result;
+}
+
+ggml_tensor* ggml_rope_multi_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	ggml_tensor* c,
+	int n_dims,
+	int sections[GGML_MROPE_SECTIONS],
+	int mode,
+	int n_ctx_orig,
+	float freq_base,
+	float freq_scale,
+	float ext_factor,
+	float attn_factor,
+	float beta_fast,
+	float beta_slow) {
+	return ggml_rope_impl(
+		ctx, a, b, c, n_dims, sections, mode, n_ctx_orig, freq_base, freq_scale,
+		ext_factor, attn_factor, beta_fast, beta_slow, true
+	);
 }

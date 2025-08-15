@@ -138,7 +138,7 @@ namespace op
             src0_d, src1_d, dst_d, (size_t)output_size, stream);
     }
 
-    void mul_mat_vec(cudaStream_t stream, const ggml_tensor* ids, ggml_tensor* dst)
+    void mul_mat_vec_f(cudaStream_t stream, const ggml_tensor* ids, ggml_tensor* dst)
     {
         const ggml_tensor* src0 = dst->src[0];
         const ggml_tensor* src1 = dst->src[1];
@@ -160,6 +160,73 @@ namespace op
         GGML_ASSERT(dst->nb[0] == ts_dst);
 
         const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
+
+        const int64_t s01 = src0->nb[1] / ts_src0;
+        const int64_t s11 = src1->nb[1] / ts_src1;
+        const int64_t s1 = dst->nb[1] / ts_dst;
+        const int64_t s02 = src0->nb[2] / ts_src0;
+        const int64_t s12 = src1->nb[2] / ts_src1;
+        const int64_t s2 = dst->nb[2] / ts_dst;
+        const int64_t s03 = src0->nb[3] / ts_src0;
+        const int64_t s13 = src1->nb[3] / ts_src1;
+        const int64_t s3 = dst->nb[3] / ts_dst;
+
+        const int64_t ncols_dst = ids ? dst->ne[2] : dst->ne[1];
+
+        GGML_ASSERT(!ids || ncols_dst == 1);
+
+        mul_mat_vec_f_context ctx{
+            .src0_type = src0->type,
+            .src0_d = src0->data,
+            .src1_d = (const float*)src1->data,
+            .ids_d = ids ? (const int32_t*)ids->data : nullptr,
+            .dst_d = (float*)dst->data,
+            .ne00 = src0->ne[0],
+            .ne01 = src0->ne[1],
+            .ne02 = src0->ne[2],
+            .ne03 = src0->ne[3],
+            .ne3 = dst->ne[3],
+
+            // For MUL_MAT_ID the memory layout is different than for MUL_MAT:
+            .ncols_dst = ncols_dst,
+            .nchannels_y = ids ? src1->ne[1] : src1->ne[2],
+            .nchannels_dst = ids ? dst->ne[1] : dst->ne[2],
+            .stride_channel_dst = ids ? s1 : s2,
+            .stride_channel_y = ids ? s11 : s12,
+
+            .s01 = s01,
+            .s02 = s02,
+            .s03 = s03,
+            .s11 = s11,
+            .s13 = s13,
+            .s1 = s1,
+            .s3 = s3,
+            .prec = fast_fp16_available(cc) ? ggml_prec(dst->op_params[0]) : GGML_PREC_F32
+        };
+        mul_mat_vec_f_cuda(&ctx, stream);
+    }
+
+    void mul_mat_f(cudaStream_t stream, const ggml_tensor* ids, ggml_tensor* dst)
+    {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+
+        GGML_ASSERT(src1->type == GGML_TYPE_F32);
+        GGML_ASSERT(!ids || ids->type == GGML_TYPE_I32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+
+        const size_t ts_src0 = ggml_type_size(src0->type);
+        const size_t ts_src1 = ggml_type_size(src1->type);
+        const size_t ts_dst = ggml_type_size(dst->type);
+
+        GGML_ASSERT(src1->ne[3] == dst->ne[3]);
+
+        GGML_ASSERT(src0->nb[0] == ts_src0);
+        GGML_ASSERT(src1->nb[0] == ts_src1);
+        GGML_ASSERT(!ids || ids->nb[0] == ggml_type_size(ids->type));
+        GGML_ASSERT(dst->nb[0] == ts_dst);
+
+        const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
         const enum ggml_prec prec = fast_fp16_available(cc) ? ggml_prec(dst->op_params[0]) : GGML_PREC_F32;
 
         const int64_t s01 = src0->nb[1] / ts_src0;
@@ -172,41 +239,35 @@ namespace op
         const int64_t s13 = src1->nb[3] / ts_src1;
         const int64_t s3 = dst->nb[3] / ts_dst;
 
-        // For MUL_MAT_ID the memory layout is different than for MUL_MAT:
-        const int64_t ncols_dst = ids ? dst->ne[2] : dst->ne[1];
-        const int64_t nchannels_y = ids ? src1->ne[1] : src1->ne[2];
-        const int64_t nchannels_dst = ids ? dst->ne[1] : dst->ne[2];
-        const int64_t stride_channel_dst = ids ? s1 : s2;
-        const int64_t stride_channel_y = ids ? s11 : s12;
-
-        GGML_ASSERT(!ids || ncols_dst == 1);
-
-        mul_mat_vec_context ctx{
-            .src0_type = src0->type,
-            .prec = prec,
-            .src0_d = src0->data,
+        mul_mat_f_context ctx{
+			.src0_type = src0->type,
+			.src0_d = src0->data,
             .src1_d = (const float*)src1->data,
             .ids_d = ids ? (const int32_t*)ids->data : nullptr,
             .dst_d = (float*)dst->data,
-            .ncols = src0->ne[0],
-            .nrows = src0->ne[1],
-			.ncols_dst = ncols_dst,
-            .stride_row = s01,
-            .stride_col_y = s11,
-			.stride_col_dst = s1,
-            .nchannels_x = src0->ne[2],
-            .nchannels_y = nchannels_y,
-            .nchannels_dst = nchannels_dst,
-            .stride_channel_x = s02,
-            .stride_channel_y = stride_channel_y,
-            .stride_channel_dst = stride_channel_dst,
-			.nsamples_x = src0->ne[3],
-            .nsamples_dst = dst->ne[3],
-            .stride_sample_x = s03,
-            .stride_sample_y = s13,
-            .stride_sample_dst = s3,
+			.ne00 = src0->ne[0],
+			.ne01 = src0->ne[1],
+			.ne02 = src0->ne[2],
+			.ne03 = src0->ne[3],
+			.ne3 = dst->ne[3],
+
+            // For MUL_MAT_ID the memory layout is different than for MUL_MAT:
+            .ncols_dst = ids ? dst->ne[2] : dst->ne[1],
+            .nchannels_y = ids ? src1->ne[1] : src1->ne[2],
+            .nchannels_dst = ids ? dst->ne[1] : dst->ne[2],
+            .stride_channel_dst = ids ? s1 : s2,
+            .stride_channel_y = ids ? s11 : s12,
+            
+            .s01 = s01,
+            .s02 = s02,
+            .s03 = s03,
+            .s11 = s11,
+            .s13 = s13,
+            .s1 = s1,
+            .s3 = s3
         };
-		mul_mat_vec_cuda(&ctx, stream);
+
+        mul_mat_f_cuda(&ctx, stream);
     }
 
     void pool2d(cudaStream_t stream, ggml_tensor* dst)
@@ -923,7 +984,7 @@ namespace op
                     mul_mat_vec_q(stream, ids, dst, pool);
                 }
                 else {
-                    mul_mat_vec(stream, ids, dst);
+                    mul_mat_vec_f(stream, ids, dst);
                 }
                 return;
             }
@@ -1213,6 +1274,7 @@ namespace op
     void soft_max(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         const ggml_tensor* src1 = dst->src[1];
+        const ggml_tensor* src2 = dst->src[2];
 
         const float* src0_d = (const float*)src0->data;
         const void* src1_d = src1 ? (const void*)src1->data : nullptr;
@@ -1249,6 +1311,7 @@ namespace op
         softmax_context ctx{
             .src0_d = src0_d,
 			.src1_d = src1_d,
+			.src2_d = src2 ? (const float*)src2->data : nullptr,
             .dst_d = dst_d,
 			.ne00 = ne00,
 			.nrows_x = nrows_x,
@@ -1565,6 +1628,7 @@ namespace op
         const ggml_tensor* K = dst->src[1];
         const ggml_tensor* V = dst->src[2];
         const ggml_tensor* mask = dst->src[3];
+        const ggml_tensor* sinks = dst->src[4];
 
         ggml_cuda_set_device(device);
         const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
@@ -1644,6 +1708,9 @@ namespace op
                 .nb2 = (mask) ? mask->nb[2] : 0,
                 .nb3 = (mask) ? mask->nb[3] : 0
             },
+            .sinks = {
+                .data = sinks ? sinks->data : nullptr
+            },
             .KQV = {
                 .type = dst->type,
                 .data = dst->data,
@@ -1695,8 +1762,9 @@ namespace op
 
         const bool gqa_opt_applies = ((Q->ne[2] / K->ne[2]) % 2 == 0) && mask; // The mma-based kernels have GQA-specific optimizations
         const bool mma_needs_data_conversion = K->type != GGML_TYPE_F16 || V->type != GGML_TYPE_F16;
-        const bool mma_faster_for_bs1 = new_mma_available(cc) && gqa_opt_applies &&
-            (Q->ne[3] > 1 || cc < GGML_CUDA_CC_ADA_LOVELACE) && !mma_needs_data_conversion;
+        const bool mma_faster_for_rtx4000 = Q->ne[3] > 1 || (Q->ne[2] > 4 * K->ne[2] && K->ne[1] >= 8192);
+        const bool mma_faster_for_bs1 = turing_mma_available(cc) && gqa_opt_applies && !mma_needs_data_conversion &&
+            (cc < GGML_CUDA_CC_ADA_LOVELACE || mma_faster_for_rtx4000);
         const bool can_use_vector_kernel = Q->ne[0] <= 256 && Q->ne[0] % (2 * warp_size) == 0;
         if (Q->ne[1] == 1 && can_use_vector_kernel && !mma_faster_for_bs1) {
             if (prec == GGML_PREC_DEFAULT) {
@@ -1710,7 +1778,7 @@ namespace op
         }
 
         // The MMA implementation needs Turing or newer, use the old WMMA code for Volta:
-        if (fp16_mma_available(cc) && !new_mma_available(cc)) {
+        if (fp16_mma_available(cc) && !turing_mma_available(cc)) {
             ggml_cuda_flash_attn_ext_wmma_f16(ctx);
             return;
         }
@@ -2056,12 +2124,55 @@ namespace op
         }
     }
 
-    void mean(cudaStream_t stream, ggml_tensor* dst) {
+    void swiglu_oai(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+        float* src0_d = (float*)src0->data;
+        float* src1_d = src1 ? (float*)src1->data : (float*)src0->data;
+        const int64_t src0_o = src0->nb[1];
+        const int64_t src1_o = src1 ? src1->nb[1] : src0->nb[1];
+        float* dst_d = (float*)dst->data;
+        const int64_t nc = src1 ? src0->ne[0] : src0->ne[0] / 2;
+
+        GGML_ASSERT(ggml_is_contiguous_1(src0));
+        GGML_ASSERT(src0->nb[0] == ggml_element_size(src0));
+        GGML_ASSERT(ggml_is_contiguous(dst));
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+        GGML_ASSERT(src0->type == dst->type);
+        GGML_ASSERT(dst->ne[0] == nc);
+        GGML_ASSERT(ggml_nrows(dst) == ggml_nrows(src0));
+
+        if (src1) {
+            GGML_ASSERT(ggml_is_contiguous_1(src1));
+            GGML_ASSERT(src1->nb[0] == ggml_element_size(src1));
+            GGML_ASSERT(src1->ne[0] == nc);
+            GGML_ASSERT(src0->type == src1->type);
+        }
+
+        //const int32_t swapped = ((const int32_t *) dst->op_params)[1];
+        const int32_t swapped = std::bit_cast<float>(dst->op_params[1]);
+        const float alpha = std::bit_cast<float>(dst->op_params[2]);
+        const float limit = std::bit_cast<float>(dst->op_params[3]);
+
+        float* src0_p = src0_d;
+        float* src1_p = src1_d;
+
+        if (!src1) {
+            src0_p += swapped ? nc : 0;
+            src1_p += swapped ? 0 : nc;
+        }
+
+        swiglu_oai_cuda(src0_p, src1_p, dst_d, dst->nelements(), nc, src0_o / sizeof(float), src1_o / sizeof(float), alpha, limit, stream);
+    }
+
+    void mean(ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
         GGML_ASSERT(ggml_is_contiguous(src0));
-        mean_cuda((const float*)src0->data, (float*)dst->data, src0->ne[0], ggml_nrows(src0), stream);
+        mean_cuda(pool, (const float*)src0->data, (float*)dst->data, src0->ne[0], ggml_nrows(src0), stream);
     }
 
     void set_rows(cudaStream_t stream, ggml_tensor* dst) {
@@ -2185,5 +2296,61 @@ namespace op
         memcpy(&softcap, (float*)dst->op_params + 0, sizeof(float));
 
         softcap_f32_cuda(src0_d, dst_d, scale, softcap, src0->nelements(), stream);
+    }
+
+    void add_id(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+        const ggml_tensor* src2 = dst->src[2];
+
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(src1->type == GGML_TYPE_F32);
+        GGML_ASSERT(src2->type == GGML_TYPE_I32);
+
+        GGML_ASSERT(src0->nb[0] == sizeof(float));
+        GGML_ASSERT(src1->nb[0] == sizeof(float));
+        GGML_ASSERT(src2->nb[0] == sizeof(int32_t));
+
+        add_id_context ctx{
+            .ne00 = src0->ne[0],
+            .ne01 = src0->ne[1],
+            .ne02 = src0->ne[2],
+            .ne03 = src0->ne[3],
+            .ne0 = dst->ne[0],
+            .ne1 = dst->ne[1],
+            .nb01 = src0->nb[1],
+			.nb02 = src0->nb[2],
+			.nb11 = src1->nb[1],
+			.nb21 = src2->nb[1],
+            .src0_d = (const float*)src0->data,
+            .src1_d = (const float*)src1->data,
+            .src2_d = (const int32_t*)src2->data,
+            .dst_d = (float*)dst->data
+        };
+        add_id_cuda(&ctx, stream);
+    }
+
+    void opt_step_sgd(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src0_grad = dst->src[1];
+        const ggml_tensor* params = dst->src[2];
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(src0_grad->type == GGML_TYPE_F32);
+        GGML_ASSERT(params->type == GGML_TYPE_F32);
+        GGML_ASSERT(ggml_is_contiguous(src0));
+        GGML_ASSERT(ggml_is_contiguous(src0_grad));
+        GGML_ASSERT(ggml_is_contiguous(params));
+        GGML_ASSERT(ggml_are_same_shape(src0, src0_grad));
+        GGML_ASSERT(params->nelements() == 2);
+
+        float* src0_d = (float*)src0->data;
+        const float* src0_grad_d = (const float*)src0_grad->data;
+        const float* params_d = (const float*)params->data;
+
+        const int64_t ne = src0->nelements();
+
+        opt_step_sgd_f32_cuda(src0_d, src0_grad_d, params_d, ne, stream);
     }
 }

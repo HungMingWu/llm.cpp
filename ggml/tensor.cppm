@@ -161,4 +161,12 @@ export
 	void ggml_mul_mat_set_prec(
 		ggml_tensor* a,
 		enum ggml_prec prec);
+
+	void ggml_soft_max_add_sinks(
+		ggml_tensor* a,
+		ggml_tensor* sinks);
+
+	void ggml_flash_attn_ext_add_sinks(
+		ggml_tensor* a,
+		ggml_tensor* sinks);
 }

@@ -890,6 +890,31 @@ void ggml_vec_dot(int n, float* s, size_t bs, const block_q4_1* x, size_t bx, co
     *s = sumf;
 }
 
+void ggml_vec_dot(int n, float* s, size_t /*bs*/, const block_mxfp4* x, size_t /*bx*/, const block_q8_0* y, size_t /*by*/, int nrc) {
+    assert(nrc == 1);
+    UNUSED(nrc);
+    assert(n % block_mxfp4::block_size == 0);
+    static_assert(block_mxfp4::block_size == block_q8_0::block_size, "QK_MXFP4 and QK8_0 must be the same");
+
+    const int nb = n / block_mxfp4::block_size;
+
+    int ib = 0;
+    float sumf = 0;
+
+    for (; ib < nb; ++ib) {
+        const float d = toFloat32(std::bit_cast<ggml_fp16_t>(y[ib].d)) * ggml_e8m0_to_fp32_half(x[ib].e);
+        int sumi1 = 0;
+        int sumi2 = 0;
+        for (int j = 0; j < block_q8_0::block_size / 2; ++j) {
+            sumi1 += y[ib].qs[j + 0] * kvalues_mxfp4[x[ib].qs[j] & 0xf];
+            sumi2 += y[ib].qs[j + block_q8_0::block_size / 2] * kvalues_mxfp4[x[ib].qs[j] >> 4];
+        }
+        sumf += d * (sumi1 + sumi2);
+    }
+    *s = sumf;
+}
+
+
 void ggml_vec_dot(int n, float* s, size_t bs, const block_q5_0* x, size_t bx, const block_q8_0* y, size_t by, int nrc)
 {
     const int qk = block_q8_0::block_size;

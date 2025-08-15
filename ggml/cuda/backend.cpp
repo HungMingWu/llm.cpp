@@ -234,12 +234,12 @@ static void ggml_cuda_op_mul_mat_cublas(
     }
 }
 
-void ggml_cuda_op_mul_mat_vec(
+void ggml_cuda_op_mul_mat_vec_f(
     ggml_backend_cuda& ctx,
     ggml_tensor* dst, const char* src0_dd_i, const float* src1_ddf_i,
     const char*, float* dst_dd_i, const int64_t row_low, const int64_t row_high, const int64_t src1_ncols,
-    const int64_t, cudaStream_t stream)
-{
+    const int64_t, cudaStream_t stream) {
+
     const ggml_tensor* src0 = dst->src[0];
     const ggml_tensor* src1 = dst->src[1];
 
@@ -253,37 +253,52 @@ void ggml_cuda_op_mul_mat_vec(
 
     const int id = ggml_cuda_get_device();
     const int cc = ggml_cuda_info().devices[id].cc;
-    const enum ggml_prec prec = fast_fp16_available(cc) ? ggml_prec(dst->op_params[0]) : GGML_PREC_F32;
 
     // ggml_cuda_op provides single, contiguous matrices
+    const int64_t stride_row = ne00;
+    const int64_t stride_col_y = ne10;
     const int64_t stride_col_dst = id == ctx.device ? ne0 : row_diff; // main device has larger memory buffer
+    const int64_t nchannels_x = 1;
+    const int64_t nchannels_y = 1;
+    const int64_t nchannels_dst = 1;
+    const int64_t stride_channel_x = 0;
+    const int64_t stride_channel_y = 0;
+    const int64_t stride_channel_dst = 0;
+    const int64_t nsamples_x = 1;
+    const int64_t nsamples_dst = 1;
+    const int64_t stride_sample_x = 0;
+    const int64_t stride_sample_y = 0;
+    const int64_t stride_sample_dst = 0;
 
-    mul_mat_vec_context ctx1 {
+    mul_mat_vec_f_context ctx1{
         .src0_type = src0->type,
-        .prec = prec,
         .src0_d = src0_dd_i,
-        .src1_d = (const float*)src1_ddf_i,
+        .src1_d = src1_ddf_i,
         .ids_d = nullptr,
-        .dst_d = (float*)dst->data,
-        .ncols = ne00,
-        .nrows = row_diff,
-		.ncols_dst = src1_ncols,
-        .stride_row = ne00,
-        .stride_col_y = ne10,
-        .stride_col_dst = stride_col_dst,
-        .nchannels_x = 1,
-        .nchannels_y = 1,
-        .nchannels_dst = 1,
-        .stride_channel_x = 0,
-        .stride_channel_y = 0,
-        .stride_channel_dst = 0,
-        .nsamples_x = 1,
-        .nsamples_dst = 1,
-        .stride_sample_x = 0,
-        .stride_sample_y = 0,
-        .stride_sample_dst = 0
+        .dst_d = dst_dd_i,
+        .ne00 = src0->ne[0],
+        .ne01 = row_diff,
+        .ne02 = nchannels_x,
+        .ne03 = nsamples_x,
+        .ne3 = nsamples_dst,
+
+        .ncols_dst = src1_ncols,
+        .nchannels_y = nchannels_y,
+        .nchannels_dst = nchannels_dst,
+        .stride_channel_dst = stride_channel_dst,
+        .stride_channel_y = stride_channel_y,
+        
+        .s01 = stride_row,
+        .s02 = stride_channel_x,
+        .s03 = stride_sample_x,
+        .s11 = stride_col_y,
+        .s13 = stride_sample_y,
+        .s1 = stride_col_dst,
+        .s3 = stride_sample_dst,
+        .prec = fast_fp16_available(cc) ? ggml_prec(dst->op_params[0]) : GGML_PREC_F32
     };
-    mul_mat_vec_cuda(&ctx1, stream);
+
+    mul_mat_vec_f_cuda(&ctx1, stream);
 }
 
 void ggml_cuda_op_mul_mat_vec_q(
@@ -557,7 +572,6 @@ struct batched_mul_mat_traits<GGML_TYPE_F32> {
     static inline const float beta = 0.0f;
     static inline const void* get_alpha() { static const float val = alpha; return &val; }
     static inline const void* get_beta() { static const float val = beta; return &val; }
-    static inline auto get_nc_converter(ggml_type src_type) { return ggml_get_to_fp32_nc_cuda(src_type); }
 };
 
 template<>
@@ -570,7 +584,6 @@ struct batched_mul_mat_traits<GGML_TYPE_BF16> {
     static inline const float beta = 0.0f;
     static inline const void* get_alpha() { static const float val = alpha; return &val; }
     static inline const void* get_beta() { static const float val = beta; return &val; }
-    static inline auto get_nc_converter(ggml_type src_type) { return ggml_get_to_bf16_nc_cuda(src_type); }
 };
 
 template<>
@@ -583,7 +596,6 @@ struct batched_mul_mat_traits<GGML_TYPE_F16> {
     static inline const half beta = 0.0;
     static inline const void* get_alpha() { static const half val = alpha; return &val; }
     static inline const void* get_beta() { static const half val = beta; return &val; }
-    static inline auto get_nc_converter(ggml_type src_type) { return ggml_get_to_fp16_nc_cuda(src_type); }
 };
 
 template<ggml_type src0_type>
@@ -634,9 +646,7 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
         const int64_t ne_src1 = src1->nelements();
         src1_alloc.alloc(ne_src1);
 
-        const auto convert_func = traits::get_nc_converter(src1->type);
-        GGML_ASSERT(convert_func != nullptr);
-        convert_func(src1->data, src1_alloc.get(), ne10, ne11, ne12, ne13, s11, s12, s13, main_stream);
+        convert_to_nc_cuda(src1->type, src1->data, src1_alloc.get(), ne10, ne11, ne12, ne13, s11, s12, s13, main_stream);
         src1_ptr = src1_alloc.get();
         s11 = ne10;
         s12 = ne11 * s11;
@@ -774,12 +784,20 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
     const ggml_tensor* src1 = dst->src[1];
     const bool split = to_split_buffer_type(src0->buffer->get_type()) != nullptr;
 
-    bool use_mul_mat_vec = (src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16 || src0->type == GGML_TYPE_BF16)
+    // If src0 is a temporary compute buffer it may have some padding that needs to be cleared for mul_mat_vec_q or mul_mat_q.
+    // But if src0 is also a view of another tensor then this cannot be done safely because it may overwrite valid tensor data.
+    // Therefore, in such cases use cuBLAS.
+    const bool bad_padding_clear = src0->buffer->getUsage() == GGML_BACKEND_BUFFER_USAGE_COMPUTE
+        && src0->nbytes() != src0->buffer->get_alloc_size(src0) && src0->view_src;
+
+    bool use_mul_mat_vec_f = (src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16 || src0->type == GGML_TYPE_BF16)
         && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32;
-    bool use_mul_mat_vec_q = ggml_is_quantized(src0->type)
+    bool use_mul_mat_f = !ggml_is_quantized(src0->type)
+        && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32;
+    bool use_mul_mat_vec_q = ggml_is_quantized(src0->type) && !bad_padding_clear
         && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32
         && src1->ne[1] <= MMVQ_MAX_BATCH_SIZE;
-    bool use_mul_mat_q = ggml_is_quantized(src0->type)
+    bool use_mul_mat_q = ggml_is_quantized(src0->type) && !bad_padding_clear
         && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32;
 
     bool any_gpus_with_slow_fp16 = false;
@@ -794,15 +812,19 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
             }
 
             const int cc = ggml_cuda_info().devices[id].cc;
+            const int warp_size = ggml_cuda_info().devices[id].warp_size;
             use_mul_mat_q = use_mul_mat_q && ggml_cuda_should_use_mmq(src0->type, cc, src1->ne[1]);
-            use_mul_mat_vec = use_mul_mat_vec && ggml_cuda_should_use_mmv(src0->type, cc, src0->ne.data(), src1->ne[1]);
+            use_mul_mat_f = use_mul_mat_f && ggml_cuda_should_use_mmf(src0->type, ggml_type_size(src0->type), cc, warp_size, src0->ne.data(), src1->ne[1]);
+            use_mul_mat_vec_f = use_mul_mat_vec_f && ggml_cuda_should_use_mmvf(src0->type, cc, src0->ne.data(), src1->ne[1]);
             any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16 || !fast_fp16_hardware_available(cc);
         }
     }
     else {
         const int cc = ggml_cuda_info().devices[device].cc;
+        const int warp_size = ggml_cuda_info().devices[device].warp_size;
         use_mul_mat_q = use_mul_mat_q && ggml_cuda_should_use_mmq(src0->type, cc, src1->ne[1]);
-        use_mul_mat_vec = use_mul_mat_vec && ggml_cuda_should_use_mmv(src0->type, cc, src0->ne.data(), src1->ne[1]);
+        use_mul_mat_f = use_mul_mat_f && ggml_cuda_should_use_mmf(src0->type, ggml_type_size(src0->type), cc, warp_size, src0->ne.data(), src1->ne[1]);
+        use_mul_mat_vec_f = use_mul_mat_vec_f && ggml_cuda_should_use_mmvf(src0->type, cc, src0->ne.data(), src1->ne[1]);
         any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16 || !fast_fp16_hardware_available(cc);
     }
 
@@ -820,10 +842,13 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
     bool use_batched_cublas_bf16 = src0->type == GGML_TYPE_BF16 && bf16_mma_hardware_available(cc);
     bool use_batched_cublas_f32 = src0->type == GGML_TYPE_F32;
 
-    if (!split && use_mul_mat_vec) {
+    if (!split && use_mul_mat_vec_f) {
         // the custom F16 vector kernel can be used over batched cuBLAS GEMM
         // but this is only faster for GPUs without tensor cores or with a thin src0 matrix (particularly KQV in attention)
-        op::mul_mat_vec(this->stream(), nullptr, dst);
+        op::mul_mat_vec_f(stream(), nullptr, dst);
+    }
+    else if (!split && use_mul_mat_f) {
+        op::mul_mat_f(stream(), nullptr, dst);
     }
     else if (!split && use_mul_mat_vec_q) {
         op::mul_mat_vec_q(stream(), nullptr, dst, pool());
@@ -832,12 +857,12 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
         op::mul_mat_q(stream(), pool(), nullptr, dst);
     }
     else if (!split && (use_batched_cublas_f16 || use_batched_cublas_bf16 || use_batched_cublas_f32)
-        && !ggml_is_transposed(src0) && !ggml_is_transposed(src1) && src1->ne[2]*src1->ne[3] > 1) {
+        && !ggml_is_transposed(src0) && !ggml_is_transposed(src1) && src1->ne[2] * src1->ne[3] > 1) {
         // general KQ + KQV multi-batch without FlashAttention
         ggml_cuda_mul_mat_batched_cublas(*this, src0, src1, dst);
     }
-    else if (use_mul_mat_vec) {
-        op_mul_mat(dst, ggml_cuda_op_mul_mat_vec, nullptr);
+    else if (use_mul_mat_vec_f) {
+        op_mul_mat(dst, ggml_cuda_op_mul_mat_vec_f, nullptr);
     }
     else if (use_mul_mat_vec_q) {
         op_mul_mat(dst, ggml_cuda_op_mul_mat_vec_q, quantize_row_q8_1_cuda);
@@ -1611,6 +1636,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     case GGML_OP_ADD1: // TODO: more efficient implementation
         op::add(stream(), dst);
         break;
+    case GGML_OP_ADD_ID:
+        op::add_id(stream(), dst);
+        break;
     case GGML_OP_SUB:
         op::sub(stream(), dst);
         break;
@@ -1635,6 +1663,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         case GGML_GLU_OP_GEGLU_QUICK:
             op::glu(stream(), dst);
             break;
+        case GGML_GLU_OP_SWIGLU_OAI:
+            op::swiglu_oai(stream(), dst);
+			break;
         default:
             return false;
         }
@@ -1751,7 +1782,7 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         op::sum_rows(stream(), dst);
         break;
     case GGML_OP_MEAN:
-        op::mean(stream(), dst);
+        op::mean(pool(), stream(), dst);
         break;
     case GGML_OP_SSM_CONV:
         op::ssm_conv(stream(), dst);
@@ -1782,6 +1813,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         break;
     case GGML_OP_OPT_STEP_ADAMW:
         op::opt_step_adamw(stream(), dst);
+        break;
+    case GGML_OP_OPT_STEP_SGD:
+        op::opt_step_sgd(stream(), dst);
         break;
     default:
         return false;

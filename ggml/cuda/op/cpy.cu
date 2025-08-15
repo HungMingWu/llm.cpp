@@ -22,28 +22,7 @@ concept simplest_case_v = !block_v<src_t> && !block_v<dst_t>;
 
 template <typename src_t, typename dst_t>
 static __device__ void copy_block(const src_t* xi, dst_t* dsti) {
-#if 0
-    if constexpr (std::is_same_v<src_t, float>) {
-        if constexpr (std::is_same_v<dst_t, float>) {
-            *dsti = *xi;
-        }
-        else if constexpr (std::is_same_v<dst_t, half>) {
-            *dsti = __float2half(*xi);
-        }
-        else if constexpr (std::is_same_v<dst_t, nv_bfloat16>) {
-            *dsti = *xi;
-        }
-    }
-    else if constexpr (std::is_same_v<src_t, half>) {
-        if constexpr (std::is_same_v<dst_t, half>) {
-            *dsti = *xi;
-        }
-        else if constexpr (std::is_same_v<dst_t, float>) {
-            *dsti = __half2float(*xi);
-        }
-    }
-#endif
-    convert_flt(xi, dsti);
+    *dsti = ggml_cuda_cast<dst_t>(*xi);
 }
 
 template <block_v src_t>

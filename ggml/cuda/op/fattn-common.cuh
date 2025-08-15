@@ -14,6 +14,7 @@ using fattn_kernel_t = void (*)(
     const char* __restrict__ K,
     const char* __restrict__ V,
     const char* __restrict__ mask,
+    const char* __restrict__ sinks,
     const int* __restrict__ KV_max,
     float* __restrict__ dst,
     float2* __restrict__ dst_meta,
@@ -129,10 +130,14 @@ static __global__ void flash_attn_mask_to_KV_max(
         all_inf = warp_reduce_all(all_inf);
 
         if (!all_inf) {
-            KV_max_sj += FATTN_KQ_STRIDE;
             break;
         }
     }
+
+    // If the break in the loop was not triggered, KV_max_sj is now -FATTN_KQ_STRIDE.
+    // If the break was triggered it's the lower edge of the tile with the first non-masked values.
+    // In either case, walk back the decrementation by FATTN_KQ_STRIDE.
+    KV_max_sj += FATTN_KQ_STRIDE;
 
     if (threadIdx.x != 0) {
         return;
@@ -291,11 +296,10 @@ void launch_fattn(
         }
         else {
             GGML_ASSERT(ctx.K.nb0 == ts);
-            to_fp16_nc_cuda_t to_fp16 = ggml_get_to_fp16_nc_cuda(ctx.K.type);
             const int64_t s01 = nb11 / ts;
             const int64_t s02 = nb12 / ts;
             const int64_t s03 = nb13 / ts;
-            to_fp16(K_data, K_f16.ptr, ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3, s01, s02, s03, main_stream);
+            convert_to_nc_cuda(ctx.K.type, K_data, K_f16.ptr, ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3, s01, s02, s03, main_stream);
 
             nb11 = ctx.K.ne0 * sizeof(half);
             nb12 = ctx.K.ne1 * nb11;
@@ -319,11 +323,10 @@ void launch_fattn(
         }
         else {
             GGML_ASSERT(ctx.V.nb0 == ts);
-            to_fp16_nc_cuda_t to_fp16 = ggml_get_to_fp16_nc_cuda(ctx.V.type);
             const int64_t s01 = nb21 / ts;
             const int64_t s02 = nb22 / ts;
             const int64_t s03 = nb23 / ts;
-            to_fp16(V_data, V_f16.ptr, ctx.V.ne0, ctx.V.ne1, ctx.V.ne2, ctx.V.ne3, s01, s02, s03, main_stream);
+            convert_to_nc_cuda(ctx.V.type, V_data, V_f16.ptr, ctx.V.ne0, ctx.V.ne1, ctx.V.ne2, ctx.V.ne3, s01, s02, s03, main_stream);
 
             nb21 = ctx.V.ne0 * sizeof(half);
             nb22 = ctx.V.ne1 * nb21;
@@ -436,6 +439,7 @@ void launch_fattn(
         K_data,
         V_data,
         (const char*)ctx.mask.data,
+		(const char*)ctx.sinks.data,
         KV_max.ptr,
         !stream_k && parallel_blocks > 1 ? dst_tmp.ptr : (float*)ctx.KQV.data, dst_tmp_meta.ptr,
         scale, ctx.max_bias, m0, m1, n_head_log2, ctx.logit_softcap,

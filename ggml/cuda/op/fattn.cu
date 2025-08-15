@@ -10,6 +10,7 @@ static __global__ void flash_attn_ext_f16(
     const char* __restrict__ K,
     const char* __restrict__ V,
     const char* __restrict__ mask,
+    const char* __restrict__ sinks,
     const int* __restrict__ KV_max,
     float* __restrict__ dst,
     float2* __restrict__ dst_meta,
@@ -26,7 +27,7 @@ static __global__ void flash_attn_ext_f16(
     const int32_t nb21, const int32_t nb22, const int64_t nb23,
     const int32_t ne31, const int32_t ne32, const int32_t ne33,
     const int32_t nb31, const int32_t nb32, const int64_t nb33) {
-#if defined(FLASH_ATTN_AVAILABLE) && defined(NEW_MMA_AVAILABLE)
+#if defined(FLASH_ATTN_AVAILABLE) && defined(TURING_MMA_AVAILABLE)
 
     // Skip unused kernel variants for faster compilation:
     if (use_logit_softcap && !(DKQ == 128 || DKQ == 256)) {
@@ -71,20 +72,24 @@ static __global__ void flash_attn_ext_f16(
     // kb0 == k start index when in the output tile.
     int kb0_start = kbc % iter_k;
     int kb0_stop = min(iter_k, kb0_start + kbc_stop - kbc);
+
     while (kbc < kbc_stop && kb0_stop == iter_k) {
         const int sequence = kbc / (iter_k * iter_j * (ne02 / ncols2));
-        const int head = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence) / (iter_k * iter_j);
-        const int jt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence - iter_k * iter_j * head) / iter_k; // j index of current tile.
+        const int zt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence) / (iter_k * iter_j); // head in units of ncols2
+        const int jt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence - iter_k * iter_j * zt) / iter_k; // j index of current tile.
 
-        const float2* Q_f2 = (const float2*)(Q + nb03 * sequence + nb02 * (head * ncols2));
-        const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head * ncols2 / gqa_ratio));
+        const int head0 = zt * ncols2;
+
+        const float2* Q_f2 = (const float2*)(Q + nb03 * sequence + nb02 * head0);
+        const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head0 / gqa_ratio));
         const half2* mask_h2 = ncols2 == 1 && !mask ? nullptr :
             (const half2*)(mask + nb33 * (sequence % ne33) + nb31 * jt * ncols1);
-        float2* dstk = ((float2*)dst) + (sequence * ne01 * ne02 + head * ncols2) * (DV / 2);
+        float2* dstk = ((float2*)dst) + (sequence * ne01 * ne02 + head0) * (DV / 2);
 
-        const half2* V_h2 = mla ? K_h2 + (DKQ / 2 - DV / 2) : (const half2*)(V + nb23 * sequence + nb22 * (head * ncols2 / gqa_ratio));
+        const half2* V_h2 = mla ? K_h2 + (DKQ / 2 - DV / 2) : (const half2*)(V + nb23 * sequence + nb22 * (head0 / gqa_ratio));
+        const float* sinks_f = sinks ? (const float*)sinks + head0 : nullptr;
 
-        const float slope = ncols2 == 1 ? get_alibi_slope(max_bias, head, n_head_log2, m0, m1) : 1.0f;
+        const float slope = ncols2 == 1 ? get_alibi_slope(max_bias, head0, n_head_log2, m0, m1) : 1.0f;
 
         const int kb0_start_kernel = kb0_start * kb_niter;
         int       kb0_stop_kernel = kb0_stop * kb_niter;
@@ -97,13 +102,13 @@ static __global__ void flash_attn_ext_f16(
         if (kb0_start == 0) {
             constexpr bool needs_fixup = false; // CUDA block is working on an entire tile.
             flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, ntiles, use_logit_softcap, mla, needs_fixup, is_fixup>
-                (Q_f2, K_h2, V_h2, mask_h2, dstk, dst_meta, scale, slope, logit_softcap,
+                (Q_f2, K_h2, V_h2, mask_h2, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
                     ne01, ne02, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start_kernel, kb0_stop_kernel);
         }
         else {
             constexpr bool needs_fixup = true; // CUDA block is working on the beginning of a tile.
             flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, ntiles, use_logit_softcap, mla, needs_fixup, is_fixup>
-                (Q_f2, K_h2, V_h2, mask_h2, dstk, dst_meta, scale, slope, logit_softcap,
+                (Q_f2, K_h2, V_h2, mask_h2, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
                     ne01, ne02, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start_kernel, kb0_stop_kernel);
         }
 
@@ -119,18 +124,21 @@ static __global__ void flash_attn_ext_f16(
     }
 
     const int sequence = kbc / (iter_k * iter_j * (ne02 / ncols2));
-    const int head = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence) / (iter_k * iter_j);
-    const int jt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence - iter_k * iter_j * head) / iter_k; // j index of current tile.
+    const int zt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence) / (iter_k * iter_j); // head in units of ncols2
+    const int jt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence - iter_k * iter_j * zt) / iter_k; // j index of current tile.
 
-    const float2* Q_f2 = (const float2*)(Q + nb03 * sequence + nb02 * (head * ncols2));
-    const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head * ncols2 / gqa_ratio));
+    const int head0 = zt * ncols2;
+
+    const float2* Q_f2 = (const float2*)(Q + nb03 * sequence + nb02 * head0);
+    const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head0 / gqa_ratio));
     const half2* mask_h2 = ncols2 == 1 && !mask ? nullptr :
         (const half2*)(mask + nb33 * (sequence % ne33) + nb31 * jt * ncols1);
-    float2* dstk = ((float2*)dst) + (sequence * ne01 * ne02 + head * ncols2) * (DV / 2);
+    float2* dstk = ((float2*)dst) + (sequence * ne01 * ne02 + head0) * (DV / 2);
 
-    const half2* V_h2 = mla ? K_h2 + (DKQ / 2 - DV / 2) : (const half2*)(V + nb23 * sequence + nb22 * (head * ncols2 / gqa_ratio));
+    const half2* V_h2 = mla ? K_h2 + (DKQ / 2 - DV / 2) : (const half2*)(V + nb23 * sequence + nb22 * (head0 / gqa_ratio));
+    const float* sinks_f = sinks ? (const float*)sinks + head0 : nullptr;
 
-    const float slope = ncols2 == 1 ? get_alibi_slope(max_bias, head, n_head_log2, m0, m1) : 1.0f;
+    const float slope = ncols2 == 1 ? get_alibi_slope(max_bias, head0, n_head_log2, m0, m1) : 1.0f;
 
     const int kb0_start_kernel = kb0_start * kb_niter;
     int       kb0_stop_kernel = kb0_stop * kb_niter;
@@ -142,10 +150,10 @@ static __global__ void flash_attn_ext_f16(
     constexpr bool is_fixup = true; // Last index writes its data to fixup buffer to avoid data races with other blocks.
     constexpr bool needs_fixup = false;
     flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, ntiles, use_logit_softcap, mla, needs_fixup, is_fixup>
-        (Q_f2, K_h2, V_h2, mask_h2, dstk, dst_meta, scale, slope, logit_softcap,
+        (Q_f2, K_h2, V_h2, mask_h2, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
             ne01, ne02, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start_kernel, kb0_stop_kernel);
 #else
-    GGML_UNUSED(Q); GGML_UNUSED(K); GGML_UNUSED(V); GGML_UNUSED(mask);
+    GGML_UNUSED(Q); GGML_UNUSED(K); GGML_UNUSED(V); GGML_UNUSED(mask); GGML_UNUSED(sinks);
     GGML_UNUSED(dst); GGML_UNUSED(dst_meta);
     GGML_UNUSED(scale); GGML_UNUSED(max_bias); GGML_UNUSED(m0); GGML_UNUSED(m1);
     GGML_UNUSED(n_head_log2); GGML_UNUSED(logit_softcap);
@@ -157,7 +165,7 @@ static __global__ void flash_attn_ext_f16(
     GGML_UNUSED(ne31); GGML_UNUSED(ne32); GGML_UNUSED(ne33);
     GGML_UNUSED(nb31); GGML_UNUSED(nb32); GGML_UNUSED(nb33);
     NO_DEVICE_CODE;
-#endif // defined(FLASH_ATTN_AVAILABLE) && defined(NEW_MMA_AVAILABLE)
+#endif // defined(FLASH_ATTN_AVAILABLE) && defined(TURING_MMA_AVAILABLE)
 }
 
 template <int DKQ, int DV, int ncols1, int ncols2>

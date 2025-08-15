@@ -501,7 +501,15 @@ void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
                 }
             }
         }
+        // if the node is still unassigned, assign it to the first backend that supports it
+        for (int b = 0; b < n_backends && hv_tensor_backend_ids.count(node) == 0; b++) {
+            auto node_backend_id = if_supported(node, b);
+            if (node_backend_id.has_value())
+                hv_tensor_backend_ids.insert({ node, node_backend_id.value()});
+        }
+        assert(hv_tensor_backend_ids.count(node) != 0);
     }
+
     // pass 5: split graph, find tensors that need to be copied
     {
         ggml_backend_sched_split* cur_split = &splits.emplace_back();

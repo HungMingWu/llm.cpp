@@ -90,8 +90,15 @@ HOST_DEVICE static constexpr uint64_t iq2xxs_grid[256] = {
 0x2b2b082b08080808, 0x2b2b190808192b08, 0x2b2b2b0819190808, 0x2b2b2b1908081908,
 };
 
+// TODO: fix name to kvalues_iq4_nl
 HOST_DEVICE static constexpr int8_t kvalues_iq4nl[16] = {
 -127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
+};
+
+// e2m1 values (doubled)
+// ref: https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
+HOST_DEVICE static constexpr int8_t kvalues_mxfp4[16] = {
+0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12,
 };
 
 HOST_DEVICE static constexpr uint64_t iq2xs_grid[512] = {

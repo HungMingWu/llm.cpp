@@ -58,6 +58,10 @@ export
             .vec_dot_type = GGML_TYPE_Q8_1,
             .nrows = 1,
         }},
+        {GGML_TYPE_MXFP4, {
+            .vec_dot_type = GGML_TYPE_Q8_0,
+            .nrows = 1,
+        }},
         {GGML_TYPE_Q2_K, {
             .vec_dot_type = GGML_TYPE_Q8_K,
             .nrows = 1,

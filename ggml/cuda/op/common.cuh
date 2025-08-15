@@ -76,27 +76,6 @@ static __device__ __forceinline__ float warp_reduce_max(float x) {
     return x;
 }
 
-
-// Row reduction kernel template - compute sum (norm=false) or mean (norm=true)
-template<bool norm>
-static __global__ void reduce_rows_f32(const float* x, float* dst, const int ncols) {
-    const int row = blockIdx.x;
-    const int col = threadIdx.x;
-
-    float sum = 0.0f;
-    for (int i = col; i < ncols; i += blockDim.x) {
-        sum += x[row * ncols + i];
-    }
-
-    sum = warp_reduce_sum(sum);
-
-    if (col != 0) {
-        return;
-    }
-
-    dst[row] = norm ? sum / ncols : sum;
-}
-
 template<int width = WARP_SIZE>
 static __device__ __forceinline__ int warp_reduce_all(int x) {
 #ifdef GGML_USE_HIP
@@ -152,6 +131,9 @@ static __device__ __forceinline__ half2 ggml_cuda_hmax2(const half2 a, const hal
 
 #define QI4_1 (block_q4_1::block_size / (4 * QR4_1))
 #define QR4_1 2
+
+#define QI_MXFP4 (block_mxfp4::block_size / (4 * QR_MXFP4))
+#define QR_MXFP4 2
 
 #define QI5_0 (block_q5_0::block_size / (4 * QR5_0))
 #define QR5_0 2
@@ -218,6 +200,7 @@ static constexpr int VDR_Q4_1_Q8_1_MMVQ = 2;
 static constexpr int VDR_Q5_0_Q8_1_MMVQ = 2;
 static constexpr int VDR_Q5_1_Q8_1_MMVQ = 2;
 static constexpr int VDR_Q8_0_Q8_1_MMVQ = 2;
+static constexpr int VDR_MXFP4_Q8_1_MMVQ = 2;
 static constexpr int VDR_Q2_K_Q8_1_MMVQ = 1;
 static constexpr int VDR_Q3_K_Q8_1_MMVQ = 1;
 static constexpr int VDR_Q4_K_Q8_1_MMVQ = 2;
@@ -271,6 +254,14 @@ struct ggml_cuda_type_traits<block_q8_0> {
     static constexpr int qr = QR8_0;
     static constexpr int qi = QI8_0;
     static constexpr int mmvq = VDR_Q8_0_Q8_1_MMVQ;
+};
+
+template<>
+struct ggml_cuda_type_traits<block_mxfp4> {
+    static constexpr int qk = block_mxfp4::block_size;;
+    static constexpr int qr = QR_MXFP4;
+    static constexpr int qi = QI_MXFP4;
+    static constexpr int mmvq = VDR_MXFP4_Q8_1_MMVQ;
 };
 
 template<>
@@ -463,4 +454,21 @@ static __device__ __forceinline__ half2 __tohalf2(uint32_t value)
 static __device__ __forceinline__ float2 __half22float2(uint32_t value)
 {
     return __half22float2(__tohalf2(value));
+}
+
+static __device__ __forceinline__ float ggml_cuda_e8m0_to_fp32(uint8_t x) {
+#if CUDART_VERSION >= 12080
+    const nv_bfloat16 e = __nv_cvt_e8m0_to_bf16raw(x);
+    return (float)e;
+#else
+    uint32_t bits;
+    if (x == 0) {
+        bits = 0x00400000;
+    }
+    else {
+        bits = (uint32_t)x << 23;
+    }
+
+    return std::bit_cast<float>(bits);
+#endif // CUDART_VERSION >= 12050
 }

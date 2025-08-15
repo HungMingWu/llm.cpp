@@ -297,13 +297,16 @@ export {
 		ggml_tensor* a,
 		ggml_tensor* b);
 
+	// AdamW optimizer step
+	// Paper: https://arxiv.org/pdf/1711.05101v3.pdf
+	// PyTorch: https://pytorch.org/docs/stable/generated/torch.optim.AdamW.html
 	ggml_tensor* ggml_opt_step_adamw(
 		ggml_context* ctx,
 		ggml_tensor* a,
 		ggml_tensor* grad,
 		ggml_tensor* m,
 		ggml_tensor* v,
-		ggml_tensor* adamw_params);
+		ggml_tensor* adamw_params); // parameters such as the learning rate
 
 	ggml_tensor* ggml_reshape(
 		ggml_context* ctx,
@@ -788,4 +791,41 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,
 		int k);
+
+	ggml_tensor* ggml_swiglu_oai(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		float alpha,
+		float limit);
+
+	// dst[i0, i1, i2] = a[i0, i1, i2] + b[i0, ids[i1, i2]]
+	ggml_tensor* ggml_add_id(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		ggml_tensor* ids);
+
+	// stochastic gradient descent step (with weight decay)
+	ggml_tensor* ggml_opt_step_sgd(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* grad,
+		ggml_tensor* params);
+
+	ggml_tensor* ggml_rope_multi_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		ggml_tensor* c,
+		int n_dims,
+		int sections[GGML_MROPE_SECTIONS],
+		int mode,
+		int n_ctx_orig,
+		float freq_base,
+		float freq_scale,
+		float ext_factor,
+		float attn_factor,
+		float beta_fast,
+		float beta_slow);
 }

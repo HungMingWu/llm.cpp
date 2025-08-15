@@ -50,6 +50,7 @@ size_t ggml_quantize_chunk(
     switch (type) {
     case GGML_TYPE_Q4_0:    result = quantize_q4_0(src + start, (char*)dst + start_row * row_size, nrows, n_per_row, imatrix); break;
     case GGML_TYPE_Q4_1:    result = quantize_q4_1(src + start, (char*)dst + start_row * row_size, nrows, n_per_row, imatrix); break;
+    case GGML_TYPE_MXFP4:   result = quantize_mxfp4(src + start, (char*)dst + start_row * row_size, nrows, n_per_row, imatrix); break;
     case GGML_TYPE_Q5_0:    result = quantize_q5_0(src + start, (char*)dst + start_row * row_size, nrows, n_per_row, imatrix); break;
     case GGML_TYPE_Q5_1:    result = quantize_q5_1(src + start, (char*)dst + start_row * row_size, nrows, n_per_row, imatrix); break;
     case GGML_TYPE_Q8_0:    result = quantize_q8_0(src + start, (char*)dst + start_row * row_size, nrows, n_per_row, imatrix); break;
@@ -96,8 +97,8 @@ size_t ggml_quantize_chunk(
     return result;
 }
 
-ggml_type ggml_ftype_to_ggml_type(ggml_ftype ftype) {
-    ggml_type wtype = GGML_TYPE_COUNT;
+enum ggml_type ggml_ftype_to_ggml_type(enum ggml_ftype ftype) {
+    enum ggml_type wtype = GGML_TYPE_COUNT;
 
     switch (ftype) {
     case GGML_FTYPE_ALL_F32:              wtype = GGML_TYPE_F32;   break;
@@ -108,6 +109,7 @@ ggml_type ggml_ftype_to_ggml_type(ggml_ftype ftype) {
     case GGML_FTYPE_MOSTLY_Q5_0:          wtype = GGML_TYPE_Q5_0;  break;
     case GGML_FTYPE_MOSTLY_Q5_1:          wtype = GGML_TYPE_Q5_1;  break;
     case GGML_FTYPE_MOSTLY_Q8_0:          wtype = GGML_TYPE_Q8_0;  break;
+    case GGML_FTYPE_MOSTLY_MXFP4:         wtype = GGML_TYPE_MXFP4; break;
     case GGML_FTYPE_MOSTLY_Q2_K:          wtype = GGML_TYPE_Q2_K;  break;
     case GGML_FTYPE_MOSTLY_Q3_K:          wtype = GGML_TYPE_Q3_K;  break;
     case GGML_FTYPE_MOSTLY_Q4_K:          wtype = GGML_TYPE_Q4_K;  break;

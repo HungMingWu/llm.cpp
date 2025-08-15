@@ -26,6 +26,7 @@ float ggml_vec_dot(int n, const T* x, const T* y, int nrc)
 void ggml_vec_dot(int n, float* s, size_t bs, const block_q4_0* x, size_t bx, const block_q8_0* y, size_t by, int nrc);
 void ggml_vec_dot(int n, float* s, size_t bs, const block_q8_0* x, size_t bx, const block_q8_0* y, size_t by, int nrc);
 void ggml_vec_dot(int n, float* s, size_t bs, const block_q4_1* x, size_t bx, const block_q8_1* y, size_t by, int nrc);
+void ggml_vec_dot(int n, float* s, size_t bs, const block_mxfp4* x, size_t bx, const block_q8_0* y, size_t by, int nrc);
 void ggml_vec_dot(int n, float* s, size_t bs, const block_q5_0* x, size_t bx, const block_q8_0* y, size_t by, int nrc);
 void ggml_vec_dot(int n, float* s, size_t bs, const block_q5_1* x, size_t bx, const block_q8_1* y, size_t by, int nrc);
 void ggml_vec_dot(int n, float* s, size_t bs, const block_q2_K* x, size_t bx, const block_q8_K* y, size_t by, int nrc);

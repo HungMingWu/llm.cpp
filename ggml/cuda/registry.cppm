@@ -141,6 +141,7 @@ public:
             case GGML_GLU_OP_REGLU:
             case GGML_GLU_OP_GEGLU:
             case GGML_GLU_OP_SWIGLU:
+            case GGML_GLU_OP_SWIGLU_OAI:
             case GGML_GLU_OP_GEGLU_ERF:
             case GGML_GLU_OP_GEGLU_QUICK:
                 return ggml_is_contiguous_1(op->src[0]);
@@ -191,6 +192,7 @@ public:
             case GGML_TYPE_Q5_0:
             case GGML_TYPE_Q5_1:
             case GGML_TYPE_Q8_0:
+            case GGML_TYPE_MXFP4:
             case GGML_TYPE_Q2_K:
             case GGML_TYPE_Q3_K:
             case GGML_TYPE_Q4_K:
@@ -335,6 +337,7 @@ public:
         case GGML_OP_PERMUTE:
         case GGML_OP_TRANSPOSE:
         case GGML_OP_ADD:
+        case GGML_OP_ADD_ID:
         case GGML_OP_ADD1:
         case GGML_OP_SUB:
         case GGML_OP_MUL:
@@ -407,11 +410,16 @@ public:
 #endif // FLASH_ATTN_AVAILABLE
             if (op->src[1]->ne[0] != op->src[2]->ne[0]) {
                 const int cc = ggml_cuda_info().devices[device].cc;
-                if (!new_mma_available(cc)) {
+                if (!turing_mma_available(cc)) {
                     return false;
                 }
                 const int gqa_ratio = op->src[0]->ne[2] / op->src[1]->ne[2];
                 return op->src[1]->ne[0] == 576 && op->src[2]->ne[0] == 512 && op->src[3] && gqa_ratio % 16 == 0;
+            }
+            // TODO: more general-purpose attention sink support [TAG_ATTN_SINKS]
+            if (op->src[4] && !fp16_mma_available(ggml_cuda_info().devices[device].cc)
+                && op->src[0]->ne[0] != 64 && op->src[0]->ne[0] != 128) {
+                return false;
             }
             if (op->src[0]->ne[0] == 192) {
                 return false;
@@ -437,6 +445,7 @@ public:
         case GGML_OP_CROSS_ENTROPY_LOSS:
         case GGML_OP_CROSS_ENTROPY_LOSS_BACK:
         case GGML_OP_OPT_STEP_ADAMW:
+        case GGML_OP_OPT_STEP_SGD:
             return true;
         default:
             return false;

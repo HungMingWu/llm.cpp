@@ -2,6 +2,7 @@
 #include "cuda_func.h"
 #include "internal_ds.h"
 #include "cpy-utils.cuh"
+#include "convert.cuh"
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_ABORT(...)
@@ -10,11 +11,6 @@
 static constexpr size_t CUDA_SET_ROWS_BLOCK_SIZE = 256;
 
 typedef void (*set_rows_kernel_t)(const char* src, char* dst);
-
-template<typename src_t, typename dst_t>
-__device__ __forceinline__ void set_rows_1(const src_t* src_f, dst_t* dst_f) {
-    convert_flt(src_f, dst_f);
-}
 
 // Generic quantized set_rows kernel template
 template<typename block_type, int qk>
@@ -87,9 +83,7 @@ static __global__ void k_set_rows(
     const src_t* src0_row = src0 + i01 * s01 + i02 * s02 + i03 * s03;
     dst_t* dst_row_ptr = dst + dst_row * s1 + i02 * s2 + i03 * s3;
 
-    const src_t* src_elem = src0_row + i00;
-    dst_t* dst_elem = dst_row_ptr + i00;
-    set_rows_1(src_elem, dst_elem);
+    dst_row_ptr[i00] = ggml_cuda_cast<dst_t>(src0_row[i00]);
 
     GGML_UNUSED(ne10);
     GGML_UNUSED(ne13);

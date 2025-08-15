@@ -59,6 +59,13 @@ export
         GGML_OPT_BUILD_TYPE_OPT = 30,
     };
 
+    enum ggml_opt_optimizer_type {
+        GGML_OPT_OPTIMIZER_TYPE_ADAMW,
+        GGML_OPT_OPTIMIZER_TYPE_SGD,
+
+        GGML_OPT_OPTIMIZER_TYPE_COUNT
+    };
+
     // parameters for initializing a new optimization context
     struct ggml_opt_params {
         ggml_backend_sched_t backend_sched; // defines which backends are used to construct the compute graphs
@@ -76,6 +83,9 @@ export
 
         ggml_opt_get_optimizer_params get_opt_pars; // callback for calculating optimizer parameters
         void* get_opt_pars_ud;                     // userdata for calculating optimizer parameters
+
+        // only GGML_OPT_OPTIMIZER_TYPE_ADAMW needs m, v momenta per parameter tensor
+        enum ggml_opt_optimizer_type optimizer;
     };
 
     struct ggml_opt_result {
@@ -145,7 +155,9 @@ export
 
         ggml_opt_get_optimizer_params get_opt_pars = nullptr;
         void* get_opt_pars_ud = nullptr;
-        ggml_tensor* adamw_params = nullptr;
+        ggml_tensor* opt_step_params = nullptr; // Stores output of get_opt_pars.
+
+        enum ggml_opt_optimizer_type optimizer = GGML_OPT_OPTIMIZER_TYPE_ADAMW;
     public:
         ggml_opt_context(ggml_opt_params params);
         void alloc(bool backward);
@@ -158,14 +170,17 @@ export
 
     // parameters that control which optimizer is used and how said optimizer tries to find the minimal loss
     struct ggml_opt_optimizer_params {
-        // AdamW optimizer parameters
         struct {
             float alpha; // learning rate
-            float beta1;
-            float beta2;
+            float beta1; // first AdamW momentum
+            float beta2; // second AdamW momentum
             float eps;   // epsilon for numerical stability
-            float wd;    // weight decay for AdamW, use 0.0f to disable
+            float wd;    // weight decay - 0.0f to disable
         } adamw;
+        struct {
+            float alpha; // learning rate
+            float wd;    // weight decay
+        } sgd;
     };
 
     ggml_opt_optimizer_params ggml_opt_get_default_optimizer_params(void*);
@@ -183,6 +198,7 @@ export
         ggml_tensor* outputs,
         ggml_opt_dataset* dataset,
         enum ggml_opt_loss_type         loss_type,
+        enum ggml_opt_optimizer_type    optimizer,
         ggml_opt_get_optimizer_params   get_opt_pars,
         int64_t                         nepoch,
         int64_t                         nbatch_logical,
@@ -211,4 +227,6 @@ export
         int64_t                 idata_split,
         ggml_opt_epoch_callback callback_train,
         ggml_opt_epoch_callback callback_eval);
+
+    const char* ggml_opt_optimizer_name(enum ggml_opt_optimizer_type o);
 }

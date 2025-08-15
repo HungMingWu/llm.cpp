@@ -133,3 +133,37 @@ void ggml_mul_mat_set_prec(
 
 	a->op_params[0] = prec_i32;
 }
+
+void ggml_soft_max_add_sinks(
+	ggml_tensor* a,
+	ggml_tensor* sinks) {
+	GGML_ASSERT(a->src.size() == 3);
+	if (!sinks) {
+		a->src[2] = NULL;
+		return;
+	}
+
+	GGML_ASSERT(a->op == GGML_OP_SOFT_MAX);
+	GGML_ASSERT(a->src[2] == NULL);
+	GGML_ASSERT(a->src[0]->ne[2] == sinks->ne[0]);
+	GGML_ASSERT(sinks->type == GGML_TYPE_F32);
+
+	a->src[2] = sinks;
+}
+
+void ggml_flash_attn_ext_add_sinks(
+	ggml_tensor* a,
+	ggml_tensor* sinks) {
+	GGML_ASSERT(a->src.size() == 5);
+	if (!sinks) {
+		a->src[4] = NULL;
+		return;
+	}
+
+	GGML_ASSERT(a->op == GGML_OP_FLASH_ATTN_EXT);
+	GGML_ASSERT(a->src[4] == NULL);
+	GGML_ASSERT(a->src[0]->ne[2] == sinks->ne[0]);
+	GGML_ASSERT(sinks->type == GGML_TYPE_F32);
+
+	a->src[4] = sinks;
+}

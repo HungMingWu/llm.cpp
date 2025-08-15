@@ -48,6 +48,8 @@ export {
     // required for mmap as gguf only guarantees 32-byte alignment
     constexpr uint32_t TENSOR_ALIGNMENT = 32;
 
+    constexpr size_t GGML_MROPE_SECTIONS = 4;
+
     // this tensor...
     enum ggml_tensor_flag {
         GGML_TENSOR_FLAG_INPUT = 1, // ...is an input for the GGML compute graph
@@ -62,6 +64,7 @@ export {
 
         GGML_OP_DUP,
         GGML_OP_ADD,
+        GGML_OP_ADD_ID,
         GGML_OP_ADD1,
         GGML_OP_ACC,
         GGML_OP_SUB,
@@ -147,6 +150,7 @@ export {
         GGML_OP_CROSS_ENTROPY_LOSS,
         GGML_OP_CROSS_ENTROPY_LOSS_BACK,
         GGML_OP_OPT_STEP_ADAMW,
+        GGML_OP_OPT_STEP_SGD,
 
         GGML_OP_GLU,
 
@@ -179,12 +183,14 @@ export {
         GGML_FTYPE_MOSTLY_IQ4_XS = 22, // except 1d tensors
         GGML_FTYPE_MOSTLY_IQ1_M = 23, // except 1d tensors
         GGML_FTYPE_MOSTLY_BF16 = 24, // except 1d tensors
+        GGML_FTYPE_MOSTLY_MXFP4 = 25, // except 1d tensors
     };
 
     enum ggml_glu_op {
         GGML_GLU_OP_REGLU,
         GGML_GLU_OP_GEGLU,
         GGML_GLU_OP_SWIGLU,
+        GGML_GLU_OP_SWIGLU_OAI,
         GGML_GLU_OP_GEGLU_ERF,
         GGML_GLU_OP_GEGLU_QUICK,
 

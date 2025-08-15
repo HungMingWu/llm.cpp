@@ -50,6 +50,7 @@ static __global__ void flash_attn_vec_ext_f16(
     const char* __restrict__ K,
     const char* __restrict__ V,
     const char* __restrict__ mask,
+    const char* __restrict__ sinks,
     const int* __restrict__ KV_max,
     float* __restrict__ dst,
     float2* __restrict__ dst_meta,
@@ -96,6 +97,7 @@ static __global__ void flash_attn_vec_ext_f16(
     V += nb23 * sequence + nb22 * (head / gqa_ratio);
 
     const half* maskh = (const half*)(mask + nb33 * (sequence % ne33) + nb31 * ic0);
+    const float* sinksf = (const float*)(sinks);
 
     const float slopef = get_alibi_slope(max_bias, head, n_head_log2, m0, m1);
     const half  slopeh = __float2half(slopef);
@@ -109,11 +111,12 @@ static __global__ void flash_attn_vec_ext_f16(
     half2* KQ2 = (half2*)KQ;
 
     half kqmax[ncols];
+    half kqsum[ncols];
 #pragma unroll
     for (int j = 0; j < ncols; ++j) {
         kqmax[j] = -HALF_MAX_HALF;
+        kqsum[j] = 0.0f;
     }
-    half kqsum[ncols] = { 0.0f };
 
     __shared__ half kqmax_shared[ncols][WARP_SIZE];
     __shared__ half kqsum_shared[ncols][WARP_SIZE];
@@ -319,6 +322,39 @@ static __global__ void flash_attn_vec_ext_f16(
         __syncthreads();
     }
 
+    if (sinksf && blockIdx.y == 0) {
+        const half sink = __float2half(sinksf[head]);
+
+#pragma unroll
+        for (int j = 0; j < ncols; ++j) {
+            if (threadIdx.x == 0) {
+                kqmax_shared[j][threadIdx.y] = fmaxf(kqmax[j], sink);
+            }
+        }
+
+        __syncthreads();
+
+#pragma unroll
+        for (int j = 0; j < ncols; ++j) {
+            half kqmax_new_j = kqmax_shared[j][threadIdx.x];
+            kqmax_new_j = warp_reduce_max(kqmax_new_j);
+
+            const half KQ_max_scale = hexp(kqmax[j] - kqmax_new_j);
+            kqmax[j] = kqmax_new_j;
+
+            const half val = hexp(sink - kqmax[j]);
+            kqsum[j] = kqsum[j] * KQ_max_scale;
+
+            if (tid == 0) {
+                kqsum[j] += val;
+            }
+
+            VKQ[j] *= __half2half2(KQ_max_scale);
+        }
+
+        __syncthreads();
+    }
+
 #pragma unroll
     for (int j = 0; j < ncols; ++j) {
         kqsum[j] = warp_reduce_sum((float)kqsum[j]);
@@ -349,7 +385,7 @@ static __global__ void flash_attn_vec_ext_f16(
         dst_meta[((sequence * ne01 + ic0 + tid) * ne02 + head) * gridDim.y + blockIdx.y] = make_float2(kqmax[tid], kqsum[tid]);
     }
 #else
-    GGML_UNUSED(Q); GGML_UNUSED(K); GGML_UNUSED(V); GGML_UNUSED(mask);
+    GGML_UNUSED(Q); GGML_UNUSED(K); GGML_UNUSED(V); GGML_UNUSED(mask); GGML_UNUSED(sinks);
     GGML_UNUSED(dst); GGML_UNUSED(dst_meta);
     GGML_UNUSED(scale); GGML_UNUSED(max_bias); GGML_UNUSED(m0); GGML_UNUSED(m1);
     GGML_UNUSED(n_head_log2); GGML_UNUSED(logit_softcap);
@@ -839,6 +875,7 @@ static __global__ void flash_attn_vec_ext_f32(
     const char* __restrict__ K,
     const char* __restrict__ V,
     const char* __restrict__ mask,
+    const char* __restrict__ sinks,
     const int* __restrict__ KV_max,
     float* __restrict__ dst,
     float2* __restrict__ dst_meta,
@@ -896,6 +933,7 @@ static __global__ void flash_attn_vec_ext_f32(
     V += nb23 * sequence + nb22 * (head / gqa_ratio);
 
     const half* maskh = (const half*)(mask + nb33 * (sequence % ne33) + nb31 * ic0);
+    const float* sinksf = (const float*)(sinks);
 
     const float slope = get_alibi_slope(max_bias, head, n_head_log2, m0, m1);
 
@@ -911,11 +949,12 @@ static __global__ void flash_attn_vec_ext_f32(
     }
 
     float kqmax[ncols];
+    float kqsum[ncols];
 #pragma unroll
     for (int j = 0; j < ncols; ++j) {
         kqmax[j] = -FLT_MAX / 2.0f;
+        kqsum[j] = 0.0f;
     }
-    float kqsum[ncols] = { 0.0f };
 
     __shared__ float kqmax_shared[ncols][WARP_SIZE];
     __shared__ float kqsum_shared[ncols][WARP_SIZE];
@@ -1098,6 +1137,39 @@ static __global__ void flash_attn_vec_ext_f32(
             for (int j = 0; j < ncols; ++j) {
                 VKQ[j] += V_ki * KQ[j * D + k];
             }
+        }
+
+        __syncthreads();
+    }
+
+    if (sinksf && blockIdx.y == 0) {
+        const float sink = sinksf[head];
+
+#pragma unroll
+        for (int j = 0; j < ncols; ++j) {
+            if (threadIdx.x == 0) {
+                kqmax_shared[j][threadIdx.y] = fmaxf(kqmax[j], sink);
+            }
+        }
+
+        __syncthreads();
+
+#pragma unroll
+        for (int j = 0; j < ncols; ++j) {
+            float kqmax_new_j = kqmax_shared[j][threadIdx.x];
+            kqmax_new_j = warp_reduce_max(kqmax_new_j);
+
+            const float KQ_max_scale = expf(kqmax[j] - kqmax_new_j);
+            kqmax[j] = kqmax_new_j;
+
+            const float val = expf(sink - kqmax[j]);
+            kqsum[j] = kqsum[j] * KQ_max_scale;
+
+            if (tid == 0) {
+                kqsum[j] += val;
+            }
+
+            VKQ[j] *= KQ_max_scale;
         }
 
         __syncthreads();
@@ -1462,6 +1534,7 @@ static __global__ void flash_attn_tile_ext_f32(
     const char* __restrict__ K,
     const char* __restrict__ V,
     const char* __restrict__ mask,
+    const char* __restrict__ sinks,
     const int* __restrict__ KV_max,
     float* __restrict__ dst,
     float2* __restrict__ dst_meta,
@@ -1486,7 +1559,7 @@ static __global__ void flash_attn_tile_ext_f32(
     return;
 #endif // FP16_MMA_AVAILABLE
     if (use_logit_softcap && !(D == 128 || D == 256)) {
-        GGML_UNUSED(Q); GGML_UNUSED(K); GGML_UNUSED(V); GGML_UNUSED(mask);
+        GGML_UNUSED(Q); GGML_UNUSED(K); GGML_UNUSED(V); GGML_UNUSED(mask); GGML_UNUSED(sinks);
         GGML_UNUSED(dst); GGML_UNUSED(dst_meta);
         GGML_UNUSED(scale); GGML_UNUSED(max_bias); GGML_UNUSED(m0); GGML_UNUSED(m1);
         GGML_UNUSED(n_head_log2); GGML_UNUSED(logit_softcap);
@@ -1512,6 +1585,7 @@ static __global__ void flash_attn_tile_ext_f32(
     const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head / gqa_ratio));
     const half2* V_h2 = (const half2*)(V + nb13 * sequence + nb12 * (head / gqa_ratio)); // K and V have same shape
     const half* maskh = (const half*)(mask + nb33 * (sequence % ne33) + nb31 * ic0);
+    const float* sinksf = (const float*)(sinks);
 
     const int stride_KV2 = nb11 / sizeof(half2);
 
@@ -1698,6 +1772,33 @@ static __global__ void flash_attn_tile_ext_f32(
         }
 
         __syncthreads();
+    }
+
+
+    //Attention sink: adjust running max and sum once per head
+    if (sinksf && blockIdx.y == 0) {
+        const float sink = sinksf[head];
+
+#pragma unroll
+        for (int j0 = 0; j0 < ncols; j0 += nwarps) {
+            float kqmax_new_j = fmaxf(kqmax[j0 / nwarps], sink);
+            kqmax_new_j = warp_reduce_max(kqmax_new_j);
+
+            const float KQ_max_scale = expf(kqmax[j0 / nwarps] - kqmax_new_j);
+            kqmax[j0 / nwarps] = kqmax_new_j;
+
+            const float val = expf(sink - kqmax[j0 / nwarps]);
+            kqsum[j0 / nwarps] = kqsum[j0 / nwarps] * KQ_max_scale;
+            if (threadIdx.x == 0) {
+                kqsum[j0 / nwarps] += val;
+            }
+
+#pragma unroll
+            for (int i0 = 0; i0 < D / 2; i0 += WARP_SIZE) {
+                VKQ[j0 / nwarps][i0 / WARP_SIZE].x *= KQ_max_scale;
+                VKQ[j0 / nwarps][i0 / WARP_SIZE].y *= KQ_max_scale;
+            }
+        }
     }
 
     float2* dst2 = (float2*)dst;

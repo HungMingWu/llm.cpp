@@ -62,6 +62,10 @@
 #define GGML_CUDA_CC_IS_CDNA(cc)  (cc >= GGML_CUDA_CC_CDNA1 && cc < GGML_CUDA_CC_RDNA1)
 #define GGML_CUDA_CC_IS_CDNA3(cc) (cc >= GGML_CUDA_CC_CDNA3 && cc < GGML_CUDA_CC_RDNA1)
 
+#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA) && CUDART_VERSION >= 11070
+#    define GGML_CUDA_USE_CUB
+#endif  // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA) && CUDART_VERSION >= 11070
+
 static constexpr size_t GGML_CUDA_MAX_DEVICES = 16;
 static constexpr size_t GGML_CUDA_MAX_STREAMS = 8;
 
@@ -208,9 +212,7 @@ static constexpr bool fast_fp16_available(const int cc) {
 }
 
 // Volta technically had FP16 tensor cores but they work very differently compared to Turing and later.
-static bool new_mma_available(const int cc) {
-    return cc < GGML_CUDA_CC_OFFSET_AMD && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_TURING;
-}
+bool turing_mma_available(const int cc);
 
 constexpr int get_mmq_y_host(const int cc) {
     return cc >= GGML_CUDA_CC_OFFSET_AMD ? (cc == GGML_CUDA_CC_RDNA1 ? 64 : 128) : (cc >= GGML_CUDA_CC_VOLTA ? 128 : 64);
@@ -279,3 +281,10 @@ bool fast_fp16_hardware_available(const int cc);
 void CUDA_SET_SHARED_MEMORY_LIMIT(const void* kernel, size_t nbytes);
 
 bool amd_mfma_available(const int cc);
+
+bool ampere_mma_available(const int cc);
+
+bool fp32_mma_hardware_available(const int cc);
+
+// To be used for feature selection of external libraries, e.g. cuBLAS.
+bool fp16_mma_hardware_available(const int cc);

@@ -36,7 +36,7 @@ static_assert(sizeof(block_q8_1_mmq) == 4 * QK8_1 + 4 * sizeof(half2), "Unexpect
 static_assert(sizeof(block_q8_1_mmq) == 4 * sizeof(block_q8_1), "Unexpected block_q8_1_mmq size");
 
 static int get_mmq_x_max_host(const int cc) {
-    return (amd_mfma_available(cc) || new_mma_available(cc)) ? 128 :
+    return (amd_mfma_available(cc) || turing_mma_available(cc)) ? 128 :
         GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA ?
 #ifdef GGML_CUDA_FORCE_MMQ
         128 : 64;
@@ -54,35 +54,6 @@ void conv_transpose_1d_f32_f32_cuda(
     const int dst_ne0, const int dst_ne1,
     const float* src0, const float* src1, float* dst, size_t dst_size,
     cudaStream_t stream);
-
-// From mmv.cu
-struct mul_mat_vec_context {
-    ggml_type src0_type;
-    ggml_prec prec;
-    const void* src0_d;
-    const float* src1_d;
-    const int32_t* ids_d;
-    float* dst_d;
-    const int64_t ncols;
-    const int64_t nrows;
-    const int64_t ncols_dst;
-    const int64_t stride_row;
-    const int64_t stride_col_y;
-    const int64_t stride_col_dst;
-    const int64_t nchannels_x;
-    const int64_t nchannels_y;
-    const int64_t nchannels_dst;
-    const int64_t stride_channel_x;
-    const int64_t stride_channel_y;
-    const int64_t stride_channel_dst;
-    const int64_t nsamples_x;
-    const int64_t nsamples_dst;
-    const int64_t stride_sample_x;
-    const int64_t stride_sample_y;
-    const int64_t stride_sample_dst;
-};
-
-void mul_mat_vec_cuda(const mul_mat_vec_context* ctx, cudaStream_t stream);
 
 // From quantize.cu
 void quantize_row_q8_1_cuda(
@@ -197,6 +168,7 @@ struct gated_context {
 void reglu_cuda(const gated_context* ctx);
 void geglu_cuda(const gated_context* ctx);
 void swiglu_cuda(const gated_context* ctx);
+void swiglu_oai_cuda(const float* x, const float* g, float* dst, const int64_t k, const int64_t n, const int64_t o0, const int64_t o1, const float alpha, const float limit, cudaStream_t stream);
 void geglu_erf_cuda(const gated_context* ctx);
 void geglu_quick_cuda(const gated_context* ctx);
 void leaky_relu_cuda(bool, const void*, void*, const int, const float, cudaStream_t);
@@ -402,6 +374,7 @@ struct soft_max_params {
 struct softmax_context {
     const float* src0_d;
     const void* src1_d;
+	const float* src2_d; // optional
     float* dst_d;
     const int64_t ne00;
     const int64_t nrows_x, nrows_y;
@@ -560,6 +533,10 @@ struct flash_attn_ext_context {
     } mask;
 
     struct {
+        const void* data;
+    } sinks;
+
+    struct {
         const ggml_type type;
         const void* data;
         const int64_t elements;
@@ -651,7 +628,7 @@ struct conv2d_transpose_context {
 void conv_2d_transpose_p0_cuda(conv2d_transpose_context* ctx, cudaStream_t stream);
 
 //mean.cu
-void mean_cuda(const float* src0_d, float* dst_d, const int64_t ncols, const int64_t nrows, cudaStream_t stream);
+void mean_cuda(ggml_cuda_pool& pool, const float* src0_d, float* dst_d, const int64_t ncols, const int64_t nrows, cudaStream_t stream);
 
 //set-rows.cu
 struct set_rows_context {
@@ -683,3 +660,69 @@ void roll_f32_cuda(const float* __restrict__ src,
     const int     s2,
     const int     s3,
     cudaStream_t stream);
+
+// add_id.cu
+struct add_id_context {
+    int64_t ne00, ne01, ne02, ne03;
+    int64_t ne0, ne1;
+    size_t nb01, nb02, nb11, nb21;
+    const float* src0_d;
+    const float* src1_d;
+    const int32_t* src2_d;
+    float* dst_d;
+};
+
+void add_id_cuda(const add_id_context* ctx, cudaStream_t stream);
+
+// opt-step-sgd.cu
+void opt_step_sgd_f32_cuda(
+    float* x, const float* g, const float* pars, const int64_t k, cudaStream_t stream);
+
+// mmf.cu
+bool ggml_cuda_should_use_mmf(enum ggml_type type, size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t ne11);
+struct mul_mat_f_context {
+    ggml_type src0_type;
+	const void* src0_d;
+    const float* src1_d;
+    const int32_t* ids_d;
+	float* dst_d;
+    int64_t ne00, ne01, ne02, ne03;
+    int64_t ne3;
+
+    const int64_t ncols_dst;
+    const int64_t nchannels_y;
+    const int64_t nchannels_dst;
+    const int64_t stride_channel_dst;
+    const int64_t stride_channel_y;
+
+    const int64_t s01, s02, s03;
+    const int64_t s11, s13;
+    const int64_t s1, s3;
+};
+
+void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream);
+
+// mmvf.cu
+bool ggml_cuda_should_use_mmvf(enum ggml_type type, int cc, const int64_t* src0_ne, int64_t ne11);
+struct mul_mat_vec_f_context {
+    ggml_type src0_type;
+    const void* src0_d;
+    const float* src1_d;
+    const int32_t* ids_d;
+    float* dst_d;
+    int64_t ne00, ne01, ne02, ne03;
+    int64_t ne3;
+
+    const int64_t ncols_dst;
+    const int64_t nchannels_y;
+    const int64_t nchannels_dst;
+    const int64_t stride_channel_dst;
+    const int64_t stride_channel_y;
+
+    const int64_t s01, s02, s03;
+    const int64_t s11, s13;
+    const int64_t s1, s3;
+    const enum ggml_prec prec;
+};
+
+void mul_mat_vec_f_cuda(const mul_mat_vec_f_context* ctx, cudaStream_t stream);
