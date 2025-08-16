@@ -2056,6 +2056,49 @@ namespace op
         }
     }
 
+    void swiglu_oai(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+        float* src0_d = (float*)src0->data;
+        float* src1_d = src1 ? (float*)src1->data : (float*)src0->data;
+        const int64_t src0_o = src0->nb[1];
+        const int64_t src1_o = src1 ? src1->nb[1] : src0->nb[1];
+        float* dst_d = (float*)dst->data;
+        const int64_t nc = src1 ? src0->ne[0] : src0->ne[0] / 2;
+
+        GGML_ASSERT(ggml_is_contiguous_1(src0));
+        GGML_ASSERT(src0->nb[0] == ggml_element_size(src0));
+        GGML_ASSERT(ggml_is_contiguous(dst));
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+        GGML_ASSERT(src0->type == dst->type);
+        GGML_ASSERT(dst->ne[0] == nc);
+        GGML_ASSERT(ggml_nrows(dst) == ggml_nrows(src0));
+
+        if (src1) {
+            GGML_ASSERT(ggml_is_contiguous_1(src1));
+            GGML_ASSERT(src1->nb[0] == ggml_element_size(src1));
+            GGML_ASSERT(src1->ne[0] == nc);
+            GGML_ASSERT(src0->type == src1->type);
+        }
+
+        //const int32_t swapped = ((const int32_t *) dst->op_params)[1];
+        const int32_t swapped = std::bit_cast<float>(dst->op_params[1]);
+        const float alpha = std::bit_cast<float>(dst->op_params[2]);
+        const float limit = std::bit_cast<float>(dst->op_params[3]);
+
+        float* src0_p = src0_d;
+        float* src1_p = src1_d;
+
+        if (!src1) {
+            src0_p += swapped ? nc : 0;
+            src1_p += swapped ? 0 : nc;
+        }
+
+        swiglu_oai_cuda(src0_p, src1_p, dst_d, dst->nelements(), nc, src0_o / sizeof(float), src1_o / sizeof(float), alpha, limit, stream);
+    }
+
     void mean(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
@@ -2232,7 +2275,7 @@ namespace op
         GGML_ASSERT(ggml_is_contiguous(src0_grad));
         GGML_ASSERT(ggml_is_contiguous(params));
         GGML_ASSERT(ggml_are_same_shape(src0, src0_grad));
-        GGML_ASSERT(ggml_nelements(params) == 2);
+        GGML_ASSERT(params->nelements() == 2);
 
         float* src0_d = (float*)src0->data;
         const float* src0_grad_d = (const float*)src0_grad->data;

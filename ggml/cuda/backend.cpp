@@ -1638,6 +1638,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         case GGML_GLU_OP_GEGLU_QUICK:
             op::glu(stream(), dst);
             break;
+        case GGML_GLU_OP_SWIGLU_OAI:
+            op::swiglu_oai(stream(), dst);
+			break;
         default:
             return false;
         }

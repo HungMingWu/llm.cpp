@@ -197,6 +197,7 @@ struct gated_context {
 void reglu_cuda(const gated_context* ctx);
 void geglu_cuda(const gated_context* ctx);
 void swiglu_cuda(const gated_context* ctx);
+void swiglu_oai_cuda(const float* x, const float* g, float* dst, const int64_t k, const int64_t n, const int64_t o0, const int64_t o1, const float alpha, const float limit, cudaStream_t stream);
 void geglu_erf_cuda(const gated_context* ctx);
 void geglu_quick_cuda(const gated_context* ctx);
 void leaky_relu_cuda(bool, const void*, void*, const int, const float, cudaStream_t);
