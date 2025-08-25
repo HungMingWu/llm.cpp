@@ -5718,7 +5718,8 @@ void ggml_compute_forward_add_rel_pos(
 }
 
 static void ggml_compute_forward_add_id_f32(
-	const ggml_compute_params* params,
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
@@ -5733,41 +5734,35 @@ static void ggml_compute_forward_add_id_f32(
 	GGML_ASSERT(src0->nb[0] == sizeof(float));
 	GGML_ASSERT(src1->nb[0] == sizeof(float));
 
-	const int ith = params->ith;
-	const int nth = params->nth;
-
-	const int nr = ggml_nrows(src0);
-
 	GGML_ASSERT(dst->nb[0] == sizeof(float));
 	GGML_ASSERT(src1->nb[0] == sizeof(float));
 
-	// rows per thread
-	const int dr = (nr + nth - 1) / nth;
+	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	auto src0_data = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
+	auto src1_data = make_strided_mdspan<2>(static_cast<const float*>(src1->data), src1->ne, src1->nb);
+	auto src2_data = make_strided_mdspan<2>(static_cast<const int32_t*>(src2->data), src2->ne, src2->nb);
 
-	// row range for this thread
-	const int ir0 = dr * ith;
-	const int ir1 = std::min(ir0 + dr, nr);
+	for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+		for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+			for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+					// src1 indices
+					const int i11 = src2_data[i2, i1];
 
-	for (int ir = ir0; ir < ir1; ++ir) {
-		// src0 indices
-		const int i3 = ir / (dst->ne[2] * dst->ne[1]);
-		const int i2 = (ir - i3 * dst->ne[2] * dst->ne[1]) / dst->ne[1];
-		const int i1 = (ir - i3 * dst->ne[2] * dst->ne[1] - i2 * dst->ne[1]);
+					GGML_ASSERT(i11 >= 0 && i11 < src1->ne[1]);
 
-		// src1 indices
-		const int i11 = *(int32_t*)((char*)src2->data + i1 * src2->nb[0] + i2 * src2->nb[1]);
-
-		GGML_ASSERT(i11 >= 0 && i11 < src1->ne[1]);
-
-		ggml_vec_add_f32(dst->ne[0],
-			(float*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1]),
-			(float*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1]),
-			(float*)((char*)src1->data + i11 * src1->nb[1]));
+					for (int64_t i0 = 0; i0 < dst->ne[0]; i0++)
+						dst_data[i3, i2, i1, i0] = src0_data[i3, i2, i1, i0] + src1_data[i11, i0];
+				});
+				scope.spawn(std::move(sender));
+			}
+		}
 	}
 }
 
 void ggml_compute_forward_add_id(
-	const ggml_compute_params* params,
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
@@ -5775,7 +5770,7 @@ void ggml_compute_forward_add_id(
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_add_id_f32(params, dst);
+		ggml_compute_forward_add_id_f32(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -5892,7 +5887,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_ADD_ID:
 	{
-		ggml_compute_forward_add_id(params, tensor);
+		ggml_compute_forward_add_id(pool, scope, tensor);
 	} break;
 	case GGML_OP_ADD1:
 	{
