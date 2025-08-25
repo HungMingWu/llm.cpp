@@ -5796,6 +5796,21 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         }
     }
 
+    // add_id
+    for (ggml_type type_a : {GGML_TYPE_F32}) {
+        for (ggml_type type_b : {GGML_TYPE_F32}) {
+            for (int n_mats : {4, 8}) {
+                for (int n_used : {1, 2, 4}) {
+                    for (int n_embd : {32, 129}) {
+                        for (int n_token : {1, 32, 129}) {
+                            test_cases.emplace_back(new test_add_id(type_a, type_b, n_embd, n_mats, n_used, n_token));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
         test_cases.emplace_back(new test_sqr(type));
         test_cases.emplace_back(new test_sqrt(type));
