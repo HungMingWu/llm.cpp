@@ -3172,14 +3172,12 @@ static void ggml_compute_forward_clamp(
 }
 
 static void ggml_compute_forward_diag_mask_f32(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst,
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst,
 	const float value) {
 
-	const struct ggml_tensor* src0 = dst->src[0];
-
-	const int ith = params->ith;
-	const int nth = params->nth;
+	const ggml_tensor* src0 = dst->src[0];
 
 	const int  n_past = ((int32_t*)dst->op_params)[0];
 	const bool inplace = src0->data == dst->data;
@@ -3187,50 +3185,46 @@ static void ggml_compute_forward_diag_mask_f32(
 	GGML_ASSERT(n_past >= 0);
 
 	if (!inplace) {
-		if (ith == 0) {
-			// memcpy needs to be synchronized across threads to avoid race conditions.
-			// => do it in INIT phase
-			GGML_ASSERT(dst->nelements() == src0->nelements());
-			GGML_ASSERT(ggml_is_contiguous(dst) && ggml_is_contiguous(src0));
-			memcpy(
-				((char*)dst->data),
-				((char*)src0->data),
-				dst->nbytes());
-		}
-		//ggml_barrier(params->threadpool);
+		// memcpy needs to be synchronized across threads to avoid race conditions.
+		// => do it in INIT phase
+		GGML_ASSERT(dst->nelements() == src0->nelements());
+		GGML_ASSERT(ggml_is_contiguous(dst) && ggml_is_contiguous(src0));
+		memcpy(
+			((char*)dst->data),
+			((char*)src0->data),
+			dst->nbytes());
 	}
 
 	// TODO: handle transposed/permuted matrices
-
-	const int n = ggml_nrows(src0);
-	const int nc = src0->ne[0];
-	const int nr = src0->ne[1];
-	const int nz = n / nr;
-
 	GGML_ASSERT(dst->nb[0] == sizeof(float));
 	GGML_ASSERT(src0->nb[0] == sizeof(float));
 
-	for (int k = 0; k < nz; k++) {
-		for (int j = ith; j < nr; j += nth) {
-			for (int i = n_past; i < nc; i++) {
-				if (i > n_past + j) {
-					*(float*)((char*)dst->data + k * dst->nb[2] + j * dst->nb[1] + i * dst->nb[0]) = value;
-				}
-			}
+	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	for (int64_t i3 = 0; i3 < src0->ne[3]; i3++)
+		for (int64_t i2 = 0; i2 < src0->ne[2]; i2++) {
+			stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+				for (int64_t i1 = 0; i1 < src0->ne[1]; i1++)
+					for (int64_t i0 = n_past; i0 < src0->ne[0]; i0++) {
+						if (i0 > n_past + i1) {
+							dst_data[i3, i2, i1, i0] = value;
+						}
+					}
+			});
+			scope.spawn(std::move(sender));
 		}
-	}
 }
 
-static void ggml_compute_forward_diag_mask_inf(
-	const struct ggml_compute_params* params,
-	struct ggml_tensor* dst) {
-
-	const struct ggml_tensor* src0 = dst->src[0];
+static void ggml_compute_forward_diag_mask(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_diag_mask_f32(params, dst, -INFINITY);
+		const float value = (dst->op == GGML_OP_DIAG_MASK_INF) ? -INFINITY : 0.0f;
+		ggml_compute_forward_diag_mask_f32(pool, scope, dst, value);
 	} break;
 	default:
 	{
@@ -5619,24 +5613,6 @@ void ggml_compute_forward_conv_2d(
 	ggml_compute_forward_conv_2d_impl(params, src0, src1, dst, src0->type);
 }
 
-void ggml_compute_forward_diag_mask_zero(
-	const ggml_compute_params* params,
-	ggml_tensor* dst) {
-
-	const ggml_tensor* src0 = dst->src[0];
-
-	switch (src0->type) {
-	case GGML_TYPE_F32:
-	{
-		ggml_compute_forward_diag_mask_f32(params, dst, 0);
-	} break;
-	default:
-	{
-		GGML_ABORT("fatal error");
-	}
-	}
-}
-
 static void ggml_compute_forward_add_rel_pos_f32(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -6022,12 +5998,9 @@ void ggml_compute_forward(
 		ggml_compute_forward_diag(tensor);
 	} break;
 	case GGML_OP_DIAG_MASK_INF:
-	{
-		ggml_compute_forward_diag_mask_inf(params, tensor);
-	} break;
 	case GGML_OP_DIAG_MASK_ZERO:
 	{
-		ggml_compute_forward_diag_mask_zero(params, tensor);
+		ggml_compute_forward_diag_mask(pool, scope, tensor);
 	} break;
 	case GGML_OP_SOFT_MAX:
 	{
