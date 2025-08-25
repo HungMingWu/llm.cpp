@@ -4670,22 +4670,6 @@ static void ggml_compute_forward_rwkv_wkv7(
 	}
 }
 
-static std::pair<int64_t, int64_t> get_thread_range(const struct ggml_compute_params* params, const struct ggml_tensor* src0) {
-	const int64_t ith = params->ith;
-	const int64_t nth = params->nth;
-
-	const int64_t nr = ggml_nrows(src0);
-
-	// rows per thread
-	const int64_t dr = (nr + nth - 1) / nth;
-
-	// row range for this thread
-	const int64_t ir0 = dr * ith;
-	const int64_t ir1 = std::min(ir0 + dr, nr);
-
-	return { ir0, ir1 };
-}
-
 template <float (*op)(float, float), typename src0_t, typename src1_t, typename dst_t>
 static inline void vec_binary_op_contiguous(const int64_t n, dst_t* z, const src0_t* x, const src1_t* y) {
 	for (int i = 0; i < n; i++) {
