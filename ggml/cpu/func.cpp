@@ -5769,7 +5769,10 @@ void ggml_compute_forward_map_custom(
 	}
 }
 
-static void ggml_compute_forward_opt_step_sgd_f32(const ggml_compute_params* params, ggml_tensor* dst) {
+static void ggml_compute_forward_opt_step_sgd_f32(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 	const ggml_tensor* src0 = dst->src[0];
 	const ggml_tensor* src0_grad = dst->src[1];
 	const ggml_tensor* sgd_params = dst->src[2];
@@ -5777,49 +5780,35 @@ static void ggml_compute_forward_opt_step_sgd_f32(const ggml_compute_params* par
 	GGML_ASSERT(ggml_are_same_shape(src0, src0_grad));
 	GGML_ASSERT(sgd_params->nelements() == 2);
 
-	const int ith = params->ith;
-	const int nth = params->nth;
-
-	const int nr = ggml_nrows(src0);
-
-	GGML_TENSOR_UNARY_OP_LOCALS
-		GGML_ASSERT(nb00 == sizeof(float));
-
-	// rows per thread
-	const int dr = (nr + nth - 1) / nth;
-
-	// row range for this thread
-	const int ir0 = dr * ith;
-	const int ir1 = std::min(ir0 + dr, nr);
-
 	// using adamw param subset we care about - alpha, wd - could have a separate struct
 	const float* sgd_params_ptr = (float*)(sgd_params->data);
 	const float   alpha = sgd_params_ptr[0];
 	const float   keep = 1.f - alpha * sgd_params_ptr[1];
 
-	for (int ir = ir0; ir < ir1; ++ir) {
-		const int64_t i03 = ir / (ne02 * ne01);
-		const int64_t i02 = (ir - i03 * ne02 * ne01) / ne01;
-		const int64_t i01 = (ir - i03 * ne02 * ne01 - i02 * ne01);
-
-		const size_t offset = i03 * nb03 + i02 * nb02 + i01 * nb01;
-
-		float* w = (float*)((char*)src0->data + offset);                   // weight
-		const float* g = (const float*)((const char*)src0_grad->data + offset);  // grad
-
-		for (int i00 = 0; i00 < ne00; ++i00) {
-			w[i00] = w[i00] * keep - alpha * g[i00];
-		}
-	}
+	auto w = make_strided_mdspan(static_cast<float*>(src0->data), src0->ne, src0->nb); // weight
+	auto g = make_strided_mdspan(static_cast<const float*>(src0_grad->data), src0_grad->ne, src0_grad->nb); // grad
+	for (int64_t i03 = 0; i03 < src0->ne[3]; i03++)
+		for (int64_t i02 = 0; i02 < src0->ne[2]; i02++)
+			for (int64_t i01 = 0; i01 < src0->ne[1]; i01++) {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+					for (int64_t i00 = 0; i00 < src0->ne[0]; ++i00) {
+						w[i03, i02, i01, i00] = w[i03, i02, i01, i00] * keep - alpha * g[i03, i02, i01, i00];
+					}
+				});
+				scope.spawn(std::move(sender));
+			}
 }
 
-void ggml_compute_forward_opt_step_sgd(const ggml_compute_params* params, ggml_tensor* dst) {
+void ggml_compute_forward_opt_step_sgd(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_opt_step_sgd_f32(params, dst);
+		ggml_compute_forward_opt_step_sgd_f32(pool, scope, dst);
 	}
 	break;
 	default:
@@ -6183,7 +6172,7 @@ void ggml_compute_forward(
 	break;
 	case GGML_OP_OPT_STEP_SGD:
 	{
-		ggml_compute_forward_opt_step_sgd(params, tensor);
+		ggml_compute_forward_opt_step_sgd(pool, scope, tensor);
 	}
 	break;
 	case GGML_OP_NONE:
