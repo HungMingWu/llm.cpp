@@ -10270,7 +10270,6 @@ struct llama_context {
     std::unordered_map<struct llama_lora_adapter*, float> lora_adapters;
 
     std::vector<std::unique_ptr<ggml_backend>> backends;
-    std::vector<std::pair<ggml_backend_t, ggml_backend_set_n_threads_t>> set_n_threads_fns;
 
     ggml_backend_t backend_cpu = nullptr;
 
@@ -18724,18 +18723,6 @@ llama_context* llama_new_context_with_model(
             return nullptr;
         }
         ctx->backends.emplace_back(ctx->backend_cpu);
-
-        // create a list of the set_n_threads functions in the backends
-        for (auto& backend : ctx->backends) {
-            ggml_backend_dev_t dev = backend->get_device();
-            ggml_backend_reg_t reg = dev ? dev->get_backend_reg() : nullptr;
-            if (reg) {
-                auto ggml_backend_set_n_threads_fn = (ggml_backend_set_n_threads_t)reg->get_proc_address("ggml_backend_set_n_threads");
-                if (ggml_backend_set_n_threads_fn) {
-                    ctx->set_n_threads_fns.emplace_back(backend.get(), ggml_backend_set_n_threads_fn);
-                }
-            }
-        }
 
         llama_set_abort_callback(ctx.get(), params.abort_callback);
 

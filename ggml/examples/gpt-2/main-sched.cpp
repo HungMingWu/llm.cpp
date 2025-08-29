@@ -127,8 +127,8 @@ void init_backends(gpt2_model& model, const gpt_params& params) {
 #endif
 
     // always add the CPU backend as a fallback
-    std::unique_ptr<ggml_backend> cpu_backend = ggml_backend_cpu_init();
-    //ggml_backend_cpu_set_n_threads(cpu_backend, params.n_threads);
+    std::unique_ptr<ggml_cpu_backend> cpu_backend = ggml_backend_cpu_init();
+    cpu_backend->set_n_threads(params.n_threads);
     model.backends.push_back(std::move(cpu_backend));
     model.backends_view.push_back(model.backends.back().get());
 }

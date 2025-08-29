@@ -130,13 +130,11 @@ int main(int argc, const char** argv) {
 
         galloc.alloc_graph(&graph);
 
-#if 0
         int n_threads = 4;
 
-        if (ggml_backend_is_cpu(backend)) {
-            ggml_backend_cpu_set_n_threads(backend, n_threads);
+        if (auto cpu_backend = dynamic_cast<ggml_cpu_backend*>(backend.get())) {
+            cpu_backend->set_n_threads(n_threads);
         }
-#endif
 
         backend->graph_compute(&graph);
 

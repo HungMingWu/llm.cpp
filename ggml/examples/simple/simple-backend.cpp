@@ -89,11 +89,10 @@ ggml_tensor* compute(ggml_cgraph& gf, const simple_model& model, ggml_gallocr_t 
 
     int n_threads = 1; // number of threads to perform some operations with multi-threading
 
-#if 0
-    if (ggml_backend_is_cpu(model.backend)) {
-        ggml_backend_cpu_set_n_threads(model.backend, n_threads);
+    if (auto cpu_backend = dynamic_cast<ggml_cpu_backend*>(model.backend.get())) {
+        cpu_backend->set_n_threads(n_threads);
     }
-#endif
+
     model.backend->compute(&gf);
 
     // in this case, the output tensor is the last one in the graph

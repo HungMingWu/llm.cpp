@@ -16,7 +16,7 @@ void ggml_compute_forward(
 
 enum ggml_status ggml_cpu_backend::graph_compute_impl(ggml_cgraph* cgraph)
 {
-	exec::static_thread_pool pool(8);
+	exec::static_thread_pool pool(n_threads);
 	exec::async_scope scope;
 	ggml_compute_params params = {
 		/*.ith       =*/ 0, //state->ith,

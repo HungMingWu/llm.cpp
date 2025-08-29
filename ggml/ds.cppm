@@ -734,9 +734,6 @@ export {
     using ggml_threadpool_t = struct ggml_threadpool*;
     using ggml_backend_sched_t = struct ggml_backend_sched*;
 
-    // Set the number of threads for the backend
-    using ggml_backend_set_n_threads_t = void (*)(ggml_backend_t, int);
-
     // Abort callback
     // If not NULL, called before ggml computation
     // If it returns true, the computation is aborted

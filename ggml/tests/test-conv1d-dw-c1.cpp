@@ -119,13 +119,13 @@ ggml_cgraph build_graph(test_model& model) {
 void compute_graph(const test_model& model, ggml_gallocr_t allocr, ggml_cgraph &gf) {
     // allocate tensors
     allocr->alloc_graph(&gf);
-#if 0
+
     int n_threads = 1;
 
-    if (ggml_backend_is_cpu(model.backend)) {
-        ggml_backend_cpu_set_n_threads(model.backend, n_threads);
+    if (auto cpu_backend = dynamic_cast<ggml_cpu_backend*>(model.backend.get())) {
+        cpu_backend->set_n_threads(n_threads);
     }
-#endif
+
     model.backend->graph_compute(&gf);
 
     //ggml_graph_print(gf);

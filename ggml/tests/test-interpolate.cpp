@@ -32,8 +32,8 @@ bool test_interpolate(char const* name,
     gf.build_forward_expand(res);
 
     // Create backend & allocate buffers
-    std::unique_ptr<ggml_backend> backend = ggml_backend_cpu_init();
-    //ggml_backend_cpu_set_n_threads(backend, 2);
+    std::unique_ptr<ggml_cpu_backend> backend = ggml_backend_cpu_init();
+    backend->set_n_threads(2);
     std::unique_ptr<ggml_backend_buffer> buf = backend->alloc_tensors(&ctx);
 
     // Execute and compare results

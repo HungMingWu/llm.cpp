@@ -884,11 +884,10 @@ int gpt2_decode(
     }
 
     // run the computation
-#if 0
-    if (ggml_backend_is_cpu(model.backend)) {
-        ggml_backend_cpu_set_n_threads(model.backend, n_threads);
+    if (auto cpu_backend = dynamic_cast<ggml_cpu_backend*>(model.backend.get())) {
+        cpu_backend->set_n_threads(n_threads);
     }
-#endif
+
     model.backend->graph_compute(&gf);
 
     //if (n_past%100 == 0) {

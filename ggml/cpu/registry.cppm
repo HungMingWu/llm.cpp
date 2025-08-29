@@ -23,10 +23,6 @@ public:
 
 	void* get_proc_address(std::string_view name) override {
 #if 0
-		if (strcmp(name, "ggml_backend_set_n_threads") == 0) {
-			ggml_backend_set_n_threads_t fct = ggml_backend_cpu_set_n_threads;
-			return (void*)fct;
-		}
 		if (strcmp(name, "ggml_backend_get_features") == 0) {
 			return (void*)ggml_backend_cpu_get_features;
 		}

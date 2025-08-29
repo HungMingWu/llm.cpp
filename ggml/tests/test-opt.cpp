@@ -816,9 +816,9 @@ int main(void) {
         std::unique_ptr<ggml_backend> backend = devs[i]->init_backend(nullptr);
         assert(backend);
 
-#if 0 // ndef _MSC_VER
-        if (ggml_backend_is_cpu(backend)) {
-            ggml_backend_cpu_set_n_threads(backend, std::thread::hardware_concurrency() / 2);
+#ifndef _MSC_VER
+        if (auto cpu_backend = dynamic_cast<ggml_cpu_backend*>(backend.get())) {
+            cpu_backend->set_n_threads(std::thread::hardware_concurrency() / 2);
         }
 #endif
         backends.push_back(std::move(backend));
