@@ -25,8 +25,8 @@ module;
 
 module ggml;
 
-ggml_backend_sched::ggml_backend_sched(ggml_backend_t* backends,
-    ggml_backend_buffer_type_t* bufts,
+ggml_backend_sched::ggml_backend_sched(ggml_backend** backends,
+    ggml_backend_buffer_type** bufts,
     int n_backends,
     bool parallel,
     bool op_offload)
@@ -72,7 +72,7 @@ void ggml_backend_sched::reset()
 }
 
 // returns the priority of the backend, lower id is higher priority
-std::optional<int> ggml_backend_sched::get_backend_id(ggml_backend_t backend) {
+std::optional<int> ggml_backend_sched::get_backend_id(ggml_backend* backend) {
     for (int i = 0; i < n_backends; i++) {
         if (backends[i] == backend) {
             return i;
@@ -81,7 +81,7 @@ std::optional<int> ggml_backend_sched::get_backend_id(ggml_backend_t backend) {
     return std::nullopt;
 }
 
-size_t ggml_backend_sched::get_buffer_size(ggml_backend_t backend)
+size_t ggml_backend_sched::get_buffer_size(ggml_backend* backend)
 {
     auto backend_index = get_backend_id(backend);
     GGML_ASSERT(backend_index.has_value());
@@ -100,7 +100,7 @@ static char causes[GGML_DEFAULT_GRAPH_SIZE * 16 + GGML_SCHED_MAX_SPLITS_DEBUG * 
 #endif
 
 int ggml_backend_sched::backend_from_buffer(const ggml_tensor* tensor, const ggml_tensor* op) {
-    ggml_backend_buffer_t buffer = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+    ggml_backend_buffer* buffer = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
     if (buffer == NULL) {
         return -1;
     }
@@ -141,7 +141,7 @@ int ggml_backend_sched::backend_id_from_cur(ggml_tensor* tensor) {
 
     if (tensor->buffer || (tensor->view_src && tensor->view_src->buffer)) {
         // since the tensor is pre-allocated, it cannot be moved to another backend
-        ggml_backend_buffer_t buffer = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+        ggml_backend_buffer* buffer = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 #if 0
         GGML_ABORT("pre-allocated tensor (%s) in a buffer (%s) that cannot run the operation (%s)", tensor->name, ggml_backend_buffer_name(buffer), ggml_op_name(tensor->op));
 #endif
@@ -182,8 +182,8 @@ int ggml_backend_sched::backend_id_from_cur(ggml_tensor* tensor) {
 }
 
 bool ggml_backend_sched::buffer_supported(ggml_tensor* t, int backend_id) {
-    ggml_backend_buffer_t buf = t->view_src ? t->view_src->buffer : t->buffer;
-    ggml_backend_buffer_type_t buft = nullptr;
+    ggml_backend_buffer* buf = t->view_src ? t->view_src->buffer : t->buffer;
+    ggml_backend_buffer_type* buft = nullptr;
 
     if (buf) {
         // the tensor is already allocated
@@ -206,7 +206,7 @@ bool ggml_backend_sched::buffer_supported(ggml_tensor* t, int backend_id) {
     return buft != nullptr && backends[backend_id]->supports_buft(buft);
 }
 
-ggml_backend_t ggml_backend_sched::get_tensor_backend(ggml_tensor* node) {
+ggml_backend* ggml_backend_sched::get_tensor_backend(ggml_tensor* node) {
     auto it = hv_tensor_backend_ids.find(node);
     return (it == hv_tensor_backend_ids.end()) ? nullptr : backends[it->second];
 }
@@ -227,7 +227,7 @@ void ggml_backend_sched::print_assignments(const ggml_cgraph& graph) {
     auto cur_split = splits.cbegin();
     for (size_t i = 0; i < graph.nodes.size(); i++) {
         if (cur_split != std::end(splits) && i == (*cur_split).i_start) {
-            ggml_backend_t split_backend = backends[(*cur_split).backend_id];
+            ggml_backend* split_backend = backends[(*cur_split).backend_id];
             GGML_LOG_DEBUG("\n## SPLIT #{}: {} # {} inputs",
                 std::distance(splits.cbegin(), cur_split), split_backend->get_name(),
                 (*cur_split).inputs.size());
@@ -247,13 +247,13 @@ void ggml_backend_sched::print_assignments(const ggml_cgraph& graph) {
             continue;
         }
         if (debug > 1) {
-            ggml_backend_t tensor_backend = get_tensor_backend(node);
+            ggml_backend* tensor_backend = get_tensor_backend(node);
             GGML_LOG_DEBUG("node #{:3} ({:>10.10}): {:>20.20} ({:>5.5}) [{:>5.5} {:>8.8}] use={}:", i, ggml_op_name(node->op), node->name,
                 fmt_size(node->nbytes()), get_name(tensor_backend), GET_CAUSE(node),
                 graph.use_counts.at(node));
             for (auto src : node->src) {
                 if (!src) continue;
-                ggml_backend_t src_backend = get_tensor_backend(src);
+                ggml_backend* src_backend = get_tensor_backend(src);
                 GGML_LOG_DEBUG(" {:>20.20} ({:>5.5}) [{:>5.5} {:>8.8}]", src->name,
                     fmt_size(src->nbytes()), get_name(src_backend), GET_CAUSE(src));
             }
@@ -580,7 +580,7 @@ void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
                 if (src->flags & GGML_TENSOR_FLAG_INPUT && n_copies > 1) {
                     auto& hv_tensor_copies_backend = hv_tensor_copies[src][src_backend_id];
                     if (hv_tensor_copies_backend.empty()) {
-                        ggml_backend_t backend = backends[src_backend_id];
+                        ggml_backend* backend = backends[src_backend_id];
                         for (int c = 0; c < n_copies; c++) {
                             struct ggml_tensor* tensor_copy;
                             if (c == cur_copy) {
@@ -605,7 +605,7 @@ void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
                     // create a copy of the input in the split's backend
                     auto& hv_tensor_copies_backend = hv_tensor_copies[src][cur_backend_id];
                     if (hv_tensor_copies_backend.empty()) {
-                        ggml_backend_t backend = backends[cur_backend_id];
+                        ggml_backend* backend = backends[cur_backend_id];
                         for (int c = 0; c < n_copies; c++) {
                             ggml_tensor* tensor_copy = ggml_dup_tensor_layout(ctx.get(), src);
                             tensor_copy->set_name("{}#{}#{}", backend->get_name(), src->name, c);
@@ -775,11 +775,11 @@ bool ggml_backend_sched::alloc_graph(const ggml_cgraph& graph) {
 ggml_status ggml_backend_sched::compute_splits() {
     for (auto& split : splits) {
         int split_backend_id = split.backend_id;
-        ggml_backend_t split_backend = backends[split_backend_id];
+        ggml_backend* split_backend = backends[split_backend_id];
 
         // copy the input tensors to the split backend
         for (auto input : split.inputs) {
-            ggml_backend_t input_backend = get_tensor_backend(input);
+            ggml_backend* input_backend = get_tensor_backend(input);
             ggml_tensor* input_cpy = hv_tensor_copies[input][split_backend_id][cur_copy];
 
             if (input->flags & GGML_TENSOR_FLAG_INPUT) {
@@ -888,7 +888,7 @@ ggml_status ggml_backend_sched::graph_compute(const ggml_cgraph& graph)
     return err;
 }
 
-void ggml_backend_sched::set_tensor_backend(ggml_tensor* node, ggml_backend_t backend)
+void ggml_backend_sched::set_tensor_backend(ggml_tensor* node, ggml_backend* backend)
 {
     auto backend_index = get_backend_id(backend);
     GGML_ASSERT(backend_index.has_value());

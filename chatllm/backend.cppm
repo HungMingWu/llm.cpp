@@ -58,7 +58,7 @@ export namespace chatllm
         void set_name(tensor* tensor, const char* name);
         std::string_view get_name(tensor* tensor);
 
-        void graph_dump_dot(ggml_backend_sched_t sched, const struct ggml_cgraph* gb, const struct ggml_cgraph* gf, const char* filename);
+        void graph_dump_dot(ggml_backend_sched* sched, const struct ggml_cgraph* gb, const struct ggml_cgraph* gf, const char* filename);
 
         using need_observe_tensor_evaluation_callback = std::function<bool(ggml::tensor* tensor)>;
         using observe_tensor_evaluation_callback = std::function<bool(ggml::tensor* tensor)>;
@@ -76,8 +76,8 @@ export namespace chatllm
         virtual bool has_tensor(const std::string& name) const = 0;
     };
 
-    // Is `ggml_backend_buffer_type_t` a good name?
-    typedef ggml_backend_buffer_type_t  ggml_backend_allocator;
+    // Is `ggml_backend_buffer_type*` a good name?
+    typedef ggml_backend_buffer_type*  ggml_backend_allocator;
 
     class LayerBufAllocator;
 
@@ -97,9 +97,9 @@ export namespace chatllm
         void assign_to(ggml::tensor* tensor, size_t offset = 0);
 
     protected:
-        BackendBuffer(ggml_backend_buffer_t buf);
+        BackendBuffer(ggml_backend_buffer* buf);
 
-        ggml_backend_buffer_t buf;
+        ggml_backend_buffer* buf;
     };
 
     class Backend;
@@ -241,7 +241,7 @@ export namespace chatllm
 
         static ggml_backend_allocator get_default_allocator_cpu(bool host_buffer, int gpu_id);
 
-        static ggml_backend_allocator get_default_allocator(ggml_backend_t backend);
+        static ggml_backend_allocator get_default_allocator(ggml_backend* backend);
         static int get_device_count(void);
 
         static std::unique_ptr<ggml_backend> init_backend_device(int index, const char* param = nullptr);
@@ -271,7 +271,7 @@ export namespace chatllm
     public:
 
     public:
-        Backend(ggml_backend_t backend, int n_layers, bool use_gpu);
+        Backend(ggml_backend* backend, int n_layers, bool use_gpu);
 
         bool is_cpu(void) const;
 
@@ -358,12 +358,12 @@ export namespace chatllm
     public:
         std::vector<Backend> backends;
 
-        ggml_backend_t backend_cpu = nullptr;
+        ggml_backend* backend_cpu = nullptr;
 
         std::unique_ptr<ggml_backend_sched> sched;
 
         // host buffer for the model output (logits and embeddings)
-        ggml_backend_buffer_t buf_output = nullptr;
+        ggml_backend_buffer* buf_output = nullptr;
 
         LayerAllocatorManager layer_allocators;
         LayerBufAllocator host_allocator;
@@ -371,8 +371,8 @@ export namespace chatllm
     protected:
         ggml_abort_callback abort_callback = nullptr;
 
-        std::vector<ggml_backend_t> gg_backends;
-        std::vector<ggml_backend_buffer_type_t> gg_bufts;
+        std::vector<ggml_backend*> gg_backends;
+        std::vector<ggml_backend_buffer_type*> gg_bufts;
 
     public:
         ggml::need_observe_tensor_evaluation_callback need_observe_tensor_callback = nullptr;
@@ -425,7 +425,7 @@ export namespace chatllm
         UserOptions user_options;
 
     protected:
-        virtual ggml_backend_sched_t get_sched(void);
+        virtual ggml_backend_sched* get_sched(void);
 
         BackendContext* backend_context;
     private:

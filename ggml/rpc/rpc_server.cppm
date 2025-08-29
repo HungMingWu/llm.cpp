@@ -12,7 +12,7 @@ import :rpc.ds;
 
 class rpc_server {
 public:
-    rpc_server(ggml_backend_t backend, const char* cache_dir)
+    rpc_server(ggml_backend* backend, const char* cache_dir)
         : backend(backend), cache_dir(cache_dir) {
     }
     ~rpc_server();
@@ -41,7 +41,7 @@ private:
         std::unordered_map<uint64_t, struct ggml_tensor*>& tensor_map);
 
 
-    ggml_backend_t backend;
+    ggml_backend* backend;
     const char* cache_dir;
-    std::unordered_set<ggml_backend_buffer_t> buffers;
+    std::unordered_set<ggml_backend_buffer*> buffers;
 };

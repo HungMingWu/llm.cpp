@@ -20,7 +20,7 @@ struct ggml_cuda_graph {
     bool disable_due_to_failed_graph_capture = false;
 };
 
-bool ggml_backend_is_cuda(ggml_backend_t backend) {
+bool ggml_backend_is_cuda(ggml_backend* backend) {
 #if 0
     return backend != NULL && ggml_guid_matches(backend->guid, ggml_backend_cuda_guid());
 #else
@@ -28,7 +28,7 @@ bool ggml_backend_is_cuda(ggml_backend_t backend) {
 #endif
 }
 
-bool ggml_backend_buffer_is_cuda(ggml_backend_buffer_t buffer) {
+bool ggml_backend_buffer_is_cuda(ggml_backend_buffer* buffer) {
     if (auto buft = dynamic_cast<cuda_backend_buffer*>(buffer))
         return true;
     else 
@@ -191,9 +191,9 @@ export
 		{
 			return name.c_str();
 		}
-        bool cpy_tensor_async(ggml_backend_t backend_src, const ggml_tensor* src, ggml_tensor* dst) override;
+        bool cpy_tensor_async(ggml_backend* backend_src, const ggml_tensor* src, ggml_tensor* dst) override;
         void synchronize() override;
-        void event_record(ggml_backend_event_t event) override;
-        void event_wait(ggml_backend_event_t event) override;
+        void event_record(ggml_backend_event* event) override;
+        void event_wait(ggml_backend_event* event) override;
 	};
 }

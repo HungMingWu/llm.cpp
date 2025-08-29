@@ -215,7 +215,7 @@ static ggml_tensor* graph_copy_dup_tensor(std::unordered_map<ggml_tensor*, ggml_
     return dst;
 }
 
-static graph_copy ggml_backend_graph_copy(ggml_backend_t backend, ggml_cgraph* graph) {
+static graph_copy ggml_backend_graph_copy(ggml_backend* backend, ggml_cgraph* graph) {
     std::unordered_map<ggml_tensor*, ggml_tensor*> node_copies;
     std::unordered_map<ggml_tensor*, bool> node_init;
 
@@ -249,7 +249,7 @@ static graph_copy ggml_backend_graph_copy(ggml_backend_t backend, ggml_cgraph* g
     };
 }
 
-bool ggml_backend_compare_graph_backend(ggml_backend_t backend1, ggml_backend_t backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback, ggml_tensor* test_node) {
+bool ggml_backend_compare_graph_backend(ggml_backend* backend1, ggml_backend* backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback, ggml_tensor* test_node) {
     graph_copy copy = ggml_backend_graph_copy(backend2, graph);
     assert(copy.buffer);
 

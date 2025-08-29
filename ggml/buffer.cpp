@@ -44,7 +44,7 @@ void* ggml_backend_buffer::get_base() {
 }
 
 multi_backend_buffer::multi_backend_buffer(
-	ggml_backend_buffer_type_t buft, size_t size, std::vector<std::unique_ptr<ggml_backend_buffer>> buffers)
+	ggml_backend_buffer_type* buft, size_t size, std::vector<std::unique_ptr<ggml_backend_buffer>> buffers)
 	: ggml_backend_buffer(buft, size),
 	buffers(std::move(buffers))
 {

@@ -28,7 +28,7 @@ void rpc_server::hello(rpc_msg_hello_rsp& response) {
 }
 
 bool rpc_server::get_alloc_size(const rpc_msg_get_alloc_size_req& request, rpc_msg_get_alloc_size_rsp& response) {
-    ggml_backend_buffer_type_t buft;
+    ggml_backend_buffer_type* buft;
 
     ggml_context ctx;
     ggml_tensor* tensor = deserialize_tensor(&ctx, &request.tensor);
@@ -51,7 +51,7 @@ bool rpc_server::get_alloc_size(const rpc_msg_get_alloc_size_req& request, rpc_m
 }
 
 void rpc_server::alloc_buffer(const rpc_msg_alloc_buffer_req& request, rpc_msg_alloc_buffer_rsp& response) {
-    ggml_backend_buffer_type_t buft = backend->get_default_buffer_type();
+    ggml_backend_buffer_type* buft = backend->get_default_buffer_type();
     std::unique_ptr<ggml_backend_buffer> buffer = buft->alloc_buffer(request.size);
     response.remote_ptr = 0;
     response.remote_size = 0;
@@ -67,14 +67,14 @@ void rpc_server::alloc_buffer(const rpc_msg_alloc_buffer_req& request, rpc_msg_a
 }
 
 void rpc_server::get_alignment(rpc_msg_get_alignment_rsp& response) {
-    ggml_backend_buffer_type_t buft = backend->get_default_buffer_type();
+    ggml_backend_buffer_type* buft = backend->get_default_buffer_type();
     size_t alignment = buft->get_alignment();
     GGML_PRINT_DEBUG("[%s] alignment: %lu\n", __func__, alignment);
     response.alignment = alignment;
 }
 
 void rpc_server::get_max_size(rpc_msg_get_max_size_rsp& response) {
-    ggml_backend_buffer_type_t buft = backend->get_default_buffer_type();
+    ggml_backend_buffer_type* buft = backend->get_default_buffer_type();
     size_t max_size = buft->get_max_size();
     GGML_PRINT_DEBUG("[%s] max_size: %lu\n", __func__, max_size);
     response.max_size = max_size;
@@ -82,7 +82,7 @@ void rpc_server::get_max_size(rpc_msg_get_max_size_rsp& response) {
 
 bool rpc_server::buffer_get_base(const rpc_msg_buffer_get_base_req& request, rpc_msg_buffer_get_base_rsp& response) {
     GGML_PRINT_DEBUG("[%s] remote_ptr: %" PRIx64 "\n", __func__, request.remote_ptr);
-    ggml_backend_buffer_t buffer = reinterpret_cast<ggml_backend_buffer_t>(request.remote_ptr);
+    ggml_backend_buffer* buffer = reinterpret_cast<ggml_backend_buffer*>(request.remote_ptr);
     if (buffers.find(buffer) == buffers.end()) {
         GGML_LOG_ERROR("[{}] buffer not found", __func__);
         return false;
@@ -94,7 +94,7 @@ bool rpc_server::buffer_get_base(const rpc_msg_buffer_get_base_req& request, rpc
 
 bool rpc_server::free_buffer(const rpc_msg_free_buffer_req& request) {
     GGML_PRINT_DEBUG("[%s] remote_ptr: %" PRIx64 "\n", __func__, request.remote_ptr);
-    ggml_backend_buffer_t buffer = reinterpret_cast<ggml_backend_buffer_t>(request.remote_ptr);
+    ggml_backend_buffer* buffer = reinterpret_cast<ggml_backend_buffer*>(request.remote_ptr);
     if (buffers.find(buffer) == buffers.end()) {
         GGML_LOG_ERROR("[{}] buffer not found", __func__);
         return false;
@@ -106,7 +106,7 @@ bool rpc_server::free_buffer(const rpc_msg_free_buffer_req& request) {
 
 bool rpc_server::buffer_clear(const rpc_msg_buffer_clear_req& request) {
     GGML_PRINT_DEBUG("[%s] remote_ptr: %" PRIx64 ", value: %u\n", __func__, request.remote_ptr, request.value);
-    ggml_backend_buffer_t buffer = reinterpret_cast<ggml_backend_buffer_t>(request.remote_ptr);
+    ggml_backend_buffer* buffer = reinterpret_cast<ggml_backend_buffer*>(request.remote_ptr);
     if (buffers.find(buffer) == buffers.end()) {
         GGML_LOG_ERROR("[{}] buffer not found", __func__);
         return false;
@@ -134,7 +134,7 @@ ggml_tensor* rpc_server::deserialize_tensor(struct ggml_context* ctx, const rpc_
     for (uint32_t i = 0; i < GGML_MAX_DIMS; i++) {
         result->nb[i] = tensor->nb[i];
     }
-    result->buffer = reinterpret_cast<ggml_backend_buffer_t>(tensor->buffer);
+    result->buffer = reinterpret_cast<ggml_backend_buffer*>(tensor->buffer);
     if (result->buffer && buffers.find(result->buffer) == buffers.end()) {
         result->buffer = nullptr;
     }
@@ -265,7 +265,7 @@ bool rpc_server::init_tensor(const rpc_msg_init_tensor_req& request) {
     }
 
     // Call the backend's buffer_init_tensor function
-    ggml_backend_buffer_t buffer = tensor->buffer;
+    ggml_backend_buffer* buffer = tensor->buffer;
     if (buffer) {
         buffer->init_tensor(tensor);
     }

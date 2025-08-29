@@ -12,11 +12,11 @@ import :rpc.buffer_type;
 import :rpc.ds;
 import :rpc.socket;
 
-ggml_backend_buffer_type_t ggml_backend_rpc_buffer_type(const char* endpoint) {
+ggml_backend_buffer_type* ggml_backend_rpc_buffer_type(const char* endpoint) {
     static std::mutex mutex;
     std::lock_guard<std::mutex> lock(mutex);
     // NOTE: buffer types are allocated and never freed; this is by design
-    static std::unordered_map<std::string, ggml_backend_buffer_type_t> buft_map;
+    static std::unordered_map<std::string, ggml_backend_buffer_type*> buft_map;
     auto it = buft_map.find(endpoint);
     if (it != buft_map.end()) {
         return it->second;
@@ -29,7 +29,7 @@ ggml_backend_buffer_type_t ggml_backend_rpc_buffer_type(const char* endpoint) {
     size_t alignment = get_alignment(sock);
     size_t max_size = get_max_size(sock);
 
-    ggml_backend_buffer_type_t buft = new ggml_rpc_buffer_type(
+    ggml_backend_buffer_type* buft = new ggml_rpc_buffer_type(
         /* .endpoint  = */ endpoint,
         /* .name      = */ "RPC[" + std::string(endpoint) + "]",
         /* .alignment = */ alignment,
@@ -72,7 +72,7 @@ public:
     std::unique_ptr<ggml_backend> init_backend(const char* params) override {
         return std::make_unique<ggml_backend_rpc>(this, endpoint, "RPC[" + std::string(endpoint) + "]");
     }
-    ggml_backend_buffer_type_t get_buffer_type() override {
+    ggml_backend_buffer_type* get_buffer_type() override {
         return ggml_backend_rpc_buffer_type(endpoint.c_str());
     }
 
@@ -81,7 +81,7 @@ public:
         return true;
     }
 
-    bool supports_buft(ggml_backend_buffer_type_t buft) override {
+    bool supports_buft(ggml_backend_buffer_type* buft) override {
         if (auto rpc_buft = dynamic_cast<ggml_rpc_buffer_type*>(buft)) {
             // Check if the buffer type is compatible with this device
             return rpc_buft->get_endpoint() == endpoint;
@@ -90,9 +90,9 @@ public:
     }
 };
 
-ggml_backend_dev_t ggml_backend_rpc_add_device(const char* endpoint)
+ggml_backend_device* ggml_backend_rpc_add_device(const char* endpoint)
 {
-    static std::unordered_map<std::string, ggml_backend_dev_t> dev_map;
+    static std::unordered_map<std::string, ggml_backend_device*> dev_map;
 
     static std::mutex mutex;
     std::lock_guard<std::mutex> lock(mutex);
@@ -101,7 +101,7 @@ ggml_backend_dev_t ggml_backend_rpc_add_device(const char* endpoint)
         return dev_map[endpoint];
     }
 
-    ggml_backend_dev_t dev = new ggml_backend_rpc_device(endpoint, "RPC[" + std::string(endpoint) + "]");
+    ggml_backend_device* dev = new ggml_backend_rpc_device(endpoint, "RPC[" + std::string(endpoint) + "]");
     dev_map[endpoint] = dev;
 
     return dev;

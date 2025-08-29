@@ -54,5 +54,5 @@ export
 		const char* get_name() override { return GGML_CUDA_NAME "_Host"; }
 	};
 
-	bool buffer_type_from_device(ggml_backend_buffer_type_t buft, int device);
+	bool buffer_type_from_device(ggml_backend_buffer_type* buft, int device);
 }

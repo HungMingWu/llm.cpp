@@ -75,7 +75,7 @@ namespace chatllm
         buf->alloc(tensor, data);
     }
 
-    BackendBuffer::BackendBuffer(ggml_backend_buffer_t buf)
+    BackendBuffer::BackendBuffer(ggml_backend_buffer* buf)
         : buf(buf)
     {
     }
@@ -338,7 +338,7 @@ namespace chatllm
         return allocator;
     }
 
-    ggml_backend_allocator ComputeManager::get_default_allocator(ggml_backend_t backend)
+    ggml_backend_allocator ComputeManager::get_default_allocator(ggml_backend* backend)
     {
         return backend->get_default_buffer_type();
     }
@@ -492,7 +492,7 @@ namespace chatllm
         return true;
     }
 
-    Backend::Backend(ggml_backend_t backend, int n_layers, bool use_gpu)
+    Backend::Backend(ggml_backend* backend, int n_layers, bool use_gpu)
         : backend(backend), n_layers(n_layers), use_gpu(use_gpu)
     {
         // FIXME: find a better way
@@ -679,7 +679,7 @@ namespace chatllm
 
         const bool use_gpu = n_gpu_layers > 0;
 
-        auto init_device = [this, use_gpu, n_threads](int device, ggml_backend_dev_t dev, int n_layers)
+        auto init_device = [this, use_gpu, n_threads](int device, ggml_backend_device* dev, int n_layers)
             {
                 auto reg = dev->get_backend_reg();
 
@@ -836,7 +836,7 @@ namespace chatllm
 
         for (size_t i = 0; i < gg_backends.size(); i++)
         {
-            ggml_backend_buffer_type_t buft = gg_bufts[i];
+            ggml_backend_buffer_type* buft = gg_bufts[i];
             size_t size = sched->get_buffer_size(gg_backends[i]);
             ggml::log(GGML_LOG_LEVEL_INFO, "%s: %30s compute buffer size = %8.2f MiB\n", __func__, buft->get_name(), size / 1024.0 / 1024.0);
         }
@@ -886,7 +886,7 @@ namespace chatllm
         }
     }
 
-    ggml_backend_sched_t ComputeContext::get_sched(void)
+    ggml_backend_sched* ComputeContext::get_sched(void)
     {
         return backend_context->sched.get();
     }

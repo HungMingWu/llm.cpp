@@ -215,19 +215,15 @@ export {
         GGML_BACKEND_TYPE_GPU_SPLIT = 20,
     };
 
-    using ggml_backend_buffer_t = struct ggml_backend_buffer*;
-    using ggml_backend_buffer_type_t = struct ggml_backend_buffer_type*;
-    using ggml_backend_event_t = struct ggml_backend_event*;
     using ggml_backend_score_t = int (*)();
 
-    using ggml_backend_t = struct ggml_backend*;
     using ggml_backend_reg_t = struct ggml_backend_reg*;
     using ggml_backend_init_t = ggml_backend_reg_t(*)();
-    using ggml_backend_dev_t = struct ggml_backend_device*;
 
     struct ggml_tensor;
     struct tensor_traits;
     struct ggml_context;
+    struct ggml_backend_device;
 
     // Use for reflection later
     struct ggml_backend_reg {
@@ -237,12 +233,17 @@ export {
         ggml_backend_reg(int api_version, void* context) : api_version(api_version), context(context) {}
         virtual ~ggml_backend_reg() = default;
         virtual std::string_view get_name() = 0;
-        virtual std::span<ggml_backend_dev_t> get_devices() = 0;
+        virtual std::span<ggml_backend_device*> get_devices() = 0;
         virtual size_t get_device_count() { return 1; }
         // (optional) get a pointer to a function in the backend
         // backends can add custom functions that are not part of the standard ggml-backend interface
         virtual void* get_proc_address(std::string_view name) { return nullptr; }
     };
+
+    struct ggml_backend;
+    struct ggml_backend_buffer;
+    struct ggml_backend_buffer_type;
+    struct ggml_backend_event;
 
     class ggml_backend_device {
         ggml_backend_reg_t reg;
@@ -263,21 +264,21 @@ export {
         // backend (stream) initialization
         virtual std::unique_ptr<ggml_backend> init_backend(const char* params) = 0;
         // preferred buffer type
-        virtual ggml_backend_buffer_type_t get_buffer_type() = 0;
+        virtual ggml_backend_buffer_type* get_buffer_type() = 0;
         // (optional) host buffer type (in system memory, typically this is a pinned memory buffer for faster transfers between host and device)
-        virtual ggml_backend_buffer_type_t get_host_buffer_type()
+        virtual ggml_backend_buffer_type* get_host_buffer_type()
         {
             return {};
         }
         // (optional) buffer from pointer: create a buffer from a host pointer (useful for memory mapped models and importing data from other libraries)
-        virtual ggml_backend_buffer_t buffer_from_host_ptr(void* ptr, size_t size, size_t max_tensor_size)
+        virtual ggml_backend_buffer* buffer_from_host_ptr(void* ptr, size_t size, size_t max_tensor_size)
         {
             return {};
         }
         // check if the backend can compute an operation
         virtual bool supports_op(const ggml_tensor* op) = 0;
         // check if the backend can use tensors allocated in a buffer type
-        virtual bool supports_buft(ggml_backend_buffer_type_t buft) = 0;
+        virtual bool supports_buft(ggml_backend_buffer_type* buft) = 0;
         // (optional) check if the backend wants to run an operation, even if the weights are allocated in an incompatible buffer
         // these should be expensive operations that may benefit from running on this backend instead of the CPU backend
         virtual bool offload_op(const ggml_tensor* op)
@@ -285,20 +286,20 @@ export {
             return false;
         }
         // (optional) event synchronization
-        virtual ggml_backend_event_t event_new()
+        virtual ggml_backend_event* event_new()
         {
             return nullptr;
         }
-        virtual void event_free(ggml_backend_event_t event)
+        virtual void event_free(ggml_backend_event* event)
         {
 
         }
-        virtual void event_synchronize(ggml_backend_event_t event)
+        virtual void event_synchronize(ggml_backend_event* event)
         {
 
         }
         // (optional) get extra bufts
-        virtual std::span<const ggml_backend_buffer_type_t> get_extra_bufts() {
+        virtual std::span<ggml_backend_buffer_type*> get_extra_bufts() {
             return {};
         }
     };
@@ -499,7 +500,7 @@ export {
 
     struct ggml_gallocr {
     private:
-        std::vector<ggml_backend_buffer_type_t> bufts; // [n_buffers]
+        std::vector<ggml_backend_buffer_type*> bufts; // [n_buffers]
         std::vector<std::shared_ptr<ggml_backend_buffer>> buffers; // [n_buffers]
         std::vector<std::shared_ptr<ggml_dyn_tallocr>> buf_tallocs; // [n_buffers]
         std::unordered_map<ggml_tensor*, hash_node> hash_map;
@@ -515,9 +516,9 @@ export {
         void alloc_graph_impl(const ggml_cgraph &graph,
             std::span<const int> node_buffer_ids, std::span<const int> leaf_buffer_ids);
     public:
-        ggml_gallocr(std::span<ggml_backend_buffer_type_t> bufts);
-        ggml_gallocr(ggml_backend_buffer_type_t buft) :
-            ggml_gallocr(std::span<ggml_backend_buffer_type_t>{ &buft, 1 }) {}
+        ggml_gallocr(std::span<ggml_backend_buffer_type*> bufts);
+        ggml_gallocr(ggml_backend_buffer_type* buft) :
+            ggml_gallocr(std::span<ggml_backend_buffer_type*>{ &buft, 1 }) {}
         ~ggml_gallocr() = default;
         size_t get_buffer_size(int buffer_id);
         bool alloc_graph(ggml_cgraph* graph);
@@ -525,7 +526,6 @@ export {
         bool reserve(const ggml_cgraph* graph);
     };
 
-    using ggml_gallocr_t = struct ggml_gallocr*;
     using ggml_bitset_t = uint32_t;
 
     struct ggml_hash_set {
@@ -587,8 +587,8 @@ export {
 
         int n_backends;
 
-        ggml_backend_t backends[GGML_SCHED_MAX_BACKENDS];
-        ggml_backend_buffer_type_t bufts[GGML_SCHED_MAX_BACKENDS];
+        ggml_backend* backends[GGML_SCHED_MAX_BACKENDS];
+        ggml_backend_buffer_type* bufts[GGML_SCHED_MAX_BACKENDS];
         std::unique_ptr<ggml_gallocr> galloc;
 
         // hash map of the nodes in the graph
@@ -630,27 +630,27 @@ export {
         int backend_from_buffer(const ggml_tensor* tensor, const ggml_tensor* op);
         int backend_id_from_cur(ggml_tensor* tensor);
         bool buffer_supported(ggml_tensor* t, int backend_id);
-        ggml_backend_t get_tensor_backend(ggml_tensor* node);
-        std::optional<int> get_backend_id(ggml_backend_t backend);
+        ggml_backend* get_tensor_backend(ggml_tensor* node);
+        std::optional<int> get_backend_id(ggml_backend* backend);
         void split_graph(const ggml_cgraph& graph);
         void print_assignments(const ggml_cgraph& graph);
         ggml_status graph_compute_async(const ggml_cgraph& graph);
         bool alloc_splits();
         ggml_status compute_splits();
     public:
-        ggml_backend_sched(ggml_backend_t* backends,
-            ggml_backend_buffer_type_t* bufts,
+        ggml_backend_sched(ggml_backend** backends,
+            ggml_backend_buffer_type** bufts,
             int n_backends,
             bool parallel,
             bool op_offload);
         void reset();
-        size_t get_buffer_size(ggml_backend_t backend);
+        size_t get_buffer_size(ggml_backend* backend);
         bool reserve(const ggml_cgraph* measure_graph);
         ggml_status graph_compute(const ggml_cgraph& graph);
         void set_eval_callback(ggml_backend_sched_eval_callback callback) {
             callback_eval = callback;
         }
-        void set_tensor_backend(ggml_tensor* node, ggml_backend_t backend);
+        void set_tensor_backend(ggml_tensor* node, ggml_backend* backend);
         void dump_dot(const ggml_cgraph* graph, const char* filename);
         // not sure move to public is right direction
         bool alloc_graph(const ggml_cgraph& graph);
@@ -667,7 +667,7 @@ export {
     //
     struct ggml_backend {
     private:
-        ggml_backend_dev_t device;
+        ggml_backend_device* device;
     public:
         ggml_guid_t guid;
     protected:
@@ -677,13 +677,13 @@ export {
         // compute graph (always async if supported by the backend)
         virtual ggml_status graph_compute_impl(ggml_cgraph* cgraph) = 0;
     public:
-        ggml_backend(ggml_backend_dev_t device) : device(device) {}
+        ggml_backend(ggml_backend_device* device) : device(device) {}
         virtual ~ggml_backend() = default;
         virtual const char* get_name() = 0;
 
         void set_tensor_async(ggml_tensor* tensor, const void* data, size_t offset, size_t size);
         void get_tensor_async(const ggml_tensor* tensor, void* data, size_t offset, size_t size);
-        virtual bool cpy_tensor_async(ggml_backend_t backend_src, const ggml_tensor* src, ggml_tensor* dst) { return false; }
+        virtual bool cpy_tensor_async(ggml_backend* backend_src, const ggml_tensor* src, ggml_tensor* dst) { return false; }
 
         // (optional) complete all pending operations (required if the backend supports async operations)
         virtual void synchronize() {}
@@ -693,9 +693,9 @@ export {
 
         // (optional) event synchronization
         // record an event on this stream
-        virtual void event_record(ggml_backend_event_t event) {}
+        virtual void event_record(ggml_backend_event* event) {}
         // wait for an event on on a different stream
-        virtual void event_wait(ggml_backend_event_t event) {}
+        virtual void event_wait(ggml_backend_event* event) {}
 
         ggml_status compute(ggml_cgraph* cgraph)
         {
@@ -705,15 +705,15 @@ export {
         }
 
         // helper function
-        ggml_backend_dev_t get_device() const
+        ggml_backend_device* get_device() const
         {
             return device;
         }
-        ggml_backend_buffer_type_t get_default_buffer_type() const
+        ggml_backend_buffer_type* get_default_buffer_type() const
         {
             return device->get_buffer_type();
         }
-        bool supports_buft(ggml_backend_buffer_type_t buft) const
+        bool supports_buft(ggml_backend_buffer_type* buft) const
         {
             return device->supports_buft(buft);
         }
@@ -732,7 +732,6 @@ export {
     struct ggml_threadpool;     // forward declaration, see ggml.c
 
     using ggml_threadpool_t = struct ggml_threadpool*;
-    using ggml_backend_sched_t = struct ggml_backend_sched*;
 
     // Abort callback
     // If not NULL, called before ggml computation
@@ -740,16 +739,16 @@ export {
     using ggml_abort_callback = std::function<bool()>;
 
     // Set the abort callback for the backend
-    using ggml_backend_set_abort_callback_t = void (*)(ggml_backend_t backend, ggml_abort_callback abort_callback);
+    using ggml_backend_set_abort_callback_t = void (*)(ggml_backend* backend, ggml_abort_callback abort_callback);
 
     // Tensor allocator
     struct ggml_tallocr {
-        ggml_backend_buffer_t buffer;
+        ggml_backend_buffer* buffer;
         void* base;
         size_t alignment;
         size_t offset;
     public:
-        ggml_tallocr(ggml_backend_buffer_t);
+        ggml_tallocr(ggml_backend_buffer*);
         void alloc(ggml_tensor* tensor);
     };
 

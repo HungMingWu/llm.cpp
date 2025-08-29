@@ -1253,7 +1253,7 @@ void ggml_backend_cuda::op_mul_mat(
 
 void ggml_backend_cuda::set_tensor_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size)
 {
-    ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+    ggml_backend_buffer* buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 
     GGML_ASSERT(buf->get_type() == ggml_backend_cuda_buffer_type(device) && "unsupported buffer type");
 
@@ -1262,18 +1262,18 @@ void ggml_backend_cuda::set_tensor_async_impl(ggml_tensor* tensor, const void* d
 
 void ggml_backend_cuda::get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size)
 {
-    ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+    ggml_backend_buffer* buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 
     GGML_ASSERT(buf->get_type() == ggml_backend_cuda_buffer_type(device) && "unsupported buffer type");
 
     CUDA_CHECK(cudaMemcpyAsync(data, (const char*)tensor->data + offset, size, cudaMemcpyDeviceToHost, stream()));
 }
 
-bool ggml_backend_cuda::cpy_tensor_async(ggml_backend_t backend_src, const ggml_tensor* src, ggml_tensor* dst)
+bool ggml_backend_cuda::cpy_tensor_async(ggml_backend* backend_src, const ggml_tensor* src, ggml_tensor* dst)
 {
 #if 0
-    ggml_backend_buffer_t buf_src = src->view_src ? src->view_src->buffer : src->buffer;
-    ggml_backend_buffer_t buf_dst = dst->view_src ? dst->view_src->buffer : dst->buffer;
+    ggml_backend_buffer* buf_src = src->view_src ? src->view_src->buffer : src->buffer;
+    ggml_backend_buffer* buf_dst = dst->view_src ? dst->view_src->buffer : dst->buffer;
 
     if (!ggml_backend_is_cuda(backend_src) || !ggml_backend_is_cuda(this)) {
         return false;
@@ -1572,12 +1572,12 @@ enum ggml_status ggml_backend_cuda::graph_compute_impl(ggml_cgraph* cgraph)
     return GGML_STATUS_SUCCESS;
 }
 
-void ggml_backend_cuda::event_record(ggml_backend_event_t event)
+void ggml_backend_cuda::event_record(ggml_backend_event* event)
 {
     CUDA_CHECK(cudaEventRecord((cudaEvent_t)event->context, stream()));
 }
 
-void ggml_backend_cuda::event_wait(ggml_backend_event_t event)
+void ggml_backend_cuda::event_wait(ggml_backend_event* event)
 {
     if (ggml_backend_is_cuda(this)) {
         CUDA_CHECK(cudaStreamWaitEvent(stream(), (cudaEvent_t)event->context, 0));
@@ -1586,7 +1586,7 @@ void ggml_backend_cuda::event_wait(ggml_backend_event_t event)
 #if 0
         // untested
         auto wait_fn = [](void* user_data) {
-            ggml_backend_event_t event = (ggml_backend_event_t)user_data;
+            ggml_backend_event* event = (ggml_backend_event*)user_data;
             ggml_backend_event_synchronize(event);
             };
 

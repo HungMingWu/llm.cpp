@@ -116,7 +116,7 @@ ggml_cgraph build_graph(test_model& model) {
     return gf;
 }
 
-void compute_graph(const test_model& model, ggml_gallocr_t allocr, ggml_cgraph &gf) {
+void compute_graph(const test_model& model, ggml_gallocr* allocr, ggml_cgraph &gf) {
     // allocate tensors
     allocr->alloc_graph(&gf);
 

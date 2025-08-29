@@ -642,7 +642,7 @@ ggml_cgraph gpt2_graph(
 //
 bool gpt2_eval(
     const gpt2_model& model,
-    ggml_gallocr_t allocr,
+    ggml_gallocr* allocr,
     const int n_threads,
     const int n_past,
     const std::vector<gpt_vocab::id>& embd_inp,

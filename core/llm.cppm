@@ -121,7 +121,7 @@ export
     };
 
     struct common_params_speculative {
-        std::vector<ggml_backend_dev_t> devices; // devices to use for offloading
+        std::vector<ggml_backend_device*> devices; // devices to use for offloading
 
         int32_t n_ctx = 0; // draft context size
         int32_t n_max = 16; // maximum number of tokens to draft during speculative decoding
@@ -230,7 +230,7 @@ export
         float   defrag_thold = 0.1f; // KV cache defragmentation threshold
 
         // offload params
-        std::vector<ggml_backend_dev_t> devices; // devices to use for offloading
+        std::vector<ggml_backend_device*> devices; // devices to use for offloading
 
         int32_t n_gpu_layers = -1;  // number of layers to store in VRAM (-1 - use default)
         int32_t main_gpu = 0;   // the GPU that is used for scratch and small tensors

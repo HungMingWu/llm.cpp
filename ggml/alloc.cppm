@@ -26,7 +26,7 @@ export namespace internal
     }
 }
 
-ggml_gallocr::ggml_gallocr(std::span<ggml_backend_buffer_type_t> bufts)
+ggml_gallocr::ggml_gallocr(std::span<ggml_backend_buffer_type*> bufts)
     : bufts(bufts.begin(), bufts.end()), buffers(bufts.size()), buf_tallocs(bufts.size()) {
     for (size_t i = 0; i < bufts.size(); i++) {
         // check if the same buffer type is used multiple times and reuse the same allocator

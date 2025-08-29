@@ -61,8 +61,8 @@ enum ggml_opt_optimizer_type ggml_opt_context_optimizer_type(ggml_opt_context &c
 
 static helper_ctx_data helper_get_ctx_data(
     enum ggml_opt_optimizer_type optim,
-    ggml_backend_sched_t    backend_sched,
-    ggml_backend_t          backend,
+    ggml_backend_sched*    backend_sched,
+    ggml_backend*          backend,
     const bool              init_opt_ctx = true,
     const bool              optimizer_defaults = true,
     int64_t                 nbatch_logical = 1,
@@ -168,7 +168,7 @@ static void helper_after_test(
 
 static std::pair<int, int> test_dataset(
     enum ggml_opt_optimizer_type optim,
-    ggml_backend_sched_t backend_sched, ggml_backend_t backend, const bool shuffle) {
+    ggml_backend_sched* backend_sched, ggml_backend* backend, const bool shuffle) {
     int ntest = 0;
     int npass = 0;
 
@@ -252,7 +252,7 @@ static std::pair<int, int> test_dataset(
 
 static std::pair<int, int> test_grad(
     enum ggml_opt_optimizer_type optim,
-    ggml_backend_sched_t backend_sched, ggml_backend_t backend) {
+    ggml_backend_sched* backend_sched, ggml_backend* backend) {
     int ntest = 0;
     int npass = 0;
 
@@ -305,7 +305,7 @@ static void helper_after_test_forward_backward(
 
 static std::pair<int, int> test_forward_backward(
     enum ggml_opt_optimizer_type optim,
-    ggml_backend_sched_t backend_sched, ggml_backend_t backend, const bool high_level, const bool shuffle) {
+    ggml_backend_sched* backend_sched, ggml_backend* backend, const bool high_level, const bool shuffle) {
     int ntest = 0;
     int npass = 0;
 
@@ -418,7 +418,7 @@ static std::pair<int, int> test_forward_backward(
 
 static std::pair<int, int> test_epoch_vs_fit(
     enum ggml_opt_optimizer_type optim,
-    ggml_backend_sched_t backend_sched, ggml_backend_t backend) {
+    ggml_backend_sched* backend_sched, ggml_backend* backend) {
     int ntest = 0;
     int npass = 0;
 
@@ -462,7 +462,7 @@ static void helper_after_test_idata_split(
 
 static std::pair<int, int> test_idata_split(
     enum ggml_opt_optimizer_type optim,
-    ggml_backend_sched_t backend_sched, ggml_backend_t backend, const bool high_level) {
+    ggml_backend_sched* backend_sched, ggml_backend* backend, const bool high_level) {
     int ntest = 0;
     int npass = 0;
 
@@ -551,7 +551,7 @@ static void helper_after_test_gradient_accumulation(
 
 static std::pair<int, int> test_gradient_accumulation(
     enum ggml_opt_optimizer_type optim,
-    ggml_backend_sched_t backend_sched, ggml_backend_t backend, const int32_t nbatch_physical, const enum ggml_opt_loss_type loss_type) {
+    ggml_backend_sched* backend_sched, ggml_backend* backend, const int32_t nbatch_physical, const enum ggml_opt_loss_type loss_type) {
     int ntest = 0;
     int npass = 0;
 
@@ -672,7 +672,7 @@ static ggml_opt_optimizer_params helper_get_regression_opt_pars(void* userdata) 
 
 static std::pair<int, int> test_regression(
     enum ggml_opt_optimizer_type optim,
-    ggml_backend_sched_t backend_sched, ggml_backend_t backend) {
+    ggml_backend_sched* backend_sched, ggml_backend* backend) {
     int ntest = 0;
     int npass = 0;
 
@@ -746,7 +746,7 @@ static std::pair<int, int> test_regression(
     return std::make_pair(npass, ntest);
 }
 
-static std::pair<int, int> test_backend(ggml_backend_sched_t backend_sched, ggml_backend_t backend, enum ggml_opt_optimizer_type optim) {
+static std::pair<int, int> test_backend(ggml_backend_sched* backend_sched, ggml_backend* backend, enum ggml_opt_optimizer_type optim) {
     int npass = 0;
     int ntest = 0;
 
@@ -807,7 +807,7 @@ int main(void) {
     printf("Testing %zu devices\n\n", dev_count);
     size_t n_ok = 0;
 
-    std::vector<ggml_backend_dev_t> devs;
+    std::vector<ggml_backend_device*> devs;
     std::vector<std::unique_ptr<ggml_backend>>     backends;
 
     for (size_t i = 0; i < dev_count; ++i) {
@@ -828,7 +828,7 @@ int main(void) {
     for (enum ggml_opt_optimizer_type optim : { GGML_OPT_OPTIMIZER_TYPE_ADAMW, GGML_OPT_OPTIMIZER_TYPE_SGD }) {
         for (size_t i = 0; i < dev_count; ++i) {
             // Put the backend to be tested in front so that it's prioritized:
-            std::vector<ggml_backend_t> backends_modded = { backends[i].get() };
+            std::vector<ggml_backend*> backends_modded = { backends[i].get() };
             for (auto& backend : backends)
                 backends_modded.push_back(backend.get());
 

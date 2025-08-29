@@ -78,12 +78,12 @@ public:
         return ggml_backend_cuda_init(device);
     }
 
-    ggml_backend_buffer_type_t get_buffer_type() override
+    ggml_backend_buffer_type* get_buffer_type() override
     {
         return ggml_backend_cuda_buffer_type(device);
     }
 
-    ggml_backend_buffer_type_t get_host_buffer_type() override
+    ggml_backend_buffer_type* get_host_buffer_type() override
     {
         static cuda_host_backend_buffer_type type;
         return &type;
@@ -452,7 +452,7 @@ public:
         }
     }
 
-    bool supports_buft(ggml_backend_buffer_type_t buft) override
+    bool supports_buft(ggml_backend_buffer_type* buft) override
     {
         return buffer_type_from_device(buft, device);
     }
@@ -464,7 +464,7 @@ public:
         return get_op_batch_size(op) >= min_batch_size;
     }
 
-    ggml_backend_event_t event_new() override
+    ggml_backend_event* event_new() override
     {
 #ifdef GGML_CUDA_NO_PEER_COPY
         return nullptr;
@@ -481,13 +481,13 @@ public:
 #endif
     }
 
-    void event_free(ggml_backend_event_t event) override
+    void event_free(ggml_backend_event* event) override
     {
         CUDA_CHECK(cudaEventDestroy((cudaEvent_t)event->context));
         delete event;
     }
 
-    void event_synchronize(ggml_backend_event_t event) override
+    void event_synchronize(ggml_backend_event* event) override
     {
         CUDA_CHECK(cudaEventSynchronize((cudaEvent_t)event->context));
     }
@@ -518,7 +518,7 @@ public:
         return GGML_CUDA_NAME;
     }
 
-    std::span<ggml_backend_dev_t> get_devices() override {
+    std::span<ggml_backend_device*> get_devices() override {
         return devices_span;
     }
 

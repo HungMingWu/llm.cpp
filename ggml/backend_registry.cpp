@@ -67,7 +67,7 @@ void ggml_backend_registry::register_backend(ggml_backend_reg_t reg, dl_handle_p
 		register_device(dev);
 }
 
-void ggml_backend_registry::register_device(ggml_backend_dev_t device) {
+void ggml_backend_registry::register_device(ggml_backend_device* device) {
 #ifndef NDEBUG
 	GGML_LOG_DEBUG("{}: registered device {} ({})", __func__, device->get_name(), device->get_description());
 #endif
@@ -139,7 +139,7 @@ void ggml_backend_registry::unload_backend(ggml_backend_reg_t reg, bool silent) 
 	// remove devices
 	devices.erase(
 		std::remove_if(devices.begin(), devices.end(),
-			[reg](ggml_backend_dev_t dev) { return dev->get_backend_reg() == reg; }),
+			[reg](ggml_backend_device* dev) { return dev->get_backend_reg() == reg; }),
 		devices.end());
 
 	// remove backend

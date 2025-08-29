@@ -68,7 +68,7 @@ export
 
     // parameters for initializing a new optimization context
     struct ggml_opt_params {
-        ggml_backend_sched_t backend_sched; // defines which backends are used to construct the compute graphs
+        ggml_backend_sched* backend_sched; // defines which backends are used to construct the compute graphs
 
         // by default the forward graph needs to be reconstructed for each eval
         // if ctx_compute, inputs, and outputs are set the graphs are instead allocated statically
@@ -104,7 +104,7 @@ export
     };
 
     struct ggml_opt_context {
-        ggml_backend_sched_t       backend_sched = nullptr;
+        ggml_backend_sched*       backend_sched = nullptr;
         ggml_cgraph* allocated_graph = nullptr;
         ggml_cgraph* allocated_graph_copy = nullptr;
 
@@ -186,13 +186,13 @@ export
     ggml_opt_optimizer_params ggml_opt_get_default_optimizer_params(void*);
 
     ggml_opt_params ggml_opt_default_params(
-        ggml_backend_sched_t      backend_sched,
+        ggml_backend_sched*      backend_sched,
         enum ggml_opt_loss_type   loss_type);
 
     ggml_tensor* ggml_opt_grad_acc(ggml_opt_context* opt_ctx, ggml_tensor* node);
 
     void ggml_opt_fit(
-        ggml_backend_sched_t            backend_sched,
+        ggml_backend_sched*           backend_sched,
         ggml_context* ctx_compute,
         ggml_tensor* inputs,
         ggml_tensor* outputs,

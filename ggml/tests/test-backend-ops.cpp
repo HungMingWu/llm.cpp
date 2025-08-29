@@ -964,7 +964,7 @@ struct test_case {
         }
     }
 
-    bool eval(ggml_backend_t backend1, ggml_backend_t backend2, const char* op_names_filter, printer* output_printer) {
+    bool eval(ggml_backend* backend1, ggml_backend* backend2, const char* op_names_filter, printer* output_printer) {
         mode = MODE_TEST;
 
         ggml_context ctx;
@@ -981,7 +981,7 @@ struct test_case {
 
         // check if the backends support the ops
         bool supported = true;
-        for (ggml_backend_t backend : {backend1, backend2}) {
+        for (ggml_backend* backend : {backend1, backend2}) {
             for (auto& t : ctx.getTensors()) {
                 if (!backend->get_device()->supports_op(t)) {
                     supported = false;
@@ -1101,7 +1101,7 @@ struct test_case {
         return test_passed;
     }
 
-    bool eval_perf(ggml_backend_t backend, const char* op_names_filter, printer* output_printer) {
+    bool eval_perf(ggml_backend* backend, const char* op_names_filter, printer* output_printer) {
         mode = MODE_PERF;
 
         static const size_t graph_nodes = 8192;
@@ -1226,7 +1226,7 @@ struct test_case {
         return true;
     }
 
-    bool eval_support(ggml_backend_t backend, const char* op_names_filter, printer* output_printer) {
+    bool eval_support(ggml_backend* backend, const char* op_names_filter, printer* output_printer) {
         mode = MODE_SUPPORT;
 
         ggml_context ctx;
@@ -1251,7 +1251,7 @@ struct test_case {
         return true;
     }
 
-    bool eval_grad(ggml_backend_t backend, const char* op_names_filter, printer* output_printer) {
+    bool eval_grad(ggml_backend* backend, const char* op_names_filter, printer* output_printer) {
         mode = MODE_GRAD;
         const std::vector<float> expect = grad_expect();
 
@@ -6167,7 +6167,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
     return test_cases;
 }
 
-static bool test_backend(ggml_backend_t backend, test_mode mode, const char* op_names_filter, const char* params_filter,
+static bool test_backend(ggml_backend* backend, test_mode mode, const char* op_names_filter, const char* params_filter,
     printer* output_printer) {
     auto filter_test_cases = [](std::vector<std::unique_ptr<test_case>>& test_cases, const char* params_filter) {
         if (params_filter == nullptr) {
@@ -6189,7 +6189,7 @@ static bool test_backend(ggml_backend_t backend, test_mode mode, const char* op_
     if (mode == MODE_TEST) {
         auto test_cases = make_test_cases_eval();
         filter_test_cases(test_cases, params_filter);
-        //ggml_backend_t backend_cpu = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, NULL);
+        //ggml_backend* backend_cpu = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, NULL);
         auto backend_cpu = ggml_backend_cpu_init();
         if (backend_cpu == NULL) {
             test_operation_info info("", "", "CPU");

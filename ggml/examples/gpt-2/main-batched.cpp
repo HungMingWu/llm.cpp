@@ -812,7 +812,7 @@ gpt2_batch::gpt2_batch(int32_t n_tokens, int32_t embd) :
 // < 0 - error
 int gpt2_decode(
     struct gpt2_model& model,
-    ggml_gallocr_t       allocr,
+    ggml_gallocr*       allocr,
     struct gpt2_batch    batch,
     int                  n_threads,
     std::vector<float>& logits) {

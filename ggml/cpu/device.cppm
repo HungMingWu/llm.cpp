@@ -27,7 +27,7 @@ import :traits;
 import :cpu.buffer_type;
 import :cpu.traits;
 
-static bool ggml_backend_cpu_is_extra_buffer_type(ggml_backend_buffer_type_t buft) {
+static bool ggml_backend_cpu_is_extra_buffer_type(ggml_backend_buffer_type* buft) {
 #if 0
 	for (auto* extra : ggml_backend_cpu_get_extra_buffer_types()) {
 		if (extra && extra == buft) {
@@ -40,7 +40,7 @@ static bool ggml_backend_cpu_is_extra_buffer_type(ggml_backend_buffer_type_t buf
 
 struct ggml_backend_cpu_device : public ggml_backend_device {
 	std::string description = "CPU";
-	std::vector<ggml_backend_buffer_type_t> extra_bufts;
+	std::vector<ggml_backend_buffer_type*> extra_bufts;
 
 	ggml_backend_cpu_device(ggml_backend_reg_t reg) : ggml_backend_device(reg) {
 #ifdef __APPLE__
@@ -145,9 +145,9 @@ struct ggml_backend_cpu_device : public ggml_backend_device {
 
 	std::unique_ptr<ggml_backend> init_backend(const char* params) override;
 
-	ggml_backend_buffer_type_t get_buffer_type() override;
+	ggml_backend_buffer_type* get_buffer_type() override;
 
-	ggml_backend_buffer_t buffer_from_host_ptr(void* ptr, size_t size, size_t) override
+	ggml_backend_buffer* buffer_from_host_ptr(void* ptr, size_t size, size_t) override
 	{
 #if 0
 		return ggml_backend_cpu_buffer_from_ptr(ptr, size);
@@ -202,11 +202,11 @@ struct ggml_backend_cpu_device : public ggml_backend_device {
 			return true;
 		}
 	}
-	bool supports_buft(ggml_backend_buffer_type_t buft) override
+	bool supports_buft(ggml_backend_buffer_type* buft) override
 	{
 		return buft->is_host() || ggml_backend_cpu_is_extra_buffer_type(buft);
 	}
-	std::span<const ggml_backend_buffer_type_t> get_extra_bufts() override
+	std::span<ggml_backend_buffer_type*> get_extra_bufts() override
 	{
 		return extra_bufts;
 	}

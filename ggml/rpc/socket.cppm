@@ -275,6 +275,6 @@ size_t get_max_size(const std::shared_ptr<socket_t>& sock) {
     return response.max_size;
 }
 
-void ggml_backend_rpc_start_server(ggml_backend_t backend, const char* endpoint,
+void ggml_backend_rpc_start_server(ggml_backend* backend, const char* endpoint,
     const char* cache_dir,
     size_t free_mem, size_t total_mem);

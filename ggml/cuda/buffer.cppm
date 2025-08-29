@@ -99,7 +99,7 @@ private:
 	}
 public:
 	cuda_backend_buffer(
-		ggml_backend_buffer_type_t type,
+		ggml_backend_buffer_type* type,
 		size_t size,
 		int device,
 		void* context)
@@ -205,7 +205,7 @@ public:
 
 export
 {
-	ggml_backend_buffer_type_t ggml_backend_cuda_buffer_type(int device) {
+	ggml_backend_buffer_type* ggml_backend_cuda_buffer_type(int device) {
 		if (device >= ggml_backend_cuda_get_device_count()) {
 			return nullptr;
 		}
@@ -222,12 +222,12 @@ export
 		return &ggml_backend_cuda_buffer_types[device];
 	}
 
-	cuda_backend_buffer_type* to_cuda_buffer_type(ggml_backend_buffer_type_t buft)
+	cuda_backend_buffer_type* to_cuda_buffer_type(ggml_backend_buffer_type* buft)
 	{
 		return dynamic_cast<cuda_backend_buffer_type*>(buft);
 	}
 
-	cuda_split_backend_buffer_type* to_split_buffer_type(ggml_backend_buffer_type_t buft) {
+	cuda_split_backend_buffer_type* to_split_buffer_type(ggml_backend_buffer_type* buft) {
 		return dynamic_cast<cuda_split_backend_buffer_type*>(buft);
 	};
 }

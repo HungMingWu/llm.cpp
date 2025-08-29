@@ -978,7 +978,7 @@ static llm_arch llm_arch_from_string(const std::string& name) {
     return LLM_ARCH_UNKNOWN;
 }
 
-using llama_buf_map = std::unordered_map<uint32_t, ggml_backend_buffer_t>;
+using llama_buf_map = std::unordered_map<uint32_t, ggml_backend_buffer*>;
 typedef bool (*llama_progress_callback)(float progress, void* user_data);
 
 struct llm_model_loader {
@@ -1213,10 +1213,10 @@ struct llm_model_loader {
         constexpr size_t buffer_size = 1 * 1024 * 1024; // 1MB
 
         std::vector<ggml_backend_buffer_t> host_buffers;
-        std::vector<ggml_backend_event_t> events;
+        std::vector<ggml_backend_event*> events;
         std::vector<void*> host_ptrs;
         size_t buffer_idx = 0; // buffer to use for async loads
-        ggml_backend_t upload_backend = [&](const char* func) -> ggml_backend_t {
+        ggml_backend* upload_backend = [&](const char* func) -> ggml_backend* {
             if (use_mmap || check_tensors) {
                 return nullptr;
             }
@@ -1279,7 +1279,7 @@ struct llm_model_loader {
                 events.emplace_back(event);
             }
 
-            ggml_backend_t backend = ggml_backend_dev_init(dev, nullptr);
+            ggml_backend* backend = ggml_backend_dev_init(dev, nullptr);
             if (!backend) {
                 LLAMA_LOG_DEBUG("%s: failed to initialize backend for device %s for async uploads\n", func,
                     ggml_backend_dev_name(dev));
@@ -1453,7 +1453,7 @@ llm_model_loader::llm_model_loader(
 
 struct llama_model_params {
     // NULL-terminated list of devices to use for offloading (if NULL, all available devices are used)
-    ggml_backend_dev_t* devices = nullptr;
+    ggml_backend_device** devices = nullptr;
     // number of layers to store in VRAM
 #ifdef GGML_USE_METAL
     // note: we usually have plenty of VRAM, so by default offload all layers to the GPU
@@ -2116,16 +2116,16 @@ struct llama_model {
     std::vector<std::string> rpc_servers;
 
     // list of devices used in this model
-    std::vector<ggml_backend_dev_t> devices;
+    std::vector<ggml_backend_device*> devices;
 
 
     // lists of buffer types used for each layer
-    using buft_list_t = std::vector<std::pair<ggml_backend_dev_t, ggml_backend_buffer_type_t>>;
+    using buft_list_t = std::vector<std::pair<ggml_backend_device*, ggml_backend_buffer_type*>>;
     buft_list_t cpu_buft_list;
-    std::map<ggml_backend_dev_t, buft_list_t> gpu_buft_list;
+    std::map<ggml_backend_device*, buft_list_t> gpu_buft_list;
 
     struct layer_dev {
-        ggml_backend_dev_t dev;
+        ggml_backend_device* dev;
         buft_list_t* buft_list;
     };
     layer_dev dev_input = {};
@@ -5844,7 +5844,7 @@ static llama_model::buft_list_t make_cpu_buft_list(llama_model& model) {
 
     // add ACCEL buffer types
     for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
-        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        ggml_backend_device* dev = ggml_backend_dev_get(i);
         if (dev->get_type() == GGML_BACKEND_DEVICE_TYPE_ACCEL) {
             auto* buft = dev->get_buffer_type();
             // skip
@@ -5855,7 +5855,7 @@ static llama_model::buft_list_t make_cpu_buft_list(llama_model& model) {
     }
 
     // add extra buffer types
-    auto* cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+    ggml_backend_device* cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
 
     for (auto & extra_bufts : cpu_dev->get_extra_bufts())
         buft_list.emplace_back(cpu_dev, extra_bufts);
@@ -5867,7 +5867,7 @@ static llama_model::buft_list_t make_cpu_buft_list(llama_model& model) {
     // a better approach would be to handle this on a weight-by-weight basis using the offload_op
     // function of the device to determine if it would benefit from being stored in a host buffer
     for (auto* dev : model.devices) {
-        ggml_backend_buffer_type_t buft = dev->get_host_buffer_type();
+        ggml_backend_buffer_type* buft = dev->get_host_buffer_type();
         if (buft) {
             buft_list.emplace_back(dev, buft);
             break;
@@ -5876,7 +5876,7 @@ static llama_model::buft_list_t make_cpu_buft_list(llama_model& model) {
 
     // add the CPU buffer type
     for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
-        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        ggml_backend_device* dev = ggml_backend_dev_get(i);
         if (dev->get_type() == GGML_BACKEND_DEVICE_TYPE_CPU) {
             buft_list.emplace_back(dev, dev->get_buffer_type());
         }
@@ -5886,7 +5886,7 @@ static llama_model::buft_list_t make_cpu_buft_list(llama_model& model) {
 }
 
 // GPU: split if LLAMA_SPLIT_MODE_ROW -> GPU
-static llama_model::buft_list_t make_gpu_buft_list(ggml_backend_dev_t dev, enum llama_split_mode split_mode, const float* tensor_split) {
+static llama_model::buft_list_t make_gpu_buft_list(ggml_backend_device* dev, enum llama_split_mode split_mode, const float* tensor_split) {
     llama_model::buft_list_t buft_list;
 
 #if 0
@@ -6202,7 +6202,7 @@ static const std::map<llm_tensor, llm_tensor_info> llm_tensor_info_mapping = {
 };
 
 // find the first buffer type in the list that can use the tensor
-static ggml_backend_buffer_type_t select_weight_buft(const llama_model& model, ggml_tensor &tensor, ggml_op op, const llama_model::buft_list_t& buft_list) {
+static ggml_backend_buffer_type* select_weight_buft(const llama_model& model, ggml_tensor &tensor, ggml_op op, const llama_model::buft_list_t& buft_list) {
     GGML_ASSERT(!buft_list.empty());
     for (const auto& [cur_dev, cur_buft] : buft_list) {
         // TODO
@@ -7360,7 +7360,7 @@ static bool llm_load_tensors(
     if (all_zero) {
         // default split, by free memory
         for (int i = 0; i < device_count; ++i) {
-            ggml_backend_dev_t dev = model.devices[i];
+            ggml_backend_device* dev = model.devices[i];
             size_t total;
             size_t free;
             dev->get_memory(&free, &total);
@@ -7381,7 +7381,7 @@ static bool llm_load_tensors(
         splits[i] /= split_sum;
     }
 
-    ggml_backend_dev_t cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+    ggml_backend_device* cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
     const int i_gpu_start = std::max((int)hparams.n_layer - n_gpu_layers, (int)0);
     const int act_gpu_layers = model.devices.empty() ? 0 : std::min(n_gpu_layers, (int)n_layer + 1);
     auto get_layer_buft_list = [&](int il) -> llama_model::layer_dev {
@@ -7405,8 +7405,8 @@ static bool llm_load_tensors(
     // assign the output layer
     model.dev_output = get_layer_buft_list(n_layer);
 
-    std::map<ggml_backend_buffer_type_t, ggml_context*> ctx_map;
-    auto ctx_for_buft = [&](ggml_backend_buffer_type_t buft) -> ggml_context* {
+    std::map<ggml_backend_buffer_type*, ggml_context*> ctx_map;
+    auto ctx_for_buft = [&](ggml_backend_buffer_type* buft) -> ggml_context* {
         auto it = ctx_map.find(buft);
         if (it == ctx_map.end()) {
             auto ctx = std::make_unique<ggml_context>();
@@ -7445,8 +7445,8 @@ static bool llm_load_tensors(
 
         int n_moved_tensors = 0;
         ggml_tensor* first_moved_tensor = nullptr;
-        ggml_backend_buffer_type_t first_moved_from_buft = nullptr;
-        ggml_backend_buffer_type_t first_moved_to_buft = nullptr;
+        ggml_backend_buffer_type* first_moved_from_buft = nullptr;
+        ggml_backend_buffer_type* first_moved_to_buft = nullptr;
 
         auto create_tensor = [&](const LLM_TN_IMPL& tn, const std::initializer_list<int64_t>& ne, int flags) -> ggml_tensor* {
             ggml_tensor* t_meta = ml.get_tensor_meta(tn.str().c_str());
@@ -7510,7 +7510,7 @@ static bool llm_load_tensors(
                 GGML_ABORT("invalid layer %d for tensor %s", info.layer, tn.str().c_str());
             }
 
-            ggml_backend_buffer_type_t buft = select_weight_buft(model, *t_meta, op, *buft_list);
+            ggml_backend_buffer_type* buft = select_weight_buft(model, *t_meta, op, *buft_list);
             if (!buft) {
                 throw make_format_runtime_error("failed to find a compatible buffer type for tensor {}", tn.str());
             }
@@ -9363,7 +9363,7 @@ static bool llm_load_tensors(
     model.bufs.reserve(n_max_backend_buffer);
 
     for (auto& it : ctx_map) {
-        ggml_backend_buffer_type_t buft = it.first;
+        ggml_backend_buffer_type* buft = it.first;
         ggml_context* ctx = it.second;
 
         // skip contexts without tensors
@@ -9375,7 +9375,7 @@ static bool llm_load_tensors(
         bufs.reserve(n_max_backend_buffer);
 
         // check if it is possible to use buffer_from_host_ptr with this buffer type
-        ggml_backend_dev_t dev = ggml_backend_buft_get_device(buft);
+        ggml_backend_device* dev = ggml_backend_buft_get_device(buft);
         if (!dev) {
             // FIXME: workaround for CPU backend buft having a NULL device
             dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
@@ -9397,7 +9397,7 @@ static bool llm_load_tensors(
                     continue;
                 }
                 const size_t max_size = ggml_get_max_tensor_size(ctx);
-                ggml_backend_buffer_t buf = dev->buffer_from_host_ptr((char*)addr + first, last - first, max_size);
+                ggml_backend_buffer* buf = dev->buffer_from_host_ptr((char*)addr + first, last - first, max_size);
                 if (buf == nullptr) {
                     throw make_format_runtime_error("unable to allocate {} buffer", buft->get_name());
                 }
@@ -9613,7 +9613,7 @@ llama_model* llama_load_model_from_file(
             return nullptr;
         }
 
-        typedef ggml_backend_dev_t(*ggml_backend_rpc_add_device_t)(const char* endpoint);
+        typedef ggml_backend_device*(*ggml_backend_rpc_add_device_t)(const char* endpoint);
         ggml_backend_rpc_add_device_t ggml_backend_rpc_add_device_fn = (ggml_backend_rpc_add_device_t)ggml_backend_reg_get_proc_address(rpc_reg, "ggml_backend_rpc_add_device");
         if (!ggml_backend_rpc_add_device_fn) {
             LLAMA_LOG_ERROR("%s: failed to find RPC device add function\n", __func__);
@@ -9622,7 +9622,7 @@ llama_model* llama_load_model_from_file(
         }
 
         for (const std::string& server : model->rpc_servers) {
-            ggml_backend_dev_t dev = ggml_backend_rpc_add_device_fn(server.c_str());
+            ggml_backend_device* dev = ggml_backend_rpc_add_device_fn(server.c_str());
             if (dev) {
                 model->devices.push_back(dev);
             }
@@ -9637,14 +9637,14 @@ llama_model* llama_load_model_from_file(
 
     // create list of devices to use with this model
     if (params.devices) {
-        for (ggml_backend_dev_t* dev = params.devices; *dev; ++dev) {
+        for (ggml_backend_device** dev = params.devices; *dev; ++dev) {
             model->devices.push_back(*dev);
         }
     }
     else {
         // use all available devices
         for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
-            ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+            ggml_backend_device* dev = ggml_backend_dev_get(i);
             switch (dev->get_type()) {
             case GGML_BACKEND_DEVICE_TYPE_CPU:
             case GGML_BACKEND_DEVICE_TYPE_ACCEL:
@@ -9664,7 +9664,7 @@ llama_model* llama_load_model_from_file(
             LLAMA_LOG_ERROR("%s: invalid value for main_gpu: %d (available devices: %d)\n", __func__, params.main_gpu, (int)model->devices.size());
             return nullptr;
         }
-        ggml_backend_dev_t main_gpu = model->devices[params.main_gpu];
+        ggml_backend_device* main_gpu = model->devices[params.main_gpu];
         model->devices.clear();
         model->devices.push_back(main_gpu);
     }
@@ -10271,7 +10271,7 @@ struct llama_context {
 
     std::vector<std::unique_ptr<ggml_backend>> backends;
 
-    ggml_backend_t backend_cpu = nullptr;
+    ggml_backend* backend_cpu = nullptr;
 
     ggml_threadpool_t threadpool = nullptr;
     ggml_threadpool_t threadpool_batch = nullptr;
@@ -10414,8 +10414,8 @@ static bool llama_kv_cache_init(
     cache.cells.resize(kv_size);
 
     // create a context for each buffer type
-    std::map<ggml_backend_buffer_type_t, ggml_context*> ctx_map;
-    auto ctx_for_buft = [&](ggml_backend_buffer_type_t buft) -> ggml_context* {
+    std::map<ggml_backend_buffer_type*, ggml_context*> ctx_map;
+    auto ctx_for_buft = [&](ggml_backend_buffer_type* buft) -> ggml_context* {
         auto it = ctx_map.find(buft);
         if (it == ctx_map.end()) {
             auto ctx = std::make_unique<ggml_context>();
@@ -10438,7 +10438,7 @@ static bool llama_kv_cache_init(
 
         LLAMA_LOG_DEBUG("%s: layer %d: n_embd_k_gqa = %d, n_embd_v_gqa = %d\n", __func__, i, n_embd_k_gqa, n_embd_v_gqa);
 
-        ggml_backend_buffer_type_t buft;
+        ggml_backend_buffer_type* buft;
         if (offload) {
             auto* dev = model.dev_layer.at(i).dev;
             buft = dev->get_buffer_type();
@@ -18705,7 +18705,7 @@ llama_context* llama_new_context_with_model(
 
         // add ACCEL backends (such as BLAS)
         for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
-            ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+            ggml_backend_device* dev = ggml_backend_dev_get(i);
             if (dev->get_type() == GGML_BACKEND_DEVICE_TYPE_ACCEL) {
                 std::unique_ptr<ggml_backend> backend = dev->init_backend(nullptr);
                 if (backend == nullptr) {
@@ -18765,8 +18765,8 @@ llama_context* llama_new_context_with_model(
         // scheduler and compute buffers
         {
             // buffer types used for the compute buffer of each backend
-            std::vector<ggml_backend_buffer_type_t> backend_buft;
-            std::vector<ggml_backend_t> backend_ptrs;
+            std::vector<ggml_backend_buffer_type*> backend_buft;
+            std::vector<ggml_backend*> backend_ptrs;
             for (auto& backend : ctx->backends) {
                 auto* buft = backend->get_default_buffer_type();
                 auto backend_type = backend->get_device()->get_type();
@@ -18843,8 +18843,8 @@ llama_context* llama_new_context_with_model(
             }
 
             for (size_t i = 0; i < backend_ptrs.size(); ++i) {
-                ggml_backend_t backend = backend_ptrs[i];
-                ggml_backend_buffer_type_t buft = backend_buft[i];
+                ggml_backend* backend = backend_ptrs[i];
+                ggml_backend_buffer_type* buft = backend_buft[i];
                 size_t size = ctx->sched->get_buffer_size(backend);
                 if (size > 1) {
                     LLAMA_LOG_INFO("%s: %10s compute buffer size = %8.2f MiB\n", __func__,

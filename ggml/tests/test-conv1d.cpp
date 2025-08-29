@@ -124,7 +124,7 @@ ggml_cgraph build_graph(test_model& model) {
     return gf;
 }
 
-void compute_graph(ggml_cgraph& gf, const test_model& model, ggml_gallocr_t allocr) {
+void compute_graph(ggml_cgraph& gf, const test_model& model, ggml_gallocr* allocr) {
     // allocate tensors
     allocr->alloc_graph(&gf);
     int n_threads = 1;

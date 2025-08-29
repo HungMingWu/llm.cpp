@@ -11,7 +11,7 @@ protected:
     std::unique_ptr<ggml_backend_buffer> alloc_buffer_impl(size_t size) override
     {
 #if 0
-        ggml_backend_buffer_t buffer = ggml_backend_buft_alloc_buffer(ggml_backend_cpu_buffer_type(), size);
+        ggml_backend_buffer* buffer = ggml_backend_buft_alloc_buffer(ggml_backend_cpu_buffer_type(), size);
 
         if (buffer == nullptr) {
             return nullptr;
@@ -50,7 +50,7 @@ public:
 
 export
 {
-	ggml_backend_buffer_type_t ggml_backend_cpu_aarch64_buffer_type() {
+	ggml_backend_buffer_type* ggml_backend_cpu_aarch64_buffer_type() {
         static aarch64_cpu_backend_buffer_type type;
         return &type;
 	}

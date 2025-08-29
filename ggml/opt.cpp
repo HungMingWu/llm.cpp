@@ -64,7 +64,7 @@ ggml_opt_optimizer_params ggml_opt_get_default_optimizer_params(void *) {
 }
 
 struct ggml_opt_params ggml_opt_default_params(
-    ggml_backend_sched_t      backend_sched,
+    ggml_backend_sched*     backend_sched,
     enum ggml_opt_loss_type   loss_type) {
     return {
         /*backend_sched   =*/ backend_sched,
@@ -654,7 +654,7 @@ void ggml_opt_epoch_callback_progress_bar(
 }
 
 void ggml_opt_fit(
-    ggml_backend_sched_t            backend_sched,
+    ggml_backend_sched*           backend_sched,
     ggml_context* ctx_compute,
     ggml_tensor* inputs,
     ggml_tensor* outputs,

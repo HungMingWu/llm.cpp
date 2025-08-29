@@ -83,7 +83,7 @@ ggml_cgraph build_graph(simple_model& model) {
 }
 
 // compute with backend
-ggml_tensor* compute(ggml_cgraph& gf, const simple_model& model, ggml_gallocr_t allocr) {
+ggml_tensor* compute(ggml_cgraph& gf, const simple_model& model, ggml_gallocr* allocr) {
     // allocate tensors
     allocr->alloc_graph(&gf);
 

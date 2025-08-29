@@ -14,7 +14,7 @@ size_t ggml_backend_buffer_type::get_alloc_size(const ggml_tensor* tensor) { ret
 template <typename Iter>
 static bool alloc_tensor_range(
 	Iter first, Iter last,
-	ggml_backend_buffer_type_t buft, size_t size,
+	ggml_backend_buffer_type* buft, size_t size,
 	std::vector<std::unique_ptr<ggml_backend_buffer>>* buffers) {
 
 	std::unique_ptr<ggml_backend_buffer> buffer = buft->alloc_buffer(size);

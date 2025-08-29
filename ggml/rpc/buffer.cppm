@@ -15,7 +15,7 @@ protected:
     void* get_base_impl() override;
     void clear_impl(uint8_t value) override;
 public:
-    rpc_backend_buffer(ggml_backend_buffer_type_t type, std::shared_ptr<socket_t> sock, void* base_ptr, uint64_t remote_ptr, size_t size)
+    rpc_backend_buffer(ggml_backend_buffer_type* type, std::shared_ptr<socket_t> sock, void* base_ptr, uint64_t remote_ptr, size_t size)
         : ggml_backend_buffer(type, size), sock(std::move(sock)), base_ptr(base_ptr), remote_ptr(remote_ptr) {
     }
     ~rpc_backend_buffer() override;

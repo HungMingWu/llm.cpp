@@ -88,13 +88,13 @@ struct ggml_backend_reg_entry {
 
 struct ggml_backend_registry {
 	std::vector<ggml_backend_reg_entry> backends;
-	std::vector<ggml_backend_dev_t> devices;
+	std::vector<ggml_backend_device*> devices;
 
 	ggml_backend_registry();
 	~ggml_backend_registry();
 
 	void register_backend(ggml_backend_reg_t reg, dl_handle_ptr handle = nullptr);
-	void register_device(ggml_backend_dev_t device);
+	void register_device(ggml_backend_device* device);
 	ggml_backend_reg_t load_backend(const std::wstring& path, bool silent);
 	void unload_backend(ggml_backend_reg_t reg, bool silent);
 };
@@ -110,16 +110,16 @@ export {
 		return get_reg().devices.size();
 	}
 
-	ggml_backend_dev_t ggml_backend_dev_get(size_t index)
+	ggml_backend_device* ggml_backend_dev_get(size_t index)
 	{
 		GGML_ASSERT(index < ggml_backend_dev_count());
 		return get_reg().devices[index];
 	}
 
-	ggml_backend_dev_t ggml_backend_dev_by_type(enum ggml_backend_dev_type type)
+	ggml_backend_device* ggml_backend_dev_by_type(enum ggml_backend_dev_type type)
 	{
 		for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
-			ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+			ggml_backend_device* dev = ggml_backend_dev_get(i);
 			if (dev->get_type() == type) {
 				return dev;
 			}
@@ -127,7 +127,7 @@ export {
 		return nullptr;
 	}
 
-	ggml_backend_dev_t    ggml_backend_buft_get_device(ggml_backend_buffer_type_t buft)
+	ggml_backend_device*    ggml_backend_buft_get_device(ggml_backend_buffer_type* buft)
 	{
 		return {};
 	}
@@ -137,7 +137,7 @@ export {
 	}
 
 	// implementation at cpu side
-	ggml_backend_buffer_type_t ggml_backend_cpu_buffer_type();
+	ggml_backend_buffer_type* ggml_backend_cpu_buffer_type();
 
 	void ggml_set_op_params(ggml_tensor &tensor, const void* params, size_t params_size) {
 		assert(params_size <= GGML_MAX_OP_PARAMS);
@@ -145,7 +145,7 @@ export {
 	}
 
 	std::unique_ptr<ggml_backend> ggml_backend_init_by_type(enum ggml_backend_dev_type type, const char* params) {
-		ggml_backend_dev_t dev = ggml_backend_dev_by_type(type);
+		ggml_backend_device* dev = ggml_backend_dev_by_type(type);
 		if (!dev) {
 			return nullptr;
 		}
@@ -155,7 +155,7 @@ export {
 	 void ggml_backend_tensor_set(ggml_tensor* tensor, const void* data, size_t offset, size_t size) {
 		 GGML_ASSERT(tensor);
 
-		 ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+		 ggml_backend_buffer* buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 
 		 if (size == 0) {
 			 return;
@@ -171,7 +171,7 @@ export {
 
 	 void ggml_backend_tensor_get(const ggml_tensor* tensor, void* data, size_t offset, size_t size) {
 		 GGML_ASSERT(tensor);
-		 ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+		 ggml_backend_buffer* buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 		 if (size == 0) {
 			 return;
 		 }
@@ -184,7 +184,7 @@ export {
 	 }
 
 	 void ggml_backend_tensor_memset(ggml_tensor* tensor, uint8_t value, size_t offset, size_t size) {
-		 ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+		 ggml_backend_buffer* buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 
 		 if (size == 0) {
 			 return;
@@ -217,7 +217,7 @@ export {
 		 return ggml_op_name(t->op);
 	 }
 
-	 bool ggml_backend_compare_graph_backend(ggml_backend_t backend1, ggml_backend_t backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback, ggml_tensor* test_node);
+	 bool ggml_backend_compare_graph_backend(ggml_backend* backend1, ggml_backend* backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback, ggml_tensor* test_node);
 
 	 bool ggml_quantize_requires_imatrix(enum ggml_type type);
 

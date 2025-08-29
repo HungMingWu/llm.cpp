@@ -25,7 +25,7 @@ protected:
 		memset(context, value, size);
 	}
 public:
-	host_backend_buffer(ggml_backend_buffer_type_t type, size_t size, void* context)
+	host_backend_buffer(ggml_backend_buffer_type* type, size_t size, void* context)
 		: ggml_backend_buffer(type, size), context(context)
 	{
 

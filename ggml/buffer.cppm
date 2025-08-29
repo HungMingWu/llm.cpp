@@ -12,7 +12,7 @@ export
 {
     struct ggml_backend_buffer {
     protected:
-        ggml_backend_buffer_type_t buft;
+        ggml_backend_buffer_type* buft;
         size_t size;
         ggml_backend_buffer_usage usage = GGML_BACKEND_BUFFER_USAGE_ANY;
         // base address of the buffer
@@ -20,7 +20,7 @@ export
         // clear the entire buffer
         virtual void clear_impl(uint8_t value) = 0;
     public:
-        ggml_backend_buffer(ggml_backend_buffer_type_t buft,
+        ggml_backend_buffer(ggml_backend_buffer_type* buft,
             size_t size) : buft(buft), size(size) {
         }
         virtual ~ggml_backend_buffer() = default;
@@ -42,7 +42,7 @@ export
         void setUsage(ggml_backend_buffer_usage usage) { this->usage = usage; }
         ggml_backend_buffer_usage getUsage() const { return usage; }
         // helper function
-        constexpr ggml_backend_buffer_type_t get_type() const { return buft; }
+        constexpr ggml_backend_buffer_type* get_type() const { return buft; }
         constexpr bool is_host() const { return buft->is_host(); }
         constexpr size_t get_alignment() const { return buft->get_alignment(); }
         constexpr size_t get_alloc_size(const ggml_tensor* tensor) {
@@ -57,6 +57,6 @@ export
         void clear_impl(uint8_t value) override;
     public:
         multi_backend_buffer(
-            ggml_backend_buffer_type_t buft, size_t size, std::vector<std::unique_ptr<ggml_backend_buffer>> buffers);
+            ggml_backend_buffer_type* buft, size_t size, std::vector<std::unique_ptr<ggml_backend_buffer>> buffers);
     };
 }

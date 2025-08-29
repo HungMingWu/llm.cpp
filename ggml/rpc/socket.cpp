@@ -60,7 +60,7 @@ static bool recv_msg(sockfd_t sockfd, std::vector<uint8_t>& input) {
     return recv_data(sockfd, input.data(), size);
 }
 
-static void rpc_serve_client(ggml_backend_t backend, const char* cache_dir,
+static void rpc_serve_client(ggml_backend* backend, const char* cache_dir,
     sockfd_t sockfd, size_t free_mem, size_t total_mem) {
     rpc_server server(backend, cache_dir);
     uint8_t cmd;
@@ -328,7 +328,7 @@ static std::shared_ptr<socket_t> socket_accept(sockfd_t srv_sockfd) {
     return client_socket;
 }
 
-void ggml_backend_rpc_start_server(ggml_backend_t backend, const char* endpoint,
+void ggml_backend_rpc_start_server(ggml_backend* backend, const char* endpoint,
     const char* cache_dir,
     size_t free_mem, size_t total_mem) {
     printf("Starting RPC server v%d.%d.%d\n",

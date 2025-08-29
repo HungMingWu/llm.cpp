@@ -207,7 +207,7 @@ void ggml_gallocr::free_node(ggml_tensor* node) {
 	size_t offset = hn.offset;
 	int buffer_id = hn.buffer_id;
 	auto &alloc = buf_tallocs[buffer_id];
-	ggml_backend_buffer_type_t buft = bufts[buffer_id];
+	ggml_backend_buffer_type* buft = bufts[buffer_id];
 	size_t size = buft->get_alloc_size(node);
 	alloc->free_tensor(offset, size, node);
 	hn.allocated = false;
@@ -268,7 +268,7 @@ void ggml_gallocr::allocate_node(ggml_tensor* node, int buffer_id) {
 
 		// allocate tensor from the buffer
 		auto& alloc = buf_tallocs[buffer_id];
-		ggml_backend_buffer_type_t buft = bufts[buffer_id];
+		ggml_backend_buffer_type* buft = bufts[buffer_id];
 		size_t size = buft->get_alloc_size(node);
 		size_t offset = alloc->alloc(size, node);
 		hn.buffer_id = buffer_id;
@@ -628,7 +628,7 @@ void ggml_tallocr::alloc(ggml_tensor* tensor) {
 	buffer->alloc(tensor, addr);
 }
 
-ggml_tallocr::ggml_tallocr(ggml_backend_buffer_t buffer) : buffer(buffer)
+ggml_tallocr::ggml_tallocr(ggml_backend_buffer* buffer) : buffer(buffer)
 {
 	base = buffer->get_base();
 	alignment = buffer->get_alignment();

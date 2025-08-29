@@ -110,7 +110,7 @@ std::unique_ptr<ggml_backend_buffer> cuda_host_backend_buffer_type::alloc_buffer
 	return std::make_unique<host_backend_buffer<ggml_cuda_host_free>>(this, size, ptr);
 }
 
-bool buffer_type_from_device(ggml_backend_buffer_type_t buft, int device)
+bool buffer_type_from_device(ggml_backend_buffer_type* buft, int device)
 {
 	if (auto cuda_buffer_type = dynamic_cast<cuda_backend_buffer_type*>(buft)) {
 		return cuda_buffer_type->device == device;

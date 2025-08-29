@@ -15,9 +15,9 @@ public:
 
 	std::string_view get_name() override { return "CPU"; }
 
-	std::span<ggml_backend_dev_t> get_devices() override {
+	std::span<ggml_backend_device*> get_devices() override {
 		static ggml_backend_cpu_device cpu_device(this);
-		static std::array<ggml_backend_dev_t, 1> backends{ &cpu_device };
+		static std::array<ggml_backend_device*, 1> backends{ &cpu_device };
 		return backends;
 	}
 

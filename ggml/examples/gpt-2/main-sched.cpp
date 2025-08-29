@@ -72,7 +72,7 @@ struct gpt2_model {
     ggml_context ctx_w;
 
     std::vector<std::unique_ptr<ggml_backend>> backends;
-    std::vector<ggml_backend_t> backends_view;
+    std::vector<ggml_backend*> backends_view;
     std::vector<std::unique_ptr<ggml_backend_buffer>> buffers_w;
     std::unique_ptr<ggml_backend_buffer> buffer_kv;
     std::unique_ptr<ggml_backend_buffer> buffer_input;
@@ -115,7 +115,7 @@ void init_backends(gpt2_model& model, const gpt_params& params) {
     }
 
 #ifdef GGML_USE_BLAS
-    ggml_backend_t blas_backend = ggml_backend_blas_init();
+    ggml_backend* blas_backend = ggml_backend_blas_init();
     if (!blas_backend) {
         std::println(stderr, "{}: failed to initialize BLAS backend", __func__);
     }
@@ -287,7 +287,7 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
     init_backends(model, params);
     auto &backend_gpu = model.backends.front();
     auto &backend_cpu = model.backends.back();
-    std::map<std::string, ggml_backend_t> tensor_backends;
+    std::map<std::string, ggml_backend*> tensor_backends;
     {
         const int i_gpu_first_layer = model.hparams.n_layer - params.n_gpu_layers;
         for (auto it : model.tensors) {
@@ -325,7 +325,7 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
     }
 
     // allocate buffers
-    std::map<ggml_backend_t, ggml_tallocr> backend_buffers;
+    std::map<ggml_backend*, ggml_tallocr> backend_buffers;
     for (auto &backend : model.backends) {
         // compute the size of the buffer
         size_t size = 0;
@@ -451,7 +451,7 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
             }
 
             // allocate the tensor
-            ggml_backend_t backend = tensor_backends[name];
+            ggml_backend* backend = tensor_backends[name];
             auto &alloc = backend_buffers.find(backend)->second;
             alloc.alloc(tensor);
             //std::println("{}: [{:5.5}] {}", __func__, backends->get_name(), name.c_str());
@@ -825,7 +825,7 @@ ggml_cgraph gpt2_graph(
 //
 bool gpt2_eval(
     const gpt2_model& model,
-    ggml_backend_sched_t sched,
+    ggml_backend_sched* sched,
     const int n_past,
     const std::vector<gpt_vocab::id>& embd_inp,
     std::vector<float>& embd_w) {
