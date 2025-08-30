@@ -17,5 +17,5 @@ void log(ggml_log_level level, std::string_view output)
 
 void ggml_log_set(ggml_log_callback ggml_log_set)
 {
-	g_logger = ggml_log_set;
+	g_logger = ggml_log_set ? ggml_log_set : ggml_log_callback_default;
 }

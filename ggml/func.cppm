@@ -1,6 +1,7 @@
 module;
 #include <string.h>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -23,50 +24,6 @@ bool ggml_is_numa()
 bool ggml_backend_buffer_copy_tensor(const ggml_tensor* src, ggml_tensor* dst) {
 	ggml_backend_buffer* dst_buf = dst->view_src ? dst->view_src->buffer : dst->buffer;
 	return dst_buf->cpy_tensor(src, dst);
-}
-
-void ggml_cpu_init(void) {
-#if 0
-	// needed to initialize f16 tables
-	{
-		struct ggml_init_params params = { 0, NULL, false };
-		struct ggml_context* ctx = ggml_init(params);
-		ggml_free(ctx);
-	}
-
-	ggml_critical_section_start();
-
-	static bool is_first_call = true;
-
-	if (is_first_call) {
-		// initialize GELU, Quick GELU, SILU and EXP F32 tables
-		{
-			const uint64_t t_start = ggml_time_us(); UNUSED(t_start);
-
-			for (int i = 0; i < (1 << 16); ++i) {
-				union {
-					uint16_t u16;
-					ggml_fp16_t fp16;
-				} u = { i };
-				float f = GGML_FP16_TO_FP32(u.fp16);
-				ggml_table_gelu_f16[i] = GGML_FP32_TO_FP16(ggml_gelu_f32(f));
-				ggml_table_gelu_quick_f16[i] = GGML_FP32_TO_FP16(ggml_gelu_quick_f32(f));
-			}
-
-			const uint64_t t_end = ggml_time_us(); UNUSED(t_end);
-
-			GGML_PRINT_DEBUG("%s: GELU, Quick GELU, SILU and EXP tables initialized in %f ms\n", __func__, (t_end - t_start) / 1000.0);
-		}
-
-#if defined(__ARM_ARCH)
-		ggml_init_arm_arch_features();
-#endif
-
-		is_first_call = false;
-	}
-
-	ggml_critical_section_end();
-#endif
 }
 
 export
@@ -105,21 +62,14 @@ static ggml_backend_registry& get_reg() {
 }
 
 export {
-	size_t ggml_backend_dev_count()
+	std::span<ggml_backend_device*> backend_devs()
 	{
-		return get_reg().devices.size();
-	}
-
-	ggml_backend_device* ggml_backend_dev_get(size_t index)
-	{
-		GGML_ASSERT(index < ggml_backend_dev_count());
-		return get_reg().devices[index];
+		return get_reg().devices;
 	}
 
 	ggml_backend_device* ggml_backend_dev_by_type(enum ggml_backend_dev_type type)
 	{
-		for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
-			ggml_backend_device* dev = ggml_backend_dev_get(i);
+		for (auto dev : get_reg().devices) {
 			if (dev->get_type() == type) {
 				return dev;
 			}

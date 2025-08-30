@@ -327,7 +327,7 @@ namespace chatllm
 
         if (0) // gpu_id >= 0), TO FIX
         {
-            auto dev = ggml_backend_dev_get(gpu_id);
+            auto dev = backend_devs()[gpu_id];
             if (dev)
                 allocator = dev->get_host_buffer_type();
         }
@@ -346,12 +346,12 @@ namespace chatllm
     int ComputeManager::get_device_count(void)
     {
         ComputeManager::init();
-        return (int)ggml_backend_dev_count();
+        return (int)backend_devs().size();
     }
 
     std::unique_ptr<ggml_backend> ComputeManager::init_backend_device(int index, const char* param)
     {
-        auto dev = ggml_backend_dev_get(index);
+        auto dev = backend_devs()[index];
         return dev ? dev->init_backend(param) : nullptr;
     }
 
@@ -359,7 +359,7 @@ namespace chatllm
     {
         ggml_backend_allocator allocator = nullptr;
 
-        auto dev = ggml_backend_dev_get(device);
+        auto dev = backend_devs()[device];
         if (dev)
             allocator = dev->get_buffer_type();
 
@@ -373,7 +373,7 @@ namespace chatllm
         size_t total = 0;
         size_t free = 0;
 
-        auto dev = ggml_backend_dev_get(device);
+        auto dev = backend_devs()[device];
         if (dev)
             dev->get_memory(&free, &total);
 
@@ -383,7 +383,7 @@ namespace chatllm
 
     bool ComputeManager::get_device_info(int device, DeviceInfo& info)
     {
-        auto dev = ggml_backend_dev_get(device);
+        auto dev = backend_devs()[device];
 
         if (nullptr == dev)
             return false;
@@ -704,7 +704,7 @@ namespace chatllm
                 int device = cfg.id >= 0 ? cfg.id : 0;
                 CHATLLM_CHECK(device < ComputeManager::get_device_count()) << __func__ << ": backend device: #" << device << " out of range";
 
-                auto dev = ggml_backend_dev_get(device);
+                auto dev = backend_devs()[device];
                 CHATLLM_CHECK(dev != nullptr) << __func__ << ": failed to found backend device: #" << device;
 
                 init_device(device, dev, cfg.n_layers);
@@ -714,7 +714,7 @@ namespace chatllm
         // append CPU backend
         {
             int device = ComputeManager::get_device_count() - 1;
-            auto dev = ggml_backend_dev_get(device);
+            auto dev = backend_devs()[device];
             CHATLLM_CHECK(dev != nullptr) << __func__ << ": failed to found CPU device: #" << device;
             CHATLLM_CHECK(dev->get_type() == GGML_BACKEND_DEVICE_TYPE_CPU) << __func__ << ": device #" << device << " is not CPU, but " << dev->get_type();
             init_device(device, dev, n_layers - n_gpu_layers);

@@ -2,11 +2,15 @@
 #include <string.h>
 #include <cmath>
 #include <cinttypes>
+#include <format>
+#include <functional>
 #include <memory>
 #include <optional>
+#include <print>
 #include <random>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #define GGML_ABORT(...)
@@ -20,8 +24,6 @@ static bool almost_equal(const double a, const double b, const double atol) {
 constexpr int64_t ne_datapoint = 2;
 constexpr int64_t ne_label = 1;
 constexpr int64_t ndata = 6;
-
-#define TEST_LOG(...)       printf(__VA_ARGS__)
 
 float constexpr g_sgd_lr = 1e-4f;
 
@@ -41,22 +43,21 @@ struct helper_ctx_data {
     ggml_tensor* weights;
     ggml_tensor* outputs;
     std::unique_ptr<ggml_backend_buffer> buf;
-    ggml_opt_result        result;
-    ggml_opt_result        result2;
 };
 
 // These default values make it easier to check optimization results vs. expected values.
 static ggml_opt_optimizer_params helper_get_test_opt_pars(void* userdata) {
     ggml_opt_optimizer_params result = ggml_opt_get_default_optimizer_params(userdata);
+
     result.adamw.alpha = 1.0f;
     result.adamw.beta1 = 0.0f;
     result.adamw.beta2 = 0.0f;
     result.adamw.eps = 0.0f;
-    return result;
-}
+    result.adamw.wd = 0.0f;
+    result.sgd.wd = 0.0f;
+    result.sgd.alpha = 1.0f;
 
-enum ggml_opt_optimizer_type ggml_opt_context_optimizer_type(ggml_opt_context &c) {
-    return c.optimizer;
+    return result;
 }
 
 static helper_ctx_data helper_get_ctx_data(
@@ -123,54 +124,63 @@ static helper_ctx_data helper_get_ctx_data(
     assert(nbatch_logical % nbatch_physical == 0);
     const int32_t opt_period = nbatch_logical / nbatch_physical;
 
-    ggml_opt_params opt_params = ggml_opt_default_params(backend_sched, loss_type);
-    // The line is wrong, fix it later
-    opt_params.ctx_compute = &ctx_compute;
-    opt_params.inputs = inputs;
-    opt_params.outputs = outputs;
-    opt_params.opt_period = opt_period;
-    opt_params.optimizer = optim;
-    if (!optimizer_defaults) {
-        opt_params.get_opt_pars = helper_get_test_opt_pars;
-    }
+    ggml_opt_params opt_params{
+        .backend_sched = backend_sched,
+        .ctx_compute = &ctx_compute,  // The line is wrong, fix it later
+        .inputs = inputs,
+        .outputs = outputs,
+        .loss_type = loss_type,
+        .opt_period = opt_period,
+        .get_opt_pars = optimizer_defaults ? ggml_opt_get_default_optimizer_params : helper_get_test_opt_pars,
+        .optimizer = optim
+    };
     assert(opt_params.get_opt_pars);
     std::optional<ggml_opt_context> opt_ctx;
     if (init_opt_ctx) opt_ctx.emplace(opt_params);
-    assert(!opt_ctx || ggml_opt_context_optimizer_type(opt_ctx.value()) == opt_params.optimizer);
+    assert(!opt_ctx || opt_ctx->get_optimizer_type() == opt_params.optimizer);
 
     return { std::move(datasets), data_batch, labels_batch, std::move(dataset_unsupervised),
         ctx_static, ctx_compute, opt_params, std::move(opt_ctx), inputs, weights, outputs, std::move(buf) };
 }
 
-static void print_ok(bool subtest_ok) {
-    printf(subtest_ok ? "\033[1;32mOK\033[0m\n" : "\033[1;31mFAIL\033[0m\n");
+static constexpr std::string_view OK_Literal = "\033[1;32mOK\033[0m"; // OK with ANSI color light green
+static constexpr std::string_view FAIL_Literal = "\033[1;31mFAIL\033[0m"; // OK with ANSI color light red
+static constexpr std::string_view SKIP_Literal = "\033[0;33mSKIPPED\033[0m"; // SKIP with ANSI color yellow
+
+static auto summary_generator(
+    ggml_opt_optimizer_type optim,
+    const char* func, const bool high_level)
+{
+    return [=](std::string_view options, std::string_view subtest) -> std::string {
+        return std::format("  {}(high_level={}{}, subtest={}, optimizer={}): ",
+            func, high_level ? "yes" : "no", options, subtest, ggml_opt_optimizer_name(optim));
+    };
 }
 
-static void print_ok(const char* func, bool subtest_ok, int& npass, int& ntest, const char* args = "") {
-    printf("  %s(%s): ", func, args);
-    print_ok(subtest_ok);
-    if (subtest_ok)
-        npass++;
-    ++ntest;
+static auto summary_generator(const char* func, const char* args = "") {
+    return std::format("  {}({}): ", func, args);
 }
 
-static void helper_after_test(
-    enum ggml_opt_optimizer_type optim,
-    const char* func, const bool high_level, const std::string options,
-    const std::string subtest, const bool subtest_ok, int& ntest, int& npass) {
-    printf("  %s(high_level=%s%s, subtest=%s, optimizer=%s): ",
-        func, high_level ? "yes" : "no", options.c_str(), subtest.c_str(), ggml_opt_optimizer_name(optim));
-    print_ok(subtest_ok);
-    if (subtest_ok)
-        npass++;
-    ntest++;
-}
+struct EvalContext {
+    int npass = 0;
+    int ntest = 0;
+
+    void eval(std::function<std::pair<std::string, bool>()> func) {
+        auto [summary_text, subtest_ok] = func();
+        std::print("{}", summary_text);
+        std::println("{}", subtest_ok ? OK_Literal : FAIL_Literal);
+        if (subtest_ok)
+            npass++;
+        ++ntest;
+    }
+    std::pair<int, int> result() const { return { npass, ntest }; }
+};
 
 static std::pair<int, int> test_dataset(
     enum ggml_opt_optimizer_type optim,
     ggml_backend_sched* backend_sched, ggml_backend* backend, const bool shuffle) {
-    int ntest = 0;
-    int npass = 0;
+
+	EvalContext ctx;
 
     helper_ctx_data cd = helper_get_ctx_data(optim, backend_sched, backend);
 
@@ -178,7 +188,7 @@ static std::pair<int, int> test_dataset(
         ggml_opt_dataset& dataset = cd.datasets_supervised[ndata_shard - 1];
 
         if (shuffle) {
-            ggml_opt_dataset_shuffle(&cd.opt_ctx.value(), &dataset, -1);
+            dataset.shuffle(cd.opt_ctx->rng, -1);
         }
 
         for (int64_t ndata_batch = 1; ndata_batch <= ndata; ++ndata_batch) {
@@ -196,7 +206,7 @@ static std::pair<int, int> test_dataset(
             std::vector<int64_t> idata_shuffled;
             const int64_t nbatches = ndata / ndata_batch;
             for (int64_t ibatch = 0; ibatch < nbatches; ++ibatch) {
-                ggml_opt_dataset_get_batch(&dataset, data_batch, labels_batch, ibatch);
+                dataset.get_batch(data_batch, labels_batch, ibatch);
 
                 ggml_backend_tensor_get(data_batch, data.data(), 0, data_batch->nbytes());
                 ggml_backend_tensor_get(labels_batch, labels.data(), 0, labels_batch->nbytes());
@@ -234,27 +244,21 @@ static std::pair<int, int> test_dataset(
                 }
             }
 
-            printf("  %s(shuffle=%s, ndata_shard=%" PRId64 ", ndata_batch=%" PRId64 "): ",
-                __func__, shuffle ? "yes" : "no", ndata_shard, ndata_batch);
-            if (subtest_ok) {
-                printf("\033[1;32mOK\033[0m\n");
-                npass++;
-            }
-            else {
-                printf("\033[1;31mFAIL\033[0m\n");
-            }
-            ntest++;
+            ctx.eval([&]() -> std::pair<std::string, bool> {
+                std::string summary = std::format("  {}(shuffle={}, ndata_shard={}, ndata_batch={}): ",
+                    __func__, shuffle ? "yes" : "no", ndata_shard, ndata_batch);
+                return { summary, subtest_ok };
+            });
         }
     }
 
-    return std::make_pair(npass, ntest);
+    return ctx.result();
 }
 
 static std::pair<int, int> test_grad(
     enum ggml_opt_optimizer_type optim,
     ggml_backend_sched* backend_sched, ggml_backend* backend) {
-    int ntest = 0;
-    int npass = 0;
+    EvalContext ctx;
 
     helper_ctx_data cd = helper_get_ctx_data(optim, backend_sched, backend, /*init_opt_ctx =*/ true, /*optimizer_defaults =*/ false,
         /*nbatch_logical =*/ 999999, /*nbatch_physical =*/ 1);
@@ -264,50 +268,37 @@ static std::pair<int, int> test_grad(
         grad_history[idata] = NAN;
     }
 
-    for (int idata = 0; idata < ndata; ++idata) {
-        const float idataf = idata;
-        cd.opt_ctx->alloc(/*backward =*/ true);
-        // leaked
-        ggml_backend_tensor_set(cd.inputs, &idataf, 0, cd.inputs->nbytes());
-        cd.opt_ctx->eval(&cd.result);
-        ggml_backend_tensor_get(ggml_opt_grad_acc(&cd.opt_ctx.value(), cd.weights), grad_history.data() + idata, 0, sizeof(float));
-    }
+    auto grad_summary_generator = summary_generator(__func__);
+    const ggml_opt_result result = [&] {
+        ggml_opt_result result;
+        for (int idata = 0; idata < ndata; ++idata) {
+            const float idataf = idata;
+            cd.opt_ctx->alloc(/*backward =*/ true);
+            // leaked
+            ggml_backend_tensor_set(cd.inputs, &idataf, 0, cd.inputs->nbytes());
+            cd.opt_ctx->eval(&result);
+            ggml_backend_tensor_get(cd.opt_ctx->get_grad_acc(cd.weights), grad_history.data() + idata, 0, sizeof(float));
+        }
+        return result;
+    }();
 
-    {
+    ctx.eval([&]() -> std::pair<std::string, bool> {
         bool subtest_ok = true;
         for (int idata = 0; idata < ndata; ++idata) {
             if (grad_history[idata] != idata + 1) {
                 subtest_ok = false;
             }
         }
-        printf("  %s(): ", __func__);
-        if (subtest_ok) {
-            printf("\033[1;32mOK\033[0m\n");
-            npass++;
-        }
-        else {
-            printf("\033[1;31mFAIL\033[0m\n");
-        }
-        ntest++;
-    }
+        return { grad_summary_generator, subtest_ok };
+    });
 
-    return std::make_pair(npass, ntest);
-}
-
-static void helper_after_test_forward_backward(
-    enum ggml_opt_optimizer_type optim,
-    const char* func, const bool high_level, const bool shuffle,
-    const std::string subtest, const bool subtest_ok, int& ntest, int& npass) {
-    std::string options = ", shuffle=";
-    options += shuffle ? "yes" : "no";
-    helper_after_test(optim, func, high_level, options, subtest, subtest_ok, ntest, npass);
+    return ctx.result();
 }
 
 static std::pair<int, int> test_forward_backward(
     enum ggml_opt_optimizer_type optim,
     ggml_backend_sched* backend_sched, ggml_backend* backend, const bool high_level, const bool shuffle) {
-    int ntest = 0;
-    int npass = 0;
+    EvalContext ctx;
 
     helper_ctx_data cd = helper_get_ctx_data(optim, backend_sched, backend, /*init_opt_ctx =*/ true, /*optimizer_defaults =*/ false);
     struct ggml_tensor* loss = cd.opt_ctx->get_loss();
@@ -317,123 +308,139 @@ static std::pair<int, int> test_forward_backward(
         loss_history[idata] = NAN;
     }
 
-    {
-        int64_t ndata = cd.result.get_ndata();
-        auto [loss, loss_unc] = cd.result.get_loss();
-		auto [accuracy, accuracy_unc] = cd.result.get_accuracy();
+    auto shuffle_summary_generator = summary_generator(optim, __func__, high_level);
+    const std::string shuffle_option = std::format(", shuffle={}", shuffle ? "yes" : "no");
+    ggml_opt_result result;
+	ctx.eval([&]() -> std::pair<std::string, bool> {
+        int64_t ndata = result.get_ndata();
+        auto [loss, loss_unc] = result.get_loss();
+		auto [accuracy, accuracy_unc] = result.get_accuracy();
         const bool subtest_ok = ndata == 0 && loss == 0.0 && std::isnan(loss_unc) && std::isnan(accuracy) && std::isnan(accuracy_unc);
-        helper_after_test_forward_backward(optim, __func__, high_level, shuffle, "results_initial", subtest_ok, ntest, npass);
-    }
+        return { shuffle_summary_generator(shuffle_option, "results_initial"), subtest_ok };
+    });
 
-    if (high_level) {
-        ggml_opt_dataset &dataset = cd.dataset_unsupervised;
-        if (shuffle) {
-            ggml_opt_dataset_shuffle(&cd.opt_ctx.value(), &dataset, -1);
+    result = [&] {
+        if (high_level) {
+            ggml_opt_dataset& dataset = cd.dataset_unsupervised;
+            if (shuffle) {
+                dataset.shuffle(cd.opt_ctx->rng, -1);
+            }
+            auto [_, result] = cd.opt_ctx->epoch(&dataset, 0, nullptr, nullptr);
+            return result;
         }
-        ggml_opt_epoch(&cd.opt_ctx.value(), &dataset, nullptr, &cd.result, 0, nullptr, nullptr);
-    }
-    else {
-        for (int idata = 0; idata < ndata; ++idata) {
-            const float idataf = idata;
-            cd.opt_ctx->alloc(/*backward =*/ false);
-            ggml_backend_tensor_set(cd.inputs, &idataf, 0, cd.inputs->nbytes());
-            cd.opt_ctx->eval(&cd.result);
-            ggml_backend_tensor_get(loss, loss_history.data() + idata, 0, sizeof(float));
+        else {
+            ggml_opt_result result;
+            for (int idata = 0; idata < ndata; ++idata) {
+                const float idataf = idata;
+                cd.opt_ctx->alloc(/*backward =*/ false);
+                ggml_backend_tensor_set(cd.inputs, &idataf, 0, cd.inputs->nbytes());
+                cd.opt_ctx->eval(&result);
+                ggml_backend_tensor_get(loss, loss_history.data() + idata, 0, sizeof(float));
+            }
+            return result;
         }
-    }
+    }();
 
-    {
+    ctx.eval([&]() -> std::pair<std::string, bool> {
         float weights;
         ggml_backend_tensor_get(cd.weights, &weights, 0, sizeof(float));
         const bool subtest_ok = weights == ndata / 2;
-        helper_after_test_forward_backward(optim, __func__, high_level, shuffle, "weights_after_forward", subtest_ok, ntest, npass);
-    }
-    {
-        int64_t ndata = cd.result.get_ndata();
+        return { shuffle_summary_generator(shuffle_option, "weights_after_forward"), subtest_ok };
+    });
+    ctx.eval([&]() -> std::pair<std::string, bool> {
+        int64_t ndata = result.get_ndata();
         bool subtest_ok = ndata == 6;
 
-        auto [loss, loss_unc] = cd.result.get_loss();
+        auto [loss, loss_unc] = result.get_loss();
         subtest_ok = subtest_ok && loss == 33.0 && almost_equal(loss_unc, sqrt(3.5), 1e-10);
 
-		auto [accuracy, accuracy_unc] = cd.result.get_accuracy();
+        auto [accuracy, accuracy_unc] = result.get_accuracy();
         subtest_ok = subtest_ok && std::isnan(accuracy) && std::isnan(accuracy_unc);
-
-        helper_after_test_forward_backward(optim, __func__, high_level, shuffle, "results_after_forward", subtest_ok, ntest, npass);
-    }
+        return { shuffle_summary_generator(shuffle_option, "results_after_forward"), subtest_ok };
+    });
 
     float w0;
     ggml_backend_tensor_get(cd.weights, &w0, 0, sizeof(float));
-    for (int i = 0; i < 10; ++i) {
-        cd.opt_ctx->alloc(/*backward =*/ true);
-        // leaked.
-        cd.opt_ctx->eval(&cd.result);
-    }
+    result = [&] {
+        ggml_opt_result result;
+        for (int i = 0; i < 10; ++i) {
+            cd.opt_ctx->alloc(/*backward =*/ true);
+            // leaked.
+            cd.opt_ctx->eval(&result);
+        }
+        return result;
+    }();
     ggml_backend_tensor_set(cd.weights, &w0, 0, sizeof(float));
 
     cd.opt_ctx->reset(/*optimizer =*/ false);
-    cd.result.reset();
 
     for (int64_t idata = 0; idata < ndata; ++idata) {
         loss_history[idata] = NAN;
     }
 
-    if (high_level) {
-        ggml_opt_dataset& dataset = cd.dataset_unsupervised;
-        if (shuffle) {
-            ggml_opt_dataset_shuffle(&cd.opt_ctx.value(), &dataset, -1);
+    result = [&] {
+        if (high_level) {
+            ggml_opt_dataset& dataset = cd.dataset_unsupervised;
+            if (shuffle) {
+                dataset.shuffle(cd.opt_ctx->rng, -1);
+            }
+            auto [result, _] = cd.opt_ctx->epoch(&dataset, ndata, nullptr, nullptr);
+            return result;
         }
-        ggml_opt_epoch(&cd.opt_ctx.value(), &dataset, &cd.result, nullptr, ndata, nullptr, nullptr);
-    }
-    else {
-        for (int idata = 0; idata < ndata; ++idata) {
-            const float idataf = idata;
-            cd.opt_ctx->alloc(/*backward =*/ true);
-            ggml_backend_tensor_set(cd.inputs, &idataf, 0, cd.inputs->nbytes());
-            cd.opt_ctx->eval(&cd.result);
-            ggml_backend_tensor_get(loss, loss_history.data() + idata, 0, sizeof(float));
+        else {
+            ggml_opt_result result;
+            for (int idata = 0; idata < ndata; ++idata) {
+                const float idataf = idata;
+                cd.opt_ctx->alloc(/*backward =*/ true);
+                ggml_backend_tensor_set(cd.inputs, &idataf, 0, cd.inputs->nbytes());
+                cd.opt_ctx->eval(&result);
+                ggml_backend_tensor_get(loss, loss_history.data() + idata, 0, sizeof(float));
+            }
+            return result;
         }
-    }
+    }();
 
-    {
+    ctx.eval([&]() -> std::pair<std::string, bool> {
         float weights;
         ggml_backend_tensor_get(cd.weights, &weights, 0, sizeof(float));
         const bool subtest_ok = weights == -ndata * .5;
-        helper_after_test_forward_backward(optim, __func__, high_level, shuffle, "weights_after_forward_backward", subtest_ok, ntest, npass);
-    }
-    {
-        int64_t ndata = cd.result.get_ndata();
+        return { shuffle_summary_generator(shuffle_option, "weights_after_forward_backward"), subtest_ok };
+    });
+    ctx.eval([&]() -> std::pair<std::string, bool> {
+        int64_t ndata = result.get_ndata();
         bool subtest_ok = ndata == 6;
 
-        auto [loss, loss_unc] = cd.result.get_loss();
+        auto [loss, loss_unc] = result.get_loss();
         subtest_ok = subtest_ok && loss == 18.0 && (shuffle || loss_unc == 0.0);
 
-		auto [accuracy, accuracy_unc] = cd.result.get_accuracy();
+        auto [accuracy, accuracy_unc] = result.get_accuracy();
         subtest_ok = subtest_ok && std::isnan(accuracy) && std::isnan(accuracy_unc);
 
-        helper_after_test_forward_backward(optim, __func__, high_level, shuffle, "result_after_forward_backward", subtest_ok, ntest, npass);
-    }
+        return { shuffle_summary_generator(shuffle_option, "result_after_forward_backward"), subtest_ok };
+    });
 
-    return std::make_pair(npass, ntest);
+    return ctx.result();
 }
 
 static std::pair<int, int> test_epoch_vs_fit(
     enum ggml_opt_optimizer_type optim,
     ggml_backend_sched* backend_sched, ggml_backend* backend) {
-    int ntest = 0;
-    int npass = 0;
 
     float weights_epoch;
     float weights_fit;
+    EvalContext ctx;
 
-    {
+    auto fit_summary_generator = summary_generator(__func__);
+
+	const ggml_opt_result result = [&] {
         helper_ctx_data cd = helper_get_ctx_data(optim, backend_sched, backend, /*init_opt_ctx =*/ true);
         ggml_opt_dataset& dataset = cd.dataset_unsupervised;
 
-        ggml_opt_dataset_shuffle(&cd.opt_ctx.value(), &dataset, -1);
-        ggml_opt_epoch(&cd.opt_ctx.value(), &dataset, &cd.result, nullptr, ndata, nullptr, nullptr);
-
+        dataset.shuffle(cd.opt_ctx->rng, -1);
+        auto [result, _ ] = cd.opt_ctx->epoch(&dataset, ndata, nullptr, nullptr);
         ggml_backend_tensor_get(cd.weights, &weights_epoch, 0, cd.weights->nbytes());
-    }
+        return result;
+    }();
     {
         helper_ctx_data cd = helper_get_ctx_data(optim, backend_sched, backend, /*init_opt_ctx =*/ false);
         ggml_opt_dataset& dataset = cd.dataset_unsupervised;
@@ -444,116 +451,105 @@ static std::pair<int, int> test_epoch_vs_fit(
         ggml_backend_tensor_get(cd.weights, &weights_fit, 0, cd.weights->nbytes());
     }
 
-    const bool subtest_ok = weights_epoch == weights_fit;
+    ctx.eval([&]() -> std::pair<std::string, bool> {
+        const bool subtest_ok = weights_epoch == weights_fit;
 
-    print_ok(__func__, subtest_ok, npass, ntest);
+        return { fit_summary_generator, subtest_ok };
+	});
 
-    return std::make_pair(npass, ntest);
-}
-
-static void helper_after_test_idata_split(
-    enum ggml_opt_optimizer_type optim,
-    const char* func, const bool high_level, const int epoch,
-    const std::string subtest, const bool subtest_ok, int& ntest, int& npass) {
-    std::string options = ", epoch=";
-    options += std::to_string(epoch);
-    helper_after_test(optim, func, high_level, options, subtest, subtest_ok, ntest, npass);
+    return ctx.result();
 }
 
 static std::pair<int, int> test_idata_split(
     enum ggml_opt_optimizer_type optim,
     ggml_backend_sched* backend_sched, ggml_backend* backend, const bool high_level) {
-    int ntest = 0;
-    int npass = 0;
 
     helper_ctx_data cd = helper_get_ctx_data(optim, backend_sched, backend, /*init_opt_ctx =*/ true, /*optimizer_defaults =*/ false);
     struct ggml_tensor* loss = cd.opt_ctx->get_loss();
     const int idata_split = ndata * 2 / 3;
 
+    auto idata_split_summary_generator = summary_generator(optim, __func__, high_level);
     std::vector<float> loss_history(ndata);
     for (int64_t idata = 0; idata < ndata; ++idata) {
         loss_history[idata] = NAN;
     }
+    EvalContext ctx;
 
     bool const adamw = optim == GGML_OPT_OPTIMIZER_TYPE_ADAMW;
     for (int epoch = 1; epoch <= 4; ++epoch) {
-        if (high_level) {
-            ggml_opt_epoch(&cd.opt_ctx.value(), &cd.dataset_unsupervised, &cd.result, &cd.result2, idata_split, nullptr, nullptr);
-        }
-        else {
-            int idata = 0;
-            for (; idata < idata_split; ++idata) {
-                const float idataf = idata;
-                cd.opt_ctx->alloc(/*backward =*/ true);
-                ggml_backend_tensor_set(cd.inputs, &idataf, 0, cd.inputs->nbytes());
-                cd.opt_ctx->eval(&cd.result);
-                ggml_backend_tensor_get(loss, loss_history.data() + idata, 0, sizeof(float));
+        const std::string epoch_options = std::format(", epoch={}", epoch);
+        const auto [result, result2] = [&]() -> std::tuple<ggml_opt_result, ggml_opt_result> {
+            if (high_level) {
+                return cd.opt_ctx->epoch(&cd.dataset_unsupervised, idata_split, nullptr, nullptr);
             }
-            for (; idata < ndata; ++idata) {
-                const float idataf = idata;
-                cd.opt_ctx->alloc(/*backward =*/ false);
-                ggml_backend_tensor_set(cd.inputs, &idataf, 0, cd.inputs->nbytes());
-                cd.opt_ctx->eval(&cd.result2);
-                ggml_backend_tensor_get(loss, loss_history.data() + idata, 0, sizeof(float));
+            else {
+                ggml_opt_result result, result2;
+                int idata = 0;
+                for (; idata < idata_split; ++idata) {
+                    const float idataf = idata;
+                    cd.opt_ctx->alloc(/*backward =*/ true);
+                    ggml_backend_tensor_set(cd.inputs, &idataf, 0, cd.inputs->nbytes());
+                    cd.opt_ctx->eval(&result);
+                    ggml_backend_tensor_get(loss, loss_history.data() + idata, 0, sizeof(float));
+                }
+                for (; idata < ndata; ++idata) {
+                    const float idataf = idata;
+                    cd.opt_ctx->alloc(/*backward =*/ false);
+                    ggml_backend_tensor_set(cd.inputs, &idataf, 0, cd.inputs->nbytes());
+                    cd.opt_ctx->eval(&result2);
+                    ggml_backend_tensor_get(loss, loss_history.data() + idata, 0, sizeof(float));
+                }
+                return { result, result2 };
             }
-        }
+        }();
 
         if (adamw) {
-            float weights;
-            ggml_backend_tensor_get(cd.weights, &weights, 0, sizeof(float));
-            const bool subtest_ok = weights == ndata / 2 - epoch * idata_split;
-            helper_after_test_idata_split(optim, __func__, high_level, epoch, "weights", subtest_ok, ntest, npass);
+            ctx.eval([&]() -> std::pair<std::string, bool> {
+                float weights;
+                ggml_backend_tensor_get(cd.weights, &weights, 0, sizeof(float));
+                const bool subtest_ok = weights == ndata / 2 - epoch * idata_split;
+                return { idata_split_summary_generator(epoch_options, "weights"), subtest_ok };
+            });
         }
         if (adamw) {
-            int64_t ndata_result = cd.result.get_ndata();
-            bool subtest_ok = ndata_result == idata_split;
+            ctx.eval([&]() -> std::pair<std::string, bool> {
+                int64_t ndata_result = result.get_ndata();
+                bool subtest_ok = ndata_result == idata_split;
 
-            auto [loss, loss_unc] = cd.result.get_loss();
-            subtest_ok = subtest_ok && loss == 28.0 - epoch * 16.0 && loss_unc == 0.0;
+                auto [loss, loss_unc] = result.get_loss();
+                subtest_ok = subtest_ok && loss == 28.0 - epoch * 16.0 && loss_unc == 0.0;
 
-			auto [accuracy, accuracy_unc] = cd.result.get_accuracy();
-            subtest_ok = subtest_ok && std::isnan(accuracy) && std::isnan(accuracy_unc);
+                auto [accuracy, accuracy_unc] = result.get_accuracy();
+                subtest_ok = subtest_ok && std::isnan(accuracy) && std::isnan(accuracy_unc);
 
-            helper_after_test_idata_split(optim, __func__, high_level, epoch, "results_backward", subtest_ok, ntest, npass);
+                return { idata_split_summary_generator(epoch_options, "results_backward"), subtest_ok };
+            });
         }
         if (adamw) {
-            int64_t ndata_result = cd.result2.get_ndata();
-            bool subtest_ok = ndata_result == ndata - idata_split;
+            ctx.eval([&]() -> std::pair<std::string, bool> {
+                int64_t ndata_result = result2.get_ndata();
+                bool subtest_ok = ndata_result == ndata - idata_split;
 
-            auto [loss, loss_unc] = cd.result2.get_loss();
-            subtest_ok = subtest_ok && loss == 15.0 - epoch * 8 && almost_equal(loss_unc, sqrt(0.5), 1e-10);
+                auto [loss, loss_unc] = result2.get_loss();
+                subtest_ok = subtest_ok && loss == 15.0 - epoch * 8 && almost_equal(loss_unc, sqrt(0.5), 1e-10);
 
-            auto [accuracy, accuracy_unc] = cd.result2.get_accuracy();;
-            subtest_ok = subtest_ok && std::isnan(accuracy) && std::isnan(accuracy_unc);
+                auto [accuracy, accuracy_unc] = result2.get_accuracy();;
+                subtest_ok = subtest_ok && std::isnan(accuracy) && std::isnan(accuracy_unc);
 
-            helper_after_test_idata_split(optim, __func__, high_level, epoch, "results_forward", subtest_ok, ntest, npass);
+                return { idata_split_summary_generator(epoch_options, "results_forward"), subtest_ok };
+            });
+
         }
-
-        cd.result.reset();
-        cd.result2.reset();
     }
 
-    return std::make_pair(npass, ntest);
-}
-
-static void helper_after_test_gradient_accumulation(
-    enum ggml_opt_optimizer_type optim,
-    const char* func, const int nbatch_physical, const enum ggml_opt_loss_type loss_type, const int epoch,
-    const std::string subtest, const bool subtest_ok, int& ntest, int& npass) {
-    std::string options = ", nbatch_physical=";
-    options += std::to_string(nbatch_physical);
-    options += ", loss_type=";
-    options += loss_type == GGML_OPT_LOSS_TYPE_MEAN ? "mean" : "sum";
-    options += ", epoch=";
-    options += std::to_string(epoch);
-    helper_after_test(optim, func, false, options, subtest, subtest_ok, ntest, npass);
+    return ctx.result();
 }
 
 static std::pair<int, int> test_gradient_accumulation(
     enum ggml_opt_optimizer_type optim,
     ggml_backend_sched* backend_sched, ggml_backend* backend, const int32_t nbatch_physical, const enum ggml_opt_loss_type loss_type) {
-    int ntest = 0;
-    int npass = 0;
+
+    EvalContext ctx;
 
     helper_ctx_data cd = helper_get_ctx_data(
         optim,
@@ -564,104 +560,112 @@ static std::pair<int, int> test_gradient_accumulation(
         grad_history[idata] = NAN;
     }
 
+    auto grad_summary_generator = summary_generator(optim, __func__, false);
+
     bool const adamw = optim == GGML_OPT_OPTIMIZER_TYPE_ADAMW;
     if (adamw)
-    for (int epoch = 1; epoch <= 4; ++epoch) {
-        if (nbatch_physical == 1) {
-            for (int idata = 0; idata < ndata; ++idata) {
-                const float idataf = idata;
-                cd.opt_ctx->alloc(/*backward =*/ true);
-                ggml_backend_tensor_set(cd.inputs, &idataf, 0, 1 * sizeof(float));
-                cd.opt_ctx->eval(&cd.result);
-                ggml_backend_tensor_get(ggml_opt_grad_acc(&cd.opt_ctx.value(), cd.weights), grad_history.data() + idata, 0, 1 * sizeof(float));
-            }
-        }
-        else if (nbatch_physical == 2) {
-            for (int idata = 0; idata < ndata; idata += 2) {
-                const float idataf[2] = { float(idata + 0), float(idata + 1) };
-                cd.opt_ctx->alloc(/*backward =*/ true);
-                ggml_backend_tensor_set(cd.inputs, idataf, 0, 2 * sizeof(float));
-                cd.opt_ctx->eval(&cd.result);
-
-                grad_history[idata + 0] = 0.0f;
-                ggml_backend_tensor_get(ggml_opt_grad_acc(&cd.opt_ctx.value(), cd.weights), grad_history.data() + idata + 1, 0, 1 * sizeof(float));
-            }
-        }
-        else {
-            assert(false);
-        }
-
-        {
-            assert(ndata == 6);
-            constexpr double atol = 1e-6;
-            bool subtest_ok = true;
-            if (loss_type == GGML_OPT_LOSS_TYPE_SUM) {
+        for (int epoch = 1; epoch <= 4; ++epoch) {
+            std::string grad_option = std::format(", nbatch_physical={}, loss_type={}, epoch={}",
+                nbatch_physical, loss_type == GGML_OPT_LOSS_TYPE_MEAN ? "mean" : "sum", epoch);
+            const ggml_opt_result result = [&] {
                 if (nbatch_physical == 1) {
-                    subtest_ok = subtest_ok && almost_equal(grad_history[0], 1.0, atol);
-                    subtest_ok = subtest_ok && almost_equal(grad_history[2], 3.0, atol);
-                    subtest_ok = subtest_ok && almost_equal(grad_history[4], 5.0, atol);
+                    ggml_opt_result result;
+                    for (int idata = 0; idata < ndata; ++idata) {
+                        const float idataf = idata;
+                        cd.opt_ctx->alloc(/*backward =*/ true);
+                        ggml_backend_tensor_set(cd.inputs, &idataf, 0, 1 * sizeof(float));
+                        cd.opt_ctx->eval(&result);
+                        ggml_backend_tensor_get(cd.opt_ctx->get_grad_acc(cd.weights), grad_history.data() + idata, 0, 1 * sizeof(float));
+                    }
+                    return result;
+                }
+                else if (nbatch_physical == 2) {
+                    ggml_opt_result result;
+                    for (int idata = 0; idata < ndata; idata += 2) {
+                        const float idataf[2] = { float(idata + 0), float(idata + 1) };
+                        cd.opt_ctx->alloc(/*backward =*/ true);
+                        ggml_backend_tensor_set(cd.inputs, idataf, 0, 2 * sizeof(float));
+                        cd.opt_ctx->eval(&result);
+                        grad_history[idata + 0] = 0.0f;
+                        ggml_backend_tensor_get(cd.opt_ctx->get_grad_acc(cd.weights), grad_history.data() + idata + 1, 0, 1 * sizeof(float));
+                    }
+                    return result;
                 }
                 else {
-                    subtest_ok = subtest_ok && almost_equal(grad_history[0], 0.0, atol);
-                    subtest_ok = subtest_ok && almost_equal(grad_history[2], 0.0, atol);
-                    subtest_ok = subtest_ok && almost_equal(grad_history[4], 0.0, atol);
+                    std::unreachable();
                 }
-                subtest_ok = subtest_ok && almost_equal(grad_history[1], 2.0, atol);
-                subtest_ok = subtest_ok && almost_equal(grad_history[3], 4.0, atol);
-                subtest_ok = subtest_ok && almost_equal(grad_history[5], 6.0, atol);
-            }
-            else if (loss_type == GGML_OPT_LOSS_TYPE_MEAN) {
-                if (nbatch_physical == 1) {
-                    subtest_ok = subtest_ok && almost_equal(grad_history[0], 1.0 / ndata, atol);
-                    subtest_ok = subtest_ok && almost_equal(grad_history[2], 3.0 / ndata, atol);
-                    subtest_ok = subtest_ok && almost_equal(grad_history[4], 5.0 / ndata, atol);
+            }();
+            ctx.eval([&]() -> std::pair<std::string, bool> {
+                assert(ndata == 6);
+                constexpr double atol = 1e-6;
+                bool subtest_ok = true;
+                if (loss_type == GGML_OPT_LOSS_TYPE_SUM) {
+                    if (nbatch_physical == 1) {
+                        subtest_ok = subtest_ok && almost_equal(grad_history[0], 1.0, atol);
+                        subtest_ok = subtest_ok && almost_equal(grad_history[2], 3.0, atol);
+                        subtest_ok = subtest_ok && almost_equal(grad_history[4], 5.0, atol);
+                    }
+                    else {
+                        subtest_ok = subtest_ok && almost_equal(grad_history[0], 0.0, atol);
+                        subtest_ok = subtest_ok && almost_equal(grad_history[2], 0.0, atol);
+                        subtest_ok = subtest_ok && almost_equal(grad_history[4], 0.0, atol);
+                    }
+                    subtest_ok = subtest_ok && almost_equal(grad_history[1], 2.0, atol);
+                    subtest_ok = subtest_ok && almost_equal(grad_history[3], 4.0, atol);
+                    subtest_ok = subtest_ok && almost_equal(grad_history[5], 6.0, atol);
+                }
+                else if (loss_type == GGML_OPT_LOSS_TYPE_MEAN) {
+                    if (nbatch_physical == 1) {
+                        subtest_ok = subtest_ok && almost_equal(grad_history[0], 1.0 / ndata, atol);
+                        subtest_ok = subtest_ok && almost_equal(grad_history[2], 3.0 / ndata, atol);
+                        subtest_ok = subtest_ok && almost_equal(grad_history[4], 5.0 / ndata, atol);
+                    }
+                    else {
+                        subtest_ok = subtest_ok && almost_equal(grad_history[0], 0.0 / ndata, atol);
+                        subtest_ok = subtest_ok && almost_equal(grad_history[2], 0.0 / ndata, atol);
+                        subtest_ok = subtest_ok && almost_equal(grad_history[4], 0.0 / ndata, atol);
+                    }
+                    subtest_ok = subtest_ok && almost_equal(grad_history[1], 2.0 / ndata, atol);
+                    subtest_ok = subtest_ok && almost_equal(grad_history[3], 4.0 / ndata, atol);
+                    subtest_ok = subtest_ok && almost_equal(grad_history[5], 6.0 / ndata, atol);
                 }
                 else {
-                    subtest_ok = subtest_ok && almost_equal(grad_history[0], 0.0 / ndata, atol);
-                    subtest_ok = subtest_ok && almost_equal(grad_history[2], 0.0 / ndata, atol);
-                    subtest_ok = subtest_ok && almost_equal(grad_history[4], 0.0 / ndata, atol);
+                    assert(false);
                 }
-                subtest_ok = subtest_ok && almost_equal(grad_history[1], 2.0 / ndata, atol);
-                subtest_ok = subtest_ok && almost_equal(grad_history[3], 4.0 / ndata, atol);
-                subtest_ok = subtest_ok && almost_equal(grad_history[5], 6.0 / ndata, atol);
+                return { grad_summary_generator(grad_option, "grads"), subtest_ok };
+            });
+            bool const adamw = optim == GGML_OPT_OPTIMIZER_TYPE_ADAMW;
+            if (adamw) {
+                ctx.eval([&]() -> std::pair<std::string, bool> {
+                    float weights;
+                    ggml_backend_tensor_get(cd.weights, &weights, 0, sizeof(float));
+                    const bool subtest_ok = weights == (ndata / 2) - epoch;
+                    return { grad_summary_generator(grad_option, "weights"), subtest_ok };
+                });
             }
-            else {
-                assert(false);
-            }
-            helper_after_test_gradient_accumulation(optim, __func__, nbatch_physical, loss_type, epoch, "grads", subtest_ok, ntest, npass);
-        }
-        bool const adamw = optim == GGML_OPT_OPTIMIZER_TYPE_ADAMW;
-        if (adamw) {
-            float weights;
-            ggml_backend_tensor_get(cd.weights, &weights, 0, sizeof(float));
-            const bool subtest_ok = weights == (ndata / 2) - epoch;
-            helper_after_test_gradient_accumulation(optim, __func__, nbatch_physical, loss_type, epoch, "weights", subtest_ok, ntest, npass);
-        }
-        {
-            int64_t ndata_result = cd.result.get_ndata();
-            bool subtest_ok = ndata_result == ndata / nbatch_physical;
+            ctx.eval([&]() -> std::pair<std::string, bool> {
+                int64_t ndata_result = result.get_ndata();
+                bool subtest_ok = ndata_result == ndata / nbatch_physical;
 
-            auto [loss, _] = cd.result.get_loss();
-            if (loss_type == GGML_OPT_LOSS_TYPE_SUM) {
-                subtest_ok = subtest_ok && loss == (39.0 - epoch * 6.0);
-            }
-            else if (loss_type == GGML_OPT_LOSS_TYPE_MEAN) {
-                subtest_ok = subtest_ok && almost_equal(loss, (39.0 - epoch * 6.0) / ndata, 1e-6);
-            }
-            else {
-                assert(false);
-            }
+                auto [loss, _] = result.get_loss();
+                if (loss_type == GGML_OPT_LOSS_TYPE_SUM) {
+                    subtest_ok = subtest_ok && loss == (39.0 - epoch * 6.0);
+                }
+                else if (loss_type == GGML_OPT_LOSS_TYPE_MEAN) {
+                    subtest_ok = subtest_ok && almost_equal(loss, (39.0 - epoch * 6.0) / ndata, 1e-6);
+                }
+                else {
+                    assert(false);
+                }
 
-			auto [accuracy, accuracy_unc] = cd.result.get_accuracy();
-            subtest_ok = subtest_ok && std::isnan(accuracy) && std::isnan(accuracy_unc);
+                auto [accuracy, accuracy_unc] = result.get_accuracy();
+                subtest_ok = subtest_ok && std::isnan(accuracy) && std::isnan(accuracy_unc);
 
-            helper_after_test_gradient_accumulation(optim, __func__, nbatch_physical, loss_type, epoch, "results", subtest_ok, ntest, npass);
+                return { grad_summary_generator(grad_option, "results"), subtest_ok };
+            });
         }
 
-        cd.result.reset();
-    }
-
-    return std::make_pair(npass, ntest);
+    return ctx.result();
 }
 
 static ggml_opt_optimizer_params helper_get_regression_opt_pars(void* userdata) {
@@ -673,8 +677,7 @@ static ggml_opt_optimizer_params helper_get_regression_opt_pars(void* userdata) 
 static std::pair<int, int> test_regression(
     enum ggml_opt_optimizer_type optim,
     ggml_backend_sched* backend_sched, ggml_backend* backend) {
-    int ntest = 0;
-    int npass = 0;
+    EvalContext ctx;
 
     // Test for simple regression with f(x) = a*x + b
 
@@ -731,7 +734,8 @@ static std::pair<int, int> test_regression(
     ggml_opt_fit(backend_sched, &ctx_compute, x, f, &dataset, GGML_OPT_LOSS_TYPE_MEAN_SQUARED_ERROR, optim,
         helper_get_regression_opt_pars, n_epoch, ndata_regression, 0.0f, true);
 
-    {
+    auto regression_summary_generator = summary_generator(__func__, "subtest=weights");
+    ctx.eval([&]() -> std::pair<std::string, bool> {
         float a_fit;
         ggml_backend_tensor_get(a, &a_fit, 0, sizeof(float));
         float b_fit;
@@ -740,10 +744,9 @@ static std::pair<int, int> test_regression(
         const bool aok = almost_equal(a_fit, a_true, tol);
         const bool bok = almost_equal(b_fit, b_true, tol);
         const bool subtest_ok = aok && bok;
-        print_ok(__func__, adamw ? subtest_ok : true, npass, ntest, "subtest=weights");
-    }
-
-    return std::make_pair(npass, ntest);
+        return { regression_summary_generator,  adamw ? subtest_ok : true };
+    });
+    return ctx.result();
 }
 
 static std::pair<int, int> test_backend(ggml_backend_sched* backend_sched, ggml_backend* backend, enum ggml_opt_optimizer_type optim) {
@@ -803,17 +806,17 @@ static std::pair<int, int> test_backend(ggml_backend_sched* backend_sched, ggml_
 
 int main(void) {
     ggml_log_set(nullptr);
-    const size_t dev_count = ggml_backend_dev_count();
-    printf("Testing %zu devices\n\n", dev_count);
+    auto devices = backend_devs();
+    std::print("Testing {} devices\n\n", devices.size());
     size_t n_ok = 0;
 
     std::vector<ggml_backend_device*> devs;
     std::vector<std::unique_ptr<ggml_backend>>     backends;
 
-    for (size_t i = 0; i < dev_count; ++i) {
-        devs.push_back(ggml_backend_dev_get(i));
+    for (auto dev : devices) {
+        devs.push_back(dev);
 
-        std::unique_ptr<ggml_backend> backend = devs[i]->init_backend(nullptr);
+        std::unique_ptr<ggml_backend> backend = dev->init_backend(nullptr);
         assert(backend);
 
 #ifndef _MSC_VER
@@ -826,7 +829,7 @@ int main(void) {
 
     size_t n_total = 0;
     for (enum ggml_opt_optimizer_type optim : { GGML_OPT_OPTIMIZER_TYPE_ADAMW, GGML_OPT_OPTIMIZER_TYPE_SGD }) {
-        for (size_t i = 0; i < dev_count; ++i) {
+        for (size_t i = 0; i < devices.size(); ++i) {
             // Put the backend to be tested in front so that it's prioritized:
             std::vector<ggml_backend*> backends_modded = { backends[i].get() };
             for (auto& backend : backends)
@@ -836,12 +839,12 @@ int main(void) {
                 backends_modded.data(), nullptr, backends_modded.size(), false, true);
 
             char const* devname = devs[i]->get_name();
-            printf("Backend %zu/%zu: %s\n", i + 1, dev_count, devname);
-            printf("  Device description: %s\n", devs[i]->get_description());
+            std::println("Backend {}/{}: {}", i + 1, devices.size(), devname);
+            std::println("  Device description: {}", devs[i]->get_description());
             size_t free, total; // NOLINT
             devs[i]->get_memory(&free, &total);
-            printf("  Device memory: %zu MB (%zu MB free)\n", total / 1024 / 1024, free / 1024 / 1024);
-            printf("\n");
+            std::println("  Device memory: {} MB ({} MB free)", total / 1024 / 1024, free / 1024 / 1024);
+            std::println();
 
             bool skip;
             {
@@ -866,34 +869,34 @@ int main(void) {
                     GGML_ABORT("fatal error");
                 }
                 }
-                skip = backends[i]->supports_op(t);
+                skip = not backends[i]->supports_op(t);
             }
 
             std::pair<int, int> result;
             if (!skip) {
                 result = test_backend(&backend_sched, backends[i].get(), optim);
-                printf("  %d/%d tests passed\n", result.first, result.second);
+                std::println("  {}/{} tests passed", result.first, result.second);
             }
 
-            printf("  Backend %s %s: ", backends[i]->get_name(), ggml_opt_optimizer_name(optim));
+            std::print("  Backend {} {}: ", backends[i]->get_name(), ggml_opt_optimizer_name(optim));
             if (skip) {
-                printf("\033[0;33mSKIPPED\033[0m\n");
+                std::println("{}", SKIP_Literal);
                 n_ok++;
             }
             else if (result.first == result.second) {
-                printf("\033[1;32mOK\033[0m\n");
+                std::println("{}", OK_Literal);
                 n_ok++;
             }
             else {
-                printf("\033[1;31mFAIL\033[0m\n");
+                std::println("{}", FAIL_Literal);
             }
             ++n_total;
-            printf("\n");
+            std::println();
         }
     }
 
-    printf("%zu/%zu backend*optimizer passed\n", n_ok, n_total);
+    std::println("{}/{} backend*optimizer passed", n_ok, n_total);
     bool ok = n_ok == n_total;
-    print_ok(ok);
+    std::println("{}", ok ? OK_Literal : FAIL_Literal);
     return ok ? 0 : 1;
 }

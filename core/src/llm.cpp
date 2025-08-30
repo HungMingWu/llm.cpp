@@ -5843,8 +5843,7 @@ static llama_model::buft_list_t make_cpu_buft_list(llama_model& model) {
     llama_model::buft_list_t buft_list;
 
     // add ACCEL buffer types
-    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
-        ggml_backend_device* dev = ggml_backend_dev_get(i);
+    for (auto dev : backend_devs()) {
         if (dev->get_type() == GGML_BACKEND_DEVICE_TYPE_ACCEL) {
             auto* buft = dev->get_buffer_type();
             // skip
@@ -5875,8 +5874,7 @@ static llama_model::buft_list_t make_cpu_buft_list(llama_model& model) {
     }
 
     // add the CPU buffer type
-    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
-        ggml_backend_device* dev = ggml_backend_dev_get(i);
+    for (auto dev : backend_devs()) {
         if (dev->get_type() == GGML_BACKEND_DEVICE_TYPE_CPU) {
             buft_list.emplace_back(dev, dev->get_buffer_type());
         }
@@ -9643,8 +9641,7 @@ llama_model* llama_load_model_from_file(
     }
     else {
         // use all available devices
-        for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
-            ggml_backend_device* dev = ggml_backend_dev_get(i);
+        for (auto dev : backend_devs()) {
             switch (dev->get_type()) {
             case GGML_BACKEND_DEVICE_TYPE_CPU:
             case GGML_BACKEND_DEVICE_TYPE_ACCEL:
@@ -18704,8 +18701,7 @@ llama_context* llama_new_context_with_model(
         }
 
         // add ACCEL backends (such as BLAS)
-        for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
-            ggml_backend_device* dev = ggml_backend_dev_get(i);
+        for (auto dev : backend_devs()) {
             if (dev->get_type() == GGML_BACKEND_DEVICE_TYPE_ACCEL) {
                 std::unique_ptr<ggml_backend> backend = dev->init_backend(nullptr);
                 if (backend == nullptr) {

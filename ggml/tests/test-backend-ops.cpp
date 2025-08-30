@@ -6290,7 +6290,7 @@ int main(int argc, char** argv) {
         output_printer->print_header();
     }
 
-    output_printer->print_testing_start(testing_start_info(ggml_backend_dev_count()));
+    output_printer->print_testing_start(testing_start_info(backend_devs().size()));
 
     auto backend = ggml_backend_cuda_init(0); // init device 0
     bool ok = test_backend(backend.get(), mode, op_names_filter, nullptr, output_printer.get());

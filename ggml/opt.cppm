@@ -47,6 +47,8 @@ export
 
         ggml_tensor* get_data() { return data; }
         ggml_tensor* get_labels() { return labels; }
+        void shuffle(std::mt19937& rng, int64_t idata);
+        void get_batch(ggml_tensor* data_batch, ggml_tensor* labels_batch, int64_t ibatch);
     };
 
     // callback to calculate optimizer parameters prior to a backward pass
@@ -66,26 +68,28 @@ export
         GGML_OPT_OPTIMIZER_TYPE_COUNT
     };
 
+    ggml_opt_optimizer_params ggml_opt_get_default_optimizer_params(void*);
+
     // parameters for initializing a new optimization context
     struct ggml_opt_params {
         ggml_backend_sched* backend_sched; // defines which backends are used to construct the compute graphs
 
         // by default the forward graph needs to be reconstructed for each eval
         // if ctx_compute, inputs, and outputs are set the graphs are instead allocated statically
-        struct ggml_context* ctx_compute;
-        struct ggml_tensor* inputs;
-        struct ggml_tensor* outputs;
+        ggml_context* ctx_compute = nullptr;
+        ggml_tensor* inputs = nullptr;
+        ggml_tensor* outputs = nullptr;
 
-        enum ggml_opt_loss_type  loss_type;
-        enum ggml_opt_build_type build_type;
+        ggml_opt_loss_type  loss_type;
+        ggml_opt_build_type build_type = GGML_OPT_BUILD_TYPE_OPT;
 
-        int32_t opt_period; // after how many gradient accumulation steps an optimizer step should be done
+        int32_t opt_period = 1; // after how many gradient accumulation steps an optimizer step should be done
 
-        ggml_opt_get_optimizer_params get_opt_pars; // callback for calculating optimizer parameters
-        void* get_opt_pars_ud;                     // userdata for calculating optimizer parameters
+        ggml_opt_get_optimizer_params get_opt_pars = ggml_opt_get_default_optimizer_params; // callback for calculating optimizer parameters
+        void* get_opt_pars_ud = nullptr;                     // userdata for calculating optimizer parameters
 
         // only GGML_OPT_OPTIMIZER_TYPE_ADAMW needs m, v momenta per parameter tensor
-        enum ggml_opt_optimizer_type optimizer;
+        ggml_opt_optimizer_type optimizer = GGML_OPT_OPTIMIZER_TYPE_ADAMW;
     };
 
     struct ggml_opt_result {
@@ -98,10 +102,21 @@ export
         bool    loss_per_datapoint = false;
     public:
         int64_t get_ndata() const { return ndata; }
-        void reset();
         std::tuple<double, double> get_loss() const;
         std::tuple<double, double> get_accuracy() const;
     };
+
+    struct ggml_opt_context;
+
+    // signature for a callback while evaluating opt_ctx on dataset, called after an evaluation
+    typedef void (*ggml_opt_epoch_callback)(
+        bool               train,       // true after training evaluation, false after validation evaluation
+        ggml_opt_context* opt_ctx,
+        ggml_opt_dataset* dataset,
+        ggml_opt_result* result,      // result associated with the dataset subsection
+        int64_t            ibatch,      // number of batches that have been evaluated so far
+        int64_t            ibatch_max,  // total number of batches in this dataset subsection
+        int64_t            t_start_us); // time at which the evaluation on the dataset subsection was started
 
     struct ggml_opt_context {
         ggml_backend_sched*       backend_sched = nullptr;
@@ -158,14 +173,26 @@ export
         ggml_tensor* opt_step_params = nullptr; // Stores output of get_opt_pars.
 
         enum ggml_opt_optimizer_type optimizer = GGML_OPT_OPTIMIZER_TYPE_ADAMW;
+    private:
+        bool is_static_graphs() const;
+        void build();
     public:
         ggml_opt_context(ggml_opt_params params);
         void alloc(bool backward);
         ggml_tensor* get_loss() { return loss; }
         ggml_tensor* get_inputs() { return inputs; }
         ggml_tensor* get_labels() { return labels; }
+        ggml_opt_optimizer_type get_optimizer_type() const { return optimizer; }
         void reset(bool optimizer);
         void eval(ggml_opt_result* result);
+        ggml_tensor* get_grad_acc(ggml_tensor* node);
+
+        // (result_train, result_eval)
+        std::tuple<ggml_opt_result, ggml_opt_result> epoch(
+            ggml_opt_dataset* dataset,
+            int64_t                 idata_split,
+            ggml_opt_epoch_callback callback_train,
+            ggml_opt_epoch_callback callback_eval);
     };
 
     // parameters that control which optimizer is used and how said optimizer tries to find the minimal loss
@@ -183,12 +210,6 @@ export
         } sgd;
     };
 
-    ggml_opt_optimizer_params ggml_opt_get_default_optimizer_params(void*);
-
-    ggml_opt_params ggml_opt_default_params(
-        ggml_backend_sched*      backend_sched,
-        enum ggml_opt_loss_type   loss_type);
-
     ggml_tensor* ggml_opt_grad_acc(ggml_opt_context* opt_ctx, ggml_tensor* node);
 
     void ggml_opt_fit(
@@ -204,29 +225,6 @@ export
         int64_t                         nbatch_logical,
         float                           val_split,
         bool                            silent);
-
-    void ggml_opt_dataset_shuffle(ggml_opt_context* opt_ctx, ggml_opt_dataset* dataset, int64_t idata);
-
-    void ggml_opt_dataset_get_batch(ggml_opt_dataset* dataset, ggml_tensor* data_batch, ggml_tensor* labels_batch, int64_t ibatch);
-
-    // signature for a callback while evaluating opt_ctx on dataset, called after an evaluation
-    typedef void (*ggml_opt_epoch_callback)(
-        bool               train,       // true after training evaluation, false after validation evaluation
-        ggml_opt_context* opt_ctx,
-        ggml_opt_dataset* dataset,
-        ggml_opt_result*  result,      // result associated with the dataset subsection
-        int64_t            ibatch,      // number of batches that have been evaluated so far
-        int64_t            ibatch_max,  // total number of batches in this dataset subsection
-        int64_t            t_start_us); // time at which the evaluation on the dataset subsection was started
-
-    void ggml_opt_epoch(
-        ggml_opt_context* opt_ctx,
-        ggml_opt_dataset* dataset,
-        ggml_opt_result* result_train,
-        ggml_opt_result* result_eval,
-        int64_t                 idata_split,
-        ggml_opt_epoch_callback callback_train,
-        ggml_opt_epoch_callback callback_eval);
 
     const char* ggml_opt_optimizer_name(enum ggml_opt_optimizer_type o);
 }
