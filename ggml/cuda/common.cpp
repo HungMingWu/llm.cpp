@@ -1,4 +1,7 @@
 #include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
 #include "common.h"
 #include "cuda_config.h"
 #include "vendor_constant.h"
@@ -13,7 +16,7 @@ void ggml_cuda_error(const char* stmt, const char* func, const char* file, int l
     int id = -1; // in case cudaGetDevice fails
     cudaGetDevice(&id);
 
-    GGML_LOG_ERROR(GGML_CUDA_NAME " error: %s", msg);
+    GGML_LOG_ERROR(GGML_CUDA_NAME " error: {}", msg);
     GGML_LOG_ERROR("  current device: {}, in function {} at {}:{}", id, func, file, line);
     GGML_LOG_ERROR("  {}", stmt);
     // abort with GGML_ABORT to get a stack trace
@@ -110,6 +113,8 @@ static ggml_cuda_device_info ggml_cuda_init() {
     GGML_LOG_INFO("{}: GGML_CUDA_FORCE_CUBLAS: no", __func__);
 #endif // GGML_CUDA_FORCE_CUBLAS
     GGML_LOG_INFO("{}: found {} " GGML_CUDA_NAME " devices:", __func__, info.device_count);
+
+    std::vector<std::pair<int, std::string>> turing_devices_without_mma;
     for (int id = 0; id < info.device_count; ++id) {
         int device_vmm = 0;
 
@@ -142,7 +147,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
 
         info.devices[id].cc = ggml_cuda_parse_id(prop.gcnArchName);
         if ((info.devices[id].cc & 0xff00) == 0x0) {
-            GGML_LOG_WARN("invalid architecture ID received for device %d %s: %s  cc %d.%d\n",
+            GGML_LOG_WARN("invalid architecture ID received for device {} {}: {}  cc {}.{}",
                 id, prop.name, prop.gcnArchName, prop.major, prop.minor);
 
             // Fallback to prop.major and prop.minor
@@ -167,7 +172,27 @@ static ggml_cuda_device_info ggml_cuda_init() {
         info.devices[id].cc = 100 * prop.major + 10 * prop.minor;
         GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}",
             id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no");
-#endif // defined(GGML_USE_HIP)
+        std::string device_name(prop.name);
+        if (device_name == "NVIDIA GeForce MX450") {
+            turing_devices_without_mma.push_back({ id, device_name });
+        }
+        else if (device_name == "NVIDIA GeForce MX550") {
+            turing_devices_without_mma.push_back({ id, device_name });
+        }
+        else if (device_name.substr(0, 21) == "NVIDIA GeForce GTX 16") {
+            turing_devices_without_mma.push_back({ id, device_name });
+        }
+#endif  // defined(GGML_USE_HIP)
+    }
+
+    if (ggml_cuda_highest_compiled_arch(GGML_CUDA_CC_TURING) >= GGML_CUDA_CC_TURING && !turing_devices_without_mma.empty()) {
+        GGML_LOG_INFO("The following devices will have suboptimal performance due to a lack of tensor cores:\n");
+        for (size_t device_pos = 0; device_pos < turing_devices_without_mma.size(); device_pos++) {
+            GGML_LOG_INFO(
+                "  Device {}: {}", turing_devices_without_mma[device_pos].first, turing_devices_without_mma[device_pos].second);
+        }
+        GGML_LOG_INFO(
+            "Consider compiling with CMAKE_CUDA_ARCHITECTURES=61-virtual;80-virtual and DGGML_CUDA_FORCE_MMQ to force the use of the Pascal code for Turing.");
     }
 
     for (int id = 0; id < info.device_count; ++id) {

@@ -158,6 +158,9 @@ export
 		ggml_tensor* a,
 		enum ggml_prec       prec);
 
+	enum ggml_prec ggml_flash_attn_ext_get_prec(
+		const struct ggml_tensor* a);
+
 	void ggml_mul_mat_set_prec(
 		ggml_tensor* a,
 		enum ggml_prec prec);

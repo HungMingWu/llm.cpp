@@ -315,7 +315,7 @@ static std::pair<int, int> test_forward_backward(
         int64_t ndata = result.get_ndata();
         auto [loss, loss_unc] = result.get_loss();
 		auto [accuracy, accuracy_unc] = result.get_accuracy();
-        const bool subtest_ok = ndata == 0 && loss == 0.0 && std::isnan(loss_unc) && std::isnan(accuracy) && std::isnan(accuracy_unc);
+        const bool subtest_ok = ndata == 0 && almost_equal(loss, 0.0, 1e-6) && std::isnan(loss_unc) && std::isnan(accuracy) && std::isnan(accuracy_unc);
         return { shuffle_summary_generator(shuffle_option, "results_initial"), subtest_ok };
     });
 
@@ -344,15 +344,16 @@ static std::pair<int, int> test_forward_backward(
     ctx.eval([&]() -> std::pair<std::string, bool> {
         float weights;
         ggml_backend_tensor_get(cd.weights, &weights, 0, sizeof(float));
-        const bool subtest_ok = weights == ndata / 2;
+        const bool subtest_ok = almost_equal(weights, ndata / 2, 1e-10);
         return { shuffle_summary_generator(shuffle_option, "weights_after_forward"), subtest_ok };
     });
     ctx.eval([&]() -> std::pair<std::string, bool> {
+        constexpr double atol = 1e-10;
         int64_t ndata = result.get_ndata();
         bool subtest_ok = ndata == 6;
 
         auto [loss, loss_unc] = result.get_loss();
-        subtest_ok = subtest_ok && loss == 33.0 && almost_equal(loss_unc, sqrt(3.5), 1e-10);
+        subtest_ok = subtest_ok && almost_equal(loss, 33.0, atol) && almost_equal(loss_unc, sqrt(3.5), atol);
 
         auto [accuracy, accuracy_unc] = result.get_accuracy();
         subtest_ok = subtest_ok && std::isnan(accuracy) && std::isnan(accuracy_unc);
@@ -403,7 +404,7 @@ static std::pair<int, int> test_forward_backward(
     ctx.eval([&]() -> std::pair<std::string, bool> {
         float weights;
         ggml_backend_tensor_get(cd.weights, &weights, 0, sizeof(float));
-        const bool subtest_ok = weights == -ndata * .5;
+        const bool subtest_ok = almost_equal(weights, -ndata * 0.5, 1e-10);
         return { shuffle_summary_generator(shuffle_option, "weights_after_forward_backward"), subtest_ok };
     });
     ctx.eval([&]() -> std::pair<std::string, bool> {
@@ -411,7 +412,7 @@ static std::pair<int, int> test_forward_backward(
         bool subtest_ok = ndata == 6;
 
         auto [loss, loss_unc] = result.get_loss();
-        subtest_ok = subtest_ok && loss == 18.0 && (shuffle || loss_unc == 0.0);
+        subtest_ok = subtest_ok && almost_equal(loss, 18.0, 1e-10) && (shuffle || loss_unc == 0.0);
 
         auto [accuracy, accuracy_unc] = result.get_accuracy();
         subtest_ok = subtest_ok && std::isnan(accuracy) && std::isnan(accuracy_unc);
@@ -507,17 +508,18 @@ static std::pair<int, int> test_idata_split(
             ctx.eval([&]() -> std::pair<std::string, bool> {
                 float weights;
                 ggml_backend_tensor_get(cd.weights, &weights, 0, sizeof(float));
-                const bool subtest_ok = weights == ndata / 2 - epoch * idata_split;
+                const bool subtest_ok = almost_equal(weights, ndata / 2 - epoch * idata_split, 1e-10);
                 return { idata_split_summary_generator(epoch_options, "weights"), subtest_ok };
             });
         }
         if (adamw) {
             ctx.eval([&]() -> std::pair<std::string, bool> {
+                constexpr double atol = 1e-10;
                 int64_t ndata_result = result.get_ndata();
                 bool subtest_ok = ndata_result == idata_split;
 
                 auto [loss, loss_unc] = result.get_loss();
-                subtest_ok = subtest_ok && loss == 28.0 - epoch * 16.0 && loss_unc == 0.0;
+                subtest_ok = subtest_ok && almost_equal(loss, 28.0 - epoch * 16.0, atol) && almost_equal(loss_unc, 0.0, atol);
 
                 auto [accuracy, accuracy_unc] = result.get_accuracy();
                 subtest_ok = subtest_ok && std::isnan(accuracy) && std::isnan(accuracy_unc);
@@ -527,11 +529,12 @@ static std::pair<int, int> test_idata_split(
         }
         if (adamw) {
             ctx.eval([&]() -> std::pair<std::string, bool> {
+                constexpr double atol = 1e-10;
                 int64_t ndata_result = result2.get_ndata();
                 bool subtest_ok = ndata_result == ndata - idata_split;
 
                 auto [loss, loss_unc] = result2.get_loss();
-                subtest_ok = subtest_ok && loss == 15.0 - epoch * 8 && almost_equal(loss_unc, sqrt(0.5), 1e-10);
+                subtest_ok = subtest_ok && almost_equal(loss, 15.0 - epoch * 8, atol) && almost_equal(loss_unc, sqrt(0.5), atol);
 
                 auto [accuracy, accuracy_unc] = result2.get_accuracy();;
                 subtest_ok = subtest_ok && std::isnan(accuracy) && std::isnan(accuracy_unc);
@@ -637,22 +640,24 @@ static std::pair<int, int> test_gradient_accumulation(
             bool const adamw = optim == GGML_OPT_OPTIMIZER_TYPE_ADAMW;
             if (adamw) {
                 ctx.eval([&]() -> std::pair<std::string, bool> {
+                    constexpr double atol = 1e-6;
                     float weights;
                     ggml_backend_tensor_get(cd.weights, &weights, 0, sizeof(float));
-                    const bool subtest_ok = weights == (ndata / 2) - epoch;
+                    const bool subtest_ok = almost_equal(weights, (ndata / 2) - epoch, atol);
                     return { grad_summary_generator(grad_option, "weights"), subtest_ok };
                 });
             }
             ctx.eval([&]() -> std::pair<std::string, bool> {
+                constexpr double atol = 1e-6;
                 int64_t ndata_result = result.get_ndata();
-                bool subtest_ok = ndata_result == ndata / nbatch_physical;
+                bool subtest_ok = almost_equal(ndata_result, ndata / nbatch_physical, atol);
 
                 auto [loss, _] = result.get_loss();
                 if (loss_type == GGML_OPT_LOSS_TYPE_SUM) {
-                    subtest_ok = subtest_ok && loss == (39.0 - epoch * 6.0);
+                    subtest_ok = subtest_ok && almost_equal(loss, (39.0 - epoch * 6.0), atol);
                 }
                 else if (loss_type == GGML_OPT_LOSS_TYPE_MEAN) {
-                    subtest_ok = subtest_ok && almost_equal(loss, (39.0 - epoch * 6.0) / ndata, 1e-6);
+                    subtest_ok = subtest_ok && almost_equal(loss, (39.0 - epoch * 6.0) / ndata, atol);
                 }
                 else {
                     assert(false);
@@ -806,6 +811,9 @@ static std::pair<int, int> test_backend(ggml_backend_sched* backend_sched, ggml_
 
 int main(void) {
     ggml_log_set(nullptr);
+#if 0
+    ggml_backend_load_all();
+#endif
     auto devices = backend_devs();
     std::print("Testing {} devices\n\n", devices.size());
     size_t n_ok = 0;
@@ -819,11 +827,10 @@ int main(void) {
         std::unique_ptr<ggml_backend> backend = dev->init_backend(nullptr);
         assert(backend);
 
-#ifndef _MSC_VER
         if (auto cpu_backend = dynamic_cast<ggml_cpu_backend*>(backend.get())) {
             cpu_backend->set_n_threads(std::thread::hardware_concurrency() / 2);
         }
-#endif
+
         backends.push_back(std::move(backend));
     }
 

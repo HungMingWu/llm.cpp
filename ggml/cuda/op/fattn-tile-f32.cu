@@ -8,7 +8,6 @@
 #include <bit>
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
-#define GGML_UNUSED(x) (void)(x)
 
 // Remove later
 static __device__ __forceinline__ float __low2float1(uint32_t value)
@@ -46,27 +45,27 @@ template<int D, int ncols, ggml_type type_K, ggml_type type_V, bool use_logit_so
 __launch_bounds__(D, 1)
 #endif // GGML_USE_HIP
 static __global__ void flash_attn_vec_ext_f16(
-    const char* __restrict__ Q,
-    const char* __restrict__ K,
-    const char* __restrict__ V,
-    const char* __restrict__ mask,
-    const char* __restrict__ sinks,
-    const int* __restrict__ KV_max,
-    float* __restrict__ dst,
-    float2* __restrict__ dst_meta,
-    const float scale,
-    const float max_bias,
-    const float m0,
-    const float m1,
-    const uint32_t n_head_log2,
-    const float logit_softcap,
-    const int32_t ne00, const int32_t ne01, const int32_t ne02, const int32_t ne03,
-    const int32_t nb01, const int32_t nb02, const int32_t nb03,
-    const int32_t ne10, const int32_t ne11, const int32_t ne12, const int32_t ne13,
-    const int32_t nb11, const int32_t nb12, const int64_t nb13,
-    const int32_t nb21, const int32_t nb22, const int64_t nb23,
-    const int32_t ne31, const int32_t ne32, const int32_t ne33,
-    const int32_t nb31, const int32_t nb32, const int64_t nb33) {
+    [[maybe_unused]] const char* __restrict__ Q,
+    [[maybe_unused]] const char* __restrict__ K,
+    [[maybe_unused]] const char* __restrict__ V,
+    [[maybe_unused]] const char* __restrict__ mask,
+    [[maybe_unused]] const char* __restrict__ sinks,
+    [[maybe_unused]] const int* __restrict__ KV_max,
+    [[maybe_unused]] float* __restrict__ dst,
+    [[maybe_unused]] float2* __restrict__ dst_meta,
+    [[maybe_unused]] const float scale,
+    [[maybe_unused]] const float max_bias,
+    [[maybe_unused]] const float m0,
+    [[maybe_unused]] const float m1,
+    [[maybe_unused]] const uint32_t n_head_log2,
+    [[maybe_unused]] const float logit_softcap,
+    [[maybe_unused]] const int32_t ne00, [[maybe_unused]] const int32_t ne01, [[maybe_unused]] const int32_t ne02, [[maybe_unused]] const int32_t ne03,
+    [[maybe_unused]] const int32_t nb01, [[maybe_unused]] const int32_t nb02, [[maybe_unused]] const int32_t nb03,
+    [[maybe_unused]] const int32_t ne10, [[maybe_unused]] const int32_t ne11, [[maybe_unused]] const int32_t ne12, [[maybe_unused]] const int32_t ne13,
+    [[maybe_unused]] const int32_t nb11, [[maybe_unused]] const int32_t nb12, [[maybe_unused]] const int64_t nb13,
+    [[maybe_unused]] const int32_t nb21, [[maybe_unused]] const int32_t nb22, [[maybe_unused]] const int64_t nb23,
+    [[maybe_unused]] const int32_t ne31, [[maybe_unused]] const int32_t ne32, [[maybe_unused]] const int32_t ne33,
+    [[maybe_unused]] const int32_t nb31, [[maybe_unused]] const int32_t nb32, [[maybe_unused]] const int64_t nb33) {
 #if defined(FLASH_ATTN_AVAILABLE) && defined(FP16_AVAILABLE)
 
     // Skip unused kernel variants for faster compilation:
@@ -385,17 +384,6 @@ static __global__ void flash_attn_vec_ext_f16(
         dst_meta[((sequence * ne01 + ic0 + tid) * ne02 + head) * gridDim.y + blockIdx.y] = make_float2(kqmax[tid], kqsum[tid]);
     }
 #else
-    GGML_UNUSED(Q); GGML_UNUSED(K); GGML_UNUSED(V); GGML_UNUSED(mask); GGML_UNUSED(sinks);
-    GGML_UNUSED(dst); GGML_UNUSED(dst_meta);
-    GGML_UNUSED(scale); GGML_UNUSED(max_bias); GGML_UNUSED(m0); GGML_UNUSED(m1);
-    GGML_UNUSED(n_head_log2); GGML_UNUSED(logit_softcap);
-    GGML_UNUSED(ne00); GGML_UNUSED(ne01); GGML_UNUSED(ne02); GGML_UNUSED(ne03);
-    GGML_UNUSED(nb01); GGML_UNUSED(nb02); GGML_UNUSED(nb03);
-    GGML_UNUSED(ne10); GGML_UNUSED(ne11); GGML_UNUSED(ne12); GGML_UNUSED(ne13);
-    GGML_UNUSED(nb11); GGML_UNUSED(nb12); GGML_UNUSED(nb13);
-    GGML_UNUSED(nb21); GGML_UNUSED(nb22); GGML_UNUSED(nb23);
-    GGML_UNUSED(ne31); GGML_UNUSED(ne32); GGML_UNUSED(ne33);
-    GGML_UNUSED(nb31); GGML_UNUSED(nb32); GGML_UNUSED(nb33);
     NO_DEVICE_CODE;
 #endif // defined(FLASH_ATTN_AVAILABLE) && defined(FP16_AVAILABLE)
 }
@@ -871,42 +859,31 @@ template<int D, int ncols, ggml_type type_K, ggml_type type_V, bool use_logit_so
 __launch_bounds__(D, 1)
 #endif // GGML_USE_HIP
 static __global__ void flash_attn_vec_ext_f32(
-    const char* __restrict__ Q,
-    const char* __restrict__ K,
-    const char* __restrict__ V,
-    const char* __restrict__ mask,
-    const char* __restrict__ sinks,
-    const int* __restrict__ KV_max,
-    float* __restrict__ dst,
-    float2* __restrict__ dst_meta,
-    const float scale,
-    const float max_bias,
-    const float m0,
-    const float m1,
-    const uint32_t n_head_log2,
-    const float logit_softcap,
-    const int32_t ne00, const int32_t ne01, const int32_t ne02, const int32_t ne03,
-    const int32_t nb01, const int32_t nb02, const int32_t nb03,
-    const int32_t ne10, const int32_t ne11, const int32_t ne12, const int32_t ne13,
-    const int32_t nb11, const int32_t nb12, const int64_t nb13,
-    const int32_t nb21, const int32_t nb22, const int64_t nb23,
-    const int32_t ne31, const int32_t ne32, const int32_t ne33,
-    const int32_t nb31, const int32_t nb32, const int64_t nb33) {
+    [[maybe_unused]] const char* __restrict__ Q,
+    [[maybe_unused]] const char* __restrict__ K,
+    [[maybe_unused]] const char* __restrict__ V,
+    [[maybe_unused]] const char* __restrict__ mask,
+    [[maybe_unused]] const char* __restrict__ sinks,
+    [[maybe_unused]] const int* __restrict__ KV_max,
+    [[maybe_unused]] float* __restrict__ dst,
+    [[maybe_unused]] float2* __restrict__ dst_meta,
+    [[maybe_unused]] const float scale,
+    [[maybe_unused]] const float max_bias,
+    [[maybe_unused]] const float m0,
+    [[maybe_unused]] const float m1,
+    [[maybe_unused]] const uint32_t n_head_log2,
+    [[maybe_unused]] const float logit_softcap,
+    [[maybe_unused]] const int32_t ne00, [[maybe_unused]] const int32_t ne01, [[maybe_unused]] const int32_t ne02, [[maybe_unused]] const int32_t ne03,
+    [[maybe_unused]] const int32_t nb01, [[maybe_unused]] const int32_t nb02, [[maybe_unused]] const int32_t nb03,
+    [[maybe_unused]] const int32_t ne10, [[maybe_unused]] const int32_t ne11, [[maybe_unused]] const int32_t ne12, [[maybe_unused]] const int32_t ne13,
+    [[maybe_unused]] const int32_t nb11, [[maybe_unused]] const int32_t nb12, [[maybe_unused]] const int64_t nb13,
+    [[maybe_unused]] const int32_t nb21, [[maybe_unused]] const int32_t nb22, [[maybe_unused]] const int64_t nb23,
+    [[maybe_unused]] const int32_t ne31, [[maybe_unused]] const int32_t ne32, [[maybe_unused]] const int32_t ne33,
+    [[maybe_unused]] const int32_t nb31, [[maybe_unused]] const int32_t nb32, [[maybe_unused]] const int64_t nb33) {
 #ifdef FLASH_ATTN_AVAILABLE
 
     // Skip unused kernel variants for faster compilation:
     if (use_logit_softcap && !(D == 128 || D == 256)) {
-        GGML_UNUSED(Q); GGML_UNUSED(K); GGML_UNUSED(V); GGML_UNUSED(mask);
-        GGML_UNUSED(dst); GGML_UNUSED(dst_meta); GGML_UNUSED(scale);
-        GGML_UNUSED(max_bias); GGML_UNUSED(m0); GGML_UNUSED(m1);
-        GGML_UNUSED(n_head_log2); GGML_UNUSED(logit_softcap);
-        GGML_UNUSED(ne00); GGML_UNUSED(ne01); GGML_UNUSED(ne02);
-        GGML_UNUSED(ne03); GGML_UNUSED(ne10); GGML_UNUSED(ne11);
-        GGML_UNUSED(ne12); GGML_UNUSED(ne13); GGML_UNUSED(ne31); GGML_UNUSED(ne32); GGML_UNUSED(ne33);
-        GGML_UNUSED(nb31); GGML_UNUSED(nb32); GGML_UNUSED(nb33); GGML_UNUSED(nb01); GGML_UNUSED(nb02);
-        GGML_UNUSED(nb03); GGML_UNUSED(nb11); GGML_UNUSED(nb12);
-        GGML_UNUSED(nb13); GGML_UNUSED(nb21); GGML_UNUSED(nb22);
-        GGML_UNUSED(nb23);
         NO_DEVICE_CODE;
         return;
     }
@@ -1205,17 +1182,6 @@ static __global__ void flash_attn_vec_ext_f32(
         dst_meta[((sequence * ne01 + ic0 + tid) * ne02 + head) * gridDim.y + blockIdx.y] = make_float2(kqmax[tid], kqsum[tid]);
     }
 #else
-    GGML_UNUSED(Q); GGML_UNUSED(K); GGML_UNUSED(V); GGML_UNUSED(mask);
-    GGML_UNUSED(dst); GGML_UNUSED(dst_meta); GGML_UNUSED(scale);
-    GGML_UNUSED(max_bias); GGML_UNUSED(m0); GGML_UNUSED(m1);
-    GGML_UNUSED(n_head_log2); GGML_UNUSED(logit_softcap);
-    GGML_UNUSED(ne00); GGML_UNUSED(ne01); GGML_UNUSED(ne02); GGML_UNUSED(ne03);
-    GGML_UNUSED(ne10); GGML_UNUSED(ne11); GGML_UNUSED(ne12); GGML_UNUSED(ne13);
-    GGML_UNUSED(ne31); GGML_UNUSED(ne32); GGML_UNUSED(ne33);
-    GGML_UNUSED(nb31); GGML_UNUSED(nb32); GGML_UNUSED(nb33);
-    GGML_UNUSED(nb01); GGML_UNUSED(nb02); GGML_UNUSED(nb03);
-    GGML_UNUSED(nb11); GGML_UNUSED(nb12); GGML_UNUSED(nb13);
-    GGML_UNUSED(nb21); GGML_UNUSED(nb22); GGML_UNUSED(nb23);
     NO_DEVICE_CODE;
 #endif // FLASH_ATTN_AVAILABLE
 }
@@ -1358,29 +1324,6 @@ void ggml_cuda_flash_attn_ext_vec_f32_case(const flash_attn_ext_context& ctx) {
     }
 }
 
-static void on_no_fattn_vec_case(const int D) {
-    if (D == 64) {
-        fprintf(stderr, "Unsupported KV type combination for head_size 64.\n");
-        fprintf(stderr, "By default only f16 KV cache is supported.\n");
-        fprintf(stderr, "Compile with GGML_CUDA_FA_ALL_QUANTS for V cache quantization support.\n");
-        GGML_ABORT("fatal error");
-    }
-    else if (D == 128) {
-        fprintf(stderr, "Unsupported KV type combination for head_size 128.\n");
-        fprintf(stderr, "Supported combinations:\n");
-        fprintf(stderr, "  - K == q4_0, V == q4_0,  4.50 BPV\n");
-        fprintf(stderr, "  - K == q8_0, V == q8_0,  8.50 BPV\n");
-        fprintf(stderr, "  - K == f16,  V == f16,  16.00 BPV\n");
-        fprintf(stderr, "Compile with GGML_CUDA_FA_ALL_QUANTS for all combinations of q4_0, q4_1, q5_0, q5_1, q8_0, and f16.\n");
-        GGML_ABORT("fatal error");
-    }
-    else {
-        fprintf(stderr, "Unsupported KV type combination for head_size 256.\n");
-        fprintf(stderr, "Only f16 is supported.\n");
-        GGML_ABORT("fatal error");
-    }
-}
-
 #define FATTN_VEC_F16_CASE(D, type_K, type_V)                                      \
     if (ctx.Q.ne0 == (D) && ctx.K.type == (type_K) && ctx.V.type == (type_V)) {    \
         ggml_cuda_flash_attn_ext_vec_f16_case<D, type_K, type_V>(ctx);             \
@@ -1450,7 +1393,7 @@ void ggml_cuda_flash_attn_ext_vec_f16(const flash_attn_ext_context& ctx)
     FATTN_VEC_F16_CASE(256, GGML_TYPE_F16, GGML_TYPE_F16)
 #endif // GGML_CUDA_FA_ALL_QUANTS
 
-    on_no_fattn_vec_case(ctx.Q.ne0);
+    GGML_ABORT("fatal error");
 }
 
 #define FATTN_VEC_F32_CASE(D, type_K, type_V)                                      \
@@ -1522,7 +1465,7 @@ void ggml_cuda_flash_attn_ext_vec_f32(const flash_attn_ext_context& ctx)
     FATTN_VEC_F32_CASE(256, GGML_TYPE_F16, GGML_TYPE_F16)
 #endif // GGML_CUDA_FA_ALL_QUANTS
 
-    on_no_fattn_vec_case(ctx.Q.ne0);
+    GGML_ABORT("fatal error");
 }
 
 template<int D, int ncols, int nwarps, bool use_logit_softcap> // D == head size
@@ -1530,27 +1473,27 @@ template<int D, int ncols, int nwarps, bool use_logit_softcap> // D == head size
 __launch_bounds__(nwarps* WARP_SIZE, 2)
 #endif // !defined(GGML_USE_HIP)
 static __global__ void flash_attn_tile_ext_f32(
-    const char* __restrict__ Q,
-    const char* __restrict__ K,
-    const char* __restrict__ V,
-    const char* __restrict__ mask,
-    const char* __restrict__ sinks,
-    const int* __restrict__ KV_max,
-    float* __restrict__ dst,
-    float2* __restrict__ dst_meta,
-    const float scale,
-    const float max_bias,
-    const float m0,
-    const float m1,
-    const uint32_t n_head_log2,
-    const float logit_softcap,
-    const int32_t ne00, const int32_t ne01, const int32_t ne02, const int32_t ne03,
-    const int32_t nb01, const int32_t nb02, const int32_t nb03,
-    const int32_t ne10, const int32_t ne11, const int32_t ne12, const int32_t ne13,
-    const int32_t nb11, const int32_t nb12, const int64_t nb13,
-    const int32_t nb21, const int32_t nb22, const int64_t nb23,
-    const int32_t ne31, const int32_t ne32, const int32_t ne33,
-    const int32_t nb31, const int32_t nb32, const int64_t nb33) {
+    [[maybe_unused]] const char* __restrict__ Q,
+    [[maybe_unused]] const char* __restrict__ K,
+    [[maybe_unused]] const char* __restrict__ V,
+    [[maybe_unused]] const char* __restrict__ mask,
+    [[maybe_unused]] const char* __restrict__ sinks,
+    [[maybe_unused]] const int* __restrict__ KV_max,
+    [[maybe_unused]] float* __restrict__ dst,
+    [[maybe_unused]] float2* __restrict__ dst_meta,
+    [[maybe_unused]] const float scale,
+    [[maybe_unused]] const float max_bias,
+    [[maybe_unused]] const float m0,
+    [[maybe_unused]] const float m1,
+    [[maybe_unused]] const uint32_t n_head_log2,
+    [[maybe_unused]] const float logit_softcap,
+    [[maybe_unused]] const int32_t ne00, [[maybe_unused]] const int32_t ne01, [[maybe_unused]] const int32_t ne02, [[maybe_unused]] const int32_t ne03,
+    [[maybe_unused]] const int32_t nb01, [[maybe_unused]] const int32_t nb02, [[maybe_unused]] const int32_t nb03,
+    [[maybe_unused]] const int32_t ne10, [[maybe_unused]] const int32_t ne11, [[maybe_unused]] const int32_t ne12, [[maybe_unused]] const int32_t ne13,
+    [[maybe_unused]] const int32_t nb11, [[maybe_unused]] const int32_t nb12, [[maybe_unused]] const int64_t nb13,
+    [[maybe_unused]] const int32_t nb21, [[maybe_unused]] const int32_t nb22, [[maybe_unused]] const int64_t nb23,
+    [[maybe_unused]] const int32_t ne31, [[maybe_unused]] const int32_t ne32, [[maybe_unused]] const int32_t ne33,
+    [[maybe_unused]] const int32_t nb31, [[maybe_unused]] const int32_t nb32, [[maybe_unused]] const int64_t nb33) {
 #ifdef FLASH_ATTN_AVAILABLE
 
     // Skip unused kernel variants for faster compilation:
@@ -1559,17 +1502,6 @@ static __global__ void flash_attn_tile_ext_f32(
     return;
 #endif // FP16_MMA_AVAILABLE
     if (use_logit_softcap && !(D == 128 || D == 256)) {
-        GGML_UNUSED(Q); GGML_UNUSED(K); GGML_UNUSED(V); GGML_UNUSED(mask); GGML_UNUSED(sinks);
-        GGML_UNUSED(dst); GGML_UNUSED(dst_meta);
-        GGML_UNUSED(scale); GGML_UNUSED(max_bias); GGML_UNUSED(m0); GGML_UNUSED(m1);
-        GGML_UNUSED(n_head_log2); GGML_UNUSED(logit_softcap);
-        GGML_UNUSED(ne00); GGML_UNUSED(ne01); GGML_UNUSED(ne02); GGML_UNUSED(ne03);
-        GGML_UNUSED(nb01); GGML_UNUSED(nb02); GGML_UNUSED(nb03);
-        GGML_UNUSED(ne10); GGML_UNUSED(ne11); GGML_UNUSED(ne12); GGML_UNUSED(ne13);
-        GGML_UNUSED(nb11); GGML_UNUSED(nb12); GGML_UNUSED(nb13);
-        GGML_UNUSED(nb21); GGML_UNUSED(nb22); GGML_UNUSED(nb23);
-        GGML_UNUSED(ne31); GGML_UNUSED(ne32); GGML_UNUSED(ne33);
-        GGML_UNUSED(nb31); GGML_UNUSED(nb32); GGML_UNUSED(nb33);
         NO_DEVICE_CODE;
         return;
     }
@@ -1833,17 +1765,6 @@ static __global__ void flash_attn_tile_ext_f32(
         }
     }
 #else
-    GGML_UNUSED(Q); GGML_UNUSED(K); GGML_UNUSED(V); GGML_UNUSED(mask);
-    GGML_UNUSED(dst); GGML_UNUSED(dst_meta);
-    GGML_UNUSED(scale); GGML_UNUSED(max_bias); GGML_UNUSED(m0); GGML_UNUSED(m1);
-    GGML_UNUSED(n_head_log2); GGML_UNUSED(logit_softcap);
-    GGML_UNUSED(ne00); GGML_UNUSED(ne01); GGML_UNUSED(ne02); GGML_UNUSED(ne03);
-    GGML_UNUSED(nb01); GGML_UNUSED(nb02); GGML_UNUSED(nb03);
-    GGML_UNUSED(ne10); GGML_UNUSED(ne11); GGML_UNUSED(ne12); GGML_UNUSED(ne13);
-    GGML_UNUSED(nb11); GGML_UNUSED(nb12); GGML_UNUSED(nb13);
-    GGML_UNUSED(nb21); GGML_UNUSED(nb22); GGML_UNUSED(nb23);
-    GGML_UNUSED(ne31); GGML_UNUSED(ne32); GGML_UNUSED(ne33);
-    GGML_UNUSED(nb31); GGML_UNUSED(nb32); GGML_UNUSED(nb33);
     NO_DEVICE_CODE;
 #endif // FLASH_ATTN_AVAILABLE
 }

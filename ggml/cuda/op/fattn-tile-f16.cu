@@ -2,7 +2,6 @@
 #include "common.cuh"
 #include "fattn-common.cuh"
 
-#define GGML_UNUSED(x) (void)(x)
 #define FATTN_KQ_STRIDE_TILE_F16 64
 
 template<int D, int ncols, int nwarps, bool use_logit_softcap> // D == head size
@@ -10,27 +9,27 @@ template<int D, int ncols, int nwarps, bool use_logit_softcap> // D == head size
 __launch_bounds__(nwarps* WARP_SIZE, 2)
 #endif // !defined(GGML_USE_HIP)
 static __global__ void flash_attn_tile_ext_f16(
-    const char* __restrict__ Q,
-    const char* __restrict__ K,
-    const char* __restrict__ V,
-    const char* __restrict__ mask,
-    const char* __restrict__ sinks,
-    const int* __restrict__ KV_max,
-    float* __restrict__ dst,
-    float2* __restrict__ dst_meta,
-    const float scale,
-    const float max_bias,
-    const float m0,
-    const float m1,
-    const uint32_t n_head_log2,
-    const float logit_softcap,
-    const int32_t ne00, const int32_t ne01, const int32_t ne02, const int32_t ne03,
-    const int32_t nb01, const int32_t nb02, const int32_t nb03,
-    const int32_t ne10, const int32_t ne11, const int32_t ne12, const int32_t ne13,
-    const int32_t nb11, const int32_t nb12, const int64_t nb13,
-    const int32_t nb21, const int32_t nb22, const int64_t nb23,
-    const int32_t ne31, const int32_t ne32, const int32_t ne33,
-    const int32_t nb31, const int32_t nb32, const int64_t nb33) {
+    [[maybe_unused]] const char* __restrict__ Q,
+    [[maybe_unused]] const char* __restrict__ K,
+    [[maybe_unused]] const char* __restrict__ V,
+    [[maybe_unused]] const char* __restrict__ mask,
+    [[maybe_unused]] const char* __restrict__ sinks,
+    [[maybe_unused]] const int* __restrict__ KV_max,
+    [[maybe_unused]] float* __restrict__ dst,
+    [[maybe_unused]] float2* __restrict__ dst_meta,
+    [[maybe_unused]] const float scale,
+    [[maybe_unused]] const float max_bias,
+    [[maybe_unused]] const float m0,
+    [[maybe_unused]] const float m1,
+    [[maybe_unused]] const uint32_t n_head_log2,
+    [[maybe_unused]] const float logit_softcap,
+    [[maybe_unused]] const int32_t ne00, [[maybe_unused]] const int32_t ne01, [[maybe_unused]] const int32_t ne02, [[maybe_unused]] const int32_t ne03,
+    [[maybe_unused]] const int32_t nb01, [[maybe_unused]] const int32_t nb02, [[maybe_unused]] const int32_t nb03,
+    [[maybe_unused]] const int32_t ne10, [[maybe_unused]] const int32_t ne11, [[maybe_unused]] const int32_t ne12, [[maybe_unused]] const int32_t ne13,
+    [[maybe_unused]] const int32_t nb11, [[maybe_unused]] const int32_t nb12, [[maybe_unused]] const int64_t nb13,
+    [[maybe_unused]] const int32_t nb21, [[maybe_unused]] const int32_t nb22, [[maybe_unused]] const int64_t nb23,
+    [[maybe_unused]] const int32_t ne31, [[maybe_unused]] const int32_t ne32, [[maybe_unused]] const int32_t ne33,
+    [[maybe_unused]] const int32_t nb31, [[maybe_unused]] const int32_t nb32, [[maybe_unused]] const int64_t nb33) {
 #if defined(FLASH_ATTN_AVAILABLE) && defined(FP16_AVAILABLE)
 
     // Skip unused kernel variants for faster compilation:
@@ -260,7 +259,7 @@ static __global__ void flash_attn_tile_ext_f16(
             const half val = hexp(sink - kqmax[j0 / nwarps]);
             kqsum[j0 / nwarps] = kqsum[j0 / nwarps] * KQ_max_scale;
             if (threadIdx.x == 0) {
-                kqsum[j0 / nwarps].x = __hadd(kqsum[j0 / nwarps].x, val);
+                kqsum[j0 / nwarps].x = __hadd(__low2half(kqsum[j0 / nwarps]), val);
             }
 
 #pragma unroll
@@ -301,17 +300,6 @@ static __global__ void flash_attn_tile_ext_f16(
         }
     }
 #else
-    GGML_UNUSED(Q); GGML_UNUSED(K); GGML_UNUSED(V); GGML_UNUSED(mask); GGML_UNUSED(sinks);
-    GGML_UNUSED(dst); GGML_UNUSED(dst_meta); GGML_UNUSED(scale);
-    GGML_UNUSED(max_bias); GGML_UNUSED(m0); GGML_UNUSED(m1);
-    GGML_UNUSED(n_head_log2); GGML_UNUSED(logit_softcap);
-    GGML_UNUSED(ne00); GGML_UNUSED(ne01); GGML_UNUSED(ne02);
-    GGML_UNUSED(ne03); GGML_UNUSED(ne10); GGML_UNUSED(ne11);
-    GGML_UNUSED(ne12); GGML_UNUSED(ne13); GGML_UNUSED(ne31); GGML_UNUSED(ne32); GGML_UNUSED(ne33);
-    GGML_UNUSED(nb31); GGML_UNUSED(nb32); GGML_UNUSED(nb33); GGML_UNUSED(nb01); GGML_UNUSED(nb02);
-    GGML_UNUSED(nb03); GGML_UNUSED(nb11); GGML_UNUSED(nb12);
-    GGML_UNUSED(nb13); GGML_UNUSED(nb21); GGML_UNUSED(nb22);
-    GGML_UNUSED(nb23);
     NO_DEVICE_CODE;
 #endif // defined(FLASH_ATTN_AVAILABLE) && defined(FP16_AVAILABLE)
 }

@@ -37,7 +37,7 @@ static __device__ void copy_block(const src_t* xi, float* dsti) {
     else {
 #pragma unroll
         for (int j = 0; j < src_t::block_size / 2; j++) {
-            dfloat2 dq;
+            float2 dq;
             dequantize(xi, 0, j, dq);
             *(dsti + j) = dq.x;
             *(dsti + j + src_t::block_size / 2) = dq.y;

@@ -24,7 +24,7 @@ constexpr size_t GGML_MAX_SRC = 10;
 #endif
 
 #ifndef GGML_SCHED_MAX_SPLIT_INPUTS
-#define GGML_SCHED_MAX_SPLIT_INPUTS GGML_MAX_SRC
+#define GGML_SCHED_MAX_SPLIT_INPUTS 30
 #endif
 
 #ifndef GGML_SCHED_MAX_COPIES
@@ -116,7 +116,9 @@ export {
         GGML_OP_CONV_TRANSPOSE_1D,
         GGML_OP_IM2COL,
         GGML_OP_IM2COL_BACK,
+        GGML_OP_IM2COL_3D,
         GGML_OP_CONV_2D,
+        GGML_OP_CONV_3D,
         GGML_OP_CONV_2D_DW,
         GGML_OP_CONV_TRANSPOSE_2D,
         GGML_OP_POOL_1D,
@@ -527,12 +529,25 @@ export {
     };
 
     using ggml_bitset_t = uint32_t;
+    static_assert(sizeof(ggml_bitset_t) == 4, "bitset_t constants must be updated");
+    constexpr size_t BITSET_SHR = 5; // log2(sizeof(ggml_bitset_t)*8)
+    constexpr size_t BITSET_MASK = (sizeof(ggml_bitset_t) * 8 - 1);
 
-    struct ggml_hash_set {
-        size_t size;
-        ggml_bitset_t* used;       // whether or not the keys are in use i.e. set
-        struct ggml_tensor** keys; // actual tensors in the set, keys[i] is only defined if ggml_bitset_get(used, i)
-    };
+    size_t ggml_bitset_size(size_t n) {
+        return (n + BITSET_MASK) >> BITSET_SHR;
+    }
+
+    inline bool ggml_bitset_get(const ggml_bitset_t* bitset, size_t i) {
+        return !!(bitset[i >> BITSET_SHR] & (1u << (i & BITSET_MASK)));
+    }
+
+    inline void ggml_bitset_set(ggml_bitset_t* bitset, size_t i) {
+        bitset[i >> BITSET_SHR] |= (1u << (i & BITSET_MASK));
+    }
+
+    inline void ggml_bitset_clear(ggml_bitset_t* bitset, size_t i) {
+        bitset[i >> BITSET_SHR] &= ~(1u << (i & BITSET_MASK));
+    }
 
     // computation graph
 
@@ -632,6 +647,7 @@ export {
         bool buffer_supported(ggml_tensor* t, int backend_id);
         ggml_backend* get_tensor_backend(ggml_tensor* node);
         std::optional<int> get_backend_id(ggml_backend* backend);
+        // Split graph without allocating it
         void split_graph(const ggml_cgraph& graph);
         void print_assignments(const ggml_cgraph& graph);
         ggml_status graph_compute_async(const ggml_cgraph& graph);

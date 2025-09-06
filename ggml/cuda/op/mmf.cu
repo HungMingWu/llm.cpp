@@ -156,7 +156,6 @@ static void mul_mat_f_cuda(
     cudaStream_t stream) {
     typedef tile<16, 8, T>     tile_A;
     typedef tile< 8, 8, T>     tile_B;
-    typedef tile<16, 8, float> tile_C;
 
     assert(!ids && "mul_mat_id not implemented");
 
