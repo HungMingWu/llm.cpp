@@ -828,4 +828,49 @@ export {
 		float attn_factor,
 		float beta_fast,
 		float beta_slow);
+
+	ggml_tensor* ggml_im2col_3d(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		int64_t IC,
+		int s0,
+		int s1,
+		int s2,
+		int p0,
+		int p1,
+		int p2,
+		int d0,
+		int d1,
+		int d2,
+		ggml_type dst_type);
+
+	ggml_tensor* ggml_conv_3d_direct(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		int s0,
+		int s1,
+		int s2,
+		int p0,
+		int p1,
+		int p2,
+		int d0,
+		int d1,
+		int d2,
+		int c,
+		int n,
+		int oc);
+
+	ggml_tensor* ggml_pad_ext(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		int lp0,
+		int rp0,
+		int lp1,
+		int rp1,
+		int lp2,
+		int rp2,
+		int lp3,
+		int rp3);
 }
