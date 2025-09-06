@@ -2298,6 +2298,27 @@ struct test_count_equal : public test_case {
     double max_nmse_err() override {
         return 0.0;
     }
+
+    void initialize_tensors(ggml_context* ctx) override {
+        std::random_device rd;
+        std::default_random_engine rng(rd());
+        for (ggml_tensor* t : ctx->getTensors()) {
+            if (t->type == GGML_TYPE_F32) {
+                // initialize with unique values to avoid ties
+                for (int64_t r = 0; r < ggml_nrows(t); r++) {
+                    std::vector<float> data(t->ne[0]);
+                    for (int i = 0; i < t->ne[0]; i++) {
+                        data[i] = i;
+                    }
+                    std::shuffle(data.begin(), data.end(), rng);
+                    ggml_backend_tensor_set(t, data.data(), r * t->nb[1], t->ne[0] * sizeof(float));
+                }
+            }
+            else {
+                init_tensor_uniform(t);
+            }
+        }
+    }
 };
 
 struct test_argmax : public test_case {
@@ -2849,6 +2870,7 @@ struct test_softcap : public test_case {
     }
 };
 
+// GGML_OP_NORM
 struct test_norm : public test_case {
     const ggml_type type;
     const std::array<int64_t, 4> ne;
@@ -2882,6 +2904,58 @@ struct test_norm : public test_case {
     }
 };
 
+// GGML_OP_NORM + GGML_OP_MUL + GGML_OP_ADD
+struct test_norm_mul_add : public test_case {
+    const ggml_type type;
+    const std::array<int64_t, 4> ne;
+    float eps;
+    const bool broadcast;
+
+    std::string op_desc(ggml_tensor*) override {
+        return "NORM_MUL_ADD";
+    }
+
+    bool run_whole_graph() override { return true; }
+
+    std::string vars() override {
+        return std::format("type={},ne={},eps={:6f},broadcast={},", type, ne, eps, static_cast<int>(broadcast));
+    }
+
+    test_norm_mul_add(ggml_type type = GGML_TYPE_F32,
+        std::array<int64_t, 4> ne = { 128, 2, 1, 1 },
+        float eps = 1e-5f,
+        bool broadcast = false)
+        : type(type), ne(ne), eps(eps), broadcast(broadcast) {
+    }
+
+    ggml_tensor* build_graph(ggml_context* ctx) override {
+        ggml_tensor* a = [&] {
+            if (broadcast) {
+                std::array<int64_t, 4> broadcast_dims = { ne[0], ne[1] * 2, ne[2] * 2, ne[3] * 2 };
+                return ggml_new_tensor(ctx, type,
+                    { broadcast_dims[0], broadcast_dims[1], broadcast_dims[2], broadcast_dims[3] });
+            }
+            else {
+                return ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
+            }
+        }();
+        ggml_tensor* w = ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
+        ggml_tensor* b = ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
+        a->set_flag(GGML_TENSOR_FLAG_PARAM); w->set_flag(GGML_TENSOR_FLAG_PARAM); b->set_flag(GGML_TENSOR_FLAG_PARAM);
+        a->set_name("a"); w->set_name("w"); b->set_name("b");
+
+        // Use a, w and b early to avoid OP_NONE in graph
+        a = ggml_add(ctx, ggml_add(ctx, a, w), b);
+
+        ggml_tensor* n = ggml_norm(ctx, a, eps);
+        ggml_tensor* m = ggml_mul(ctx, n, w);
+        ggml_tensor* out = ggml_add(ctx, m, b);
+        out->set_name("out");
+        return out;
+    }
+};
+
+// GGML_OP_RMS_NORM
 struct test_rms_norm : public test_case {
     const ggml_type type;
     const std::array<int64_t, 4> ne;
@@ -2972,6 +3046,7 @@ struct test_rms_norm_mul_add : public test_case {
     const std::array<int64_t, 4> ne;
     const float eps;
     const bool broadcast;
+    const bool multi_add; // test a sequence of adds feeding into rms_norm
 
     std::string op_desc(ggml_tensor*) override {
         return "RMS_NORM_MUL_ADD";
@@ -2980,13 +3055,14 @@ struct test_rms_norm_mul_add : public test_case {
     bool run_whole_graph() override { return true; }
 
     std::string vars() override {
-        return std::format("type={},ne={},eps={:6f},broadcast={}", type, ne, eps, static_cast<int>(broadcast));
+        return std::format("type={},ne={},eps={:6f},broadcast={},multi_add={}", type, ne, eps,
+            static_cast<int>(broadcast), static_cast<int>(multi_add));
     }
 
     test_rms_norm_mul_add(ggml_type type = GGML_TYPE_F32,
         std::array<int64_t, 4> ne = { 64, 5, 4, 3 },
-        float eps = 1e-6f, bool broadcast = false)
-        : type(type), ne(ne), eps(eps), broadcast(broadcast) {
+        float eps = 1e-6f, bool broadcast = false, bool multi_add = false)
+        : type(type), ne(ne), eps(eps), broadcast(broadcast), multi_add(multi_add) {
     }
 
     ggml_tensor* build_graph(ggml_context* ctx) override {
@@ -3013,6 +3089,9 @@ struct test_rms_norm_mul_add : public test_case {
 
         // Use a, b and c early, so we don't end up with an OP_NONE between rms_norm and mul
         a = ggml_add(ctx, ggml_add(ctx, a, b), c);
+        if (multi_add) {
+            a = ggml_add(ctx, ggml_add(ctx, a, b), c);
+        }
         ggml_tensor* out = ggml_add(ctx, ggml_mul(ctx, ggml_rms_norm(ctx, a, eps), b), c);
         out->set_name("out");
 
