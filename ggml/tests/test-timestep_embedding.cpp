@@ -52,9 +52,6 @@ std::tuple<ggml_tensor*, std::vector<float>> new_timestep_embedding(ggml_context
     // timesteps: [N,]
     // embedding: [dim, N]
     int actual_dim = dim;
-    if (dim % 2 != 0) {
-        actual_dim = dim + 1;
-    }
     ggml_tensor* embedding = ctx->create(GGML_TYPE_F32, { actual_dim, timesteps->ne[0] });
 	std::vector<float> embedding_data(embedding->nelements());
     std::experimental::mdspan embedding_mdspan(embedding_data.data(), 

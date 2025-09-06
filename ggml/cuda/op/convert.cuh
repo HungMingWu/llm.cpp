@@ -29,6 +29,9 @@ __host__ __device__ inline dst_t ggml_cuda_cast(src_t x) {
     else if constexpr (std::is_same_v<src_t, nv_bfloat16>) {
         return __bfloat162float(x);
     }
+    else if constexpr (std::is_same_v<dst_t, int32_t>) {
+        return int32_t(x);
+    }
     else {
         return float(x);
     }

@@ -645,10 +645,15 @@ export {
 		float stop,
 		float step);
 
+	// supports 4D a:
+	// a     [n_embd, ne1, ne2, ne3]
+	// b I32 [n_rows, ne2, ne3, 1]
+	//
+	// return [n_embd, n_rows, ne2, ne3]
 	ggml_tensor* ggml_get_rows(
 		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b);
+		ggml_tensor* a,  // data
+		ggml_tensor* b); // row indices
 
 	ggml_tensor* ggml_pool_1d(
 		ggml_context* ctx,
@@ -775,7 +780,10 @@ export {
 	ggml_tensor* ggml_neg(ggml_context* ctx, ggml_tensor* a);
 	ggml_tensor* ggml_exp(ggml_context* ctx, ggml_tensor* a);
 	ggml_tensor* ggml_tanh(ggml_context* ctx, ggml_tensor* a);
+
+	// note: casting from f32 to i32 will discard the fractional part
 	ggml_tensor* ggml_cast(ggml_context* ctx, ggml_tensor* a, enum ggml_type type);
+
 	ggml_tensor* ggml_set_1d(
 		ggml_context* ctx,
 		ggml_tensor* a,
@@ -841,4 +849,49 @@ export {
 		float attn_factor,
 		float beta_fast,
 		float beta_slow);
+
+	ggml_tensor* ggml_im2col_3d(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		int64_t IC,
+		int s0,
+		int s1,
+		int s2,
+		int p0,
+		int p1,
+		int p2,
+		int d0,
+		int d1,
+		int d2,
+		ggml_type dst_type);
+
+	ggml_tensor* ggml_conv_3d_direct(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		int s0,
+		int s1,
+		int s2,
+		int p0,
+		int p1,
+		int p2,
+		int d0,
+		int d1,
+		int d2,
+		int c,
+		int n,
+		int oc);
+
+	ggml_tensor* ggml_pad_ext(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		int lp0,
+		int rp0,
+		int lp1,
+		int rp1,
+		int lp2,
+		int rp2,
+		int lp3,
+		int rp3);
 }

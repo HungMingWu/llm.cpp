@@ -53,11 +53,17 @@ module ggml;
 import :cuda.backend;
 import :cuda.op;
 
+static bool cuda_should_use_mmf(enum ggml_type type, size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t src1_ncols)
+{
+    if (ggml_is_quantized(type)) return false;
+	return ggml_cuda_should_use_mmf(type, type_size, cc, warp_size, scr0_ne, src1_ncols);
+}
+
 static void ggml_cuda_op_mul_mat_q(
     ggml_backend_cuda& ctx,
     ggml_tensor* dst, const char* src0_dd_i, const float* /*src1_ddf_i*/,
     const char* src1_ddq_i, float* dst_dd_i, const int64_t row_low, const int64_t row_high, const int64_t src1_ncols,
-    const int64_t src1_padded_row_size, cudaStream_t stream) {
+    const int64_t /*src1_padded_row_size*/, cudaStream_t stream) {
     const ggml_tensor* src0 = dst->src[0];
     const ggml_tensor* src1 = dst->src[1];
 
@@ -83,14 +89,14 @@ static void ggml_cuda_op_mul_mat_q(
     // Also its fixup needs to allocate a temporary buffer in the memory pool.
     // There are multiple parallel CUDA streams for src1_ncols != ne11 which would introduce a race condition for this buffer.
     const bool use_stream_k = ((GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA)
-                            || GGML_CUDA_CC_IS_CDNA(cc))
-                            && src1_ncols == ne11;
+        || GGML_CUDA_CC_IS_CDNA(cc))
+        && src1_ncols == ne11;
     const mmq_args args = {
         src0_dd_i, src0->type, (const int*)src1_ddq_i, nullptr, nullptr, dst_dd_i,
-        src0->ne[0], row_diff, src1_ncols, stride01, nrows_dst,
+        src0->ne[0], row_diff, src1_ncols, stride01, ne11, nrows_dst,
         1, 1, 0, 0, 0,
         1, 1, 0, 0, 0,
-        use_stream_k };
+        use_stream_k, src1_ncols };
 
     ggml_cuda_mul_mat_q_switch_type(ctx.pool(id), args, stream);
 }
@@ -814,7 +820,7 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
             const int cc = ggml_cuda_info().devices[id].cc;
             const int warp_size = ggml_cuda_info().devices[id].warp_size;
             use_mul_mat_q = use_mul_mat_q && ggml_cuda_should_use_mmq(src0->type, cc, src1->ne[1]);
-            use_mul_mat_f = use_mul_mat_f && ggml_cuda_should_use_mmf(src0->type, ggml_type_size(src0->type), cc, warp_size, src0->ne.data(), src1->ne[1]);
+            use_mul_mat_f = use_mul_mat_f && cuda_should_use_mmf(src0->type, ggml_type_size(src0->type), cc, warp_size, src0->ne.data(), src1->ne[1]);
             use_mul_mat_vec_f = use_mul_mat_vec_f && ggml_cuda_should_use_mmvf(src0->type, cc, src0->ne.data(), src1->ne[1]);
             any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16 || !fast_fp16_hardware_available(cc);
         }
@@ -823,7 +829,7 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
         const int cc = ggml_cuda_info().devices[device].cc;
         const int warp_size = ggml_cuda_info().devices[device].warp_size;
         use_mul_mat_q = use_mul_mat_q && ggml_cuda_should_use_mmq(src0->type, cc, src1->ne[1]);
-        use_mul_mat_f = use_mul_mat_f && ggml_cuda_should_use_mmf(src0->type, ggml_type_size(src0->type), cc, warp_size, src0->ne.data(), src1->ne[1]);
+        use_mul_mat_f = use_mul_mat_f && cuda_should_use_mmf(src0->type, ggml_type_size(src0->type), cc, warp_size, src0->ne.data(), src1->ne[1]);
         use_mul_mat_vec_f = use_mul_mat_vec_f && ggml_cuda_should_use_mmvf(src0->type, cc, src0->ne.data(), src1->ne[1]);
         any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16 || !fast_fp16_hardware_available(cc);
     }
@@ -1348,9 +1354,14 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, s
         return false;
     }
 
-    if (ops.size() == 2 && ops.begin()[0] == GGML_OP_RMS_NORM && ops.begin()[1] == GGML_OP_MUL) {
+    if ((ops.size() == 2 || ops.size() == 3) && ops.begin()[0] == GGML_OP_RMS_NORM && ops.begin()[1] == GGML_OP_MUL) {
         const ggml_tensor* rms_norm = cgraph->nodes[node_idx];
         const ggml_tensor* mul = cgraph->nodes[node_idx + 1];
+        const ggml_tensor* add = nullptr;
+
+        if (ops.size() == 3 && ops.begin()[2] == GGML_OP_ADD) {
+            add = cgraph->nodes[node_idx + 2];
+        }
 
         GGML_ASSERT(rms_norm->src[0]->type == GGML_TYPE_F32);
         GGML_ASSERT(rms_norm->type == GGML_TYPE_F32);
@@ -1362,6 +1373,12 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, s
             return false;
         }
 
+        if (add && (add->src[0]->type != GGML_TYPE_F32 ||
+            add->src[1]->type != GGML_TYPE_F32 ||
+            add->type != GGML_TYPE_F32)) {
+            return false;
+        }
+
         //if rms norm is the B operand, then we don't handle broadcast
         if (rms_norm == mul->src[1] && !ggml_are_same_shape(mul->src[0], rms_norm->src[1])) {
             return false;
@@ -1369,6 +1386,10 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, s
 
         //rms_norm kernel assumes contigous rows
         if (!ggml_is_contiguous_rows(mul->src[0]) || !ggml_is_contiguous_rows(mul->src[1])) {
+            return false;
+        }
+
+        if (add && (!ggml_is_contiguous(add->src[0]) || !ggml_is_contiguous_rows(add->src[1]))) {
             return false;
         }
 
@@ -1417,6 +1438,45 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
 
                 static bool disable_fusion = (getenv("GGML_CUDA_DISABLE_FUSION") != nullptr);
                 if (!disable_fusion) {
+
+                    if (node->op == GGML_OP_ADD) {
+                        int n_fuse = 0;
+                        ggml_op ops[8];
+                        std::fill(ops, ops + 8, GGML_OP_ADD);
+
+                        for (; n_fuse <= 6; ++n_fuse) {
+                            if (!ggml_can_fuse(cgraph, i + n_fuse, ops + n_fuse, 2)) {
+                                break;
+                            }
+                            if (cgraph->nodes[i + n_fuse] != cgraph->nodes[i + n_fuse + 1]->src[0]) {
+                                break;
+                            }
+                            if (!ggml_are_same_layout(cgraph->nodes[i + n_fuse]->src[1], cgraph->nodes[i + n_fuse + 1]->src[1])) {
+                                break;
+                            }
+                        }
+
+                        n_fuse++;
+
+                        if (n_fuse > 1) {
+                            for (int j = 0; j < n_fuse - 1; ++j) {
+                                node->src.push_back(cgraph->nodes[i + j + 1]->src[1]);
+                            }
+                            cgraph->nodes[i + n_fuse - 1]->data = node->data;
+                            op::fused_add(stream(), node, n_fuse);
+                            i += n_fuse - 1;
+
+                            continue;
+                        }
+                    }
+
+
+                    if (ggml_cuda_can_fuse(cgraph, i, { GGML_OP_RMS_NORM, GGML_OP_MUL, GGML_OP_ADD }, {})) {
+                        op::rms_norm_fused_add(stream(), node, cgraph->nodes[i + 1], cgraph->nodes[i + 2]);
+                        i += 2;
+                        continue;
+                    }
+
                     if (ggml_cuda_can_fuse(cgraph, i, { GGML_OP_RMS_NORM, GGML_OP_MUL }, {})) {
                         op::rms_norm_fused(stream(), node, cgraph->nodes[i + 1]);
                         i++;
@@ -1688,6 +1748,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     case GGML_OP_PAD:
         op::pad(stream(), dst);
         break;
+    case GGML_OP_PAD_REFLECT_1D:
+        op::pad_reflect_1d(stream(), dst);
+        break;
     case GGML_OP_ARANGE:
         op::arange(stream(), dst);
         break;
@@ -1762,6 +1825,12 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         break;
     case GGML_OP_IM2COL:
         op::im2col(stream(), dst);
+        break;
+    case GGML_OP_IM2COL_3D:
+        op::im2col_3d(stream(), dst);
+        break;
+    case GGML_OP_CONV_2D:
+        op::conv2d(stream(), dst);
         break;
     case GGML_OP_CONV_2D_DW:
         op::conv2d_dw(stream(), dst);

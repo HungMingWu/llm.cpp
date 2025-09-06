@@ -3,7 +3,7 @@ module;
 #include <span>
 #include <string_view>
 #define GGML_ASSERT(...)
-#define GGML_BACKEND_API_VERSION 1
+#define GGML_BACKEND_API_VERSION 2
 
 export module ggml:cpu.registry;
 import :ds;

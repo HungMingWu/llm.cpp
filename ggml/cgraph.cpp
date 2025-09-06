@@ -719,6 +719,7 @@ void ggml_cgraph::visit_parents(ggml_tensor* node)
         return;
     }
 
+    use_counts[node] = 0;
     if (order == GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT) {
         std::for_each(node->src.begin(), node->src.end(), [this](ggml_tensor* src) {
             if (src) {

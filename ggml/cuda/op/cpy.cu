@@ -37,7 +37,7 @@ static __device__ void copy_block(const src_t* xi, float* dsti) {
     else {
 #pragma unroll
         for (int j = 0; j < src_t::block_size / 2; j++) {
-            dfloat2 dq;
+            float2 dq;
             dequantize(xi, 0, j, dq);
             *(dsti + j) = dq.x;
             *(dsti + j + src_t::block_size / 2) = dq.y;
@@ -195,6 +195,12 @@ void dup_cuda(const dup_context* ctx, cudaStream_t stream)
     }
     else if (ctx->src_type == GGML_TYPE_BF16 && ctx->dst_type == GGML_TYPE_F32) {
         ggml_cpy_cuda<nv_bfloat16, float>(*ctx, stream);
+    }
+    else if (ctx->src_type == GGML_TYPE_F32 && ctx->dst_type == GGML_TYPE_I32) {
+        ggml_cpy_cuda<float, int32_t>(*ctx, stream);
+    }
+    else if (ctx->src_type == GGML_TYPE_I32 && ctx->dst_type == GGML_TYPE_F32) {
+        ggml_cpy_cuda<int32_t, float>(*ctx, stream);
     }
     else {
         assert(false);

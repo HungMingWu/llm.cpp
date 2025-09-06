@@ -48,6 +48,11 @@ export
 
 	ggml_fp32_t toFloat32(ggml_fp16_t h);
 
+	constexpr ggml_fp32_t toFloat32(int32_t value) { return value; }
+
+	template <>
+	int32_t fromFloat32(ggml_fp32_t value) { return value; }
+
 	template <>
 	ggml_fp16_t fromFloat32(ggml_fp32_t f)
 	{

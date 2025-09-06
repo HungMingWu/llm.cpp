@@ -121,6 +121,15 @@ void ggml_flash_attn_ext_set_prec(
 	a->op_params[3] = std::bit_cast<int32_t>(prec);
 }
 
+enum ggml_prec ggml_flash_attn_ext_get_prec(
+	const struct ggml_tensor* a) {
+	GGML_ASSERT(a->op == GGML_OP_FLASH_ATTN_EXT);
+
+	const int32_t prec_i32 = ggml_get_op_params_i32(a, 3);
+
+	return (enum ggml_prec)prec_i32;
+}
+
 // change the precision of a matrix multiplication
 // set to GGML_PREC_F32 for higher precision (useful for phi-2)
 void ggml_mul_mat_set_prec(

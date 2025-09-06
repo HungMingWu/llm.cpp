@@ -21,6 +21,7 @@ target_sources(libggml
       buffer.cpp
       buffer_type.cpp
       common.cpp
+      registry.cpp
       op/acc.cu
       op/add-id.cu
       op/arange.cu
@@ -36,12 +37,12 @@ target_sources(libggml
       op/convert.cuh
       op/conv2d-dw.cu
       op/conv2d-transpose.cu
+      op/conv2d.cu
       op/count-equal.cu
       op/cpy.cu
       op/cross-entropy-loss.cu
       op/diagmask.cu
-      op/fattn-tile-f16.cu
-      op/fattn-tile-f32.cu
+      op/fattn-tile.cu
       op/fattn-wmma-f16.cu
       op/fattn.cu
       op/getrows.cu
@@ -49,12 +50,14 @@ target_sources(libggml
       op/im2col.cu
       op/mean.cu
       op/mmf.cu
+      op/mmq.cu
       op/mmvf.cu
       op/mmvq.cu
       op/norm.cu
       op/opt-step-adamw.cu
       op/opt-step-sgd.cu
       op/pad.cu
+      op/pad_reflect_1d.cu
       op/pool2d.cu
       op/quantize.cu
       op/roll.cu

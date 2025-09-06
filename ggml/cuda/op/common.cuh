@@ -1,4 +1,5 @@
 #pragma once
+#include <assert.h>
 #include <stdio.h>
 #include <bit>
 
@@ -68,26 +69,41 @@ static __device__ __forceinline__ float2 warp_reduce_sum(float2 a) {
     return a;
 }
 
+template<int width = WARP_SIZE>
 static __device__ __forceinline__ float warp_reduce_max(float x) {
 #pragma unroll
-    for (int offset = 16; offset > 0; offset >>= 1) {
-        x = fmaxf(x, __shfl_xor_sync(0xffffffff, x, offset, 32));
+    for (int offset = width / 2; offset > 0; offset >>= 1) {
+        x = fmaxf(x, __shfl_xor_sync(0xffffffff, x, offset, width));
     }
     return x;
 }
 
 template<int width = WARP_SIZE>
 static __device__ __forceinline__ int warp_reduce_all(int x) {
-#ifdef GGML_USE_HIP
-#pragma unroll
-    for (int offset = width / 2; offset > 0; offset >>= 1) {
-        x = x && __shfl_xor_sync(0xffffffff, x, offset, width);
+    if (width == ggml_cuda_get_physical_warp_size()) {
+        return __all_sync(0xffffffff, x);
     }
-    return x;
-#else
-    static_assert(width == WARP_SIZE, "width != WARP_SIZE not implemented");
-    return __all_sync(0xffffffff, x);
-#endif // GGML_USE_HIP
+    else {
+#pragma unroll
+        for (int offset = width / 2; offset > 0; offset >>= 1) {
+            x = __shfl_xor_sync(0xffffffff, x, offset, width) && x;
+        }
+        return x;
+    }
+}
+
+template<int width = WARP_SIZE>
+static __device__ __forceinline__ int warp_reduce_any(int x) {
+    if (width == ggml_cuda_get_physical_warp_size()) {
+        return __any_sync(0xffffffff, x);
+    }
+    else {
+#pragma unroll
+        for (int offset = width / 2; offset > 0; offset >>= 1) {
+            x = __shfl_xor_sync(0xffffffff, x, offset, width) || x;
+        }
+        return x;
+    }
 }
 
 static __device__ __forceinline__ half ggml_cuda_hmax(const half a, const half b) {
@@ -121,6 +137,48 @@ static __device__ __forceinline__ half2 ggml_cuda_hmax2(const half2 a, const hal
     GGML_UNUSED(b);
     NO_DEVICE_CODE;
 #endif
+}
+
+// See https://gmplib.org/~tege/divcnst-pldi94.pdf figure 4.1.
+// Precompute mp (m' in the paper) and L such that division
+// can be computed using a multiply (high 32b of 64b result)
+// and a shift:
+//
+// n/d = (mulhi(n, mp) + n) >> L;
+static const uint3 init_fastdiv_values(uint32_t d) {
+    assert(d != 0);
+
+    // compute L = ceil(log2(d));
+    uint32_t L = 0;
+    while (L < 32 && (uint32_t{ 1 } << L) < d) {
+        L++;
+    }
+
+    uint32_t mp = (uint32_t)((uint64_t{ 1 } << 32) * ((uint64_t{ 1 } << L) - d) / d + 1);
+    // pack divisor as well to reduce error surface
+    return make_uint3(mp, L, d);
+}
+
+static __device__ __forceinline__ uint32_t fastdiv(uint32_t n, const uint3 fastdiv_values) {
+    // expects fastdiv_values to contain <mp, L, divisor> in <x, y, z>
+    // fastdiv_values.z is unused and optimized away by the compiler.
+    // Compute high 32 bits of n * mp
+    const uint32_t hi = __umulhi(n, fastdiv_values.x);
+    // add n, apply bit shift
+    return (hi + n) >> fastdiv_values.y;
+}
+
+static __device__ __forceinline__ uint32_t fastmodulo(uint32_t n, const uint3 fastdiv_values) {
+    // expects  fastdiv_values to contain <mp, L, divisor> in <x, y, z> (see init_fastdiv_values)
+    return n - fastdiv(n, fastdiv_values) * fastdiv_values.z;
+}
+
+// Calculate both division and modulo at once, returns <n/divisor, n%divisor>
+static __device__ __forceinline__ uint2 fast_div_modulo(uint32_t n, const uint3 fastdiv_values) {
+    // expects  fastdiv_values to contain <mp, L, divisor> in <x, y, z> (see init_fastdiv_values)
+    const uint32_t div_val = fastdiv(n, fastdiv_values);
+    const uint32_t mod_val = n - div_val * fastdiv_values.z;
+    return make_uint2(div_val, mod_val);
 }
 
 // QR = QK / number of values before dequantization
@@ -471,4 +529,59 @@ static __device__ __forceinline__ float ggml_cuda_e8m0_to_fp32(uint8_t x) {
 
     return std::bit_cast<float>(bits);
 #endif // CUDART_VERSION >= 12050
+}
+
+// Maximum number of bytes that can be copied in a single instruction.
+static constexpr __device__ int ggml_cuda_get_max_cpy_bytes() {
+#ifdef GGML_USE_HIP
+    return 16;
+#else
+#if __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
+    return 16;
+#else
+    return 8;
+#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
+#endif // GGML_USE_HIP
+}
+
+// Aligned memory transfers of 8/16 bytes can be faster than 2 transfers with 4 bytes, especially on AMD.
+template <int nbytes>
+static __device__ __forceinline__ void ggml_cuda_memcpy_1(void* __restrict__ dst, const void* __restrict__ src) {
+    if constexpr (nbytes == 4) {
+        *(int*)dst = *(const int*)src;
+    }
+    else if constexpr (nbytes == 8) {
+        *(int2*)dst = *(const int2*)src;
+    }
+    else if constexpr (nbytes == 16) {
+        *(int4*)dst = *(const int4*)src;
+    }
+    else {
+        static_assert(nbytes == 0 && nbytes == -1, "bad nbytes");
+    }
+}
+
+static __device__ __forceinline__ void ggml_cuda_mad(float& acc, const float v, const float u) {
+    acc += v * u;
+}
+
+static __device__ __forceinline__ void ggml_cuda_mad(float& acc, const float2 v, const float2 u) {
+    acc += v.x * u.x;
+    acc += v.y * u.y;
+}
+
+static __device__ __forceinline__ void ggml_cuda_mad(float& acc, const half2 v, const half2 u) {
+#if defined(GGML_USE_HIP) && (defined(RDNA2) || defined(RDNA3) || defined(RDNA4) || defined(__gfx906__) || defined(CDNA))
+    asm volatile("v_dot2_f32_f16 %0, %1, %2, %0" : "+v"(acc) : "v"(v), "v"(u));
+#else
+#ifdef FAST_FP16_AVAILABLE
+    const float2 tmp = __half22float2(v * u);
+    acc += tmp.x + tmp.y;
+#else
+    const float2 tmpv = __half22float2(v);
+    const float2 tmpu = __half22float2(u);
+    acc += tmpv.x * tmpu.x;
+    acc += tmpv.y * tmpu.y;
+#endif // FAST_FP16_AVAILABLE
+#endif // defined(GGML_USE_HIP) && (defined(RDNA2)  || defined(RDNA3) || defined(RDNA4) || defined(GCN5) || defined(CDNA))
 }

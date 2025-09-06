@@ -13,6 +13,12 @@ import :func;
 import :tensor;
 import :cuda.buffer;
 
+static bool cuda_should_use_mmf(enum ggml_type type, size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t src1_ncols)
+{
+    if (ggml_is_quantized(type)) return false;
+    return ggml_cuda_should_use_mmf(type, type_size, cc, warp_size, scr0_ne, src1_ncols);
+}
+
 static dup_context create(const ggml_tensor* src0, ggml_tensor* dst)
 {
    return dup_context {
@@ -55,11 +61,11 @@ static unary_context create(const ggml_tensor* src0, ggml_tensor* dst, cudaStrea
     };
 }
 
-static bin_bcast_context create_bcast_context(const ggml_tensor* src0, const ggml_tensor* src1, ggml_tensor* dst)
+static bin_bcast_context create_bcast_context(ggml_tensor* dst)
 {
-    return bin_bcast_context{
-        .src0_d = src0->data,
-        .src1_d = src1->data,
+    const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src1 = dst->src[1];
+    bin_bcast_context ctx {
         .dst_d = dst->data,
         .src0_type = src0->type,
         .src1_type = src1->type,
@@ -92,6 +98,9 @@ static bin_bcast_context create_bcast_context(const ggml_tensor* src0, const ggm
         .src1_is_contiguous = ggml_is_contiguous(src1),
         .dst_is_contiguous = ggml_is_contiguous(dst),
     };
+    for (size_t i = 0; i < dst->src.size(); i++)
+        ctx.src_data[i] = dst->src[i]->data;
+    return ctx;
 }
 
 namespace op
@@ -131,11 +140,11 @@ namespace op
 
         const int64_t output_size = dst->nelements();
 
-        conv_transpose_1d_f32_f32_cuda(s0,
-            src0->ne[0], src0->ne[1], src0->ne[2],
-            src1->ne[0], src1->ne[1],
-            dst->ne[0], dst->ne[1],
-            src0_d, src1_d, dst_d, (size_t)output_size, stream);
+        conv_transpose_1d_f32_f32_cuda(s0, output_size,
+            src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3],
+            src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3],
+            dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3],
+            src0_d, src1_d, dst_d, stream);
     }
 
     void mul_mat_vec_f(cudaStream_t stream, const ggml_tensor* ids, ggml_tensor* dst)
@@ -226,9 +235,6 @@ namespace op
         GGML_ASSERT(!ids || ids->nb[0] == ggml_type_size(ids->type));
         GGML_ASSERT(dst->nb[0] == ts_dst);
 
-        const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
-        const enum ggml_prec prec = fast_fp16_available(cc) ? ggml_prec(dst->op_params[0]) : GGML_PREC_F32;
-
         const int64_t s01 = src0->nb[1] / ts_src0;
         const int64_t s11 = src1->nb[1] / ts_src1;
         const int64_t s1 = dst->nb[1] / ts_dst;
@@ -238,6 +244,15 @@ namespace op
         const int64_t s03 = src0->nb[3] / ts_src0;
         const int64_t s13 = src1->nb[3] / ts_src1;
         const int64_t s3 = dst->nb[3] / ts_dst;
+
+        int64_t stride_channel_y = ids ? s11 : s12;
+        int64_t nchannels_y = ids ? src1->ne[1] : src1->ne[2];
+
+        //mul_mat_id: handle broadcast
+        if (ids && nchannels_y == 1) {
+            stride_channel_y = 0;
+            nchannels_y = ids->ne[0];
+        }
 
         mul_mat_f_context ctx{
 			.src0_type = src0->type,
@@ -253,11 +268,15 @@ namespace op
 
             // For MUL_MAT_ID the memory layout is different than for MUL_MAT:
             .ncols_dst = ids ? dst->ne[2] : dst->ne[1],
+            .stride_col_y = ids ? s12 : s11,
+            .stride_col_dst = ids ? s2 : s1,
+            .ids_s0 = ids ? ids->nb[0] / ggml_type_size(ids->type) : 0,
+            .ids_s1 = ids ? ids->nb[1] / ggml_type_size(ids->type) : 0,
             .nchannels_y = ids ? src1->ne[1] : src1->ne[2],
             .nchannels_dst = ids ? dst->ne[1] : dst->ne[2],
+            .stride_channel_y = stride_channel_y,
             .stride_channel_dst = ids ? s1 : s2,
-            .stride_channel_y = ids ? s11 : s12,
-            
+
             .s01 = s01,
             .s02 = s02,
             .s03 = s03,
@@ -340,6 +359,52 @@ namespace op
         else {
             im2col_cuda_f32(src1_d, (float*)dst_d, IW, IH, OW, OH, KW, KH, IC, N, IC_IH_IW, IH_IW, s0, s1, p0, p1, d0, d1, stream);
         }
+    }
+
+    void im2col_3d(cudaStream_t stream, ggml_tensor* dst)
+    {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+        const float* src1_d = (const float*)src1->data;
+        float* dst_d = (float*)dst->data;
+
+        GGML_ASSERT(src1->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F16 || dst->type == GGML_TYPE_F32);
+
+        const int32_t s0 = ((const int32_t*)(dst->op_params))[0];
+        const int32_t s1 = ((const int32_t*)(dst->op_params))[1];
+        const int32_t s2 = ((const int32_t*)(dst->op_params))[2];
+        const int32_t p0 = ((const int32_t*)(dst->op_params))[3];
+        const int32_t p1 = ((const int32_t*)(dst->op_params))[4];
+        const int32_t p2 = ((const int32_t*)(dst->op_params))[5];
+        const int32_t d0 = ((const int32_t*)(dst->op_params))[6];
+        const int32_t d1 = ((const int32_t*)(dst->op_params))[7];
+        const int32_t d2 = ((const int32_t*)(dst->op_params))[8];
+        const int32_t IC = ((const int32_t*)(dst->op_params))[9];
+
+        const int64_t N = src1->ne[3] / IC;
+        const int64_t ID = src1->ne[2];
+        const int64_t IH = src1->ne[1];
+        const int64_t IW = src1->ne[0];
+
+        const int64_t OC = src0->ne[3] / IC;
+        const int64_t KD = src0->ne[2];
+        const int64_t KH = src0->ne[1];
+        const int64_t KW = src0->ne[0];
+
+        const int64_t OD = dst->ne[3] / N;
+        const int64_t OH = dst->ne[2];
+        const int64_t OW = dst->ne[1];
+
+        const size_t  es = ggml_element_size(src1);
+        const int64_t stride_x = src1->nb[0] / es;
+        const int64_t stride_y = src1->nb[1] / es;
+        const int64_t stride_z = src1->nb[2] / es;
+        const int64_t stride_q = src1->nb[3] / es;
+
+        im2col_3d_cuda(dst->type, src1_d, dst_d, N, IC, ID, IH, IW, OC, KD, KH, KW, OD, OH, OW,
+            stride_q, stride_z, stride_y, stride_x,
+            s0, s1, s2, p0, p1, p2, d0, d1, d2, stream);
     }
 
     void cpy(cudaStream_t stream, ggml_tensor* dst) {
@@ -509,8 +574,6 @@ namespace op
         const ggml_tensor* src0 = dst->src[0];
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         bin_bcast_context context{
-            .src0_d = nullptr,
-            .src1_d = src0->data,
             .dst_d = dst->data,
             .src0_type = dst->type,
             .src1_type = src0->type,
@@ -542,27 +605,28 @@ namespace op
             .src0_is_contiguous = ggml_is_contiguous(dst),
             .src1_is_contiguous = ggml_is_contiguous(src0),
             .dst_is_contiguous = ggml_is_contiguous(dst),
+            .src_data = { nullptr, src0->data }
         };
         repeat_cuda(&context, stream);
     }
 
     void add(cudaStream_t stream, ggml_tensor* dst) {
-        bin_bcast_context context = create_bcast_context(dst->src[0], dst->src[1], dst);
+        bin_bcast_context context = create_bcast_context(dst);
         add_cuda(&context, stream);
     }
 
     void sub(cudaStream_t stream, ggml_tensor* dst) {
-        bin_bcast_context context = create_bcast_context(dst->src[0], dst->src[1], dst);
+        bin_bcast_context context = create_bcast_context(dst);
         sub_cuda(&context, stream);
     }
 
     void mul(cudaStream_t stream, ggml_tensor* dst) {
-        bin_bcast_context context = create_bcast_context(dst->src[0], dst->src[1], dst);
+        bin_bcast_context context = create_bcast_context(dst);
         mul_cuda(&context, stream);
     }
 
     void div(cudaStream_t stream, ggml_tensor* dst) {
-        bin_bcast_context context = create_bcast_context(dst->src[0], dst->src[1], dst);
+        bin_bcast_context context = create_bcast_context(dst);
         div_cuda(&context, stream);
     }
 
@@ -855,7 +919,7 @@ namespace op
         const int64_t s3 = dst->nb[3] / ts_dst;
 
         const bool use_stream_k = (GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA)
-                                || GGML_CUDA_CC_IS_CDNA(cc);
+            || GGML_CUDA_CC_IS_CDNA(cc);
 
         if (!ids) {
             const size_t nbytes_src1_q8_1 = src1->ne[3] * src1->ne[2] * src1->ne[1] * ne10_padded * sizeof(block_q8_1) / QK8_1 +
@@ -868,6 +932,7 @@ namespace op
                 const int64_t s13 = src1->nb[3] / ts_src1;
                 quantize_mmq_q8_1_cuda(src1_d, nullptr, src1_q8_1.get(), src0->type,
                     src1->ne[0], s11, s12, s13, ne10_padded, src1->ne[1], src1->ne[2], src1->ne[3], stream);
+                CUDA_CHECK(cudaGetLastError());
             }
 
             const int64_t s12 = src1->ne[1] * ne10_padded * sizeof(block_q8_1) / (QK8_1 * sizeof(int));
@@ -878,7 +943,7 @@ namespace op
                 src0->ne[0], src0->ne[1], dst->ne[1], s01, src1->ne[1], s1,
                 src0->ne[2], src1->ne[2], s02, s12, s2,
                 src0->ne[3], src1->ne[3], s03, s13, s3,
-                use_stream_k };
+                use_stream_k, dst->ne[1] };
             ggml_cuda_mul_mat_q_switch_type(pool, args, stream);
             return;
         }
@@ -889,53 +954,28 @@ namespace op
 
         const int64_t n_expert_used = ids->ne[0];
         const int64_t ne_get_rows = src1->ne[2] * n_expert_used;
+        GGML_ASSERT(dst->ne[1] == n_expert_used);
 
-        std::vector<char> ids_host(ids->nbytes());
-        std::vector<int32_t> ids_src1_host;
-        ids_src1_host.reserve(ne_get_rows);
-        std::vector<int32_t> ids_dst_host;
-        ids_dst_host.reserve(ne_get_rows);
-        std::vector<int32_t> tokens_per_expert_host(src0->ne[2]);
-        std::vector<int32_t> expert_bounds_host(src0->ne[2] + 1);
-        ggml_cuda_pool_alloc<int32_t> ids_buf_dev(pool);
+        ggml_cuda_pool_alloc<int32_t> ids_src1(pool, ne_get_rows);
+        ggml_cuda_pool_alloc<int32_t> ids_dst(pool, ne_get_rows);
+        ggml_cuda_pool_alloc<int32_t> expert_bounds(pool, src0->ne[2] + 1);
 
-        CUDA_CHECK(cudaMemcpyAsync(ids_host.data(), ids->data, ids->nbytes(), cudaMemcpyDeviceToHost, stream));
-        CUDA_CHECK(cudaStreamSynchronize(stream));
-
-        for (int64_t i02 = 0; i02 < src0->ne[2]; ++i02) { // expert matrices
-            for (int64_t i12 = 0; i12 < src1->ne[2]; ++i12) { // tokens
-                for (int64_t iex = 0; iex < n_expert_used; ++iex) {
-                    const int32_t expert_to_use = *(const int32_t*)(ids_host.data() + i12 * ids->nb[1] + iex * ids->nb[0]);
-                    assert(expert_to_use >= 0 && expert_to_use < src0->ne[2]);
-                    if (expert_to_use == i02) {
-                        ids_src1_host.push_back(i12 * (src1->nb[2] / src1->nb[1]) + iex % src1->ne[1]);
-                        ids_dst_host.push_back(i12 * dst->ne[1] + iex);
-                        tokens_per_expert_host[i02]++;
-                        break;
-                    }
-                }
-            }
+        {
+            GGML_ASSERT(ids->nb[0] == ggml_element_size(ids));
+            mmq_ids_helper_context ctx{
+                .n_expert_used = n_expert_used,
+                .ids = (const int32_t*)ids->data,
+                .ids_src1 = ids_src1.get(),
+                .ids_dst = ids_dst.get(),
+                .expert_bounds = expert_bounds.get(),
+                .n_experts = src0->ne[2],
+                .n_tokens = src1->ne[2],
+                .nchannels_y = src1->ne[1],
+                .si1 = ids->nb[1] / ggml_element_size(ids),
+                .sis1 = src1->nb[2] / src1->nb[1]
+            };
+            launch_mmq_ids_helper(&ctx, stream);
         }
-
-        int32_t cumsum = 0;
-        for (int64_t i = 0; i < src0->ne[2]; ++i) {
-            expert_bounds_host[i] = cumsum;
-            cumsum += tokens_per_expert_host[i];
-        }
-        expert_bounds_host[src0->ne[2]] = cumsum;
-
-        std::vector<int32_t> ids_buf_host;
-        ids_buf_host.reserve(ids_src1_host.size() + ids_dst_host.size() + expert_bounds_host.size());
-        ids_buf_host.insert(ids_buf_host.end(), ids_src1_host.begin(), ids_src1_host.end());
-        ids_buf_host.insert(ids_buf_host.end(), ids_dst_host.begin(), ids_dst_host.end());
-        ids_buf_host.insert(ids_buf_host.end(), expert_bounds_host.begin(), expert_bounds_host.end());
-        ids_buf_dev.alloc(ids_buf_host.size() + get_mmq_x_max_host(cc)); // Expert bounds are padded on device.
-        CUDA_CHECK(cudaMemcpyAsync(ids_buf_dev.ptr, ids_buf_host.data(), ids_buf_host.size() * sizeof(int32_t), cudaMemcpyHostToDevice, stream));
-        CUDA_CHECK(cudaStreamSynchronize(stream));
-
-        const int32_t* ids_src1_dev = ids_buf_dev.ptr;
-        const int32_t* ids_dst_dev = ids_src1_dev + ids_src1_host.size();
-        const int32_t* expert_bounds_dev = ids_dst_dev + ids_dst_host.size();
 
         const size_t nbytes_src1_q8_1 = src1->ne[2] * n_expert_used * ne10_padded * sizeof(block_q8_1) / QK8_1 +
             get_mmq_x_max_host(cc) * sizeof(block_q8_1_mmq);
@@ -949,8 +989,9 @@ namespace op
             const int64_t s11 = src1->nb[1] / ts_src1;
             const int64_t s12 = src1->nb[2] / ts_src1;
             const int64_t s13 = src1->nb[2] / ts_src1;
-            quantize_mmq_q8_1_cuda(src1_d, ids_src1_dev, src1_q8_1.get(), src0->type,
+            quantize_mmq_q8_1_cuda(src1_d, ids_src1.get(), src1_q8_1.get(), src0->type,
                 src1->ne[0], s11, s12, s13, ne10_padded, ne11_flat, ne12_flat, ne13_flat, stream);
+            CUDA_CHECK(cudaGetLastError());
         }
 
         const int64_t s12 = src1->ne[1] * ne10_padded * sizeof(block_q8_1) / (QK8_1 * sizeof(int));
@@ -958,11 +999,11 @@ namespace op
 
         // Note that ne02 is used instead of ne12 because the number of y channels determines the z dimension of the CUDA grid.
         const mmq_args args = {
-            src0_d, src0->type, (const int*)src1_q8_1.ptr, ids_dst_dev, expert_bounds_dev, dst_d,
+            src0_d, src0->type, (const int*)src1_q8_1.get(), ids_dst.get(), expert_bounds.get(), dst_d,
             src0->ne[0], src0->ne[1], ne_get_rows, s01, ne_get_rows, s1,
             src0->ne[2], src0->ne[2], s02, s12, s2,
             src0->ne[3], src1->ne[3], s03, s13, s3,
-            use_stream_k };
+            use_stream_k, src1->ne[2] };
 
         ggml_cuda_mul_mat_q_switch_type(pool, args, stream);
     }
@@ -991,6 +1032,11 @@ namespace op
 
             if (ggml_cuda_should_use_mmq(src0->type, cc, src1->ne[2])) {
                 mul_mat_q(stream, pool, ids, dst);
+                return;
+            }
+
+            if (cuda_should_use_mmf(src0->type, ggml_type_size(src0->type), cc, WARP_SIZE, src0->ne.data(), src1->ne[2])) {
+                mul_mat_f(stream, ids, dst);
                 return;
             }
         }
@@ -1587,11 +1633,49 @@ namespace op
 
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
-        GGML_ASSERT(src0->ne[3] == 1 && dst->ne[3] == 1); // just 3D tensors
+        GGML_ASSERT(ggml_is_contiguous(src0));
+
+        const int32_t lp0 = ((const int32_t*)(dst->op_params))[0];
+        const int32_t rp0 = ((const int32_t*)(dst->op_params))[1];
+        const int32_t lp1 = ((const int32_t*)(dst->op_params))[2];
+        const int32_t rp1 = ((const int32_t*)(dst->op_params))[3];
+        const int32_t lp2 = ((const int32_t*)(dst->op_params))[4];
+        const int32_t rp2 = ((const int32_t*)(dst->op_params))[5];
+        const int32_t lp3 = ((const int32_t*)(dst->op_params))[6];
+        const int32_t rp3 = ((const int32_t*)(dst->op_params))[7];
 
         pad_f32_cuda(src0_d, dst_d,
-            src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3],
+            lp0, rp0, lp1, rp1, lp2, rp2, lp3, rp3,
             dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3], stream);
+    }
+
+    void pad_reflect_1d(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+
+        const int32_t* opts = (const int32_t*)dst->op_params;
+        const int p0 = opts[0];
+        const int p1 = opts[1];
+
+        const int64_t ne00 = src0->ne[0];
+        const int64_t ne01 = src0->ne[1];
+        const int64_t ne02 = src0->ne[2];
+        const int64_t ne03 = src0->ne[3];
+
+        const int64_t ne0 = dst->ne[0];
+
+        // sanity: padded length matches
+        GGML_ASSERT(ne0 == ne00 + p0 + p1);
+
+        pad_reflect_1d_cuda(
+            src0->data, dst->data,
+            ne0, ne00, ne01, ne02, ne03,
+            src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3],
+            dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3],
+            p0, p1, stream
+        );
     }
 
     void timestep_embedding(cudaStream_t stream, ggml_tensor* dst) {
@@ -1623,6 +1707,155 @@ namespace op
         leaky_relu_cuda(src0->type == GGML_TYPE_F16, src0_d, dst_d, src0->nelements(), negative_slope, stream);
     }
 
+    // Best FlashAttention kernel for a specific GPU:
+    enum best_fattn_kernel {
+        BEST_FATTN_KERNEL_NONE = 0,
+        BEST_FATTN_KERNEL_TILE = 200,
+        BEST_FATTN_KERNEL_VEC_F32 = 100,
+        BEST_FATTN_KERNEL_VEC_F16 = 110,
+        BEST_FATTN_KERNEL_WMMA_F16 = 300,
+        BEST_FATTN_KERNEL_MMA_F16 = 400,
+    };
+
+    best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const ggml_tensor* dst) {
+#ifndef FLASH_ATTN_AVAILABLE
+        GGML_UNUSED(device); GGML_UNUSED(dst);
+        return BEST_FATTN_KERNEL_NONE;
+#endif// FLASH_ATTN_AVAILABLE
+
+        const ggml_tensor* KQV = dst;
+        const ggml_tensor* Q = dst->src[0];
+        const ggml_tensor* K = dst->src[1];
+        const ggml_tensor* V = dst->src[2];
+        const ggml_tensor* mask = dst->src[3];
+
+        const int gqa_ratio = Q->ne[2] / K->ne[2];
+        GGML_ASSERT(Q->ne[2] % K->ne[2] == 0);
+
+        const int cc = ggml_cuda_info().devices[device].cc;
+        const int warp_size = ggml_cuda_info().devices[device].warp_size;
+        const enum ggml_prec prec = ggml_flash_attn_ext_get_prec(KQV);
+
+        switch (K->ne[0]) {
+        case  64:
+        case 128:
+        case 256:
+            if (V->ne[0] != K->ne[0]) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            break;
+        case  80:
+        case  96:
+        case 112:
+            if (V->ne[0] != K->ne[0]) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            if (!fp16_mma_available(cc) && !turing_mma_available(cc)) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            break;
+        case 576:
+            if (V->ne[0] != 512) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            if (!turing_mma_available(cc) || gqa_ratio % 16 != 0) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            break;
+        default:
+            return BEST_FATTN_KERNEL_NONE;
+        }
+
+#ifndef GGML_CUDA_FA_ALL_QUANTS
+        if (K->type != V->type) {
+            return BEST_FATTN_KERNEL_NONE;
+        }
+#endif // GGML_CUDA_FA_ALL_QUANTS
+
+        switch (K->type) {
+        case GGML_TYPE_F16:
+            break;
+        case GGML_TYPE_Q4_1:
+        case GGML_TYPE_Q5_0:
+        case GGML_TYPE_Q5_1:
+#ifndef GGML_CUDA_FA_ALL_QUANTS
+            return BEST_FATTN_KERNEL_NONE;
+#endif // GGML_CUDA_FA_ALL_QUANTS
+        case GGML_TYPE_Q4_0:
+        case GGML_TYPE_Q8_0:
+#ifdef GGML_CUDA_FA_ALL_QUANTS
+            if (K->ne[0] != 128 && K->ne[0] != 64) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+#else
+            if (K->ne[0] != 128) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+#endif // GGML_CUDA_FA_ALL_QUANTS
+            break;
+        default:
+            return BEST_FATTN_KERNEL_NONE;
+        }
+
+        switch (V->type) {
+        case GGML_TYPE_F16:
+            break;
+        case GGML_TYPE_Q4_1:
+        case GGML_TYPE_Q5_0:
+        case GGML_TYPE_Q5_1:
+        case GGML_TYPE_Q4_0:
+        case GGML_TYPE_Q8_0:
+            if (K->ne[0] != 128) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            break;
+        default:
+            return BEST_FATTN_KERNEL_NONE;
+        }
+
+        if (mask && mask->ne[2] != 1) {
+            return BEST_FATTN_KERNEL_NONE;
+        }
+
+        const bool can_use_vector_kernel = Q->ne[0] <= 256 && Q->ne[0] % (2 * warp_size) == 0;
+
+        // If Turing tensor cores available, use them except for some cases with batch size 1:
+        if (turing_mma_available(cc)) {
+            const bool gqa_opt_applies = gqa_ratio % 2 == 0 && mask; // The mma-based kernels have GQA-specific optimizations
+            const bool mma_needs_data_conversion = K->type != GGML_TYPE_F16 || V->type != GGML_TYPE_F16;
+            const bool mma_faster_for_rtx4000 = Q->ne[3] > 1 || (gqa_ratio > 4 && K->ne[1] >= 8192);
+            const bool mma_faster_for_bs1 = gqa_opt_applies && !mma_needs_data_conversion &&
+                (cc < GGML_CUDA_CC_ADA_LOVELACE || mma_faster_for_rtx4000);
+            if (Q->ne[1] == 1 && can_use_vector_kernel && !mma_faster_for_bs1) {
+                if (prec == GGML_PREC_DEFAULT && fast_fp16_available(cc)) {
+                    return BEST_FATTN_KERNEL_VEC_F16;
+                }
+                return BEST_FATTN_KERNEL_VEC_F32;
+            }
+            return BEST_FATTN_KERNEL_MMA_F16;
+        }
+
+        // Use kernels specializes for small batch sizes if possible:
+        if (Q->ne[1] <= 8 && can_use_vector_kernel) {
+            if (prec == GGML_PREC_DEFAULT && fast_fp16_available(cc)) {
+                return BEST_FATTN_KERNEL_VEC_F16;
+            }
+            return BEST_FATTN_KERNEL_VEC_F32;
+        }
+
+        // For large batch sizes, use the WMMA kernel if possible:
+        if (fp16_mma_available(cc)) {
+            return BEST_FATTN_KERNEL_WMMA_F16;
+        }
+
+        // If there is no suitable kernel for tensor cores or small batch sizes, use the generic kernel for large batch sizes:
+        return BEST_FATTN_KERNEL_TILE;
+    }
+
+    bool ggml_cuda_flash_attn_ext_supported(int device, const ggml_tensor* dst) {
+        return ggml_cuda_get_best_fattn_kernel(device, dst) != BEST_FATTN_KERNEL_NONE;
+    }
+
     void flash_attn_ext(int device, ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* Q = dst->src[0];
         const ggml_tensor* K = dst->src[1];
@@ -1631,9 +1864,6 @@ namespace op
         const ggml_tensor* sinks = dst->src[4];
 
         ggml_cuda_set_device(device);
-        const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
-        const int warp_size = ggml_cuda_info().devices[ggml_cuda_get_device()].warp_size;
-		const ggml_prec prec = std::bit_cast<ggml_prec>(dst->op_params[3]);
 
         flash_attn_ext_context ctx{
             .device = device,
@@ -1723,66 +1953,25 @@ namespace op
             }
         };
 
-#if defined(GGML_HIP_ROCWMMA_FATTN)
-        if (GGML_CUDA_CC_IS_AMD(cc) && fp16_mma_available(cc)) {
-            ggml_cuda_flash_attn_ext_wmma_f16(ctx, dst);
-            return;
-        }
-#endif // defined(GGML_HIP_ROCWMMA_FATTN)
-
-        if (!fast_fp16_available(cc)) {
-            if (Q->ne[1] <= 8 || Q->ne[0] == 256) {
-                ggml_cuda_flash_attn_ext_vec_f32(ctx);
-            }
-            else {
-                ggml_cuda_flash_attn_ext_tile_f32(ctx);
-            }
-            return;
-        }
-
-        if (!fp16_mma_available(cc)) {
-            if (prec == GGML_PREC_DEFAULT) {
-                if (Q->ne[1] <= 8 || Q->ne[0] == 256) {
-                    ggml_cuda_flash_attn_ext_vec_f16(ctx);
-                }
-                else {
-                    ggml_cuda_flash_attn_ext_tile_f16(ctx);
-                }
-            }
-            else {
-                if (Q->ne[1] <= 8 || Q->ne[0] == 256) {
-                    ggml_cuda_flash_attn_ext_vec_f32(ctx);
-                }
-                else {
-                    ggml_cuda_flash_attn_ext_tile_f32(ctx);
-                }
-            }
-            return;
-        }
-
-        const bool gqa_opt_applies = ((Q->ne[2] / K->ne[2]) % 2 == 0) && mask; // The mma-based kernels have GQA-specific optimizations
-        const bool mma_needs_data_conversion = K->type != GGML_TYPE_F16 || V->type != GGML_TYPE_F16;
-        const bool mma_faster_for_rtx4000 = Q->ne[3] > 1 || (Q->ne[2] > 4 * K->ne[2] && K->ne[1] >= 8192);
-        const bool mma_faster_for_bs1 = turing_mma_available(cc) && gqa_opt_applies && !mma_needs_data_conversion &&
-            (cc < GGML_CUDA_CC_ADA_LOVELACE || mma_faster_for_rtx4000);
-        const bool can_use_vector_kernel = Q->ne[0] <= 256 && Q->ne[0] % (2 * warp_size) == 0;
-        if (Q->ne[1] == 1 && can_use_vector_kernel && !mma_faster_for_bs1) {
-            if (prec == GGML_PREC_DEFAULT) {
-                ggml_cuda_flash_attn_ext_vec_f16(ctx);
-                return;
-            }
-            else if (Q->ne[0] <= 128) {
-                ggml_cuda_flash_attn_ext_vec_f32(ctx);
-                return;
-            }
-        }
-
-        // The MMA implementation needs Turing or newer, use the old WMMA code for Volta:
-        if (fp16_mma_available(cc) && !turing_mma_available(cc)) {
+        switch (ggml_cuda_get_best_fattn_kernel(ggml_cuda_get_device(), dst)) {
+        case BEST_FATTN_KERNEL_NONE:
+            GGML_ABORT("fatal error");
+        case BEST_FATTN_KERNEL_TILE:
+            ggml_cuda_flash_attn_ext_tile(ctx);
+            break;
+        case BEST_FATTN_KERNEL_VEC_F32:
+            ggml_cuda_flash_attn_ext_vec_f32(ctx);
+            break;
+        case BEST_FATTN_KERNEL_VEC_F16:
+            ggml_cuda_flash_attn_ext_vec_f16(ctx);
+            break;
+        case BEST_FATTN_KERNEL_WMMA_F16:
             ggml_cuda_flash_attn_ext_wmma_f16(ctx);
-            return;
+            break;
+        case BEST_FATTN_KERNEL_MMA_F16:
+            ggml_cuda_flash_attn_ext_mma_f16(ctx);
+            break;
         }
-        ggml_cuda_flash_attn_ext_mma_f16(ctx);
     }
 
     void cross_entropy_loss(ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst) {
@@ -2001,6 +2190,47 @@ namespace op
             s_off, nc, nr, nh, ng, n_t, n_s, stream);
     }
 
+    void conv2d(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* kernel = dst->src[0];
+        const ggml_tensor* input = dst->src[1];
+        void* K_D = kernel->data;
+        const float* X_D = (const float*)input->data;
+        float* Y_D = (float*)dst->data;
+
+        GGML_ASSERT(ggml_is_contiguous(kernel));
+        GGML_ASSERT(kernel->type == GGML_TYPE_F16 || kernel->type == GGML_TYPE_F32);
+
+        // same number of input channels
+        GGML_ASSERT(input->ne[2] == kernel->ne[2]);
+
+        const int32_t* p = (const int32_t*)dst->op_params;
+        const int       ST_X = p[0];  // stride_x
+        const int       ST_Y = p[1];  // stride_y
+        const int       PD_X = p[2];  // padding_x
+        const int       PD_Y = p[3];  // padding_y
+        const int       DL_X = p[4];  // dilation_x
+        const int       DL_Y = p[5];  // dilation_y
+
+        // No cwhn
+        GGML_ASSERT(p[6] == false);
+
+        const int IW = input->ne[0];   // input_w
+        const int IH = input->ne[1];   // input_h
+        const int OW = dst->ne[0];     // output_w
+        const int OH = dst->ne[1];     // output_h
+        const int KW = kernel->ne[0];  // kernel_w
+        const int KH = kernel->ne[1];  // kernel_h
+        const int IC = input->ne[2];   // input_channels
+        const int OC = kernel->ne[3];  // ouptut_chanles
+        const int B = input->ne[3];   // n_batches
+
+        const int64_t total = B * OC * OH * OW;
+        conv2d_cuda(kernel->type,
+			X_D, K_D, Y_D,
+            IW, IH, OW, OH, KW, KH, ST_X, ST_Y, PD_X, PD_Y, DL_X, DL_Y, IC, OC, B, stream);
+
+    }
+
     void conv2d_dw(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* kernel = dst->src[0];
         const ggml_tensor* input = dst->src[1];
@@ -2210,6 +2440,100 @@ namespace op
         set_rows_cuda(&ctx, stream);
     }
 
+    void fused_add(cudaStream_t stream, ggml_tensor* dst, int n_fuse)
+    {
+        bin_bcast_context ctx = create_bcast_context(dst);
+        fused_add_cuda(&ctx, n_fuse, stream);
+    }
+
+    void rms_norm_fused_add(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* mul_tensor, ggml_tensor* add_tensor) {
+        const ggml_tensor* rms_norm_src = dst->src[0];
+        float               eps = 0.0f;
+
+        memcpy(&eps, dst->op_params, sizeof(float));
+
+        const float* src0_d = (const float*)rms_norm_src->data;
+        const float* mul_d = nullptr;
+        const ggml_tensor* mul_src = nullptr;
+
+        if (mul_tensor->src[0] == dst) {
+            mul_d = (float*)mul_tensor->src[1]->data;
+            mul_src = mul_tensor->src[1];
+        }
+        else if (mul_tensor->src[1] == dst) {
+            mul_d = (float*)mul_tensor->src[0]->data;
+            mul_src = mul_tensor->src[0];
+        }
+        else {
+            GGML_ASSERT(false);
+        }
+
+        const float* add_d = nullptr;
+        const ggml_tensor* add_src = nullptr;
+
+        if (add_tensor->src[0] == mul_tensor) {
+            add_d = (float*)add_tensor->src[1]->data;
+            add_src = add_tensor->src[1];
+        }
+        else if (add_tensor->src[1] == mul_tensor) {
+            add_d = (float*)add_tensor->src[0]->data;
+            add_src = add_tensor->src[0];
+        }
+        else {
+            GGML_ASSERT(false);
+        }
+
+        float* dst_d = (float*)add_tensor->data;
+
+        GGML_ASSERT(rms_norm_src->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+        GGML_ASSERT(mul_tensor->type == GGML_TYPE_F32);
+        GGML_ASSERT(add_tensor->type == GGML_TYPE_F32);
+        GGML_ASSERT(eps >= 0.0f);
+
+        const int64_t ne00 = rms_norm_src->ne[0];
+        const int64_t ne01 = rms_norm_src->ne[1];
+        const int64_t ne02 = rms_norm_src->ne[2];
+        const int64_t ne03 = rms_norm_src->ne[3];
+
+        const size_t ts0 = ggml_type_size(rms_norm_src->type);
+        GGML_ASSERT(rms_norm_src->nb[0] == ts0);
+        const int64_t s01 = rms_norm_src->nb[1] / ts0;
+        const int64_t s02 = rms_norm_src->nb[2] / ts0;
+        const int64_t s03 = rms_norm_src->nb[3] / ts0;
+
+        const size_t ts_mul = ggml_type_size(mul_src->type);
+        GGML_ASSERT(mul_src->nb[0] == ts_mul);
+        const int64_t mul_s01 = mul_src->nb[1] / ts_mul;
+        const int64_t mul_s02 = mul_src->nb[2] / ts_mul;
+        const int64_t mul_s03 = mul_src->nb[3] / ts_mul;
+
+        const int mul_ncols = mul_src->ne[0];
+        const int mul_nrows = mul_src->ne[1];
+        const int mul_nchannels = mul_src->ne[2];
+        const int mul_nsamples = mul_src->ne[3];
+
+        const size_t ts_add = ggml_type_size(add_src->type);
+        GGML_ASSERT(add_src->nb[0] == ts_add);
+        const int64_t add_s01 = add_src->nb[1] / ts_add;
+        const int64_t add_s02 = add_src->nb[2] / ts_add;
+        const int64_t add_s03 = add_src->nb[3] / ts_add;
+
+        const int add_ncols = add_src->ne[0];
+        const int add_nrows = add_src->ne[1];
+        const int add_nchannels = add_src->ne[2];
+        const int add_nsamples = add_src->ne[3];
+
+        rms_norm_mul_f32_cuda(src0_d, mul_d, add_d, dst_d,
+            ne00, ne01, ne02, ne03,
+            /*s00*/ s01, s02, s03,
+            /*mul_s00*/ mul_s01, mul_s02, mul_s03,
+            mul_ncols, mul_nrows, mul_nchannels, mul_nsamples,
+            /*add_s00*/ add_s01, add_s02, add_s03,
+            add_ncols, add_nrows, add_nchannels, add_nsamples,
+            eps, stream);
+    }
+
     void rms_norm_fused(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* mul_tensor) {
         const ggml_tensor* rms_norm_src = dst->src[0];
         float eps = 0.0f;
@@ -2261,7 +2585,14 @@ namespace op
         const int mul_nchannels = mul_src->ne[2];
         const int mul_nsamples = mul_src->ne[3];
 
-        rms_norm_mul_f32_cuda(src0_d, mul_d, dst_d, ne00, ne01, ne02, ne03, s01, s02, s03, mul_s01, mul_s02, mul_s03, mul_ncols, mul_nrows, mul_nchannels, mul_nsamples, eps, stream);
+        rms_norm_mul_f32_cuda(src0_d, mul_d, nullptr, dst_d,
+            ne00, ne01, ne02, ne03,
+            /*s00*/ s01, s02, s03,
+            /*mul_s00*/ mul_s01, mul_s02, mul_s03,
+            mul_ncols, mul_nrows, mul_nchannels, mul_nsamples,
+            /*add_s00*/ 0, 0, 0,
+            0, 0, 0, 0,
+            eps, stream);
     }
 
     void roll(cudaStream_t stream, ggml_tensor* dst) {

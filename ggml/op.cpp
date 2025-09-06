@@ -902,16 +902,7 @@ ggml_tensor* ggml_pad(
 	int p1,
 	int p2,
 	int p3) {
-	ggml_tensor* result = ctx->create(a->type,
-		{ a->ne[0] + p0,
-		a->ne[1] + p1,
-		a->ne[2] + p2,
-		a->ne[3] + p3 });
-
-	result->op = GGML_OP_PAD;
-	result->src.push_back(a);
-
-	return result;
+	return ggml_pad_ext(ctx, a, 0, p0, 0, p1, 0, p2, 0, p3);
 }
 
 ggml_tensor* ggml_timestep_embedding(
@@ -919,12 +910,8 @@ ggml_tensor* ggml_timestep_embedding(
 	ggml_tensor* timesteps,
 	int dim,
 	int max_period) {
-	int actual_dim = dim;
-	if (dim % 2 != 0) {
-		actual_dim = dim + 1;
-	}
 
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { actual_dim, timesteps->ne[0] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { dim, timesteps->ne[0] });
 
 	result->op_params[0] = std::bit_cast<uint32_t>(dim);
 	result->op_params[1] = std::bit_cast<uint32_t>(max_period);
@@ -1928,6 +1915,7 @@ ggml_tensor* ggml_get_rows(
 	ggml_tensor* b)
 {
 	GGML_ASSERT(a->ne[2] == b->ne[1]);
+	GGML_ASSERT(a->ne[3] == b->ne[2]);
 	GGML_ASSERT(b->ne[3] == 1);
 	GGML_ASSERT(b->type == GGML_TYPE_I32);
 
@@ -2529,4 +2517,131 @@ ggml_tensor* ggml_rope_multi_inplace(
 		ctx, a, b, c, n_dims, sections, mode, n_ctx_orig, freq_base, freq_scale,
 		ext_factor, attn_factor, beta_fast, beta_slow, true
 	);
+}
+
+// a: [OC*IC, KD, KH, KW]
+// b: [N*IC, ID, IH, IW]
+// result: [N*OD, OH, OW, IC * KD * KH * KW]
+ggml_tensor* ggml_im2col_3d(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	int64_t IC,
+	int s0, // stride width
+	int s1, // stride height
+	int s2, // stride depth
+	int p0, // padding width
+	int p1, // padding height
+	int p2, // padding depth
+	int d0, // dilation width
+	int d1, // dilation height
+	int d2, // dilation depth
+	ggml_type dst_type) {
+	const int64_t N = b->ne[3] / IC;
+	const int64_t ID = b->ne[2];
+	const int64_t IH = b->ne[1];
+	const int64_t IW = b->ne[0];
+
+	const int64_t OC = a->ne[3] / IC;
+	const int64_t KD = a->ne[2];
+	const int64_t KH = a->ne[1];
+	const int64_t KW = a->ne[0];
+	const int64_t OD = ggml_calc_conv_output_size(ID, KD, s2, p2, d2);
+	const int64_t OH = ggml_calc_conv_output_size(IH, KH, s1, p1, d1);
+	const int64_t OW = ggml_calc_conv_output_size(IW, KW, s0, p0, d0);
+
+	GGML_ASSERT((OD > 0) && "b too small compared to a");
+	GGML_ASSERT((OH > 0) && "b too small compared to a");
+	GGML_ASSERT((OW > 0) && "b too small compared to a");
+
+	ggml_tensor* result = ctx->create(dst_type, { KW * KH * KD * IC, OW, OH, OD * N });
+	int32_t params[] = { s0, s1, s2, p0, p1, p2, d0, d1, d2, (int32_t)IC };
+	ggml_set_op_params(*result, params, sizeof(params));
+
+	result->op = GGML_OP_IM2COL_3D;
+	result->src.push_back(a);
+	result->src.push_back(b);
+
+	return result;
+}
+
+ggml_tensor* ggml_conv_3d_direct(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	int s0,
+	int s1,
+	int s2,
+	int p0,
+	int p1,
+	int p2,
+	int d0,
+	int d1,
+	int d2,
+	int c,
+	int n,
+	int oc) {
+
+	GGML_ASSERT(a->ne[3] == (int64_t)c * oc);
+	GGML_ASSERT(b->ne[3] == (int64_t)c * n);
+
+	int64_t ne[4];
+	ne[0] = ggml_calc_conv_output_size(b->ne[0], a->ne[0], s0, p0, d0);
+	ne[1] = ggml_calc_conv_output_size(b->ne[1], a->ne[1], s1, p1, d1);
+	ne[2] = ggml_calc_conv_output_size(b->ne[2], a->ne[2], s2, p2, d2);
+	ne[3] = (int64_t)oc * n;
+
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { ne[0], ne[1], ne[2], ne[3] });
+
+	result->op_params[0] = s0;
+	result->op_params[1] = s1;
+	result->op_params[2] = s2;
+	result->op_params[3] = p0;
+	result->op_params[4] = p1;
+	result->op_params[5] = p2;
+	result->op_params[6] = d0;
+	result->op_params[7] = d1;
+	result->op_params[8] = d2;
+	result->op_params[9] = c;
+	result->op_params[10] = n;
+	result->op_params[11] = oc;
+
+	result->op = GGML_OP_CONV_3D;
+	result->src.push_back(a);
+	result->src.push_back(b);
+
+	return result;
+}
+
+ggml_tensor* ggml_pad_ext(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	int lp0,
+	int rp0,
+	int lp1,
+	int rp1,
+	int lp2,
+	int rp2,
+	int lp3,
+	int rp3
+) {
+	ggml_tensor* result = ctx->create(a->type,
+		{ a->ne[0] + lp0 + rp0,
+		a->ne[1] + lp1 + rp1,
+		a->ne[2] + lp2 + rp2,
+		a->ne[3] + lp3 + rp3 });
+
+	result->op_params[0] = lp0;
+	result->op_params[1] = rp0;
+	result->op_params[2] = lp1;
+	result->op_params[3] = rp1;
+	result->op_params[4] = lp2;
+	result->op_params[5] = rp2;
+	result->op_params[6] = lp3;
+	result->op_params[7] = rp3;
+
+	result->op = GGML_OP_PAD;
+	result->src.push_back(a);
+
+	return result;
 }

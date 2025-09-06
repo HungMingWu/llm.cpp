@@ -37,6 +37,8 @@
 #define GGML_CUDA_CC_IS_RDNA4(cc) (cc >= GGML_CUDA_CC_RDNA4)
 #define GGML_CUDA_CC_IS_GCN(cc)   (cc > GGML_CUDA_CC_OFFSET_AMD && cc < GGML_CUDA_CC_CDNA1)
 #define GGML_CUDA_CC_IS_CDNA(cc)  (cc >= GGML_CUDA_CC_CDNA1 && cc < GGML_CUDA_CC_RDNA1)
+#define GGML_CUDA_CC_IS_CDNA1(cc) (cc >= GGML_CUDA_CC_CDNA1 && cc < GGML_CUDA_CC_CDNA2)
+#define GGML_CUDA_CC_IS_CDNA2(cc) (cc >= GGML_CUDA_CC_CDNA2 && cc < GGML_CUDA_CC_CDNA3)
 #define GGML_CUDA_CC_IS_CDNA3(cc) (cc >= GGML_CUDA_CC_CDNA3 && cc < GGML_CUDA_CC_RDNA1)
 
 // Moore Threads
@@ -70,14 +72,6 @@ static constexpr size_t GGML_CUDA_MAX_DEVICES = 16;
 static constexpr size_t GGML_CUDA_MAX_STREAMS = 8;
 
 static constexpr int WARP_SIZE = 32;
-
-#ifdef GGML_CUDA_F16
-typedef half dfloat; // dequantize float
-typedef half2 dfloat2;
-#else
-typedef float dfloat; // dequantize float
-typedef float2 dfloat2;
-#endif // GGML_CUDA_F16
 
 [[noreturn]]
 void ggml_cuda_error(const char* stmt, const char* func, const char* file, int line, const char* msg);
@@ -181,9 +175,9 @@ constexpr bool ggml_cuda_has_arch(const int arch) {
     return ggml_cuda_has_arch_impl(arch, __CUDA_ARCH_LIST__);
 }
 
-constexpr int ggml_cuda_highest_compiled_arch_impl(const int arch, const int cur) {
+constexpr int ggml_cuda_highest_compiled_arch_impl(const int /*arch*/, const int cur) {
     if (cur == 0) {
-        GGML_ABORT("ggml was not compiled with any CUDA arch <= %d", arch);
+        return -1;
     }
     return cur;
 }
@@ -206,6 +200,15 @@ constexpr int ggml_cuda_highest_compiled_arch(const int arch) {
     return arch;
 }
 #endif // __CUDA_ARCH_LIST__
+
+#if (defined(CUDART_VERSION) && CUDART_VERSION < CUDART_HMASK) || defined(GGML_USE_HIP) || \
+    (defined(MUSART_VERSION) && MUSART_VERSION < MUSART_HMASK)
+static __device__ __forceinline__ uint32_t __hgt2_mask(const half2 a, const half2 b) {
+    const uint32_t mask_low = 0x0000FFFF * (float(__low2half(a)) > float(__low2half(b)));
+    const uint32_t mask_high = 0xFFFF0000 * (float(__high2half(a)) > float(__high2half(b)));
+    return mask_low | mask_high;
+}
+#endif // (defined(CUDART_VERSION) && CUDART_VERSION < CUDART_HMASK) || defined(GGML_USE_HIP) || (defined(MUSART_VERSION) && MUSART_VERSION < MUSART_HMASK)
 
 static constexpr bool fast_fp16_available(const int cc) {
     return cc >= GGML_CUDA_CC_PASCAL && cc != 610;
@@ -288,3 +291,7 @@ bool fp32_mma_hardware_available(const int cc);
 
 // To be used for feature selection of external libraries, e.g. cuBLAS.
 bool fp16_mma_hardware_available(const int cc);
+
+#if defined(GGML_USE_HIP) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL
+#define FP16_AVAILABLE
+#endif // defined(GGML_USE_HIP) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL

@@ -642,6 +642,10 @@ void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
     for (auto &split : splits) {
         split.graph = ggml_graph_view(graph, split.i_start, split.i_end);
 
+        // Optimize this split of the graph. This needs to happen before we make graph_copy,
+        // so they are in sync.
+        backends[split.backend_id]->graph_optimize(&split.graph);
+
         // add inputs to the graph copy so that they are allocated by ggml-alloc at the start of the split
         for (auto input : split.inputs) {
             ggml_tensor* input_cpy = hv_tensor_copies[input][split.backend_id][cur_copy];
@@ -701,9 +705,11 @@ void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
 
 bool ggml_backend_sched::reserve(const ggml_cgraph* measure_graph)
 {
-    split_graph(*measure_graph);
+    reset();
 
     synchronize();
+
+    split_graph(*measure_graph);
 
     if (!galloc->reserve(graph, node_backend_ids, leaf_backend_ids)) {
         return false;
@@ -773,12 +779,17 @@ bool ggml_backend_sched::alloc_graph(const ggml_cgraph& graph) {
 }
 
 ggml_status ggml_backend_sched::compute_splits() {
+    ggml_tensor* prev_ids_tensor = nullptr;
+    std::vector<int32_t> ids;
+    std::vector<ggml_bitset_t> used_ids;
+
     for (auto& split : splits) {
         int split_backend_id = split.backend_id;
         ggml_backend* split_backend = backends[split_backend_id];
 
         // copy the input tensors to the split backend
-        for (auto input : split.inputs) {
+        for (size_t input_id = 0; input_id < split.inputs.size(); input_id++) {
+            auto input = split.inputs[input_id];
             ggml_backend* input_backend = get_tensor_backend(input);
             ggml_tensor* input_cpy = hv_tensor_copies[input][split_backend_id][cur_copy];
 
@@ -800,17 +811,105 @@ ggml_status ggml_backend_sched::compute_splits() {
                 else {
                     split_backend->synchronize();
                 }
-                // try async copy, but if not possible, we can still use a sync copy without synchronizing the dst backend, since we handle the synchronization here with multiple copies and events
-                // TODO: add public function to facilitate this, since applications do not have direct access to the backend interface
-                if (!split_backend->cpy_tensor_async(input_backend, input, input_cpy)) {
+                // when offloading MoE weights, we can reduce the amount of data copied by copying only the experts that are used
+                ggml_tensor* node = split.graph.nodes[0];
+                if (!split.graph.nodes.empty() &&
+                    input->buffer->getUsage() == GGML_BACKEND_BUFFER_USAGE_WEIGHTS &&
+                    input->buffer->is_host() && (
+                        (node->src[0] == input_cpy && node->op == GGML_OP_MUL_MAT_ID)
+                        //|| (node->src[1] == input_cpy && node->op == GGML_OP_ADD_ID) /* GGML_OP_ADD_ID weights are small and not worth splitting */
+                        )) {
+
+                    const int64_t n_expert = node->op == GGML_OP_MUL_MAT_ID ? input->ne[2] : input->ne[1];
+                    const size_t expert_size = node->op == GGML_OP_MUL_MAT_ID ? input->nb[2] : input->nb[1];
+
                     input_backend->synchronize();
-                    if (events[split_backend_id][cur_copy] != nullptr) {
-                        events[split_backend_id][cur_copy]->synchronize();
+
+                    // get the ids
+                    ggml_tensor* ids_tensor = node->src[2];
+                    ggml_backend* ids_backend = split_backend;
+
+                    // if the ids tensor is also an input of the split, it may not have been copied yet to the split backend
+                    // in that case, we use the original ids tensor
+                    for (size_t i = input_id + 1; i < split.inputs.size(); i++) {
+                        if (ids_tensor == hv_tensor_copies[split.inputs[i]][split_backend_id][cur_copy]) {
+                            ids_tensor = split.inputs[i];
+                            ids_backend = get_tensor_backend(split.inputs[i]);
+                            break;
+                        }
                     }
-                    else {
-                        split_backend->synchronize();
+
+                    if (ids_tensor != prev_ids_tensor) {
+                        ids.resize(ids_tensor->nbytes() / sizeof(int32_t));
+                        ids_backend->get_tensor_async(ids_tensor, ids.data(), 0, ids_tensor->nbytes());
+                        ids_backend->synchronize();
+
+                        // find the used experts
+                        used_ids.clear();
+                        used_ids.resize(ggml_bitset_size(n_expert));
+                        for (int64_t i1 = 0; i1 < ids_tensor->ne[1]; i1++) {
+                            for (int64_t i0 = 0; i0 < ids_tensor->ne[0]; i0++) {
+                                int32_t id = ids[i1 * ids_tensor->nb[1] / sizeof(int32_t) + i0 * ids_tensor->nb[0] / sizeof(int32_t)];
+                                GGML_ASSERT(id >= 0 && id < n_expert);
+                                ggml_bitset_set(used_ids.data(), id);
+                            }
+                        }
+
+                        prev_ids_tensor = ids_tensor;
                     }
-                    ggml_backend_tensor_copy(input, input_cpy);
+
+                    // group consecutive experts and copy them together
+                    auto copy_experts = [&](int32_t first_id, int32_t last_id) {
+                        const size_t expert_offset = first_id * expert_size;
+                        const size_t expert_size_copy = (last_id - first_id + 1) * expert_size;
+                        const size_t padding = std::min<size_t>(expert_size, 512);
+                        const size_t padding_end = last_id < n_expert - 1 ? padding : 0;
+
+                        split_backend->set_tensor_async(
+                            input_cpy,
+                            (const uint8_t*)input->data + expert_offset, expert_offset,
+                            // copy a bit extra at the to ensure there are no NaNs in the padding of the last expert
+                            // this is necessary for MMQ in the CUDA backend
+                            expert_size_copy + padding_end);
+                        };
+
+                    int id = 0;
+                    while (!ggml_bitset_get(used_ids.data(), id)) {
+                        id++;
+                    }
+                    int32_t first_id = id;
+                    int32_t last_id = first_id;
+
+                    for (++id; id < n_expert; ++id) {
+                        if (!ggml_bitset_get(used_ids.data(), id)) {
+                            continue;
+                        }
+
+                        if (id == last_id + 1) {
+                            last_id = id;
+                            continue;
+                        }
+
+                        copy_experts(first_id, last_id);
+
+                        first_id = id;
+                        last_id = id;
+                    }
+                    copy_experts(first_id, last_id);
+                }
+                else {
+                    // try async copy, but if not possible, we can still use a sync copy without synchronizing the dst backend, since we handle the synchronization here with multiple copies and events
+                    // TODO: add public function to facilitate this, since applications do not have direct access to the backend interface
+                    if (!split_backend->cpy_tensor_async(input_backend, input, input_cpy)) {
+                        input_backend->synchronize();
+                        if (events[split_backend_id][cur_copy] != nullptr) {
+                            events[split_backend_id][cur_copy]->synchronize();
+                        }
+                        else {
+                            split_backend->synchronize();
+                        }
+                        ggml_backend_tensor_copy(input, input_cpy);
+                    }
                 }
             }
         }

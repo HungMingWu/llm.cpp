@@ -278,7 +278,7 @@ bool ggml_backend_compare_graph_backend(ggml_backend* backend1, ggml_backend* ba
         }
         GGML_ASSERT(test_node_idx != -1);
 
-        callback(g1->nodes[test_node_idx], g2->nodes[test_node_idx]);
+        return callback(g1->nodes[test_node_idx], g2->nodes[test_node_idx]);
     }
     else {
         // clang's views::zip have bug, keep old style here
@@ -302,9 +302,8 @@ bool ggml_backend_compare_graph_backend(ggml_backend* backend1, ggml_backend* ba
                 return false;
             }
         }
+        return true;
     }
-
-    return true;
 }
 
 std::string utf16_to_utf8(const std::wstring& str) {

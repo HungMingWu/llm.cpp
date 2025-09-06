@@ -48,11 +48,11 @@ static int get_mmq_x_max_host(const int cc) {
 void arange_f32_cuda(float* dst, size_t dst_size, const float start, const float step, cudaStream_t stream);
 
 void conv_transpose_1d_f32_f32_cuda(
-    const int s0,
-    const int src0_ne0, const int src0_ne1, const int src0_ne2,
-    const int src1_ne0, const int src1_ne1,
-    const int dst_ne0, const int dst_ne1,
-    const float* src0, const float* src1, float* dst, size_t dst_size,
+    const int s0, const int output_size,
+    const int src0_ne0, const int src0_ne1, const int src0_ne2, const int src0_ne3,
+    const int src1_ne0, const int src1_ne1, const int src1_ne2, const int src1_ne3,
+    const int dst_ne0, const int dst_ne1, const int dst_ne2, const int dst_ne3,
+    const float* src0, const float* src1, float* dst,
     cudaStream_t stream);
 
 // From quantize.cu
@@ -100,10 +100,25 @@ struct mmq_args {
     int64_t ncols_x; int64_t nrows_x; int64_t ncols_dst; int64_t stride_row_x; int64_t ncols_y; int64_t nrows_dst;
     int64_t nchannels_x; int64_t nchannels_y; int64_t stride_channel_x; int64_t stride_channel_y; int64_t stride_channel_dst;
     int64_t nsamples_x; int64_t nsamples_y; int64_t stride_sample_x; int64_t stride_sample_y; int64_t stride_sample_dst;
-    bool use_stream_k;
+    bool use_stream_k; int64_t ncols_max;
 };
 
 void ggml_cuda_mul_mat_q_switch_type(ggml_cuda_pool& pool, const mmq_args& args, cudaStream_t stream);
+
+struct mmq_ids_helper_context {
+    const int64_t n_expert_used;
+    const int32_t* ids;
+    int32_t* ids_src1;
+    int32_t* ids_dst;
+    int32_t* expert_bounds;
+    const int64_t n_experts;
+    const int64_t n_tokens;
+    const int64_t nchannels_y;
+    const size_t si1;
+    const size_t sis1;
+};
+
+void launch_mmq_ids_helper(const mmq_ids_helper_context* ctx, cudaStream_t stream);
 
 void pool2d_nchw_kernel_f32_f32_cuda(
     const int ih, const int iw, const int oh, const int ow,
@@ -121,6 +136,12 @@ void im2col_cuda_f32(const float* x, float* dst,
     int64_t IW, int64_t IH, int64_t OW, int64_t OH, int64_t KW, int64_t KH, int64_t IC,
     int64_t N, int64_t IC_IH_IW, int64_t IH_IW,
     int s0, int s1, int p0, int p1, int d0, int d1, cudaStream_t stream);
+
+void im2col_3d_cuda(ggml_type dst_type, const float* src1_d, void* dst_d,
+    int64_t N, int64_t IC, int64_t ID, int64_t IH, int64_t IW, int64_t OC,
+    int64_t KD, int64_t KH, int64_t KW, int64_t OD, int64_t OH, int64_t OW,
+    int64_t stride_q, int64_t stride_z, int64_t stride_y, int64_t stride_x,
+    int s0, int s1, int s2, int p0, int p1, int p2, int d0, int d1, int d2, cudaStream_t stream);
 
 // unary
 struct unary_context {
@@ -219,10 +240,8 @@ struct count_equal_context {
 };
 void count_equal_cuda(const count_equal_context* ctx, cudaStream_t stream);
 
-// bin_bcast
+// binbcast.cu
 struct bin_bcast_context {
-    const void* src0_d;
-    const void* src1_d;
     void* dst_d;
     const ggml_type src0_type, src1_type, dst_type;
     const int64_t ne00, ne01, ne02, ne03;
@@ -232,6 +251,7 @@ struct bin_bcast_context {
     const int64_t ne0, ne1, ne2, ne3;
     const size_t nb0, nb1, nb2, nb3;
     const bool src0_is_contiguous, src1_is_contiguous, dst_is_contiguous;
+    void* src_data[12];
 };
 
 void repeat_cuda(const bin_bcast_context* ctx, cudaStream_t stream);
@@ -251,6 +271,7 @@ void add_cuda(const bin_bcast_context* ctx, cudaStream_t stream);
 void sub_cuda(const bin_bcast_context* ctx, cudaStream_t stream);
 void mul_cuda(const bin_bcast_context* ctx, cudaStream_t stream);
 void div_cuda(const bin_bcast_context* ctx, cudaStream_t stream);
+void fused_add_cuda(const bin_bcast_context* ctx, int n_fuse, cudaStream_t stream);
 
 // cpy
 struct dup_context {
@@ -269,7 +290,8 @@ struct dup_context {
 void dup_cuda(const dup_context* ctx, cudaStream_t stream);
 
 // scale
-void scale_f32_cuda(const float* x, float* dst, const float scale, const float bias, const int k, cudaStream_t stream);
+void scale_f32_cuda(const float* x, float* dst, const float scale,
+    const float bias, const int64_t nelements, cudaStream_t stream);
 
 // norm
 void norm_f32_cuda(
@@ -290,12 +312,34 @@ void l2_norm_f32_cuda(
     const int64_t stride_row, const int64_t stride_channel,
     const int64_t stride_sample, const float eps, cudaStream_t stream);
 
-void rms_norm_mul_f32_cuda(
-    const float* x, const float* mul, float* dst, const int ncols, const int nrows, const int nchannels, const int nsamples,
-    const int64_t stride_row, const int64_t stride_channel, const int64_t stride_sample,
-    const int64_t mul_stride_row, const int64_t mul_stride_channel, const int64_t mul_stride_sample,
-    const int mul_ncols, const int mul_nrows, const int mul_nchannels, const int mul_nsamples,
-    const float eps, cudaStream_t stream);
+// norm.cu
+void rms_norm_mul_f32_cuda(const float* x,
+    const float* mul,
+    const float* add,
+    float* dst,
+    const int      ncols,
+    const int      nrows,
+    const int      nchannels,
+    const int      nsamples,
+    const int64_t  stride_row,
+    const int64_t  stride_channel,
+    const int64_t  stride_sample,
+    const int64_t  mul_stride_row,
+    const int64_t  mul_stride_channel,
+    const int64_t  mul_stride_sample,
+    const uint32_t mul_ncols,
+    const uint32_t mul_nrows,
+    const uint32_t mul_nchannels,
+    const uint32_t mul_nsamples,
+    const int64_t  add_stride_row,
+    const int64_t  add_stride_channel,
+    const int64_t  add_stride_sample,
+    const uint32_t add_ncols,
+    const uint32_t add_nrows,
+    const uint32_t add_nchannels,
+    const uint32_t add_nsamples,
+    const float    eps,
+    cudaStream_t   stream);
 
 // gla
 struct gla_context {
@@ -471,10 +515,20 @@ void acc_f32_cuda(const float* x, const float* y, float* dst, const int64_t n_el
     const int64_t ne10, const int64_t ne11, const int64_t ne12, const int64_t ne13,
     const int64_t s1, const int64_t s2, const int64_t s3, const int64_t offset, cudaStream_t stream);
 
-// pad
-void pad_f32_cuda(const float* x, float* dst,
-    const int ne00, const int ne01, const int ne02, const int ne03,
+// pad.cu
+void pad_f32_cuda(const float* src, float* dst,
+    const int lp0, const int rp0, const int lp1, const int rp1,
+    const int lp2, const int rp2, const int lp3, const int rp3,
     const int ne0, const int ne1, const int ne2, const int ne3, cudaStream_t stream);
+
+// pad_reflect_1d.cu
+void pad_reflect_1d_cuda(
+    const void* src0, void* dst,
+    const int64_t ne0,
+    const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
+    const int64_t nb00, const int64_t nb01, const int64_t nb02, const int64_t nb03,
+    const int64_t nb0, const int64_t nb1, const int64_t nb2, const int64_t nb3,
+    const int p0, const int p1, cudaStream_t stream);
 
 // tsembd
 void timestep_embedding_f32_cuda(const float* x, float* dst, const int ne00, const int nb1,
@@ -547,8 +601,7 @@ struct flash_attn_ext_context {
 
 void ggml_cuda_flash_attn_ext_vec_f16(const flash_attn_ext_context& ctx);
 void ggml_cuda_flash_attn_ext_vec_f32(const flash_attn_ext_context& ctx);
-void ggml_cuda_flash_attn_ext_tile_f16(const flash_attn_ext_context& ctx);
-void ggml_cuda_flash_attn_ext_tile_f32(const flash_attn_ext_context& ctx);
+void ggml_cuda_flash_attn_ext_tile(const flash_attn_ext_context& ctx);
 void ggml_cuda_flash_attn_ext_wmma_f16(const flash_attn_ext_context& ctx);
 void ggml_cuda_flash_attn_ext_mma_f16(const flash_attn_ext_context& ctx);
 
@@ -679,7 +732,7 @@ void opt_step_sgd_f32_cuda(
     float* x, const float* g, const float* pars, const int64_t k, cudaStream_t stream);
 
 // mmf.cu
-bool ggml_cuda_should_use_mmf(enum ggml_type type, size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t ne11);
+bool ggml_cuda_should_use_mmf(enum ggml_type type, size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t src1_ncols);
 struct mul_mat_f_context {
     ggml_type src0_type;
 	const void* src0_d;
@@ -690,10 +743,13 @@ struct mul_mat_f_context {
     int64_t ne3;
 
     const int64_t ncols_dst;
+    const int64_t stride_col_y;
+    const int64_t stride_col_dst;
+    const size_t ids_s0, ids_s1;
     const int64_t nchannels_y;
     const int64_t nchannels_dst;
-    const int64_t stride_channel_dst;
     const int64_t stride_channel_y;
+    const int64_t stride_channel_dst;
 
     const int64_t s01, s02, s03;
     const int64_t s11, s13;
@@ -726,3 +782,11 @@ struct mul_mat_vec_f_context {
 };
 
 void mul_mat_vec_f_cuda(const mul_mat_vec_f_context* ctx, cudaStream_t stream);
+
+// conv2d.cu
+void conv2d_cuda(ggml_type kernel_type,
+    const float* X_D, void* K_D, float* Y_D,
+    const int IW, const int IH, const int OW, const int OH,
+    const int KW, const int KH, const int ST_X, const int ST_Y,
+    const int PD_X, const int PD_Y, const int DL_X, const int DL_Y,
+    const int IC, const int OC, const int B, cudaStream_t stream);
