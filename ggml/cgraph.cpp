@@ -177,12 +177,6 @@ static void ggml_sub_or_set(
     cgraph->build_forward_expand(grads);
 }
 
-ggml_tensor* ggml_sgn(
-    ggml_context* ctx,
-    ggml_tensor* a) {
-    return ggml_unary(ctx, a, GGML_UNARY_OP_SGN);
-}
-
 extern ggml_tensor* ggml_add1_impl(
     ggml_context* ctx,
     ggml_tensor* a,
@@ -204,12 +198,6 @@ static void ggml_add1_or_set(
     }
     grads->set_name("grad for {}", src->name);
     cgraph->build_forward_expand(cgraph->grads[src]);
-}
-
-ggml_tensor* ggml_step(
-    ggml_context* ctx,
-    ggml_tensor* a) {
-    return ggml_unary(ctx, a, GGML_UNARY_OP_STEP);
 }
 
 static ggml_tensor* ggml_scale_impl(

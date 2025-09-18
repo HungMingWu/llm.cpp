@@ -367,6 +367,11 @@ export {
 		ggml_tensor* a,
 		ggml_tensor* b);
 
+	ggml_tensor* ggml_repeat_4d(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3);
+
 	ggml_tensor* ggml_transpose(
 		ggml_context* ctx,
 		ggml_tensor* a);
@@ -442,6 +447,14 @@ export {
 		ggml_tensor* a);
 
 	ggml_tensor* ggml_abs(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_sgn(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_step(
 		ggml_context* ctx,
 		ggml_tensor* a);
 

@@ -1184,3 +1184,148 @@ struct ggml_custom_merge_patch {
         ggml_custom_merge_patch_1(dst, a, ith, nth, param);
     }
 };
+
+
+
+struct ggml_custom_xielu
+{
+    float alpha_p;
+    float alpha_n;
+    float beta;
+    float eps;
+    void xielu_f32(ggml_tensor* dst, const ggml_tensor* src0, int ith, int nth)
+    {
+        const int64_t nr = ggml::nrows(dst);
+        const int64_t dr = (nr + nth - 1) / nth;
+        const int64_t ir0 = dr * ith;
+        const int64_t ir1 = MIN(ir0 + dr, nr);
+
+        // row index used to determine which thread to use
+        int ir = 0;
+
+        for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+            for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+                for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                    if (ir++ < ir0) continue;
+                    if (ir > ir1) break;
+                    for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
+                        const float* const src = (float*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                        float* dst_data = (float*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                        const float x = *src;
+                        if (x > 0.0f)
+                        {
+                            *dst_data = alpha_p * x * x + beta * x;
+                        }
+                        else
+                        {
+                            *dst_data = (std::expm1f(MIN(x, eps)) - x) * alpha_n + beta * x;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    void operator()(ggml_tensor* dst, int ith, int nth)
+    {
+        const ggml_tensor* src0 = dst->src[0];
+        switch (dst->type)
+        {
+        case GGML_TYPE_F32:
+            CHATLLM_CHECK(ggml::type_of(src0) == ggml::type::GGML_TYPE_F32);
+            xielu_f32(dst, src0, ith, nth);
+            break;
+        default:
+            GGML_ASSERT(false);
+            break;
+        }
+    }
+};
+
+static void ggml_custom_int_div_inner(ggml_tensor* dst, const ggml_tensor* src0, int ith, int nth, const int b)
+{
+    const int64_t nr = ggml::nrows(dst);
+    const int64_t dr = (nr + nth - 1) / nth;
+    const int64_t ir0 = dr * ith;
+    const int64_t ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+    
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+                for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
+                    const int* const src = (int*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                    int* dst_data = (int*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                    *dst_data = *src / b;
+                }
+            }
+        }
+    }
+}
+
+struct ggml_custom_int_div {
+    const int b;
+    void operator()(ggml_tensor* dst, int ith, int nth)
+    {
+        const ggml_tensor* src0 = dst->src[0];
+        switch (dst->type)
+        {
+        case GGML_TYPE_I32:
+            CHATLLM_CHECK(ggml::type_of(dst) == ggml::type::GGML_TYPE_I32);
+            ggml_custom_int_div_inner(dst, src0, ith, nth, b);
+            break;
+        default:
+            GGML_ASSERT(false);
+            break;
+        }
+    }
+};
+
+template <class T> static void ggml_custom_int_T_to_i64(ggml_tensor* dst, const ggml_tensor* src0, int ith, int nth)
+{
+    const int64_t nr = ggml::nrows(dst);
+    const int64_t dr = (nr + nth - 1) / nth;
+    const int64_t ir0 = dr * ith;
+    const int64_t ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                if (ir++ < ir0) continue;
+                if (ir > ir1) break;
+                for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
+                    const T* const src = (T*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+                    int64_t* dst_data = (int64_t*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
+
+                    *dst_data = *src;
+                }
+            }
+        }
+    }
+}
+
+void ggml_custom_int_to_i64(ggml_tensor* dst, int ith, int nth)
+{
+    ggml_tensor* a = dst->src[0];
+    switch (a->type)
+    {
+    case GGML_TYPE_I32:
+        ggml_custom_int_T_to_i64<int32_t>(dst, a, ith, nth);
+        break;
+    case GGML_TYPE_I16:
+        ggml_custom_int_T_to_i64<int16_t>(dst, a, ith, nth);
+        break;
+    default:
+        GGML_ASSERT(false);
+        break;
+    }
+}

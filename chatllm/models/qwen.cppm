@@ -550,6 +550,18 @@ namespace chatllm::qwen
 
         typedef v2::Tokenizer Tokenizer;
 
+        class QWen3SelfAttention : public QKNormedAttention<RMSNorm, BaseAttention>
+        {
+        public:
+            QWen3SelfAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length);
+        };
+
+        class QWen3Block : public LMBlock1<RMSNorm, QWen3SelfAttention, RMSNorm, SiLUMLP>
+        {
+        public:
+            QWen3Block(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size, int num_kv_heads, int head_dim, int max_length);
+        };
+
         class ConditionalGeneration : public BaseModelForConditionalGeneration
         {
         public:
@@ -604,6 +616,7 @@ namespace chatllm::qwen
                 ModelType type = ModelType::MODEL_TYPE_QWEN3_Embedding, const bool skip_lm_head = true, int extra_tensors = 0);
 
             void set_additional_args(const std::map<std::string, std::string>& args) override;
+            int get_text_embedding_dim(void) const override;
         };
     }
 

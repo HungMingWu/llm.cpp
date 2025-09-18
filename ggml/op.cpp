@@ -1296,6 +1296,27 @@ ggml_tensor* ggml_repeat(
 	return result;
 }
 
+ggml_tensor* ggml_repeat_4d(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3)
+{
+	const bool can_repeat = ggml_is_empty(a) || (
+		(ne0 % a->ne[0] == 0) &&
+		(ne1 % a->ne[1] == 0) &&
+		(ne2 % a->ne[2] == 0) &&
+		(ne3 % a->ne[3] == 0)
+	);
+	GGML_ASSERT(can_repeat);
+
+	ggml_tensor* result = ctx->create(a->type, { ne0, ne1, ne2, ne3 });
+
+	result->op = GGML_OP_REPEAT;
+	result->src.push_back(a);
+
+	return result;
+}
+
 ggml_tensor* ggml_transpose(
 	ggml_context* ctx,
 	ggml_tensor* a)
@@ -1525,6 +1546,18 @@ ggml_tensor* ggml_abs(
 	ggml_context* ctx,
 	ggml_tensor* a) {
 	return ggml_unary(ctx, a, GGML_UNARY_OP_ABS);
+}
+
+ggml_tensor* ggml_sgn(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_unary(ctx, a, GGML_UNARY_OP_SGN);
+}
+
+ggml_tensor* ggml_step(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	return ggml_unary(ctx, a, GGML_UNARY_OP_STEP);
 }
 
 ggml_tensor* ggml_rope(

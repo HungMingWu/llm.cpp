@@ -73,6 +73,7 @@ export namespace chatllm
         virtual void read_tensor(const std::string& name,
             const std::string& layer_prefix, int num, const std::string& suffix,
             ggml::tensor* tensor) = 0;
+        virtual void read_scaler(const std::string& name, float* value) = 0;
         virtual bool has_tensor(const std::string& name) const = 0;
     };
 
@@ -381,8 +382,6 @@ export namespace chatllm
 
     class ComputeContext
     {
-    protected:
-        ggml_context gctx;
     public:
         // additional user options
         struct UserOptions
@@ -392,7 +391,7 @@ export namespace chatllm
 
         ComputeContext(BackendContext* backend_context);
 
-        ggml_context* get_ctx() { return &gctx;  }
+        virtual struct ggml_context* get_ctx() = 0;
         virtual ggml_cgraph* get_cgraph(void);
 
         virtual void cb_new_tensor(ggml::tensor* tensor);
