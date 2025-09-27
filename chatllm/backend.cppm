@@ -390,6 +390,7 @@ export namespace chatllm
         };
 
         ComputeContext(BackendContext* backend_context);
+        virtual ~ComputeContext() {}
 
         virtual struct ggml_context* get_ctx() = 0;
         virtual ggml_cgraph* get_cgraph(void);

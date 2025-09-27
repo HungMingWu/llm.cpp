@@ -358,6 +358,8 @@ namespace chatllm
         ForwardContext(BackendContext* backend_context) : ComputeContext(backend_context)
         {
         }
+        ~ForwardContext() override;
+
         struct ggml_context* get_ctx() override { return &gctx; }
         ggml_cgraph* get_cgraph(void) override { return &gf; }
     public:
@@ -366,6 +368,7 @@ namespace chatllm
     };
 
     void set_dbg_ctx(ForwardContext* c);
+    void unset_dbg_ctx(ForwardContext* c);
 
     ModelPurpose get_model_purpose(ModelType model_type)
     {

@@ -2066,7 +2066,7 @@ namespace chatllm
             scores.push_back(reranker->model->qa_rank(gen_config, input_ids));
         }
 
-        chatllm::ordering(scores, order, true);
+        utils::ordering(scores, order, true);
 
         if (top_n > (int)order.size()) top_n = (int)order.size();
 
@@ -2723,7 +2723,7 @@ namespace chatllm
             if (streamer)
             {
                 std::vector<size_t> order;
-                ordering<BeamSearchPipeline::Beam, float>(beams, order, [=](const auto& a) {return a.score; }, true);
+                utils::ordering<BeamSearchPipeline::Beam, float>(beams, order, [=](const auto& a) {return a.score; }, true);
                 for (auto& id : order)
                 {
                     auto beam = beams[id];

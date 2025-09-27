@@ -52,7 +52,7 @@ namespace chatllm
 
     bool ggml::str_to_type(const std::string& str, type* t)
     {
-        if (iequals(str, "q8"))
+        if (utils::iequals(str, "q8"))
         {
             *t = ggml::type::GGML_TYPE_Q8_0;
             return true;
@@ -61,7 +61,7 @@ namespace chatllm
         for (int i = 0; i < GGML_TYPE_COUNT; ++i)
         {
             auto traits = ggml_get_type_traits((type)i);
-            if (iequals(str, traits->type_name))
+            if (utils::iequals(str, traits->type_name))
             {
                 *t = (type)i;
                 return true;
@@ -741,16 +741,29 @@ namespace chatllm
         return tensor;
     }
 
-    ggml::tensor* ggml::rope_ext(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, ggml::tensor* c,
+    ggml::tensor* ggml::rope_ext(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* pos, ggml::tensor* freq_factors,
         int   n_dims, int   mode, int   n_ctx_orig,
         float freq_base, float freq_scale, float ext_factor,
         float attn_factor, float beta_fast, float beta_slow,
         const int* sections)
     {
-        ggml::tensor* tensor = ggml_rope_multi(ctx->get_ctx(), a, b, c,
-            n_dims, (int*)sections, mode, n_ctx_orig,
-            freq_base, freq_scale, ext_factor,
-            attn_factor, beta_fast, beta_slow);
+        ggml::tensor* tensor;
+        if (sections)
+        {
+            CHATLLM_CHECK(mode & GGML_ROPE_TYPE_MROPE);
+            tensor = ggml_rope_multi(ctx->get_ctx(), a, pos, freq_factors,
+                n_dims, (int*)sections, mode, n_ctx_orig,
+                freq_base, freq_scale, ext_factor,
+                attn_factor, beta_fast, beta_slow);
+        }
+        else
+        {
+            CHATLLM_CHECK(0 == (mode & GGML_ROPE_TYPE_MROPE));
+            tensor = ggml_rope_ext(ctx->get_ctx(), a, pos, freq_factors,
+                n_dims, mode, n_ctx_orig,
+                freq_base, freq_scale, ext_factor,
+                attn_factor, beta_fast, beta_slow);
+        }
         ctx->cb_op_tensor(tensor);
         return tensor;
     }
@@ -762,23 +775,30 @@ namespace chatllm
         return tensor;
     }
 
-    ggml::tensor* ggml::rope_ext_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, ggml::tensor* c,
+    ggml::tensor* ggml::rope_ext_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* pos, ggml::tensor* freq_factors,
         int   n_dims, int   mode, int   n_ctx_orig,
         float freq_base, float freq_scale, float ext_factor,
         float attn_factor, float beta_fast, float beta_slow,
         const int* sections)
     {
-        ggml::tensor* tensor = ggml_rope_ext_inplace(ctx->get_ctx(), a, b, c,
-            n_dims, mode, n_ctx_orig,
-            freq_base, freq_scale, ext_factor,
-            attn_factor, beta_fast, beta_slow);
+        ggml::tensor* tensor;
 
-#if (0)
-        ggml::tensor* tensor = ggml_rope_multi_inplace(ctx->get_ctx(), a, b, c,
-            n_dims, (int*)sections, mode, n_ctx_orig,
-            freq_base, freq_scale, ext_factor,
-            attn_factor, beta_fast, beta_slow);
-#endif
+        if (sections)
+        {
+            CHATLLM_CHECK(mode & GGML_ROPE_TYPE_MROPE);
+            tensor = ggml_rope_multi_inplace(ctx->get_ctx(), a, pos, freq_factors,
+                n_dims, (int*)sections, mode, n_ctx_orig,
+                freq_base, freq_scale, ext_factor,
+                attn_factor, beta_fast, beta_slow);
+        }
+        else
+        {
+            CHATLLM_CHECK(0 == (mode & GGML_ROPE_TYPE_MROPE));
+            tensor = ggml_rope_ext_inplace(ctx->get_ctx(), a, pos, freq_factors,
+                n_dims, mode, n_ctx_orig,
+                freq_base, freq_scale, ext_factor,
+                attn_factor, beta_fast, beta_slow);
+        }
         ctx->cb_op_tensor(tensor);
         return tensor;
     }
@@ -1898,16 +1918,54 @@ namespace chatllm
         return attn_scores;
     }
 
+    BaseTensorPosHelper::BaseTensorPosHelper(int max_length)
+        : max_length(max_length)
+    {
+    }
+
+    ggml::tensor* BaseTensorPosHelper::allocate_pos_tensor(InitContext* ctx)
+    {
+        ggml::tensor* r = ggml::new_tensor_1d(ctx, GGML_TYPE_I32, max_length);
+        v_pos.resize(max_length);
+        ctx->get_allocator()->alloc(r);
+        return r;
+    }
+
+    void BaseTensorPosHelper::prepare_pos_tensor(ComputeContext* ctx, ggml::tensor* pos, const int n_past, const int qlen)
+    {
+        fill_pos_vector(ctx, v_pos, pos, n_past, qlen);
+    }
+
+    void TensorPosHelperParam::set(BaseTensorPosHelper* helper)
+    {
+        TensorPosHelperParam::helper = helper;
+    }
+
+    BaseTensorPosHelper* TensorPosHelperParam::get(int max_length)
+    {
+        return helper;
+    }
+
+    BaseTensorPosHelper* TensorPosHelperParam::helper = nullptr;
+
+    TensorPosHelperPrelude::TensorPosHelperPrelude(BaseTensorPosHelper* helper)
+    {
+        TensorPosHelperParam::set(helper);
+    }
+
+    void TensorPosHelperPrelude::done()
+    {
+        TensorPosHelperParam::set(nullptr);
+    }
+
     void CoreAttention::allocate_pos_tensor(InitContext* ctx)
     {
-        pos = ggml::new_tensor_1d(ctx, GGML_TYPE_I32, max_length);
-        v_pos.resize(max_length);
-        ctx->get_allocator()->alloc(pos);
+        pos = pos_helper->allocate_pos_tensor(ctx);
     }
 
     void CoreAttention::prepare_pos_tensor(ComputeContext* ctx, const int n_past, const int qlen)
     {
-        fill_pos_vector(ctx, v_pos, pos, n_past, qlen);
+        pos_helper->prepare_pos_tensor(ctx, pos, n_past, qlen);
     }
 
     void CoreAttention::before_forward(ComputeContext* ctx, const int n_past, const int qlen)
@@ -2397,10 +2455,10 @@ namespace chatllm
         num_local_experts(num_local_experts), num_experts_per_tok(num_experts_per_tok),
         gate(ctx, hidden_size, num_local_experts, gate_use_bias),
         mover(new CPUMover(ctx, ctx->user_options.moe_on_cpu)),
-        experts(ctx, hidden_size, intermediate_size, num_local_experts, num_experts_per_tok, act, experts_use_bias),
         gate_score_correction_bias(gate_score_use_bias ? ggml::new_tensor_1d(ctx, GGML_TYPE_F32, num_local_experts) : nullptr),
         group_indices(grouped_max ? ggml::new_tensor_2d(ctx, GGML_TYPE_I32, 1, num_experts_per_tok) : nullptr),
         router_scale(router_scale ? ggml::new_tensor_1d(ctx, GGML_TYPE_F32, num_local_experts) : nullptr),
+        experts(ctx, hidden_size, intermediate_size, num_local_experts, num_experts_per_tok, act, experts_use_bias),
         norm_topk_prob(true),
         score_func(ScoreFunc::Softmax),
         routed_scaling_factor(-1.0f),

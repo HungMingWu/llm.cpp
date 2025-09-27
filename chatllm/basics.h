@@ -11,15 +11,6 @@
 
 namespace chatllm
 {
-    static bool iequals(std::string_view a, std::string_view b) {
-        return a.size() == b.size() &&
-            std::ranges::equal(a, b,
-                [](char a, char b) {
-                    return std::tolower(static_cast<unsigned char>(a)) ==
-                        std::tolower(static_cast<unsigned char>(b));
-                });
-    }
-
     class LogMessageFatal
     {
     public:
@@ -35,6 +26,26 @@ namespace chatllm
 #define CHATLLM_CHECK(cond) \
     if (!(cond))            \
     CHATLLM_THROW << "check failed (" #cond ") "
+}
+
+namespace base64
+{
+    std::string encode(const void* raw_data, int data_len, bool for_url);
+    std::vector<uint8_t> decode(const char* encoded_string);
+    void decode_to_utf8(const char* encoded_string, std::string& s);
+    std::string encode_utf8(const std::string& s);
+}
+
+namespace utils
+{
+    static bool iequals(std::string_view a, std::string_view b) {
+        return a.size() == b.size() &&
+            std::ranges::equal(a, b,
+                [](char a, char b) {
+                    return std::tolower(static_cast<unsigned char>(a)) ==
+                        std::tolower(static_cast<unsigned char>(b));
+                });
+    }
 
     template <class T> void ordering(const std::vector<T>& lst, std::vector<size_t>& order, bool descending = false)
     {
@@ -55,18 +66,7 @@ namespace chatllm
                 return descending ? by(lst[a]) > by(lst[b]) : by(lst[a]) < by(lst[b]);
             });
     }
-}
 
-namespace base64
-{
-    std::string encode(const void* raw_data, int data_len, bool for_url);
-    std::vector<uint8_t> decode(const char* encoded_string);
-    void decode_to_utf8(const char* encoded_string, std::string& s);
-    std::string encode_utf8(const std::string& s);
-}
-
-namespace utils
-{
     std::string trim(const std::string& str);
 
     std::string join(const std::vector<std::string>& vec, const std::string& sep);
@@ -102,7 +102,7 @@ namespace utils
 
     int parse_int_lists(std::vector<int>& values, const std::string& s, int num_elements);
 
-    //#define TIME_STAMP (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()))
+    //#define TIME_STAMP (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
 }
 
 #if defined(_MSC_VER)
