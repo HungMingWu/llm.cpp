@@ -26,28 +26,28 @@ static void ggml_compute_forward_rms_norm_back_f32(ggml_tensor* dst) {
     auto x = make_strided_mdspan(static_cast<const float*>(src1->data), src1->ne, src1->nb);
 
     // TODO: optimize
-    for (int64_t i03 = 0; i03 < src0->ne[3]; i03++) {
-        for (int64_t i02 = 0; i02 < src0->ne[2]; i02++) {
-            for (int64_t i01 = 0; i01 < src0->ne[1]; i01++) {
+    for (int64_t i03 = 0; i03 < dz.extent(0); i03++) {
+        for (int64_t i02 = 0; i02 < dz.extent(1); i02++) {
+            for (int64_t i01 = 0; i01 < dz.extent(2); i01++) {
                 // src1 is same shape as src0 => same indices
 
                 double sum_xx = 0.0;
                 double sum_xdz = 0.0;
 
-                for (int64_t i00 = 0; i00 < src0->ne[0]; i00++) {
+                for (int64_t i00 = 0; i00 < dz.extent(3); i00++) {
                     sum_xx += (double)(x[i03, i02, i01, i00] * x[i03, i02, i01, i00]);
                     sum_xdz += (double)(x[i03, i02, i01, i00] * dz[i03, i02, i01, i00]);
                 }
 
-                //const float mean     = (float)(sum_xx)/src0->ne[0];
-                const float mean_eps = (float)(sum_xx) / src0->ne[0] + eps;
-                const float sum_eps = (float)(sum_xx)+eps * src0->ne[0];
-                //const float mean_xdz = (float)(sum_xdz)/src0->ne[0];
+                //const float mean     = (float)(sum_xx)/dz.extent(3);
+                const float mean_eps = (float)(sum_xx) / dz.extent(3) + eps;
+                const float sum_eps = (float)(sum_xx)+eps * dz.extent(3);
+                //const float mean_xdz = (float)(sum_xdz)/dz.extent(3);
                 // we could cache rms from forward pass to improve performance.
                 // to do this implement ggml_rms and compose ggml_rms_norm using ggml_rms.
                 //const float rms      = sqrtf(mean_eps);
                 const float rrms = 1.0f / sqrtf(mean_eps);
-                //const float scale    = -rrms/(src0->ne[0] * mean_eps); // -1/(n*rms**3)
+                //const float scale    = -rrms/(dz.extent(3) * mean_eps); // -1/(n*rms**3)
 
                 {
                     // z = rms_norm(x)
@@ -145,7 +145,7 @@ static void ggml_compute_forward_rms_norm_back_f32(ggml_tensor* dst) {
                 // dx := scale(dx, rrms)
 
                 // dx[i03, i02, i01, i00] = (x[i03, i02, i01, i00]*(-sum_xdz/sum_eps) + dz[i03, i02, i01, i00]) / sqrtf(mean_eps)
-                for (int64_t i00 = 0; i00 < src0->ne[0]; i00++)
+                for (int64_t i00 = 0; i00 < dz.extent(3); i00++)
                     dx[i03, i02, i01, i00] = 
                         (x[i03, i02, i01, i00] * ((float)(-sum_xdz) / sum_eps) + dz[i03, i02, i01, i00]) * rrms;
             }

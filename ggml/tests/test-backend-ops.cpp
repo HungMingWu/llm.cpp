@@ -711,15 +711,32 @@ static std::vector<float> tensor_to_float(const ggml_tensor* t) {
     std::vector<uint8_t> buf(t->nbytes());
     ggml_backend_tensor_get(t, buf.data(), 0, t->nbytes());
 
-    std::vector<float> tmp(ggml_blck_size(t->type) * t->ne[0]);
+    std::vector<float> tmp;
+    bool quantized = ggml_is_quantized(t->type);
+    size_t bs = ggml_blck_size(t->type);
+    if (quantized) {
+        tmp.resize(bs);
+    }
+    else {
+        tmp.resize(bs * t->ne[0]);
+    }
 
     // access elements by index to avoid gaps in views
     for (int64_t i3 = 0; i3 < t->ne[3]; i3++) {
         for (int64_t i2 = 0; i2 < t->ne[2]; i2++) {
             for (int64_t i1 = 0; i1 < t->ne[1]; i1++) {
-                size_t i = i3 * t->nb[3] + i2 * t->nb[2] + i1 * t->nb[1];
-                to_float(t->type, &buf[i], &tmp[0], t->ne[0]);
-                tv.insert(tv.end(), tmp.begin(), tmp.end());
+                if (quantized) {
+                    for (int64_t i0 = 0; i0 < t->ne[0]; i0 += bs) {
+                        size_t i = i3 * t->nb[3] + i2 * t->nb[2] + i1 * t->nb[1] + i0 / bs * t->nb[0];
+                        to_float(t->type, &buf[i], &tmp[0], bs);
+                        tv.insert(tv.end(), tmp.begin(), tmp.end());
+                    }
+                }
+                else {
+                    size_t i = i3 * t->nb[3] + i2 * t->nb[2] + i1 * t->nb[1];
+                    to_float(t->type, &buf[i], &tmp[0], t->ne[0]);
+                    tv.insert(tv.end(), tmp.begin(), tmp.end());
+                }
             }
         }
     }

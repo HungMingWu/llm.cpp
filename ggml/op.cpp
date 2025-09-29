@@ -969,7 +969,7 @@ ggml_tensor* ggml_flash_attn_ext(
 	}
 
 	// permute(0, 2, 1, 3)
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { q->ne[0], q->ne[2], q->ne[1], q->ne[3] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { v->ne[0], q->ne[2], q->ne[1], q->ne[3] });
 
 	float params[] = { scale, max_bias, logit_softcap };
 	ggml_set_op_params(*result, params, sizeof(params));

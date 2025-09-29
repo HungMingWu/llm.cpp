@@ -24,12 +24,12 @@ static void ggml_compute_forward_norm_f32(ggml_tensor* dst) {
     auto x = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
 
     // TODO: optimize
-    for (int64_t i03 = 0; i03 < src0->ne[3]; i03++) {
-        for (int64_t i02 = 0; i02 < src0->ne[2]; i02++) {
-            for (int64_t i01 = 0; i01 < src0->ne[1]; i01++) {
+    for (int64_t i03 = 0; i03 < x.extent(0); i03++) {
+        for (int64_t i02 = 0; i02 < x.extent(1); i02++) {
+            for (int64_t i01 = 0; i01 < x.extent(2); i01++) {
                 double sum = [=] {
                     double sum = 0.0;
-                    for (int64_t i00 = 0; i00 < src0->ne[0]; i00++) {
+                    for (int64_t i00 = 0; i00 < x.extent(3); i00++) {
                         if constexpr (isRms) {
                             sum += (double)(x[i03, i02, i01, i00] * x[i03, i02, i01, i00]);
                         }
@@ -40,21 +40,21 @@ static void ggml_compute_forward_norm_f32(ggml_tensor* dst) {
                     return sum;
                 }();
 
-                float mean = sum / src0->ne[0];
+                float mean = sum / x.extent(3);
                 const float scale = [&] {
                     if constexpr (isRms) {
-                        for (int64_t i00 = 0; i00 < src0->ne[0]; i00++)
+                        for (int64_t i00 = 0; i00 < x.extent(3); i00++)
                             y[i03, i02, i01, i00] = x[i03, i02, i01, i00];
                         return 1.0f / sqrtf(mean + eps);
                     }
                     else {
                         double sum = 0.0;
-                        for (int64_t i00 = 0; i00 < src0->ne[0]; i00++) {
+                        for (int64_t i00 = 0; i00 < x.extent(3); i00++) {
                             float v = x[i03, i02, i01, i00] - mean;
                             y[i03, i02, i01, i00] = v;
                             sum += (double)(v * v);
                         }
-                        float variance = sum / src0->ne[0];
+                        float variance = sum / x.extent(3);
                         return 1.0f / sqrtf(variance + eps);
                     }
                 }();
@@ -64,7 +64,7 @@ static void ggml_compute_forward_norm_f32(ggml_tensor* dst) {
                     assert(scale > 0.0f);
                 }
 
-                for (int64_t i00 = 0; i00 < src0->ne[0]; i00++)
+                for (int64_t i00 = 0; i00 < x.extent(3); i00++)
                     y[i03, i02, i01, i00] *= scale;
             }
         }
@@ -125,24 +125,24 @@ static void ggml_compute_forward_group_norm_f32(ggml_tensor* dst) {
         }
         int step = end - start;
 
-        for (int64_t i03 = 0; i03 < src0->ne[3]; i03++) {
+        for (int64_t i03 = 0; i03 < x.extent(0); i03++) {
             double sum = 0.0;
             for (int64_t i02 = start; i02 < end; i02++) {
-                for (int64_t i01 = 0; i01 < src0->ne[1]; i01++) {
+                for (int64_t i01 = 0; i01 < x.extent(2); i01++) {
                     double sumr = 0.0;
-                    for (int64_t i00 = 0; i00 < src0->ne[0]; i00++) {
+                    for (int64_t i00 = 0; i00 < x.extent(3); i00++) {
                         sumr += (double)x[i03, i02, i01, i00];
                     }
                     sum += sumr;
                 }
             }
-            const float mean = sum / (src0->ne[0] * src0->ne[1] * step);
+            const float mean = sum / (x.extent(3) * x.extent(2) * step);
 
             double sum2 = 0.0;
             for (int64_t i02 = start; i02 < end; i02++) {
-                for (int64_t i01 = 0; i01 < src0->ne[1]; i01++) {
+                for (int64_t i01 = 0; i01 < x.extent(2); i01++) {
                     double sumr = 0.0;
-                    for (int64_t i00 = 0; i00 < src0->ne[0]; i00++) {
+                    for (int64_t i00 = 0; i00 < x.extent(3); i00++) {
                         float v = x[i03, i02, i01, i00] - mean;
                         y[i03, i02, i01, i00] = v;
                         sumr += (double)(v * v);
@@ -150,12 +150,12 @@ static void ggml_compute_forward_group_norm_f32(ggml_tensor* dst) {
                     sum2 += sumr;
                 }
             }
-            const float variance = sum2 / (src0->ne[0] * src0->ne[1] * step);
+            const float variance = sum2 / (x.extent(3) * x.extent(2) * step);
             const float scale = 1.0f / sqrtf(variance + eps);
 
             for (int64_t i02 = start; i02 < end; i02++)
-                for (int64_t i01 = 0; i01 < src0->ne[1]; i01++)
-                    for (int i00 = 0; i00 < src0->ne[0]; i00++)
+                for (int64_t i01 = 0; i01 < x.extent(2); i01++)
+                    for (int i00 = 0; i00 < x.extent(3); i00++)
                         y[i03, i02, i01, i00] *= scale;
         }
     }

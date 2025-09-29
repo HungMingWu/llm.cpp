@@ -25,24 +25,24 @@ static void ggml_compute_forward_repeat_back_f32(ggml_tensor* dst) {
 	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
 	auto src0_data = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
 
-	for (int64_t k3 = 0; k3 < dst->ne[3]; k3++)
-		for (int64_t k2 = 0; k2 < dst->ne[2]; k2++)
-			for (int64_t k1 = 0; k1 < dst->ne[1]; k1++)
-				for (int64_t k0 = 0; k0 < dst->ne[0]; k0++)
+	for (int64_t k3 = 0; k3 < dst_data.extent(0); k3++)
+		for (int64_t k2 = 0; k2 < dst_data.extent(1); k2++)
+			for (int64_t k1 = 0; k1 < dst_data.extent(2); k1++)
+				for (int64_t k0 = 0; k0 < dst_data.extent(3); k0++)
 					dst_data[k3, k2, k1, k0] = 0.0f;
 
 	// TODO: maybe this is not optimal?
 	for (int64_t i3 = 0; i3 < nr3; i3++) {
-		for (int64_t k3 = 0; k3 < dst->ne[3]; k3++) {
+		for (int64_t k3 = 0; k3 < dst_data.extent(0); k3++) {
 			for (int64_t i2 = 0; i2 < nr2; i2++) {
-				for (int64_t k2 = 0; k2 < dst->ne[2]; k2++) {
+				for (int64_t k2 = 0; k2 < dst_data.extent(1); k2++) {
 					for (int64_t i1 = 0; i1 < nr1; i1++) {
-						for (int64_t k1 = 0; k1 < dst->ne[1]; k1++) {
+						for (int64_t k1 = 0; k1 < dst_data.extent(2); k1++) {
 							for (int64_t i0 = 0; i0 < nr0; i0++) {
-								for (int64_t j = 0; j < dst->ne[0]; j++) {
+								for (int64_t j = 0; j < dst_data.extent(3); j++) {
 									dst_data[k3, k2, k1, j] +=
-										src0_data[i3 * dst->ne[3] + k3, i2 * dst->ne[2] + k2, 
-										i1 * dst->ne[1] + k1, i0 * dst->ne[0] + j];
+										src0_data[i3 * dst_data.extent(0) + k3, i2 * dst_data.extent(1) + k2,
+										i1 * dst_data.extent(2) + k1, i0 * dst_data.extent(3) + j];
 								}
 							}
 						}
