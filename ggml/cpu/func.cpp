@@ -5333,7 +5333,7 @@ void ggml_compute_forward_glu(
 	}
 }
 
-template <typename dst_t>
+template <typename idx_t, typename dst_t>
 static void ggml_compute_forward_set_rows_f32(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -5354,7 +5354,7 @@ static void ggml_compute_forward_set_rows_f32(
 
 	auto dst_data = make_strided_mdspan(static_cast<dst_t*>(dst->data), dst->ne, dst->nb);
 	auto src0_data = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
-	auto src1_data = make_strided_mdspan<3>(static_cast<const int64_t*>(src1->data), src1->ne, src1->nb);
+	auto src1_data = make_strided_mdspan<3>(static_cast<const idx_t*>(src1->data), src1->ne, src1->nb);
 
 	for (int64_t i01 = 0; i01 < src0->ne[1]; i01++) {
 		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
@@ -5378,16 +5378,26 @@ static void ggml_compute_forward_set_rows_f32(
 }
 
 template <typename dst_t>
-void ggml_compute_forward_set_rows(
-	const ggml_compute_params* params,
+void ggml_compute_forward_set_rows_f32(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src1 = dst->src[1];
 
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_set_rows_f32<dst_t>(params, dst);
+		if (src1->type == GGML_TYPE_I64) {
+			ggml_compute_forward_set_rows_f32<int64_t, dst_t>(pool, scope, dst);
+		}
+		else if (src1->type == GGML_TYPE_I32) {
+			ggml_compute_forward_set_rows_f32<int32_t, dst_t>(pool, scope, dst);
+		}
+		else {
+			GGML_ABORT("src1->type = %d (%s) not supported", src1->type, ggml_type_name(src1->type));
+		}
 	} break;
 	default:
 	{
@@ -5400,9 +5410,6 @@ void ggml_compute_forward_set_rows(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	ggml_tensor* dst) {
-
-	const ggml_tensor* src0 = dst->src[0];
-
 	switch (dst->type) {
 	case GGML_TYPE_F32:
 	{

@@ -70,6 +70,7 @@ target_sources(libggml
       op/ssm-scan.cu
       op/sum.cu
       op/sumrows.cu
+      op/topk-moe.cu
       op/tsembd.cu
       op/unary.cu
       op/upscale.cu

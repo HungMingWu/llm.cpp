@@ -7,16 +7,30 @@
 
 #define GGML_ABORT(...)
 
-bool ggml_cuda_should_use_mmf(enum ggml_type type, size_t type_size, int cc, int warp_size, const int64_t* src0_ne, int64_t src1_ncols) {
+bool ggml_cuda_should_use_mmf(enum ggml_type type, 
+    size_t type_size, int cc, int warp_size, const int64_t* src0_ne, int64_t src1_ncols, bool mul_mat_id) {
+
     if (src0_ne[0] % (warp_size * (4 / type_size)) != 0) {
         return false;
     }
     if (src0_ne[1] % MMF_ROWS_PER_BLOCK != 0) {
         return false;
     }
-    if (src1_ncols > 16) {
-        return false;
+
+    if (mul_mat_id) {
+        if (type == GGML_TYPE_F32 && src1_ncols > 32) {
+            return false;
+        }
+        if ((type == GGML_TYPE_F16 || type == GGML_TYPE_BF16) && src1_ncols > 64) {
+            return false;
+        }
     }
+    else {
+        if (src1_ncols > 16) {
+            return false;
+        }
+    }
+
     switch (type) {
     case GGML_TYPE_F32:
         return ampere_mma_available(cc);

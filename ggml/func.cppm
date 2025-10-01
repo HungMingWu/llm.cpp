@@ -1,5 +1,6 @@
 module;
 #include <string.h>
+#include <filesystem>
 #include <memory>
 #include <span>
 #include <string>
@@ -52,7 +53,7 @@ struct ggml_backend_registry {
 
 	void register_backend(ggml_backend_reg_t reg, dl_handle_ptr handle = nullptr);
 	void register_device(ggml_backend_device* device);
-	ggml_backend_reg_t load_backend(const std::wstring& path, bool silent);
+	ggml_backend_reg_t load_backend(const std::filesystem::path& path, bool silent);
 	void unload_backend(ggml_backend_reg_t reg, bool silent);
 };
 
@@ -202,8 +203,6 @@ export {
 	 bool ggml_is_view_op(enum ggml_op op) {
 		 return op == GGML_OP_VIEW || op == GGML_OP_RESHAPE || op == GGML_OP_PERMUTE || op == GGML_OP_TRANSPOSE;
 	 }
-
-	 std::string utf16_to_utf8(const std::wstring& str);
 
 	 const char* ggml_status_to_string(enum ggml_status status) {
 		 switch (status) {

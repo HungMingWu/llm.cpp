@@ -1,11 +1,29 @@
 module;
 #include <algorithm>
+#include <filesystem>
 #include <string>
 #include <vector>
 
 #define GGML_USE_CPU
 
 #define GGML_BACKEND_API_VERSION 1
+
+static std::string path_str(const std::filesystem::path& path) {
+	std::string u8path;
+	try {
+#if defined(__cpp_lib_char8_t)
+		// C++20 and later: u8string() returns std::u8string
+		std::u8string u8str = path.u8string();
+		u8path = std::string(reinterpret_cast<const char*>(u8str.c_str()));
+#else
+		// C++17: u8string() returns std::string
+		u8path = path.u8string();
+#endif
+	}
+	catch (...) {
+	}
+	return u8path;
+}
 
 module ggml;
 import :log;
@@ -74,12 +92,13 @@ void ggml_backend_registry::register_device(ggml_backend_device* device) {
 	devices.push_back(device);
 }
 
-ggml_backend_reg_t ggml_backend_registry::load_backend(const std::wstring& path, bool silent)
+// For right now, std::fomrmat doesn't support print filesystem path
+ggml_backend_reg_t ggml_backend_registry::load_backend(const std::filesystem::path& path, bool silent)
 {
 	dl_handle_ptr handle{ dl_load_library(path) };
 	if (!handle) {
 		if (!silent) {
-			GGML_LOG_ERROR("{}: failed to load {}", __func__, utf16_to_utf8(path));
+			GGML_LOG_ERROR("{}: failed to load {}: {}", __func__, path_str(path), dl_error());
 		}
 		return nullptr;
 	}
@@ -87,7 +106,7 @@ ggml_backend_reg_t ggml_backend_registry::load_backend(const std::wstring& path,
 	auto score_fn = (ggml_backend_score_t)dl_get_sym(handle.get(), "ggml_backend_score");
 	if (score_fn && score_fn() == 0) {
 		if (!silent) {
-			GGML_LOG_INFO("{}: backend {} is not supported on this system", __func__, utf16_to_utf8(path));
+			GGML_LOG_INFO("{}: backend {} is not supported on this system", __func__, path_str(path));
 		}
 		return nullptr;
 	}
@@ -95,7 +114,7 @@ ggml_backend_reg_t ggml_backend_registry::load_backend(const std::wstring& path,
 	auto backend_init_fn = (ggml_backend_init_t)dl_get_sym(handle.get(), "ggml_backend_init");
 	if (!backend_init_fn) {
 		if (!silent) {
-			GGML_LOG_ERROR("{}: failed to find ggml_backend_init in {}", __func__, utf16_to_utf8(path));
+			GGML_LOG_ERROR("{}: failed to find ggml_backend_init in {}", __func__, path_str(path));
 		}
 		return nullptr;
 	}
@@ -104,17 +123,17 @@ ggml_backend_reg_t ggml_backend_registry::load_backend(const std::wstring& path,
 	if (!reg || reg->api_version != GGML_BACKEND_API_VERSION) {
 		if (!silent) {
 			if (!reg) {
-				GGML_LOG_ERROR("{}: failed to initialize backend from {}: ggml_backend_init returned NULL", __func__, utf16_to_utf8(path));
+				GGML_LOG_ERROR("{}: failed to initialize backend from {}: ggml_backend_init returned NULL", __func__, path_str(path));
 			}
 			else {
 				GGML_LOG_ERROR("{}: failed to initialize backend from {}: incompatible API version (backend: {}, current: {})\n",
-					__func__, utf16_to_utf8(path), reg->api_version, GGML_BACKEND_API_VERSION);
+					__func__, path_str(path), reg->api_version, GGML_BACKEND_API_VERSION);
 			}
 		}
 		return nullptr;
 	}
 
-	GGML_LOG_INFO("{}: loaded {} backend from {}", __func__, reg->get_name(), utf16_to_utf8(path));
+	GGML_LOG_INFO("{}: loaded {} backend from {}", __func__, reg->get_name(), path_str(path));
 
 	register_backend(reg, std::move(handle));
 

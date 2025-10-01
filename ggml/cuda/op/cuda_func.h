@@ -279,7 +279,7 @@ struct dup_context {
     void* dst_d;
     const ggml_type src_type, dst_type;
     const int64_t ne;
-    const size_t src_length;
+    const size_t src_length, dst_length;
     const int64_t ne00, ne01, ne02, ne03;
     const size_t nb00, nb01, nb02, nb03;
     // rename later
@@ -599,8 +599,7 @@ struct flash_attn_ext_context {
     } KQV;
 };
 
-void ggml_cuda_flash_attn_ext_vec_f16(const flash_attn_ext_context& ctx);
-void ggml_cuda_flash_attn_ext_vec_f32(const flash_attn_ext_context& ctx);
+void ggml_cuda_flash_attn_ext_vec(const flash_attn_ext_context& ctx);
 void ggml_cuda_flash_attn_ext_tile(const flash_attn_ext_context& ctx);
 void ggml_cuda_flash_attn_ext_wmma_f16(const flash_attn_ext_context& ctx);
 void ggml_cuda_flash_attn_ext_mma_f16(const flash_attn_ext_context& ctx);
@@ -685,9 +684,10 @@ void mean_cuda(ggml_cuda_pool& pool, const float* src0_d, float* dst_d, const in
 
 //set-rows.cu
 struct set_rows_context {
+    ggml_type src1_type;
     ggml_type dst_type;
-    const float* src0_d;
-    const int64_t* src1_d;
+    const void* src0_d;
+    const void* src1_d;
     void* dst_d;
     const int64_t ne00, ne01, ne02, ne03;
     const size_t nb00, nb01, nb02, nb03;
@@ -732,7 +732,8 @@ void opt_step_sgd_f32_cuda(
     float* x, const float* g, const float* pars, const int64_t k, cudaStream_t stream);
 
 // mmf.cu
-bool ggml_cuda_should_use_mmf(enum ggml_type type, size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t src1_ncols);
+bool ggml_cuda_should_use_mmf(enum ggml_type type, 
+    size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t src1_ncols, bool mul_mat_id);
 struct mul_mat_f_context {
     ggml_type src0_type;
 	const void* src0_d;
@@ -790,3 +791,7 @@ void conv2d_cuda(ggml_type kernel_type,
     const int KW, const int KH, const int ST_X, const int ST_Y,
     const int PD_X, const int PD_Y, const int DL_X, const int DL_Y,
     const int IC, const int OC, const int B, cudaStream_t stream);
+
+// topk-moe.cu
+void launch_topk_moe_cuda(bool with_norm, const float* logits_d, float* weights_d, int32_t* ids_d,
+    const int n_rows, const int n_experts, const int n_expert_used, cudaStream_t stream);

@@ -53,10 +53,11 @@ module ggml;
 import :cuda.backend;
 import :cuda.op;
 
-static bool cuda_should_use_mmf(enum ggml_type type, size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t src1_ncols)
+static bool cuda_should_use_mmf(enum ggml_type type,
+    size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t src1_ncols, bool mul_mat_id)
 {
     if (ggml_is_quantized(type)) return false;
-	return ggml_cuda_should_use_mmf(type, type_size, cc, warp_size, scr0_ne, src1_ncols);
+    return ggml_cuda_should_use_mmf(type, type_size, cc, warp_size, scr0_ne, src1_ncols, mul_mat_id);
 }
 
 static void ggml_cuda_op_mul_mat_q(
@@ -820,7 +821,7 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
             const int cc = ggml_cuda_info().devices[id].cc;
             const int warp_size = ggml_cuda_info().devices[id].warp_size;
             use_mul_mat_q = use_mul_mat_q && ggml_cuda_should_use_mmq(src0->type, cc, src1->ne[1]);
-            use_mul_mat_f = use_mul_mat_f && cuda_should_use_mmf(src0->type, ggml_type_size(src0->type), cc, warp_size, src0->ne.data(), src1->ne[1]);
+            use_mul_mat_f = use_mul_mat_f && cuda_should_use_mmf(src0->type, ggml_type_size(src0->type), cc, warp_size, src0->ne.data(), src1->ne[1], /*mul_mat_id=*/false);
             use_mul_mat_vec_f = use_mul_mat_vec_f && ggml_cuda_should_use_mmvf(src0->type, cc, src0->ne.data(), src1->ne[1]);
             any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16 || !fast_fp16_hardware_available(cc);
         }
@@ -829,7 +830,7 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
         const int cc = ggml_cuda_info().devices[device].cc;
         const int warp_size = ggml_cuda_info().devices[device].warp_size;
         use_mul_mat_q = use_mul_mat_q && ggml_cuda_should_use_mmq(src0->type, cc, src1->ne[1]);
-        use_mul_mat_f = use_mul_mat_f && cuda_should_use_mmf(src0->type, ggml_type_size(src0->type), cc, warp_size, src0->ne.data(), src1->ne[1]);
+        use_mul_mat_f = use_mul_mat_f && cuda_should_use_mmf(src0->type, ggml_type_size(src0->type), cc, warp_size, src0->ne.data(), src1->ne[1], /*mul_mat_id=*/false);
         use_mul_mat_vec_f = use_mul_mat_vec_f && ggml_cuda_should_use_mmvf(src0->type, cc, src0->ne.data(), src1->ne[1]);
         any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16 || !fast_fp16_hardware_available(cc);
     }
@@ -1344,11 +1345,92 @@ inline bool ggml_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, std::i
     return ggml_can_fuse(cgraph, node_idx, ops.begin(), (int)ops.size());
 }
 
+std::initializer_list<enum ggml_op> ggml_cuda_topk_moe_ops(bool norm) {
+    static std::initializer_list<enum ggml_op> norm_ops = { GGML_OP_SOFT_MAX, GGML_OP_RESHAPE,  GGML_OP_ARGSORT,
+                                                            GGML_OP_VIEW,     GGML_OP_GET_ROWS, GGML_OP_RESHAPE,
+                                                            GGML_OP_SUM_ROWS, GGML_OP_DIV,      GGML_OP_RESHAPE };
+
+    static std::initializer_list<enum ggml_op> no_norm_ops = { GGML_OP_SOFT_MAX, GGML_OP_RESHAPE, GGML_OP_ARGSORT,
+                                                               GGML_OP_VIEW, GGML_OP_GET_ROWS };
+
+    if (norm) {
+        return norm_ops;
+    }
+    return no_norm_ops;
+}
+
+bool ggml_cuda_should_use_topk_moe(const ggml_tensor* softmax, const ggml_tensor* weights) {
+    float scale = 1.0f;
+    float max_bias = 0.0f;
+
+    memcpy(&scale, (const float*)softmax->op_params + 0, sizeof(float));
+    memcpy(&max_bias, (const float*)softmax->op_params + 1, sizeof(float));
+
+    if (!ggml_is_contiguous(softmax->src[0]) || !ggml_is_contiguous(weights)) {
+        return false;
+    }
+
+    if (scale != 1.0f || max_bias != 0.0f) {
+        return false;
+    }
+
+    // don't fuse when masks or sinks are present
+    if (softmax->src[1] || softmax->src[2]) {
+        return false;
+    }
+
+    const int n_expert = softmax->ne[0];
+    // n_expert must be a power of 2
+    if ((n_expert & (n_expert - 1)) != 0 || n_expert > 512) {
+        return false;
+    }
+
+    return true;
+}
+
 static bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, std::initializer_list<enum ggml_op> ops, std::initializer_list<enum ggml_unary_op> unary_ops) {
 #ifndef NDEBUG
     const size_t num_unary = std::count(ops.begin(), ops.end(), GGML_OP_UNARY);
     GGML_ASSERT(unary_ops.size() == num_unary);
 #endif
+
+    //TODO: remove special case once ggml_can_fuse can handle empty nodes
+    std::initializer_list<enum ggml_op> topk_moe_ops = ggml_cuda_topk_moe_ops(false);
+    std::initializer_list<enum ggml_op> topk_moe_ops_with_norm = ggml_cuda_topk_moe_ops(true);
+
+    if (ops.size() == topk_moe_ops_with_norm.size() && std::equal(ops.begin(), ops.end(), topk_moe_ops_with_norm.begin())) {
+
+        if (node_idx + topk_moe_ops_with_norm.size() > cgraph->nodes.size()) {
+            return false;
+        }
+
+        for (size_t i = 0; i < topk_moe_ops_with_norm.size(); i++) {
+            if (cgraph->nodes[node_idx + i]->op != topk_moe_ops_with_norm.begin()[i]) return false;
+        }
+        ggml_tensor* softmax = cgraph->nodes[node_idx];
+        ggml_tensor* weights = cgraph->nodes[node_idx + 8];
+
+        if (ggml_cuda_should_use_topk_moe(softmax, weights)) {
+            return true;
+        }
+    }
+
+    if (ops.size() == topk_moe_ops.size() && std::equal(ops.begin(), ops.end(), topk_moe_ops.begin())) {
+
+        if (node_idx + topk_moe_ops.size() > cgraph->nodes.size()) {
+            return false;
+        }
+
+        for (size_t i = 0; i < topk_moe_ops.size(); i++) {
+            if (cgraph->nodes[node_idx + i]->op != topk_moe_ops.begin()[i]) return false;
+        }
+
+        ggml_tensor* softmax = cgraph->nodes[node_idx];
+        ggml_tensor* weights = cgraph->nodes[node_idx + 4];
+        if (ggml_cuda_should_use_topk_moe(softmax, weights)) {
+            return true;
+        }
+    }
 
     if (!ggml_can_fuse(cgraph, node_idx, ops)) {
         return false;
@@ -1438,6 +1520,22 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
 
                 static bool disable_fusion = (getenv("GGML_CUDA_DISABLE_FUSION") != nullptr);
                 if (!disable_fusion) {
+
+                    if (ggml_cuda_can_fuse(cgraph, i, ggml_cuda_topk_moe_ops(/*with norm*/ true), {})) {
+                        ggml_tensor* weights = cgraph->nodes[i + 8];
+                        ggml_tensor* selected_experts = cgraph->nodes[i + 3];
+                        op::topk_moe(stream(), node, weights, selected_experts, /*with norm*/ true);
+                        i += 8;
+                        continue;
+                    }
+
+                    if (ggml_cuda_can_fuse(cgraph, i, ggml_cuda_topk_moe_ops(/*with norm*/ false), {})) {
+                        ggml_tensor* weights = cgraph->nodes[i + 4];
+                        ggml_tensor* selected_experts = cgraph->nodes[i + 3];
+                        op::topk_moe(stream(), node, weights, selected_experts, /*with norm*/ false);
+                        i += 4;
+                        continue;
+                    }
 
                     if (node->op == GGML_OP_ADD) {
                         int n_fuse = 0;

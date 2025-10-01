@@ -13,9 +13,9 @@ static constexpr size_t CUDA_SET_ROWS_BLOCK_SIZE = 256;
 typedef void (*set_rows_kernel_t)(const char* src, char* dst);
 
 // Generic quantized set_rows kernel template
-template<typename block_type, int qk>
+template<typename idx_t, typename block_type, int qk>
 static __global__ void k_set_rows_quant(
-    const float* __restrict__ src0, const int64_t* __restrict__ src1, block_type* __restrict__ dst,
+    const float* __restrict__ src0, const idx_t* __restrict__ src1, block_type* __restrict__ dst,
     const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
     const int64_t ne10, const int64_t ne11, const int64_t ne12, const int64_t ne13,
     const int64_t s01, const int64_t s02, const int64_t s03,
@@ -53,9 +53,9 @@ static __global__ void k_set_rows_quant(
     GGML_UNUSED(ne13);
 }
 
-template<typename src_t, typename dst_t>
+template<typename src_t, typename idx_t, typename dst_t>
 static __global__ void k_set_rows(
-    const src_t* __restrict__ src0, const int64_t* __restrict__ src1, dst_t* __restrict__ dst,
+    const src_t* __restrict__ src0, const idx_t* __restrict__ src1, dst_t* __restrict__ dst,
     const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
     const int64_t ne10, const int64_t ne11, const int64_t ne12, const int64_t ne13,
     const int64_t s01, const int64_t s02, const int64_t s03,
@@ -90,9 +90,9 @@ static __global__ void k_set_rows(
 }
 
 // Template dispatch function for quantized set_rows
-template<typename block_type, int qk>
+template<typename idx_t, typename block_type>
 static void set_rows_cuda_quant(
-    const float* src0_d, const int64_t* src1_d, block_type* dst_d,
+    const float* src0_d, const idx_t* src1_d, block_type* dst_d,
     const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
     const int64_t ne10, const int64_t ne11, const int64_t ne12, const int64_t ne13,
     const size_t nb01, const size_t nb02, const size_t nb03,
@@ -100,6 +100,7 @@ static void set_rows_cuda_quant(
     const size_t nb1, const size_t nb2, const size_t nb3,
     cudaStream_t stream) {
 
+	static constexpr size_t qk = block_type::block_size;
     GGML_ASSERT(ne00 % qk == 0);
     const int64_t ne_total = (ne00 * ne01 * ne02 * ne03) / qk;
     const int num_blocks = (ne_total + CUDA_SET_ROWS_BLOCK_SIZE - 1) / CUDA_SET_ROWS_BLOCK_SIZE;
@@ -109,15 +110,15 @@ static void set_rows_cuda_quant(
     const int64_t s01 = nb01 / sizeof(float);
     const int64_t s02 = nb02 / sizeof(float);
     const int64_t s03 = nb03 / sizeof(float);
-    const int64_t s10 = nb10 / sizeof(int64_t);
-    const int64_t s11 = nb11 / sizeof(int64_t);
-    const int64_t s12 = nb12 / sizeof(int64_t);
+    const int64_t s10 = nb10 / sizeof(idx_t);
+    const int64_t s11 = nb11 / sizeof(idx_t);
+    const int64_t s12 = nb12 / sizeof(idx_t);
     const int64_t s1 = nb1;
     const int64_t s2 = nb2;
     const int64_t s3 = nb3;
 
     if (ne_total > 0) {
-        k_set_rows_quant<block_type, qk> << <grid_size, block_size, 0, stream >> > (
+        k_set_rows_quant<idx_t, block_type, qk> << <grid_size, block_size, 0, stream >> > (
             src0_d, src1_d, dst_d,
             ne00, ne01, ne02, ne03,
             ne10, ne11, ne12, ne13,
@@ -128,9 +129,9 @@ static void set_rows_cuda_quant(
 }
 
 
-template<typename src_t, typename dst_t>
+template<typename src_t, typename idx_t, typename dst_t>
 static void set_rows_cuda(
-    const src_t* src0_d, const int64_t* src1_d, dst_t* dst_d,
+    const src_t* src0_d, const idx_t* src1_d, dst_t* dst_d,
     const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
     const int64_t ne10, const int64_t ne11, const int64_t ne12, const int64_t ne13,
     const size_t nb01, const size_t nb02, const size_t nb03,
@@ -147,9 +148,9 @@ static void set_rows_cuda(
     const int64_t s01 = nb01 / sizeof(src_t);
     const int64_t s02 = nb02 / sizeof(src_t);
     const int64_t s03 = nb03 / sizeof(src_t);
-    const int64_t s10 = nb10 / sizeof(int64_t);
-    const int64_t s11 = nb11 / sizeof(int64_t);
-    const int64_t s12 = nb12 / sizeof(int64_t);
+    const int64_t s10 = nb10 / sizeof(idx_t);
+    const int64_t s11 = nb11 / sizeof(idx_t);
+    const int64_t s12 = nb12 / sizeof(idx_t);
     const int64_t s1 = nb1 / sizeof(dst_t);
     const int64_t s2 = nb2 / sizeof(dst_t);
     const int64_t s3 = nb3 / sizeof(dst_t);
@@ -165,11 +166,15 @@ static void set_rows_cuda(
     }
 }
 
-void set_rows_cuda(set_rows_context* ctx, cudaStream_t stream)
+template <typename src_t, typename idx_t>
+static void set_rows_cuda(set_rows_context* ctx, cudaStream_t stream)
 {
+    const src_t* src0_d = (const src_t*)ctx->src0_d;
+    const idx_t* src1_d = (const idx_t*)ctx->src1_d;
+
     if (ctx->dst_type == GGML_TYPE_F32) {
         set_rows_cuda(
-            ctx->src0_d, ctx->src1_d, (float*)ctx->dst_d,
+            src0_d, src1_d, (float*)ctx->dst_d,
             ctx->ne00, ctx->ne01, ctx->ne02, ctx->ne03,
             ctx->ne10, ctx->ne11, ctx->ne12, ctx->ne13,
             ctx->nb01, ctx->nb02, ctx->nb03,
@@ -180,7 +185,7 @@ void set_rows_cuda(set_rows_context* ctx, cudaStream_t stream)
     }
     else if (ctx->dst_type == GGML_TYPE_F16) {
         set_rows_cuda(
-            ctx->src0_d, ctx->src1_d, (half*)ctx->dst_d,
+            src0_d, src1_d, (half*)ctx->dst_d,
             ctx->ne00, ctx->ne01, ctx->ne02, ctx->ne03,
             ctx->ne10, ctx->ne11, ctx->ne12, ctx->ne13,
             ctx->nb01, ctx->nb02, ctx->nb03,
@@ -191,7 +196,7 @@ void set_rows_cuda(set_rows_context* ctx, cudaStream_t stream)
     }
     else if (ctx->dst_type == GGML_TYPE_BF16) {
         set_rows_cuda(
-            ctx->src0_d, ctx->src1_d, (nv_bfloat16*)ctx->dst_d,
+            src0_d, src1_d, (nv_bfloat16*)ctx->dst_d,
             ctx->ne00, ctx->ne01, ctx->ne02, ctx->ne03,
             ctx->ne10, ctx->ne11, ctx->ne12, ctx->ne13,
             ctx->nb01, ctx->nb02, ctx->nb03,
@@ -201,8 +206,8 @@ void set_rows_cuda(set_rows_context* ctx, cudaStream_t stream)
         );
     }
     else if (ctx->dst_type == GGML_TYPE_Q4_0) {
-        set_rows_cuda_quant<block_q4_0, block_q4_0::block_size>(
-            ctx->src0_d, ctx->src1_d, (block_q4_0*)ctx->dst_d,
+        set_rows_cuda_quant(
+            src0_d, src1_d, (block_q4_0*)ctx->dst_d,
             ctx->ne00, ctx->ne01, ctx->ne02, ctx->ne03,
             ctx->ne10, ctx->ne11, ctx->ne12, ctx->ne13,
             ctx->nb01, ctx->nb02, ctx->nb03,
@@ -212,8 +217,8 @@ void set_rows_cuda(set_rows_context* ctx, cudaStream_t stream)
         );
     }
     else if (ctx->dst_type == GGML_TYPE_Q4_1) {
-        set_rows_cuda_quant<block_q4_1, block_q4_1::block_size>(
-            ctx->src0_d, ctx->src1_d, (block_q4_1*)ctx->dst_d,
+        set_rows_cuda_quant(
+            src0_d, src1_d, (block_q4_1*)ctx->dst_d,
             ctx->ne00, ctx->ne01, ctx->ne02, ctx->ne03,
             ctx->ne10, ctx->ne11, ctx->ne12, ctx->ne13,
             ctx->nb01, ctx->nb02, ctx->nb03,
@@ -223,8 +228,8 @@ void set_rows_cuda(set_rows_context* ctx, cudaStream_t stream)
         );
     }
     else if (ctx->dst_type == GGML_TYPE_Q5_0) {
-        set_rows_cuda_quant<block_q5_0, block_q5_0::block_size>(
-            ctx->src0_d, ctx->src1_d, (block_q5_0*)ctx->dst_d,
+        set_rows_cuda_quant(
+            src0_d, src1_d, (block_q5_0*)ctx->dst_d,
             ctx->ne00, ctx->ne01, ctx->ne02, ctx->ne03,
             ctx->ne10, ctx->ne11, ctx->ne12, ctx->ne13,
             ctx->nb01, ctx->nb02, ctx->nb03,
@@ -234,8 +239,8 @@ void set_rows_cuda(set_rows_context* ctx, cudaStream_t stream)
         );
     }
     else if (ctx->dst_type == GGML_TYPE_Q5_1) {
-        set_rows_cuda_quant<block_q5_1, block_q5_1::block_size>(
-            ctx->src0_d, ctx->src1_d, (block_q5_1*)ctx->dst_d,
+        set_rows_cuda_quant(
+            src0_d, src1_d, (block_q5_1*)ctx->dst_d,
             ctx->ne00, ctx->ne01, ctx->ne02, ctx->ne03,
             ctx->ne10, ctx->ne11, ctx->ne12, ctx->ne13,
             ctx->nb01, ctx->nb02, ctx->nb03,
@@ -245,8 +250,8 @@ void set_rows_cuda(set_rows_context* ctx, cudaStream_t stream)
         );
     }
     else if (ctx->dst_type == GGML_TYPE_Q8_0) {
-        set_rows_cuda_quant<block_q8_0, block_q8_0::block_size>(
-            ctx->src0_d, ctx->src1_d, (block_q8_0*)ctx->dst_d,
+        set_rows_cuda_quant(
+            src0_d, src1_d, (block_q8_0*)ctx->dst_d,
             ctx->ne00, ctx->ne01, ctx->ne02, ctx->ne03,
             ctx->ne10, ctx->ne11, ctx->ne12, ctx->ne13,
             ctx->nb01, ctx->nb02, ctx->nb03,
@@ -256,8 +261,8 @@ void set_rows_cuda(set_rows_context* ctx, cudaStream_t stream)
         );
     }
     else if (ctx->dst_type == GGML_TYPE_IQ4_NL) {
-        set_rows_cuda_quant<block_iq4_nl, block_iq4_nl::block_size>(
-            ctx->src0_d, ctx->src1_d, (block_iq4_nl*)ctx->dst_d,
+        set_rows_cuda_quant(
+            src0_d, src1_d, (block_iq4_nl*)ctx->dst_d,
             ctx->ne00, ctx->ne01, ctx->ne02, ctx->ne03,
             ctx->ne10, ctx->ne11, ctx->ne12, ctx->ne13,
             ctx->nb01, ctx->nb02, ctx->nb03,
@@ -268,5 +273,14 @@ void set_rows_cuda(set_rows_context* ctx, cudaStream_t stream)
     }
     else {
         GGML_ABORT("unsupported type %s", ggml_type_name(dst->type));
+    }
+}
+
+void set_rows_cuda(set_rows_context* ctx, cudaStream_t stream) {
+    if (ctx->src1_type == GGML_TYPE_I64) {
+        set_rows_cuda<float, int64_t>(ctx, stream);
+    }
+    else {
+        set_rows_cuda<float, int32_t>(ctx, stream);
     }
 }

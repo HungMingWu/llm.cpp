@@ -1,5 +1,6 @@
 module;
 #include <dlfcn.h>
+#include <filesystem>
 #include <string>
 
 #if defined(__APPLE__)
@@ -20,9 +21,9 @@ void get_memory(size_t* free, size_t* total)
     *free = *total;
 }
 
-dl_handle dl_load_library(const std::wstring& path)
+dl_handle dl_load_library(const std::filesystem::path& path)
 {
-	return dlopen(utf16_to_utf8(path).c_str(), RTLD_NOW | RTLD_LOCAL);
+	return dlopen(path.string().c_str(), RTLD_NOW | RTLD_LOCAL);
 }
 
 void dl_unload_library(dl_handle handle)
@@ -33,4 +34,10 @@ void dl_unload_library(dl_handle handle)
 void* dl_get_sym(dl_handle handle, const char* name)
 {
 	return dlsym(handle, name);
+}
+
+const char* dl_error()
+{
+    const char* rslt = dlerror();
+    return rslt != nullptr ? rslt : "";
 }

@@ -134,7 +134,21 @@ static void ggml_cpy_cuda(const dup_context &ctx, cudaStream_t stream) {
 void dup_cuda(const dup_context* ctx, cudaStream_t stream)
 {
     if (ctx->src_type == ctx->dst_type && ctx->src_is_contiguous && ctx->dst_is_contiguous) {
-        CUDA_CHECK(cudaMemcpyAsync(ctx->dst_d, ctx->src_d, ctx->src_length, cudaMemcpyDeviceToDevice, stream));
+        GGML_ASSERT(ctx->src_length == ctx->dst_length);
+#if defined(GGML_USE_MUSA) && defined(GGML_MUSA_MUDNN_COPY)
+        if (src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16) {
+            CUDA_CHECK(mudnnMemcpyAsync(ctx, src1, src0));
+        }
+        else
+#endif // GGML_USE_MUSA && GGML_MUSA_MUDNN_COPY
+        {
+            if (ctx->src_type == GGML_TYPE_F32) {
+                ggml_cpy_cuda<float, float>(*ctx, stream);
+            }
+            else {
+                CUDA_CHECK(cudaMemcpyAsync(ctx->dst_d, ctx->src_d, ctx->src_length, cudaMemcpyDeviceToDevice, stream));
+            }
+        }
     }
     else if (ctx->src_type == GGML_TYPE_F32 && ctx->dst_type == GGML_TYPE_F32) {
         ggml_cpy_cuda<float, float>(*ctx, stream);

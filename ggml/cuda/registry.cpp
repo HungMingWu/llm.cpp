@@ -159,7 +159,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
             op->type == GGML_TYPE_Q4_0 || op->type == GGML_TYPE_Q4_1 || op->type == GGML_TYPE_Q5_0 ||
             op->type == GGML_TYPE_Q5_1 || op->type == GGML_TYPE_Q8_0 || op->type == GGML_TYPE_IQ4_NL) &&
             op->src[0]->type == GGML_TYPE_F32 &&
-            op->src[1]->type == GGML_TYPE_I64;
+            (op->src[1]->type == GGML_TYPE_I64 || op->src[1]->type == GGML_TYPE_I32);
     } break;
     case GGML_OP_CPY:
     {
@@ -312,9 +312,11 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_CONV_TRANSPOSE_2D:
     case GGML_OP_POOL_2D:
     case GGML_OP_SUM:
-    case GGML_OP_ARGSORT:
     case GGML_OP_ACC:
         return true;
+    case GGML_OP_ARGSORT:
+        // TODO: Support arbitrary column width
+        return op->src[0]->ne[0] <= 1024;
     case GGML_OP_SUM_ROWS:
     case GGML_OP_MEAN:
     case GGML_OP_GROUP_NORM:

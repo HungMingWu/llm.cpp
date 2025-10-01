@@ -306,29 +306,6 @@ bool ggml_backend_compare_graph_backend(ggml_backend* backend1, ggml_backend* ba
     }
 }
 
-std::string utf16_to_utf8(const std::wstring& str) {
-    std::string result;
-    result.reserve(str.size() * 2);
-    for (wchar_t wc : str) {
-        if (wc <= 0x7F) {
-            result.push_back(static_cast<char>(wc));
-        }
-        else if (wc <= 0x7FF) {
-            result.push_back(0xC0 | ((wc >> 6) & 0x1F));
-            result.push_back(0x80 | (wc & 0x3F));
-        }
-        else if (wc <= 0xFFFF) {
-            result.push_back(0xE0 | ((wc >> 12) & 0x0F));
-            result.push_back(0x80 | ((wc >> 6) & 0x3F));
-            result.push_back(0x80 | (wc & 0x3F));
-        }
-        else {
-            throw std::runtime_error("Character out of UTF-8 range");
-        }
-    }
-    return result;
-}
-
 ggml_tensor* ggml_dup_tensor_layout(ggml_context* ctx, const ggml_tensor* tensor) {
     ggml_tensor* dup = ggml_dup_tensor(ctx, tensor);
     for (int i = 0; i < GGML_MAX_DIMS; i++) {

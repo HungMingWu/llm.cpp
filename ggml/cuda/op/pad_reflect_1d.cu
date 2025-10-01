@@ -20,7 +20,7 @@ pad_reflect_1d_kernel_f32(
     const int64_t             nb2,
     const int64_t             nb3,
     const int                 p0,
-    const int                 p1) {
+    const int                 /*p1*/) {
     const int64_t i3 = blockIdx.z;
     const int64_t i2 = blockIdx.y;
 
