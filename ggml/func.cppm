@@ -191,8 +191,6 @@ export {
 		 return (it != cgraph->grad_accs.end()) ? it->second : nullptr;
 	 }
 
-	 void ggml_quantize_init(ggml_type type);
-
 	 ggml_type ggml_ftype_to_ggml_type(ggml_ftype ftype);
 
 	 void ggml_backend_tensor_copy(ggml_tensor* src, ggml_tensor* dst);

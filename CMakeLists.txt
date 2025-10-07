@@ -10,6 +10,7 @@ endif()
 option(GGML_CUDA                            "ggml: use CUDA"                                  ON)
 option(GGML_LLAMAFILE                       "ggml: use LLAMAFILE"                             OFF)
 add_subdirectory(ggml)
+add_subdirectory(table) # gen table if required
 add_subdirectory(core)
 
 add_executable(tutorial)

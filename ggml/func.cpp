@@ -41,8 +41,6 @@ size_t ggml_quantize_chunk(
     //GGML_ASSERT(start % type_traits[type].blck_size == 0);
     GGML_ASSERT(start % n_per_row == 0);
 
-    ggml_quantize_init(type); // this is noop if already initialized
-
     const size_t start_row = start / n_per_row;
     const size_t row_size = ggml_row_size(type, n_per_row);
 
