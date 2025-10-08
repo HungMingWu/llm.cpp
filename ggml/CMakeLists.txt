@@ -71,6 +71,7 @@ target_sources(libggml
       op.cppm
       opt.cppm
       op_back.cppm
+      stopwatch.cppm
       tensor.cppm
       types.cppm
       traits.cppm

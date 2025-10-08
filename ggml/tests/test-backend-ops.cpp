@@ -1234,16 +1234,17 @@ struct test_case {
         int64_t total_time_us = 0;
         int64_t total_mem = 0;
         int total_runs = 0;
+        Stopwatch sw;
         do {
-            int64_t start_time = 0;// ggml_time_us();
+            sw.start();
             ggml_status status = backend->graph_compute(&gf);
             if (status != GGML_STATUS_SUCCESS) {
                 fprintf(stderr, "%s: ggml_backend_graph_compute failed. status=%s \n", __func__, ggml_status_to_string(status));
                 return false;
             }
-            int64_t end_time = 0;// ggml_time_us();
+            sw.stop();
 
-            total_time_us += end_time - start_time;
+            total_time_us += sw.get_elapsed();
             total_mem += mem;
             total_runs += n_runs;
         } while (total_time_us < 1000 * 1000); // run for at least 1 second

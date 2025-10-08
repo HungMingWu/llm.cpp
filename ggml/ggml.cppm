@@ -11,6 +11,7 @@ export import :opt;
 export import :op_back;
 export import :os;
 export import :rpc;
+export import :stopwatch;
 export import :tensor;
 export import :traits;
 export import :types;

@@ -643,7 +643,6 @@ void ggml_opt_fit(
     int64_t                         nbatch_logical,
     float                           val_split,
     bool                            silent) {
-    //ggml_time_init();
     //const int64_t t_start_us = ggml_time_us();
 
     const int64_t ndata = dataset->get_data()->ne[1];
