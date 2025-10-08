@@ -935,7 +935,7 @@ struct test_case {
         size_t size = t->nbytes();
         // add source tensors
         for (auto& src : t->src)
-            size += src->nbytes();
+            if (src) size += src->nbytes();
         return size;
     }
 
