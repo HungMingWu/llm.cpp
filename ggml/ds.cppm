@@ -600,7 +600,7 @@ export {
     using ggml_backend_sched_eval_callback = std::function<bool(ggml_tensor* t, bool ask)>;
 
     struct ggml_backend_sched_split {
-        int backend_id;
+        ggml_backend* backend;
         int i_start;
         int i_end;
         cpp26::inplace_vector<ggml_tensor*, GGML_SCHED_MAX_SPLIT_INPUTS> inputs;
@@ -612,16 +612,14 @@ export {
         bool is_reset = false; // true if the scheduler has been reset since the last graph split
         bool is_alloc = false;
 
-        int n_backends;
-
-        ggml_backend* backends[GGML_SCHED_MAX_BACKENDS];
-        ggml_backend_buffer_type* bufts[GGML_SCHED_MAX_BACKENDS];
+        std::span<ggml_backend*> backends;
+        std::span<ggml_backend_buffer_type*> bufts;
         std::unique_ptr<ggml_gallocr> galloc;
 
         // hash map of the nodes in the graph
-        std::unordered_map<ggml_tensor*, int> hv_tensor_backend_ids; // [hash_set.size]
+        std::unordered_map<ggml_tensor*, ggml_backend*> hv_tensor_backend;
         std::unordered_map<ggml_tensor*,
-            std::unordered_map<int, 
+            std::unordered_map<ggml_backend*,
                 std::vector<ggml_tensor*>>> hv_tensor_copies; // [hash_set.size][n_backends][n_copies]  
 
         std::vector<int> node_backend_ids; // [graph_size]
@@ -640,9 +638,8 @@ export {
         int n_copies;
         int cur_copy = 0;
 
-        std::array<
-            std::array<std::unique_ptr<ggml_backend_event>, GGML_SCHED_MAX_COPIES>,
-                GGML_SCHED_MAX_BACKENDS> events;
+		std::unordered_map<ggml_backend*, 
+            std::array<std::unique_ptr<ggml_backend_event>, GGML_SCHED_MAX_COPIES>> events;
 
         cpp26::inplace_vector<ggml_tensor*, GGML_SCHED_MAX_SPLIT_INPUTS> graph_inputs;
 
@@ -654,11 +651,12 @@ export {
 
         int debug;
     private:
-        int backend_from_buffer(const ggml_tensor* tensor, const ggml_tensor* op);
-        int backend_id_from_cur(ggml_tensor* tensor);
-        bool buffer_supported(ggml_tensor* t, int backend_id);
+		std::unordered_map<ggml_backend*, size_t> id_map;
+        ggml_backend* backend_from_buffer(const ggml_tensor* tensor, const ggml_tensor* op);
+        ggml_backend* backend_id_from_cur(ggml_tensor* tensor);
+        bool buffer_supported(ggml_tensor* t, ggml_backend* backend);
         ggml_backend* get_tensor_backend(ggml_tensor* node);
-        std::optional<int> get_backend_id(ggml_backend* backend);
+        ggml_backend* get_backend(ggml_backend* backend);
         // Split graph without allocating it
         void split_graph(const ggml_cgraph& graph);
         void print_assignments(const ggml_cgraph& graph);
@@ -666,9 +664,8 @@ export {
         bool alloc_splits();
         ggml_status compute_splits();
     public:
-        ggml_backend_sched(ggml_backend** backends,
-            ggml_backend_buffer_type** bufts,
-            int n_backends,
+        ggml_backend_sched(std::span<ggml_backend*> backends,
+            std::span<ggml_backend_buffer_type*> bufts,
             bool parallel,
             bool op_offload);
         void reset();
@@ -683,7 +680,10 @@ export {
         // not sure move to public is right direction
         bool alloc_graph(const ggml_cgraph& graph);
         void synchronize();
-        ggml_backend* get_backend(int i) { return backends[i]; }
+        ggml_backend* get_backend() {
+            // get the first backend
+            return backends[0];
+        }
     };
 
     // GUID types

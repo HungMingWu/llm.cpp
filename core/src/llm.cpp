@@ -18805,7 +18805,7 @@ llama_context* llama_new_context_with_model(
                 }
             }
 
-            ctx->sched.reset(new ggml_backend_sched(nullptr, backend_buft.data(), backend_ptrs.size(), pipeline_parallel, true));
+            ctx->sched.reset(new ggml_backend_sched({}, backend_buft, pipeline_parallel, true));
 
             if (pipeline_parallel) {
                 LLAMA_LOG_INFO("%s: pipeline parallelism enabled (n_copies=%d)\n", __func__, ggml_backend_sched_get_n_copies(ctx->sched.get()));

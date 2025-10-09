@@ -839,11 +839,15 @@ int main(void) {
         for (size_t i = 0; i < devices.size(); ++i) {
             // Put the backend to be tested in front so that it's prioritized:
             std::vector<ggml_backend*> backends_modded = { backends[i].get() };
-            for (auto& backend : backends)
+            std::vector<ggml_backend_buffer_type*> buffer_types_modded;
+
+            for (auto& backend : backends) {
                 backends_modded.push_back(backend.get());
+                buffer_types_modded.push_back(backend->get_default_buffer_type());
+            }
 
             ggml_backend_sched backend_sched(
-                backends_modded.data(), nullptr, backends_modded.size(), false, true);
+                backends_modded, buffer_types_modded, false, true);
 
             char const* devname = devs[i]->get_name();
             std::println("Backend {}/{}: {}", i + 1, devices.size(), devname);

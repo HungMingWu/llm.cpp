@@ -73,6 +73,7 @@ struct gpt2_model {
 
     std::vector<std::unique_ptr<ggml_backend>> backends;
     std::vector<ggml_backend*> backends_view;
+    std::vector<ggml_backend_buffer_type*> backend_buft;
     std::vector<std::unique_ptr<ggml_backend_buffer>> buffers_w;
     std::unique_ptr<ggml_backend_buffer> buffer_kv;
     std::unique_ptr<ggml_backend_buffer> buffer_input;
@@ -112,6 +113,7 @@ void init_backends(gpt2_model& model, const gpt_params& params) {
     if (gpu_backend) {
         model.backends.push_back(std::move(gpu_backend));
         model.backends_view.push_back(model.backends.back().get());
+        model.backend_buft.push_back(model.backends.back()->get_default_buffer_type());
     }
 
 #ifdef GGML_USE_BLAS
@@ -123,6 +125,7 @@ void init_backends(gpt2_model& model, const gpt_params& params) {
         ggml_backend_blas_set_n_threads(blas_backend, params.n_threads);
         model.backends.push_back(blas_backend);
         model.backends_view.push_back(model.backends.back().get());
+        model.backend_buft.push_back(model.backends.back()->get_default_buffer_type());
     }
 #endif
 
@@ -131,6 +134,7 @@ void init_backends(gpt2_model& model, const gpt_params& params) {
     cpu_backend->set_n_threads(params.n_threads);
     model.backends.push_back(std::move(cpu_backend));
     model.backends_view.push_back(model.backends.back().get());
+    model.backend_buft.push_back(model.backends.back()->get_default_buffer_type());
 }
 
 // load the model's weights from a file
@@ -901,7 +905,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<ggml_backend_sched> sched;
     {
         // initialize the scheduler
-        sched = std::make_unique<ggml_backend_sched>(model.backends_view.data(), nullptr, model.backends_view.size(), false, true);
+        sched = std::make_unique<ggml_backend_sched>(model.backends_view, model.backend_buft, false, true);
 
         // create the worst case graph for memory usage estimation
         int n_tokens = std::min(model.hparams.n_ctx, params.n_batch);

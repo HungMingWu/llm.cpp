@@ -760,7 +760,7 @@ namespace chatllm
             gg_backends.push_back(b.backend.get());
             gg_bufts.push_back(b.get_allocator(BufferType::Dedicated));
         }
-        sched = std::make_unique<ggml_backend_sched>(gg_backends.data(), gg_bufts.data(), (int)gg_backends.size(), false, false);
+        sched = std::make_unique<ggml_backend_sched>(gg_backends, gg_bufts, false, false);
     }
 
     BackendContext::~BackendContext()
