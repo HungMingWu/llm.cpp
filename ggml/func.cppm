@@ -154,8 +154,6 @@ export {
 		 return tensor->data;
 	 }
 
-	 void ggml_vec_set_f32(const int n, float* x, const float   v) { for (int i = 0; i < n; ++i) x[i] = v; }
-
 	 const char* ggml_op_desc(const ggml_tensor* t) {
 		 if (t->op == GGML_OP_UNARY) {
 			 enum ggml_unary_op uop = ggml_get_unary_op(t);
