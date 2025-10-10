@@ -927,10 +927,7 @@ int gpt2_decode(
 }
 
 int main(int argc, char** argv) {
-    //ggml_time_init();
-
-    const int64_t t_main_start_us = ggml_time_us();
-
+    Stopwatch main_sw;
     gpt_params params;
 
     if (gpt_params_parse(argc, argv, params) == false) {
@@ -955,14 +952,12 @@ int main(int argc, char** argv) {
 
     // load the model
     {
-        const int64_t t_start_us = ggml_time_us();
-
+        Stopwatch start_sw;
         if (!gpt2_model_load(params.model, model, vocab, params.n_ctx, params.n_gpu_layers)) {
             std::println(stderr, "{}: failed to load model from '{}'", __func__, params.model);
             return 1;
         }
-
-        t_load_us = ggml_time_us() - t_start_us;
+        t_load_us = start_sw.get_elapsed();
 
         test_gpt_tokenizer(vocab, params.token_test);
     }
@@ -1063,11 +1058,9 @@ int main(int argc, char** argv) {
 
             gpt_vocab::id id = 0;
             {
-                const int64_t t_start_sample_us = ggml_time_us();
-
+                Stopwatch sample_sw;
                 id = gpt_sample_top_k_top_p(vocab, logits_i, top_k, top_p, temp, rng);
-
-                t_sample_us += ggml_time_us() - t_start_sample_us;
+                t_sample_us += sample_sw.get_elapsed();
             }
 
             // is it an end of stream? -> mark the stream as finished
@@ -1110,16 +1103,14 @@ int main(int argc, char** argv) {
         n_cur += 1;
 
         {
-            const int64_t t_start_us = ggml_time_us();
-
+            Stopwatch predict_sw;
             // evaluate the current batch with the transformer model
             int ret_code = gpt2_decode(model, &allocr, batch, params.n_threads, logits);
             if (ret_code != 0) {
                 std::println(stderr, "{} : failed to eval, return code {}", __func__, ret_code);
                 return 1;
             }
-
-            t_predict_us += ggml_time_us() - t_start_us;
+            t_predict_us += predict_sw.get_elapsed();
         }
     }
 
@@ -1133,14 +1124,12 @@ int main(int argc, char** argv) {
 
     // report timing
     {
-        const int64_t t_main_end_us = ggml_time_us();
-
         std::print("\n\n");
         std::println("{}:     n_decoded = {:8}", __func__, n_decoded);
         std::println("{}:     load time = {:8.2} ms", __func__, t_load_us / 1000.0f);
         std::println("{}:   sample time = {:8.2} ms", __func__, t_sample_us / 1000.0f);
         std::println("{}:  predict time = {:8.2} ms", __func__, t_predict_us / 1000.0f);
-        std::println("{}:    total time = {:8.2} ms", __func__, (t_main_end_us - t_main_start_us) / 1000.0f);
+        std::println("{}:    total time = {:8.2} ms", __func__, main_sw.get_elapsed() / 1000.0f);
     }
 
     return 0;

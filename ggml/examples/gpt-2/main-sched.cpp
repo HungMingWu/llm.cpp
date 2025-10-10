@@ -860,10 +860,7 @@ bool gpt2_eval(
 }
 
 int main(int argc, char** argv) {
-    //ggml_time_init();
-
-    const int64_t t_main_start_us = ggml_time_us();
-
+    Stopwatch main_sw;
     gpt_params params;
     params.model = "models/gpt-2-117M/ggml-model.bin";
 
@@ -889,14 +886,12 @@ int main(int argc, char** argv) {
 
     // load the model
     {
-        const int64_t t_start_us = ggml_time_us();
-
+        Stopwatch start_sw;
         if (!gpt2_model_load(params.model, model, vocab, params)) {
             std::println(stderr, "{}: failed to load model from '{}'", __func__, params.model);
             return 1;
         }
-
-        t_load_us = ggml_time_us() - t_start_us;
+        t_load_us = start_sw.get_elapsed();
 
         test_gpt_tokenizer(vocab, params.token_test);
     }
@@ -956,14 +951,12 @@ int main(int argc, char** argv) {
     for (size_t i = embd.size(); i < embd_inp.size() + params.n_predict; i++) {
         // predict
         if (embd.size() > 0) {
-            const int64_t t_start_us = ggml_time_us();
-
+            Stopwatch predict_sw;
             if (!gpt2_eval(model, sched.get(), n_past, embd, logits)) {
                 std::println("Failed to predict");
                 return 1;
             }
-
-            t_predict_us += ggml_time_us() - t_start_us;
+            t_predict_us += predict_sw.get_elapsed();
         }
 
         n_past += embd.size();
@@ -980,11 +973,9 @@ int main(int argc, char** argv) {
             gpt_vocab::id id = 0;
 
             {
-                const int64_t t_start_sample_us = ggml_time_us();
-
+                Stopwatch samplet_sw;
                 id = gpt_sample_top_k_top_p(vocab, logits.data() + (logits.size() - n_vocab), top_k, top_p, temp, rng);
-
-                t_sample_us += ggml_time_us() - t_start_sample_us;
+                t_sample_us += samplet_sw.get_elapsed();
             }
 
             // add it to the context
@@ -1015,13 +1006,11 @@ int main(int argc, char** argv) {
 
     // report timing
     {
-        const int64_t t_main_end_us = ggml_time_us();
-
         std::print("\n\n");
         std::println("{}:     load time = {:8.2f} ms", __func__, t_load_us / 1000.0f);
         std::println("{}:   sample time = {:8.2f} ms", __func__, t_sample_us / 1000.0f);
         std::println("{}:  predict time = {:8.2f} ms / {:.2f} ms per token", __func__, t_predict_us / 1000.0f, t_predict_us / 1000.0f / n_past);
-        std::println("{}:    total time = {:8.2f} ms", __func__, (t_main_end_us - t_main_start_us) / 1000.0f);
+        std::println("{}:    total time = {:8.2f} ms", __func__, main_sw.get_elapsed() / 1000.0f);
     }
 
     return 0;

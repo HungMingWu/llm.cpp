@@ -1234,16 +1234,13 @@ struct test_case {
         int64_t total_time_us = 0;
         int64_t total_mem = 0;
         int total_runs = 0;
-        Stopwatch sw;
         do {
-            sw.start();
+            Stopwatch sw;
             ggml_status status = backend->graph_compute(&gf);
             if (status != GGML_STATUS_SUCCESS) {
                 fprintf(stderr, "%s: ggml_backend_graph_compute failed. status=%s \n", __func__, ggml_status_to_string(status));
                 return false;
             }
-            sw.stop();
-
             total_time_us += sw.get_elapsed();
             total_mem += mem;
             total_runs += n_runs;

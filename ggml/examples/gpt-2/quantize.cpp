@@ -149,29 +149,24 @@ int main(int argc, char** argv) {
 
     const ggml_ftype ftype = ggml_parse_ftype(argv[3]);
 
-    const int64_t t_main_start_us = ggml_time_us();
-
+    Stopwatch main_sw;
     int64_t t_quantize_us = 0;
 
     // load the model
     {
-        const int64_t t_start_us = ggml_time_us();
-
+        Stopwatch quantize_sw;
         if (!gpt2_model_quantize(fname_inp, fname_out, ggml_ftype(ftype))) {
             std::println(stderr, "{}: failed to quantize model from '{}'", __func__, fname_inp);
             return 1;
         }
-
-        t_quantize_us = ggml_time_us() - t_start_us;
+        t_quantize_us = quantize_sw.get_elapsed();
     }
 
     // report timing
     {
-        const int64_t t_main_end_us = ggml_time_us();
-
         std::println();
         std::println("{}: quantize time = {:8.2} ms", __func__, t_quantize_us / 1000.0f);
-        std::println("{}:    total time = {:8.2} ms", __func__, (t_main_end_us - t_main_start_us) / 1000.0f);
+        std::println("{}:    total time = {:8.2} ms", __func__, main_sw.get_elapsed() / 1000.0f);
     }
 
     return 0;

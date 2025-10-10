@@ -12,9 +12,6 @@ import ggml;
 
 export
 {
-    // Remove it later
-    int64_t ggml_time_us() { return 0; }
-
     constexpr int32_t GGML_QNT_VERSION_FACTOR = 1000; // do not change this
     constexpr uint32_t GGML_FILE_MAGIC = 0x67676d6c; // "ggml"
 
