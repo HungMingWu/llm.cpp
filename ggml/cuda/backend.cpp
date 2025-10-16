@@ -855,13 +855,13 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
         op::mul_mat_vec_f(stream(), nullptr, dst);
     }
     else if (!split && use_mul_mat_f) {
-        op::mul_mat_f(stream(), nullptr, dst);
+        op::mul_mat_f(pool(), stream(), nullptr, dst);
     }
     else if (!split && use_mul_mat_vec_q) {
-        op::mul_mat_vec_q(stream(), nullptr, dst, pool());
+        op::mul_mat_vec_q(pool(), stream(), nullptr, dst);
     }
     else if (!split && use_mul_mat_q) {
-        op::mul_mat_q(stream(), pool(), nullptr, dst);
+        op::mul_mat_q(pool(), stream(), nullptr, dst);
     }
     else if (!split && (use_batched_cublas_f16 || use_batched_cublas_bf16 || use_batched_cublas_f32)
         && !ggml_is_transposed(src0) && !ggml_is_transposed(src1) && src1->ne[2] * src1->ne[3] > 1) {
@@ -1871,7 +1871,7 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         mul_mat(dst);
         break;
     case GGML_OP_MUL_MAT_ID:
-        op::mul_mat_id(stream(), dst, pool(), [this](ggml_tensor* dst) {
+        op::mul_mat_id(pool(), stream(), dst, [this](ggml_tensor* dst) {
             mul_mat(dst);
         });
         break;

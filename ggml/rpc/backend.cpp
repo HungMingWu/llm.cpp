@@ -25,25 +25,30 @@ static void add_tensor(ggml_tensor* tensor, std::vector<rpc_tensor>& tensors, st
     tensors.push_back(serialize_tensor(tensor));
 }
 
-static void serialize_graph(const ggml_cgraph* cgraph, std::vector<uint8_t>& output) {
+static void serialize_graph(uint32_t device, const ggml_cgraph* cgraph, std::vector<uint8_t>& output) {
     uint32_t n_nodes = cgraph->nodes.size();
     std::vector<rpc_tensor> tensors;
     std::unordered_set<ggml_tensor*> visited;
-    for (auto &node : cgraph->nodes) {
-        add_tensor(node, tensors, visited);
+    for (uint32_t i = 0; i < n_nodes; i++) {
+        add_tensor(cgraph->nodes[i], tensors, visited);
     }
     // serialization format:
-    // | n_nodes (4 bytes) | nodes (n_nodes * sizeof(uint64_t) | n_tensors (4 bytes) | tensors (n_tensors * sizeof(rpc_tensor)) |
+    // | device (4 bytes) | n_nodes (4 bytes) | nodes (n_nodes * sizeof(uint64_t) | n_tensors (4 bytes) | tensors (n_tensors * sizeof(rpc_tensor)) |
     uint32_t n_tensors = tensors.size();
-    int output_size = sizeof(uint32_t) + n_nodes * sizeof(uint64_t) + sizeof(uint32_t) + n_tensors * sizeof(rpc_tensor);
+    int output_size = 2 * sizeof(uint32_t) + n_nodes * sizeof(uint64_t) + sizeof(uint32_t) + n_tensors * sizeof(rpc_tensor);
     output.resize(output_size, 0);
-    memcpy(output.data(), &n_nodes, sizeof(n_nodes));
+    uint8_t* dest = output.data();
+    memcpy(dest, &device, sizeof(device));
+    dest += sizeof(device);
+    memcpy(dest, &n_nodes, sizeof(n_nodes));
+    dest += sizeof(n_nodes);
     for (uint32_t i = 0; i < n_nodes; i++) {
-        memcpy(output.data() + sizeof(n_nodes) + i * sizeof(uint64_t), &cgraph->nodes[i], sizeof(uint64_t));
+        memcpy(dest + i * sizeof(uint64_t), &cgraph->nodes[i], sizeof(uint64_t));
     }
-    uint32_t* out_ntensors = (uint32_t*)(output.data() + sizeof(n_nodes) + n_nodes * sizeof(uint64_t));
-    *out_ntensors = n_tensors;
-    rpc_tensor* out_tensors = (rpc_tensor*)(output.data() + sizeof(n_nodes) + n_nodes * sizeof(uint64_t) + sizeof(uint32_t));
+    dest += n_nodes * sizeof(uint64_t);
+    memcpy(dest, &n_tensors, sizeof(n_tensors));
+    dest += sizeof(n_tensors);
+    rpc_tensor* out_tensors = (rpc_tensor*)dest;
     memcpy(out_tensors, tensors.data(), n_tensors * sizeof(rpc_tensor));
 }
 
@@ -55,7 +60,7 @@ void ggml_backend_rpc::synchronize()
 ggml_status ggml_backend_rpc::graph_compute_impl(ggml_cgraph* cgraph)
 {
     std::vector<uint8_t> input;
-    serialize_graph(cgraph, input);
+    serialize_graph(device, cgraph, input);
     rpc_msg_graph_compute_rsp response;
     auto sock = get_socket(endpoint);
     bool status = send_rpc_cmd(sock, RPC_CMD_GRAPH_COMPUTE, input.data(), input.size(), &response, sizeof(response));

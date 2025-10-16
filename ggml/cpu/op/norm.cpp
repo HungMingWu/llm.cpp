@@ -23,7 +23,6 @@ static void ggml_compute_forward_norm_f32(ggml_tensor* dst) {
     auto y = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
     auto x = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
 
-    // TODO: optimize
     for (int64_t i03 = 0; i03 < x.extent(0); i03++) {
         for (int64_t i02 = 0; i02 < x.extent(1); i02++) {
             for (int64_t i01 = 0; i01 < x.extent(2); i01++) {

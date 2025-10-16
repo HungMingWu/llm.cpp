@@ -328,11 +328,15 @@ void ggml_cuda_flash_attn_ext_mma_f16(const flash_attn_ext_context& ctx) {
     }
 }
 
-#define FATTN_VEC_CASE(D, type_K, type_V)                                \
-    if (ctx.Q.ne0 == (D) && ctx.K.type == (type_K) && ctx.V.type == (type_V)) { \
-        ggml_cuda_flash_attn_ext_vec_case<D, type_K, type_V>(ctx);  \
-        return;                                                          \
-    }                                                                    \
+#define FATTN_VEC_CASE(D, type_K, type_V)                                                                        \
+    {                                                                                                            \
+        const bool type_K_okay = ctx.K.type == (type_K) || (ctx.K.type == GGML_TYPE_F32 && (type_K) == GGML_TYPE_F16); \
+        const bool type_V_okay = ctx.V.type == (type_V) || (ctx.V.type == GGML_TYPE_F32 && (type_V) == GGML_TYPE_F16); \
+        if (ctx.Q.ne0 == (D) && type_K_okay && type_V_okay) {                                                     \
+            ggml_cuda_flash_attn_ext_vec_case<D, type_K, type_V>(ctx);                                           \
+            return;                                                                                              \
+        }                                                                                                        \
+    }                                                                  \
 
 #define FATTN_VEC_CASES_ALL_D(type_K, type_V) \
     FATTN_VEC_CASE( 64, type_K, type_V)       \

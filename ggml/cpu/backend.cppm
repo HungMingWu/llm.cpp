@@ -31,7 +31,7 @@ export
 
 	std::unique_ptr<ggml_cpu_backend> ggml_backend_cpu_init() {
 		return std::make_unique<ggml_cpu_backend>(
-			ggml_backend_cpu_reg()->get_devices()[0]
+			ggml_backend_cpu_reg()->get_device(0)
 		);
 	}
 }

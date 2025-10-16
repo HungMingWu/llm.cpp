@@ -1,7 +1,9 @@
 module;
 #include <stdint.h>
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
+#include <span>
 #include <vector>
 
 module ggml:rpc.server;
@@ -12,15 +14,15 @@ import :rpc.ds;
 
 class rpc_server {
 public:
-    rpc_server(ggml_backend* backend, const char* cache_dir)
-        : backend(backend), cache_dir(cache_dir) {
+    rpc_server(std::span<std::unique_ptr<ggml_backend>> backends, const char* cache_dir)
+        : backends(std::move(backends)), cache_dir(cache_dir) {
     }
     ~rpc_server();
 
     void hello(rpc_msg_hello_rsp& response);
-    void alloc_buffer(const rpc_msg_alloc_buffer_req& request, rpc_msg_alloc_buffer_rsp& response);
-    void get_alignment(rpc_msg_get_alignment_rsp& response);
-    void get_max_size(rpc_msg_get_max_size_rsp& response);
+    bool alloc_buffer(const rpc_msg_alloc_buffer_req& request, rpc_msg_alloc_buffer_rsp& response);
+    bool get_alignment(const rpc_msg_get_alignment_req& request, rpc_msg_get_alignment_rsp& response);
+    bool get_max_size(const rpc_msg_get_max_size_req& request, rpc_msg_get_max_size_rsp& response);
     bool buffer_get_base(const rpc_msg_buffer_get_base_req& request, rpc_msg_buffer_get_base_rsp& response);
     bool free_buffer(const rpc_msg_free_buffer_req& request);
     bool buffer_clear(const rpc_msg_buffer_clear_req& request);
@@ -41,7 +43,7 @@ private:
         std::unordered_map<uint64_t, struct ggml_tensor*>& tensor_map);
 
 
-    ggml_backend* backend;
+    std::span<std::unique_ptr<ggml_backend>> backends;
     const char* cache_dir;
     std::unordered_set<ggml_backend_buffer*> buffers;
 };

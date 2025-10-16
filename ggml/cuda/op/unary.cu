@@ -1,6 +1,7 @@
 #include "common.cuh"
 #include <assert.h>
 #include "cuda_func.h"
+#include "convert.cuh"
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
 static constexpr size_t CUDA_RELU_BLOCK_SIZE = 256;
@@ -362,4 +363,43 @@ void geglu_erf_cuda(const gated_context* ctx)
 void geglu_quick_cuda(const gated_context* ctx)
 {
     ggml_cuda_op_unary_gated<gelu_quick>(ctx);
+}
+
+/* CUDA kernel + launcher for xIELU */
+
+template <typename T>
+static __global__ void xielu_kernel(const T* x, T* dst, const int k, float alpha_n, float alpha_p, float beta, float eps) {
+    const int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (i >= k) {
+        return;
+    }
+
+    const float xi = ggml_cuda_cast<float>(x[i]);
+
+    const float gate_pos = (xi > 0.0f);
+    const float y_pos = alpha_p * xi * xi + beta * xi;
+    const float min_v_eps = fminf(xi, eps);
+    const float y_neg = (expm1f(min_v_eps) - xi) * alpha_n + beta * xi;
+    const float out = gate_pos * y_pos + (1.0f - gate_pos) * y_neg;
+
+    dst[i] = ggml_cuda_cast<T>(out);
+}
+
+template <typename T>
+static void xielu_cuda(const T* x, T* dst, const int k, float alpha_n, float alpha_p, float beta, float eps, cudaStream_t stream) {
+    static constexpr size_t CUDA_XIELU_BLOCK_SIZE = 256;
+    const int num_blocks = (k + CUDA_XIELU_BLOCK_SIZE) / CUDA_XIELU_BLOCK_SIZE;
+    xielu_kernel << <num_blocks, CUDA_XIELU_BLOCK_SIZE, 0, stream >> > (x, dst, k, alpha_n, alpha_p, beta, eps);
+}
+
+void xielu_cuda(ggml_type src0_type, const void* src0_d, void* dst_d, int64_t src0_elements,
+    const float alpha_n, const float alpha_p, const float beta, const float eps, cudaStream_t stream)
+{
+    if (src0_type == GGML_TYPE_F16) {
+        xielu_cuda((const half*)src0_d, (half*)dst_d, src0_elements, alpha_n, alpha_p, beta, eps, stream);
+    }
+    else {
+        xielu_cuda((const float*)src0_d, (float*)dst_d, src0_elements, alpha_n, alpha_p, beta, eps, stream);
+    }
 }

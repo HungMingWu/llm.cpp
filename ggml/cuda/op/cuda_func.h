@@ -105,20 +105,10 @@ struct mmq_args {
 
 void ggml_cuda_mul_mat_q_switch_type(ggml_cuda_pool& pool, const mmq_args& args, cudaStream_t stream);
 
-struct mmq_ids_helper_context {
-    const int64_t n_expert_used;
-    const int32_t* ids;
-    int32_t* ids_src1;
-    int32_t* ids_dst;
-    int32_t* expert_bounds;
-    const int64_t n_experts;
-    const int64_t n_tokens;
-    const int64_t nchannels_y;
-    const size_t si1;
-    const size_t sis1;
-};
-
-void launch_mmq_ids_helper(const mmq_ids_helper_context* ctx, cudaStream_t stream);
+// mmid.cu
+void ggml_cuda_launch_mm_ids_helper(
+    const int32_t* ids, int32_t* ids_src1, int32_t* ids_dst, int32_t* expert_bounds,
+    const int n_experts, const int n_tokens, const int n_expert_used, const int nchannels_y, const int si1, const int sis1, cudaStream_t stream);
 
 void pool2d_nchw_kernel_f32_f32_cuda(
     const int ih, const int iw, const int oh, const int ow,
@@ -155,6 +145,8 @@ struct unary_context {
 void abs_cuda(const unary_context* ctx);
 void sgn_cuda(const unary_context* ctx);
 void elu_cuda(const unary_context* ctx);
+void xielu_cuda(ggml_type src0_type, const void* src0_d, void* dst_d, int64_t src0_elements,
+    const float alpha_n, const float alpha_p, const float beta, const float eps, cudaStream_t stream);
 void neg_cuda(const unary_context* ctx);
 void gelu_cuda(const unary_context* ctx);
 void gelu_erf_cuda(const unary_context* ctx);
@@ -732,6 +724,15 @@ void opt_step_sgd_f32_cuda(
     float* x, const float* g, const float* pars, const int64_t k, cudaStream_t stream);
 
 // mmf.cu
+
+struct mmf_ids_data {
+    const int32_t* ids_src_compact = nullptr;
+    const int32_t* ids_dst_compact = nullptr;
+    const int32_t* expert_bounds_dev = nullptr;
+    int n_experts = 0;
+    int sis1 = 0;
+};
+
 bool ggml_cuda_should_use_mmf(enum ggml_type type, 
     size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t src1_ncols, bool mul_mat_id);
 struct mul_mat_f_context {
@@ -755,6 +756,8 @@ struct mul_mat_f_context {
     const int64_t s01, s02, s03;
     const int64_t s11, s13;
     const int64_t s1, s3;
+
+    const mmf_ids_data* ids_info_ptr;
 };
 
 void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream);

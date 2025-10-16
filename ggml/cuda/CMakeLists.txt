@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)  # for CMAKE_CUDA_ARCHITECTURES
-set(CUDA_FLAGS --expt-relaxed-constexpr -Xcudafe --diag_suppress=737)
+set(CUDA_FLAGS --expt-relaxed-constexpr -extended-lambda -Xcudafe --diag_suppress=737)
 
 configure_file (${CMAKE_CURRENT_LIST_DIR}/cuda_config.h.in ${CMAKE_CURRENT_BINARY_DIR}/cuda_config.h)
 target_sources(libggml
@@ -50,6 +50,7 @@ target_sources(libggml
       op/im2col.cu
       op/mean.cu
       op/mmf.cu
+      op/mmid.cu
       op/mmq.cu
       op/mmvf.cu
       op/mmvq.cu

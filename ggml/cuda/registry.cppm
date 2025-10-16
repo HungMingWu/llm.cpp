@@ -135,7 +135,6 @@ public:
 
 class backend_cuda_reg : public ggml_backend_reg {
     std::vector<ggml_backend_cuda_device*> devices;
-    std::vector<ggml_backend_device*> devices_span;
 public:
     backend_cuda_reg(int api_version, void* context)
         : ggml_backend_reg(api_version, context)
@@ -145,7 +144,6 @@ public:
             dev->device = i;
             dev->name = GGML_CUDA_NAME + std::to_string(i);
 
-            ggml_cuda_set_device(i);
             cudaDeviceProp prop;
             CUDA_CHECK(cudaGetDeviceProperties(&prop, i));
             dev->description = prop.name;
@@ -153,7 +151,6 @@ public:
             dev->pci_bus_id = std::format("{:04x}:{:02x}:{:02x}.0", prop.pciDomainID, prop.pciBusID, prop.pciDeviceID);
 
             devices.push_back(dev);
-            devices_span.push_back(dev);
         }
     }
 
@@ -161,8 +158,8 @@ public:
         return GGML_CUDA_NAME;
     }
 
-    std::span<ggml_backend_device*> get_devices() override {
-        return devices_span;
+    ggml_backend_device* get_device(size_t index) override {
+        return devices.at(index);
     }
 
 	void* get_proc_address(std::string_view name) override {
@@ -201,7 +198,7 @@ export
 			GGML_LOG_ERROR("{}: invalid device {}", __func__, device);
 			return nullptr;
 		}
-        auto cuda_device = ggml_backend_cuda_reg()->get_devices()[device];
+        auto cuda_device = ggml_backend_cuda_reg()->get_device(device);
         auto backend = std::make_unique<ggml_backend_cuda>(cuda_device);
         backend->device = device;
         backend->name = GGML_CUDA_NAME + std::to_string(device);

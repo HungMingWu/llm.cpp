@@ -50,16 +50,17 @@ ggml_dyn_tallocr::ggml_dyn_tallocr(size_t alignment)
     reset();
 }
 
+size_t ggml_dyn_tallocr::max_size(int chunk) const {
+    return chunk < chunks.size() ? chunks[chunk].max_size : 0;
+}
+
 void ggml_dyn_tallocr::reset()
 {
-    n_free_blocks = 1;
-    free_blocks[0].offset = 0;
-    free_blocks[0].size = SIZE_MAX / 2; // restrict maximum size of a measure allocator to half size_t max to avoid overflows
-    max_size = 0;
+    chunks.clear();
 
 #ifdef GGML_ALLOCATOR_DEBUG
     for (int i = 0; i < 1024; i++) {
-        allocated_tensors[i].tensor = nullptr;
+        alloc->allocated_tensors[i].tensor = NULL;
     }
 #endif
 }

@@ -1,4 +1,5 @@
 module;
+#include <math.h>
 #include <string.h>
 #include <filesystem>
 #include <memory>
@@ -212,6 +213,10 @@ export {
 	 }
 
 	 bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* ops, int num_ops);
+
+	 float ggml_softplus(float input) {
+		 return (input > 20.0f) ? input : logf(1 + expf(input));
+	 };
 
 	 // Remove later
 	 size_t ggml_backend_reg_count() {

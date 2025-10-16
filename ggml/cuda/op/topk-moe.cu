@@ -11,7 +11,7 @@
 
     It is intended as fusion of softmax->top-k->get_rows pipeline for MoE models
 */
-template <size_t n_experts, bool with_norm>
+template <int n_experts, bool with_norm>
 __launch_bounds__(4 * WARP_SIZE, 1) __global__ void topk_moe_cuda(const float* logits,
     float* weights,
     int32_t* ids,

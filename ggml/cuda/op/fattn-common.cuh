@@ -841,8 +841,6 @@ void launch_fattn(
     GGML_ASSERT(!ctx.mask.exist || ctx.mask.ne1 >= GGML_PAD1(ctx.Q.ne1, 16) &&
         "the Flash-Attention CUDA kernel requires the mask to be padded to 16 and at least n_queries big");
 
-    GGML_ASSERT(ctx.K.ne1 % FATTN_KQ_STRIDE == 0 && "Incorrect KV cache padding.");
-
     ggml_cuda_pool& pool = *ctx.pool;
     cudaStream_t main_stream = ctx.main_stream;
     const int id = ggml_cuda_get_device();
@@ -924,7 +922,7 @@ void launch_fattn(
     // Optional optimization where the mask is scanned to determine whether part of the calculation can be skipped.
     // Only worth the overhead if there is at lease one FATTN_KQ_STRIDE x FATTN_KQ_STRIDE square to be skipped or
     //     multiple sequences of possibly different lengths.
-    if (ctx.mask.exist && (ctx.Q.ne1 >= 1024 || ctx.Q.ne3 > 1)) {
+    if (ctx.mask.exist && ctx.K.ne1 % FATTN_KQ_STRIDE == 0 && (ctx.Q.ne1 >= 1024 || ctx.Q.ne3 > 1)) {
         const int s31 = ctx.mask.nb1 / sizeof(half2);
         const int s33 = ctx.mask.nb3 / sizeof(half2);
 
@@ -963,8 +961,7 @@ void launch_fattn(
         dst_tmp_meta.alloc(blocks_num.x * ncols * (2 * 2 + DV) * sizeof(float));
     }
     else {
-        GGML_ASSERT(ctx.K.ne1 % KQ_row_granularity == 0);
-        const int ntiles_KQ = ctx.K.ne1 / KQ_row_granularity; // Max. number of parallel blocks limited by tensor size.
+        const int ntiles_KQ = (ctx.K.ne1 + KQ_row_granularity - 1) / KQ_row_granularity; // Max. number of parallel blocks limited by tensor size.
 
         // parallel_blocks must not be larger than what the tensor size allows:
         parallel_blocks = std::min(parallel_blocks, ntiles_KQ);
@@ -993,7 +990,7 @@ void launch_fattn(
 
         blocks_num.x = ntiles_x;
         blocks_num.y = parallel_blocks;
-        blocks_num.z = ctx.Q.ne2 * ctx.Q.ne3;
+        blocks_num.z = (ctx.Q.ne2 / ncols2) * ctx.Q.ne3;
 
         if (parallel_blocks > 1) {
             dst_tmp.alloc(parallel_blocks * ctx.KQV.elements);

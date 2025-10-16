@@ -10,7 +10,7 @@ import :rpc.socket;
 
 std::unique_ptr<ggml_backend_buffer> ggml_rpc_buffer_type::alloc_buffer_impl(size_t size)
 {
-    rpc_msg_alloc_buffer_req request = { size };
+    rpc_msg_alloc_buffer_req request = { static_cast<uint32_t>(size) };
     rpc_msg_alloc_buffer_rsp response;
     auto sock = get_socket(endpoint);
     bool status = send_rpc_cmd(sock, RPC_CMD_ALLOC_BUFFER, &request, sizeof(request), &response, sizeof(response));

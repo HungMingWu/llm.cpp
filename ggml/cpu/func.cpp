@@ -2330,7 +2330,7 @@ static void ggml_compute_forward_ssm_scan_f32(
 					for (int64_t i2 = 0; i2 < nt; ++i2) {
 						// Mamba-2 has a scalar decay factor per head; dA can be outside the state-wise loop
 
-						const float dt_soft_plus = dt[i3, i2, h] <= 20.0f ? log1pf(expf(dt[i3, i2, h])) : dt[i3, i2, h];
+						const float dt_soft_plus = ggml_softplus(dt[i3, i2, h]);
 						const float dA = expf(dt_soft_plus * A[h, 0]);
 						const int g = h / (nh / ng); // repeat_interleave
 
@@ -2367,7 +2367,7 @@ static void ggml_compute_forward_ssm_scan_f32(
 					for (int64_t i2 = 0; i2 < nt; ++i2) {
 						// Mamba-1 has an element-wise decay factor for the states
 
-						const float dt_soft_plus = dt[i3, i2, h] <= 20.0f ? log1pf(expf(dt[i3, i2, h])) : dt[i3, i2, h];
+						const float dt_soft_plus = ggml_softplus(dt[i3, i2, h]);
 						const int g = h / (nh / ng); // repeat_interleave
 
 						// dim
@@ -3996,8 +3996,9 @@ static void ggml_compute_forward_flash_attn_ext(
 					}
 
 					// V /= S
+					const float S_inv = S == 0.0f ? 0.0f : 1.0f / S;
 					for (int i = 0; i < DV; ++i) {
-						VKQ[i] /= S;
+						VKQ[i] *= S_inv;
 					}
 
 					// dst indices
@@ -4023,6 +4024,9 @@ static void ggml_compute_forward_flash_attn_ext(
 	ggml_tensor* dst) {
 	const ggml_tensor* k = dst->src[1];
 	switch (k->type) {
+	case GGML_TYPE_F32: {
+		ggml_compute_forward_flash_attn_ext<V_TYPE, ggml_fp32_t>(pool, scope, dst);
+	} break;
 	case GGML_TYPE_F16: {
 		ggml_compute_forward_flash_attn_ext<V_TYPE, ggml_fp16_t>(pool, scope, dst);
 	} break;
@@ -4046,6 +4050,9 @@ static void ggml_compute_forward_flash_attn_ext_inner(
 	ggml_tensor* dst) {
 	const ggml_tensor* v = dst->src[2];
 	switch (v->type) {
+	case GGML_TYPE_F32: {
+		ggml_compute_forward_flash_attn_ext<ggml_fp32_t>(pool, scope, dst);
+	} break;
 	case GGML_TYPE_F16: {
 		ggml_compute_forward_flash_attn_ext<ggml_fp16_t>(pool, scope, dst);
 	} break;

@@ -60,16 +60,16 @@ static bool recv_msg(sockfd_t sockfd, std::vector<uint8_t>& input) {
     return recv_data(sockfd, input.data(), size);
 }
 
-static void rpc_serve_client(ggml_backend* backend, const char* cache_dir,
-    sockfd_t sockfd, size_t free_mem, size_t total_mem) {
-    rpc_server server(backend, cache_dir);
+static void rpc_serve_client(std::span<std::unique_ptr<ggml_backend>> backends, const char* cache_dir,
+    sockfd_t sockfd, const std::vector<size_t>& free_mem, const std::vector<size_t>& total_mem) {
+    rpc_server server(backends, cache_dir);
     uint8_t cmd;
     if (!recv_data(sockfd, &cmd, 1)) {
         return;
     }
     // the first command sent by the client must be HELLO
     if (cmd != RPC_CMD_HELLO) {
-        std::println(stderr, "Expected HELLO command, update client");
+        GGML_LOG_ERROR("Expected HELLO command, update client\n");
         return;
     }
     if (!recv_msg(sockfd, nullptr, 0)) {
@@ -86,7 +86,7 @@ static void rpc_serve_client(ggml_backend* backend, const char* cache_dir,
         }
         if (cmd >= RPC_CMD_COUNT) {
             // fail fast if the command is invalid
-            std::println(stderr, "Unknown command: {}", cmd);
+            GGML_LOG_ERROR("Unknown command: %d\n", cmd);
             break;
         }
         switch (cmd) {
@@ -94,13 +94,26 @@ static void rpc_serve_client(ggml_backend* backend, const char* cache_dir,
             // HELLO command is handled above
             return;
         }
+        case RPC_CMD_DEVICE_COUNT: {
+            if (!recv_msg(sockfd, nullptr, 0)) {
+                return;
+            }
+            rpc_msg_device_count_rsp response;
+            response.device_count = backends.size();
+            if (!send_msg(sockfd, &response, sizeof(response))) {
+                return;
+            }
+            break;
+        }
         case RPC_CMD_ALLOC_BUFFER: {
             rpc_msg_alloc_buffer_req request;
             if (!recv_msg(sockfd, &request, sizeof(request))) {
                 return;
             }
             rpc_msg_alloc_buffer_rsp response;
-            server.alloc_buffer(request, response);
+            if (!server.alloc_buffer(request, response)) {
+                return;
+            }
             if (!send_msg(sockfd, &response, sizeof(response))) {
                 return;
             }
@@ -121,22 +134,28 @@ static void rpc_serve_client(ggml_backend* backend, const char* cache_dir,
             break;
         }
         case RPC_CMD_GET_ALIGNMENT: {
-            if (!recv_msg(sockfd, nullptr, 0)) {
+            rpc_msg_get_alignment_req request;
+            if (!recv_msg(sockfd, &request, sizeof(request))) {
                 return;
             }
             rpc_msg_get_alignment_rsp response;
-            server.get_alignment(response);
+            if (!server.get_alignment(request, response)) {
+                return;
+            }
             if (!send_msg(sockfd, &response, sizeof(response))) {
                 return;
             }
             break;
         }
         case RPC_CMD_GET_MAX_SIZE: {
-            if (!recv_msg(sockfd, nullptr, 0)) {
+            rpc_msg_get_max_size_req request;
+            if (!recv_msg(sockfd, &request, sizeof(request))) {
                 return;
             }
             rpc_msg_get_max_size_rsp response;
-            server.get_max_size(response);
+            if (!server.get_max_size(request, response)) {
+                return;
+            }
             if (!send_msg(sockfd, &response, sizeof(response))) {
                 return;
             }
@@ -262,25 +281,33 @@ static void rpc_serve_client(ggml_backend* backend, const char* cache_dir,
             break;
         }
         case RPC_CMD_GET_DEVICE_MEMORY: {
-            if (!recv_msg(sockfd, nullptr, 0)) {
+            rpc_msg_get_device_memory_req request;
+            if (!recv_msg(sockfd, &request, sizeof(request))) {
+                return;
+            }
+            auto dev_id = request.device;
+            if (dev_id >= backends.size()) {
                 return;
             }
             rpc_msg_get_device_memory_rsp response;
-            response.free_mem = free_mem;
-            response.total_mem = total_mem;
+            response.free_mem = free_mem[dev_id];
+            response.total_mem = total_mem[dev_id];
+#if 0
+            LOG_DBG("[get_device_mem] device: {}, free_mem: {}, total_mem: {}\n", dev_id,
+                response.free_mem, response.total_mem);
+#endif
             if (!send_msg(sockfd, &response, sizeof(response))) {
                 return;
             }
             break;
         }
         default: {
-            std::println(stderr, "Unknown command: {}", cmd);
+            GGML_LOG_ERROR("Unknown command: {}\n", cmd);
             return;
         }
         }
     }
 }
-
 static bool set_reuse_addr(sockfd_t sockfd) {
     int flag = 1;
     int ret = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char*)&flag, sizeof(int));
@@ -328,16 +355,37 @@ static std::shared_ptr<socket_t> socket_accept(sockfd_t srv_sockfd) {
     return client_socket;
 }
 
-void ggml_backend_rpc_start_server(ggml_backend* backend, const char* endpoint,
-    const char* cache_dir,
-    size_t free_mem, size_t total_mem) {
+void ggml_backend_rpc_start_server(const char* endpoint, const char* cache_dir,
+    size_t n_threads, size_t n_devices,
+    ggml_backend_device** devices, size_t* free_mem, size_t* total_mem) {
+    if (n_devices == 0 || devices == nullptr || free_mem == nullptr || total_mem == nullptr) {
+        fprintf(stderr, "Invalid arguments to ggml_backend_rpc_start_server\n");
+        return;
+    }
+    std::vector<std::unique_ptr<ggml_backend>> backends;
+    std::vector<size_t> free_mem_vec(free_mem, free_mem + n_devices);
+    std::vector<size_t> total_mem_vec(total_mem, total_mem + n_devices);
     printf("Starting RPC server v%d.%d.%d\n",
         RPC_PROTO_MAJOR_VERSION,
         RPC_PROTO_MINOR_VERSION,
         RPC_PROTO_PATCH_VERSION);
     printf("  endpoint       : %s\n", endpoint);
     printf("  local cache    : %s\n", cache_dir ? cache_dir : "n/a");
-    printf("  backend memory : %zu MB\n", free_mem / (1024 * 1024));
+    printf("Devices:\n");
+    for (size_t i = 0; i < n_devices; i++) {
+        auto dev = devices[i];
+        printf("  %s: %s (%zu MiB, %zu MiB free)\n", dev->get_name(), dev->get_description(),
+            total_mem[i] / 1024 / 1024, free_mem[i] / 1024 / 1024);
+        auto backend = dev->init_backend(nullptr);
+        if (!backend) {
+            fprintf(stderr, "Failed to create backend for device %s\n", dev->get_name());
+            return;
+        }
+        if (auto cpu_backend = dynamic_cast<ggml_cpu_backend*>(backend.get())) {
+            cpu_backend->set_n_threads(n_threads);
+        }
+        backends.push_back(std::move(backend));
+    }
 
     std::string host;
     int port;
@@ -365,9 +413,9 @@ void ggml_backend_rpc_start_server(ggml_backend* backend, const char* endpoint,
             fprintf(stderr, "Failed to accept client connection\n");
             return;
         }
-        printf("Accepted client connection, free_mem=%zu, total_mem=%zu\n", free_mem, total_mem);
+        printf("Accepted client connection\n");
         fflush(stdout);
-        rpc_serve_client(backend, cache_dir, client_socket->fd, free_mem, total_mem);
+        rpc_serve_client(backends, cache_dir, client_socket->fd, free_mem_vec, total_mem_vec);
         printf("Client connection closed\n");
         fflush(stdout);
     }

@@ -15,10 +15,10 @@ public:
 
 	std::string_view get_name() override { return "CPU"; }
 
-	std::span<ggml_backend_device*> get_devices() override {
+	ggml_backend_device* get_device(size_t index) override {
+		GGML_ASSERT(index == 0);
 		static ggml_backend_cpu_device cpu_device(this);
-		static std::array<ggml_backend_device*, 1> backends{ &cpu_device };
-		return backends;
+		return &cpu_device;
 	}
 
 	void* get_proc_address(std::string_view name) override {

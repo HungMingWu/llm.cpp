@@ -210,8 +210,13 @@ static __device__ __forceinline__ uint32_t __hgt2_mask(const half2 a, const half
 }
 #endif // (defined(CUDART_VERSION) && CUDART_VERSION < CUDART_HMASK) || defined(GGML_USE_HIP) || (defined(MUSART_VERSION) && MUSART_VERSION < MUSART_HMASK)
 
+static constexpr bool fp16_available(const int cc) {
+    return ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_PASCAL;
+}
+
 static constexpr bool fast_fp16_available(const int cc) {
-    return cc >= GGML_CUDA_CC_PASCAL && cc != 610;
+    return GGML_CUDA_CC_IS_AMD(cc) ||
+        (GGML_CUDA_CC_IS_NVIDIA(cc) && fp16_available(cc) && ggml_cuda_highest_compiled_arch(cc) != 610);
 }
 
 // Volta technically had FP16 tensor cores but they work very differently compared to Turing and later.
@@ -219,29 +224,6 @@ bool turing_mma_available(const int cc);
 
 constexpr int get_mmq_y_host(const int cc) {
     return cc >= GGML_CUDA_CC_OFFSET_AMD ? (cc == GGML_CUDA_CC_RDNA1 ? 64 : 128) : (cc >= GGML_CUDA_CC_VOLTA ? 128 : 64);
-}
-
-// Any FP16 tensor core instructions are available for ggml code.
-constexpr bool fp16_mma_available(const int cc) {
-#if defined(GGML_USE_HIP) && !defined(GGML_HIP_ROCWMMA_FATTN)
-    return false;
-#else
-    if ((GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA) ||
-        GGML_CUDA_CC_IS_CDNA(cc) || GGML_CUDA_CC_IS_RDNA3(cc) ||
-        GGML_CUDA_CC_IS_MTHREADS(cc)) {
-        return true;
-    }
-    else if (GGML_CUDA_CC_IS_RDNA4(cc)) {
-#if defined(GGML_HIP_ROCWMMA_FATTN) && defined(GGML_HIP_ROCWMMA_FATTN_GFX12)
-        return true;
-#else
-        return false;
-#endif // defined(GGML_HIP_ROCWMMA_FATTN) && defined(GGML_HIP_ROCWMMA_FATTN_GFX12)
-    }
-    else {
-        return false;
-    }
-#endif // defined(GGML_USE_HIP) && !defined(GGML_HIP_ROCWMMA_FATTN)
 }
 
 #if !defined(GGML_CUDA_NO_FA) && !(defined(GGML_USE_MUSA) && __MUSA_ARCH__ <= GGML_CUDA_CC_QY1)
@@ -291,6 +273,25 @@ bool fp32_mma_hardware_available(const int cc);
 
 // To be used for feature selection of external libraries, e.g. cuBLAS.
 bool fp16_mma_hardware_available(const int cc);
+
+// The compiler is always able to unroll loops if they contain continue expressions.
+// In such cases loop unrolling can still be achieved via recursion:
+template <int n>
+struct ggml_cuda_unroll {
+    template <typename Func, typename... Args>
+    __device__ void operator()(const Func& f, Args... args) const {
+        f(n - 1, args...);
+        ggml_cuda_unroll<n - 1>{}(f, args...);
+    }
+};
+
+template <>
+struct ggml_cuda_unroll<1> {
+    template <typename Func, typename... Args>
+    __device__ void operator()(const Func& f, Args... args) const {
+        f(0, args...);
+    }
+};
 
 #if defined(GGML_USE_HIP) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL
 #define FP16_AVAILABLE

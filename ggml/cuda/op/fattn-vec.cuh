@@ -510,19 +510,14 @@ void ggml_cuda_flash_attn_ext_vec_case_impl(const flash_attn_ext_context& ctx) {
     const int nthreads = ggml_cuda_fattn_vec_get_nthreads_host(cc);
     const int nwarps = nthreads / WARP_SIZE;
     fattn_kernel_t fattn_kernel = flash_attn_ext_vec<D, cols_per_block, type_K, type_V, use_logit_softcap>;
-    constexpr bool need_f16_K = false;
-    constexpr bool need_f16_V = false;
+    const bool need_f16_K = type_K == GGML_TYPE_F16;
+    const bool need_f16_V = type_V == GGML_TYPE_F16;
     constexpr size_t nbytes_shared = 0;
     launch_fattn<D, cols_per_block, 1>(ctx, fattn_kernel, nwarps, nbytes_shared, D, need_f16_K, need_f16_V, false);
 }
 
 template <int D, ggml_type type_K, ggml_type type_V>
 void ggml_cuda_flash_attn_ext_vec_case(const flash_attn_ext_context& ctx) {
-    GGML_ASSERT(ctx.K.type == type_K);
-    GGML_ASSERT(ctx.V.type == type_V);
-
-    const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
-
     if (ctx.Q.ne1 == 1) {
         constexpr int cols_per_block = 1;
         if (ctx.logit_softcap == 0.0f) {

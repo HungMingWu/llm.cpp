@@ -444,7 +444,10 @@ export {
 
 	ggml_tensor* ggml_soft_max_inplace(
 		ggml_context* ctx,
-		ggml_tensor* a);
+		ggml_tensor* a,
+		ggml_tensor* mask = nullptr,
+		float scale = 1.0,
+		float max_bias = 0.0);
 
 	ggml_tensor* ggml_abs(
 		ggml_context* ctx,
@@ -473,6 +476,11 @@ export {
 		int mode);
 
 	ggml_tensor* ggml_mul_inplace(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b);
+
+	ggml_tensor* ggml_div_inplace(
 		ggml_context* ctx,
 		ggml_tensor* a,
 		ggml_tensor* b);
@@ -894,4 +902,16 @@ export {
 		int rp2,
 		int lp3,
 		int rp3);
+
+	// xIELU activation function
+	// x = x * (c_a(alpha_n) + c_b(alpha_p, beta) * sigmoid(beta * x)) + eps * (x > 0)
+	// where c_a = softplus and c_b(a, b) = softplus(a) + b are constraining functions
+	// that constrain the positive and negative source alpha values respectively
+	ggml_tensor* ggml_xielu(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		float alpha_n,
+		float alpha_p,
+		float beta,
+		float eps);
 }

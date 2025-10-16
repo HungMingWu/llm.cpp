@@ -81,8 +81,9 @@ void ggml_backend_registry::register_backend(ggml_backend_reg_t reg, dl_handle_p
 		__func__, reg->get_name(), reg->get_device_count());
 #endif
 	backends.push_back({ reg, std::move(handle) });
-	for (auto dev : reg->get_devices())
-		register_device(dev);
+	for (size_t i = 0; i < reg->get_device_count(); i++) {
+		register_device(reg->get_device(i));
+	}
 }
 
 void ggml_backend_registry::register_device(ggml_backend_device* device) {

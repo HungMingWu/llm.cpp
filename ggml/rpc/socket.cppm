@@ -251,7 +251,7 @@ void get_device_memory(const std::shared_ptr<socket_t>& sock, size_t* free, size
     *total = response.total_mem;
 }
 
-void ggml_backend_rpc_get_device_memory(const char* endpoint, size_t* free, size_t* total) {
+void ggml_backend_rpc_get_device_memory(const char* endpoint, uint32_t device, size_t* free, size_t* total) {
     auto sock = get_socket(endpoint);
     if (!sock) {
         *free = 0;
@@ -261,20 +261,30 @@ void ggml_backend_rpc_get_device_memory(const char* endpoint, size_t* free, size
     get_device_memory(sock, free, total);
 }
 
-size_t get_alignment(const std::shared_ptr<socket_t>& sock) {
+size_t get_alignment(const std::shared_ptr<socket_t>& sock, uint32_t device) {
+    rpc_msg_get_alignment_req request = { device };
     rpc_msg_get_alignment_rsp response;
-    bool status = send_rpc_cmd(sock, RPC_CMD_GET_ALIGNMENT, nullptr, 0, &response, sizeof(response));
+    bool status = send_rpc_cmd(sock, RPC_CMD_GET_ALIGNMENT, &request, sizeof(request), &response, sizeof(response));
     RPC_STATUS_ASSERT(status);
     return response.alignment;
 }
 
-size_t get_max_size(const std::shared_ptr<socket_t>& sock) {
+size_t get_max_size(const std::shared_ptr<socket_t>& sock, uint32_t device) {
+    rpc_msg_get_max_size_req request = { device };
     rpc_msg_get_max_size_rsp response;
-    bool status = send_rpc_cmd(sock, RPC_CMD_GET_MAX_SIZE, nullptr, 0, &response, sizeof(response));
+    bool status = send_rpc_cmd(sock, RPC_CMD_GET_MAX_SIZE, &request, sizeof(request), &response, sizeof(response));
     RPC_STATUS_ASSERT(status);
     return response.max_size;
 }
 
-void ggml_backend_rpc_start_server(ggml_backend* backend, const char* endpoint,
-    const char* cache_dir,
-    size_t free_mem, size_t total_mem);
+uint32_t get_device_count(const char* endpoint) {
+    auto sock = get_socket(endpoint);
+    rpc_msg_device_count_rsp response;
+    bool status = send_rpc_cmd(sock, RPC_CMD_DEVICE_COUNT, nullptr, 0, &response, sizeof(response));
+    RPC_STATUS_ASSERT(status);
+    return response.device_count;
+}
+
+void ggml_backend_rpc_start_server(const char* endpoint, const char* cache_dir,
+    size_t n_threads, size_t n_devices,
+    ggml_backend_device** devices, size_t* free_mem, size_t* total_mem);

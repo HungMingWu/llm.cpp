@@ -83,19 +83,21 @@ void rpc_backend_buffer::get_tensor(const ggml_tensor* tensor, void* data, size_
 
 bool rpc_backend_buffer::cpy_tensor(const ggml_tensor* src, ggml_tensor* dst)
 {
-    // check if src and dst are on the same server
-    auto src_buffer = dynamic_cast<rpc_backend_buffer*>(src->buffer);
-    auto dst_buffer = dynamic_cast<rpc_backend_buffer*>(dst->buffer);
-    if (!src_buffer || !dst_buffer || src_buffer->sock != dst_buffer->sock) {
-        return false;
+    if (auto src_buffer = dynamic_cast<rpc_backend_buffer*>(src->buffer); src_buffer) {
+        // check if src and dst are on the same server
+        auto dst_buffer = dynamic_cast<rpc_backend_buffer*>(dst->buffer);
+        if (src_buffer->sock != dst_buffer->sock) {
+            return false;
+        }
+        rpc_msg_copy_tensor_req request;
+        request.src = serialize_tensor(src);
+        request.dst = serialize_tensor(dst);
+        rpc_msg_copy_tensor_rsp response;
+        bool status = send_rpc_cmd(sock, RPC_CMD_COPY_TENSOR, &request, sizeof(request), &response, sizeof(response));
+        RPC_STATUS_ASSERT(status);
+        return response.result;
     }
-    rpc_msg_copy_tensor_req request;
-    request.src = serialize_tensor(src);
-    request.dst = serialize_tensor(dst);
-    rpc_msg_copy_tensor_rsp response;
-    bool status = send_rpc_cmd(sock, RPC_CMD_COPY_TENSOR, &request, sizeof(request), &response, sizeof(response));
-    RPC_STATUS_ASSERT(status);
-    return response.result;
+    return false;
 }
 
 void rpc_backend_buffer::clear_impl(uint8_t value)

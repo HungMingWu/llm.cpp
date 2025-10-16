@@ -1525,8 +1525,11 @@ ggml_tensor* ggml_rms_norm_inplace(
 
 ggml_tensor* ggml_soft_max_inplace(
 	ggml_context* ctx,
-	ggml_tensor* a) {
-	return ggml_soft_max_impl(ctx, a, nullptr, 1.0f, 0.0f, true);
+	ggml_tensor* a,
+	ggml_tensor* mask,
+	float scale,
+	float max_bias) {
+	return ggml_soft_max_impl(ctx, a, mask, scale, max_bias, true);
 }
 
 ggml_tensor* ggml_abs(
@@ -1574,6 +1577,13 @@ ggml_tensor* ggml_mul_inplace(
 	ggml_tensor* a,
 	ggml_tensor* b) {
 	return ggml_mul_impl(ctx, a, b, true);
+}
+
+ggml_tensor* ggml_div_inplace(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b) {
+	return ggml_div_impl(ctx, a, b, true);
 }
 
 static ggml_tensor* ggml_diag_mask_inf_impl(
@@ -2642,6 +2652,27 @@ ggml_tensor* ggml_pad_ext(
 	result->op_params[7] = rp3;
 
 	result->op = GGML_OP_PAD;
+	result->src.push_back(a);
+
+	return result;
+}
+
+ggml_tensor* ggml_xielu(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	float alpha_n,
+	float alpha_p,
+	float beta,
+	float eps) {
+	ggml_tensor* result = ggml_dup_tensor(ctx, a);
+
+	result->op_params[0] = std::bit_cast<int32_t>(GGML_UNARY_OP_XIELU);
+	result->op_params[1] = std::bit_cast<int32_t>(beta + ggml_softplus(alpha_n));
+	result->op_params[2] = std::bit_cast<int32_t>(ggml_softplus(alpha_p));
+	result->op_params[3] = std::bit_cast<int32_t>(beta);
+	result->op_params[4] = std::bit_cast<int32_t>(eps);
+
+	result->op = GGML_OP_UNARY;
 	result->src.push_back(a);
 
 	return result;

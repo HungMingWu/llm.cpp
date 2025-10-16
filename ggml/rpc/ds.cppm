@@ -5,7 +5,7 @@ module;
 module ggml:rpc.ds;
 import :ds;
 
-constexpr uint8_t RPC_PROTO_MAJOR_VERSION = 2;
+constexpr uint8_t RPC_PROTO_MAJOR_VERSION = 3;
 constexpr uint8_t RPC_PROTO_MINOR_VERSION = 0;
 constexpr uint8_t RPC_PROTO_PATCH_VERSION = 0;
 
@@ -49,6 +49,7 @@ enum rpc_cmd {
     RPC_CMD_INIT_TENSOR,
     RPC_CMD_GET_ALLOC_SIZE,
     RPC_CMD_HELLO,
+    RPC_CMD_DEVICE_COUNT,
     RPC_CMD_COUNT,
 };
 
@@ -61,7 +62,12 @@ struct rpc_msg_hello_rsp {
     uint8_t patch;
 };
 
+struct rpc_msg_device_count_rsp {
+    uint32_t device_count;
+};
+
 struct rpc_msg_get_alloc_size_req {
+    uint32_t   device;
     rpc_tensor tensor;
 };
 
@@ -74,6 +80,7 @@ struct rpc_msg_init_tensor_req {
 };
 
 struct rpc_msg_alloc_buffer_req {
+    uint32_t device;
     uint64_t size;
 };
 
@@ -82,8 +89,16 @@ struct rpc_msg_alloc_buffer_rsp {
     uint64_t remote_size;
 };
 
+struct rpc_msg_get_alignment_req {
+    uint32_t device;
+};
+
 struct rpc_msg_get_alignment_rsp {
     uint64_t alignment;
+};
+
+struct rpc_msg_get_max_size_req {
+    uint32_t device;
 };
 
 struct rpc_msg_get_max_size_rsp {
@@ -134,6 +149,10 @@ struct rpc_msg_copy_tensor_rsp {
 
 struct rpc_msg_graph_compute_rsp {
     uint8_t result;
+};
+
+struct rpc_msg_get_device_memory_req {
+    uint32_t device;
 };
 
 struct rpc_msg_get_device_memory_rsp {

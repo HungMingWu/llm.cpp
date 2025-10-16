@@ -522,6 +522,7 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
 
 // build the computation graph
 ggml_cgraph gpt2_graph(
+    ggml_context &ctx,
     const gpt2_model& model,
     const int n_past,
     const std::vector<gpt_vocab::id>& embd_inp) {
@@ -533,8 +534,6 @@ ggml_cgraph gpt2_graph(
     const int n_layer = hparams.n_layer;
     const int n_ctx = hparams.n_ctx;
     const int n_head = hparams.n_head;
-
-    ggml_context ctx;
 
     ggml_cgraph gf;
 
@@ -838,11 +837,13 @@ bool gpt2_eval(
     const auto& hparams = model.hparams;
 
     const int n_vocab = hparams.n_vocab;
+    ggml_context ctx;
 
-    ggml_cgraph gf = gpt2_graph(model, n_past, embd_inp);
+    ggml_cgraph gf = gpt2_graph(ctx, model, n_past, embd_inp);
 
     // run the computation
     sched->reset();
+
     sched->graph_compute(gf);
 
     //if (n_past%100 == 0) {
@@ -910,7 +911,8 @@ int main(int argc, char** argv) {
         // create the worst case graph for memory usage estimation
         int n_tokens = std::min(model.hparams.n_ctx, params.n_batch);
         int n_past = model.hparams.n_ctx - n_tokens;
-        ggml_cgraph gf = gpt2_graph(model, n_past, std::vector<gpt_vocab::id>(n_tokens, 0));
+        ggml_context ctx;
+        ggml_cgraph gf = gpt2_graph(ctx, model, n_past, std::vector<gpt_vocab::id>(n_tokens, 0));
 
         sched->reserve(&gf);
 

@@ -13,6 +13,35 @@ import :func;
 import :tensor;
 import :cuda.buffer;
 
+// WMMA flash attention requires FP16 matrix instructions to be available for ggml code.
+static bool ggml_cuda_should_use_wmma_fattn(const int cc) {
+#if defined(GGML_USE_HIP) && !defined(GGML_HIP_ROCWMMA_FATTN)
+    return false;
+#else
+    if ((GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) == GGML_CUDA_CC_VOLTA) ||
+        GGML_CUDA_CC_IS_RDNA3(cc) || GGML_CUDA_CC_IS_MTHREADS(cc)) {
+        return true;
+    }
+    else if (GGML_CUDA_CC_IS_CDNA(cc)) {
+#if defined(GGML_HIP_ROCWMMA_FATTN) && (ROCWMMA_VERSION_MAJOR < 2 || ROCWMMA_VERSION_MINOR > 0 || ROCWMMA_VERSION_PATCH > 0)
+        return true;
+#else
+        return false;
+#endif // defined(GGML_HIP_ROCWMMA_FATTN) (ROCWMMA_VERSION_MAJOR < 2 || ROCWMMA_VERSION_MINOR > 0 || ROCWMMA_VERSION_PATCH > 0)
+    }
+    else if (GGML_CUDA_CC_IS_RDNA4(cc)) {
+#if defined(GGML_HIP_ROCWMMA_FATTN) && ROCWMMA_VERSION_MAJOR > 1
+        return true;
+#else
+        return false;
+#endif // defined(GGML_HIP_ROCWMFMA_FATTN) && ROCWMMA_VERSION_MAJOR > 1
+    }
+    else {
+        return false;
+    }
+#endif // defined(GGML_USE_HIP) && !defined(GGML_HIP_ROCWMMA_FATTN)
+}
+
 static bool cuda_should_use_mmf(enum ggml_type type, 
     size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t src1_ncols, bool mul_mat_id)
 {
@@ -217,7 +246,7 @@ namespace op
         mul_mat_vec_f_cuda(&ctx, stream);
     }
 
-    void mul_mat_f(cudaStream_t stream, const ggml_tensor* ids, ggml_tensor* dst)
+    void mul_mat_f(ggml_cuda_pool& pool, cudaStream_t stream, const ggml_tensor* ids, ggml_tensor* dst)
     {
         const ggml_tensor* src0 = dst->src[0];
         const ggml_tensor* src1 = dst->src[1];
@@ -236,6 +265,8 @@ namespace op
         GGML_ASSERT(src1->nb[0] == ts_src1);
         GGML_ASSERT(!ids || ids->nb[0] == ggml_type_size(ids->type));
         GGML_ASSERT(dst->nb[0] == ts_dst);
+        
+        const int32_t* ids_d = ids ? (const int32_t*)ids->data : nullptr;
 
         const int64_t s01 = src0->nb[1] / ts_src0;
         const int64_t s11 = src1->nb[1] / ts_src1;
@@ -247,6 +278,23 @@ namespace op
         const int64_t s13 = src1->nb[3] / ts_src1;
         const int64_t s3 = dst->nb[3] / ts_dst;
 
+        const int64_t ids_s0 = ids ? ids->nb[0] / ggml_type_size(ids->type) : 0;
+        const int64_t ids_s1 = ids ? ids->nb[1] / ggml_type_size(ids->type) : 0;
+
+        mmf_ids_data ids_info{};
+        mmf_ids_data* ids_info_ptr = nullptr;
+        ggml_cuda_pool_alloc<int32_t> ids_src_compact_dev;
+        ggml_cuda_pool_alloc<int32_t> ids_dst_compact_dev;
+        ggml_cuda_pool_alloc<int32_t> expert_bounds_dev;
+
+        // For MUL_MAT_ID the memory layout is different than for MUL_MAT:
+        const int64_t ncols_dst = ids ? dst->ne[2] : dst->ne[1];
+        const int64_t nchannels_dst = ids ? dst->ne[1] : dst->ne[2];
+
+        const int64_t stride_col_dst = ids ? s2 : s1;
+        const int64_t stride_col_y = ids ? s12 : s11;
+        const int64_t stride_channel_dst = ids ? s1 : s2;
+
         int64_t stride_channel_y = ids ? s11 : s12;
         int64_t nchannels_y = ids ? src1->ne[1] : src1->ne[2];
 
@@ -256,11 +304,38 @@ namespace op
             nchannels_y = ids->ne[0];
         }
 
+        if (ids && ncols_dst > 16) {
+            const int64_t n_expert_used = ids->ne[0];
+            const int64_t n_experts = src0->ne[2];
+            const int64_t n_tokens = src1->ne[2];
+            const int64_t ne_get_rows = n_tokens * n_expert_used;
+
+            ids_src_compact_dev.alloc(pool, ne_get_rows);
+            ids_dst_compact_dev.alloc(pool, ne_get_rows);
+            expert_bounds_dev.alloc(pool, n_experts + 1);
+
+            const int si1 = static_cast<int>(ids_s1);
+            const int sis1 = static_cast<int>(src1->nb[2] / src1->nb[1]);
+
+            GGML_ASSERT(sis1 > 0);
+
+            ggml_cuda_launch_mm_ids_helper(ids_d, ids_src_compact_dev.get(), ids_dst_compact_dev.get(), expert_bounds_dev.get(),
+                static_cast<int>(n_experts), static_cast<int>(n_tokens), static_cast<int>(n_expert_used), static_cast<int>(src1->ne[1]), si1, sis1, stream);
+            CUDA_CHECK(cudaGetLastError());
+
+            ids_info.ids_src_compact = ids_src_compact_dev.get();
+            ids_info.ids_dst_compact = ids_dst_compact_dev.get();
+            ids_info.expert_bounds_dev = expert_bounds_dev.get();
+            ids_info.n_experts = static_cast<int>(n_experts);
+            ids_info.sis1 = sis1;
+            ids_info_ptr = &ids_info;
+        }
+
         mul_mat_f_context ctx{
 			.src0_type = src0->type,
 			.src0_d = src0->data,
             .src1_d = (const float*)src1->data,
-            .ids_d = ids ? (const int32_t*)ids->data : nullptr,
+            .ids_d = ids_d,
             .dst_d = (float*)dst->data,
 			.ne00 = src0->ne[0],
 			.ne01 = src0->ne[1],
@@ -285,7 +360,9 @@ namespace op
             .s11 = s11,
             .s13 = s13,
             .s1 = s1,
-            .s3 = s3
+            .s3 = s3,
+
+            .ids_info_ptr = ids_info_ptr
         };
 
         mul_mat_f_cuda(&ctx, stream);
@@ -465,6 +542,19 @@ namespace op
             return exp_cuda(&ctx);
         case GGML_UNARY_OP_ELU:
             return elu_cuda(&ctx);
+        case GGML_UNARY_OP_XIELU: {
+            const void* src0_d = src0->data;
+            void* dst_d = dst->data;
+            GGML_ASSERT(dst->type == GGML_TYPE_F32 || dst->type == GGML_TYPE_F16);
+            GGML_ASSERT(src0->type == dst->type);
+
+            const float alpha_n = std::bit_cast<float>(dst->op_params[1]);
+            const float alpha_p = std::bit_cast<float>(dst->op_params[2]);
+            const float beta = std::bit_cast<float>(dst->op_params[3]);
+            const float eps = std::bit_cast<float>(dst->op_params[4]);
+			xielu_cuda(src0->type, src0_d, dst_d, src0->nelements(), alpha_n, alpha_p, beta, eps, stream);
+            break;
+        }
         default:
             assert(false);
         }
@@ -789,7 +879,7 @@ namespace op
         gated_linear_attn_cuda(&ctx, stream);
     }
 
-    void mul_mat_vec_q(cudaStream_t stream, const ggml_tensor* ids, ggml_tensor* dst, ggml_cuda_pool& pool)
+    void mul_mat_vec_q(ggml_cuda_pool& pool, cudaStream_t stream, const ggml_tensor* ids, ggml_tensor* dst)
     {
         const ggml_tensor* src0 = dst->src[0];
         const ggml_tensor* src1 = dst->src[1];
@@ -877,7 +967,7 @@ namespace op
     }
 
     void mul_mat_q(
-        cudaStream_t stream, ggml_cuda_pool& pool, const ggml_tensor* ids, ggml_tensor* dst) {
+        ggml_cuda_pool& pool, cudaStream_t stream, const ggml_tensor* ids, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         const ggml_tensor* src1 = dst->src[1];
 
@@ -964,19 +1054,12 @@ namespace op
 
         {
             GGML_ASSERT(ids->nb[0] == ggml_element_size(ids));
-            mmq_ids_helper_context ctx{
-                .n_expert_used = n_expert_used,
-                .ids = (const int32_t*)ids->data,
-                .ids_src1 = ids_src1.get(),
-                .ids_dst = ids_dst.get(),
-                .expert_bounds = expert_bounds.get(),
-                .n_experts = src0->ne[2],
-                .n_tokens = src1->ne[2],
-                .nchannels_y = src1->ne[1],
-                .si1 = ids->nb[1] / ggml_element_size(ids),
-                .sis1 = src1->nb[2] / src1->nb[1]
-            };
-            launch_mmq_ids_helper(&ctx, stream);
+            const int si1 = ids->nb[1] / ggml_element_size(ids);
+            const int sis1 = src1->nb[2] / src1->nb[1];
+
+            ggml_cuda_launch_mm_ids_helper((const int32_t*)ids->data, ids_src1.get(), ids_dst.get(), expert_bounds.get(),
+                src0->ne[2], src1->ne[2], n_expert_used, src1->ne[1], si1, sis1, stream);
+            CUDA_CHECK(cudaGetLastError());
         }
 
         const size_t nbytes_src1_q8_1 = src1->ne[2] * n_expert_used * ne10_padded * sizeof(block_q8_1) / QK8_1 +
@@ -1010,7 +1093,7 @@ namespace op
         ggml_cuda_mul_mat_q_switch_type(pool, args, stream);
     }
 
-    void mul_mat_id(cudaStream_t stream, ggml_tensor* dst, ggml_cuda_pool& pool, auto mat_mul_cb) {
+    void mul_mat_id(ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst, auto mat_mul_cb) {
         const ggml_tensor* src0 = dst->src[0];
         const ggml_tensor* src1 = dst->src[1];
         const ggml_tensor* ids = dst->src[2];
@@ -1024,7 +1107,7 @@ namespace op
         if (src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
             if (dst->ne[2] == 1) {
                 if (ggml_is_quantized(src0->type)) {
-                    mul_mat_vec_q(stream, ids, dst, pool);
+                    mul_mat_vec_q(pool, stream, ids, dst);
                 }
                 else {
                     mul_mat_vec_f(stream, ids, dst);
@@ -1033,12 +1116,12 @@ namespace op
             }
 
             if (ggml_cuda_should_use_mmq(src0->type, cc, src1->ne[2])) {
-                mul_mat_q(stream, pool, ids, dst);
+                mul_mat_q(pool, stream, ids, dst);
                 return;
             }
 
             if (cuda_should_use_mmf(src0->type, ggml_type_size(src0->type), cc, WARP_SIZE, src0->ne.data(), src1->ne[2],/*mul_mat_id=*/true)) {
-                mul_mat_f(stream, ids, dst);
+                mul_mat_f(pool, stream, ids, dst);
                 return;
             }
         }
@@ -1724,6 +1807,7 @@ namespace op
         return BEST_FATTN_KERNEL_NONE;
 #endif// FLASH_ATTN_AVAILABLE
 
+        const ggml_tensor* KQV = dst;
         const ggml_tensor* Q = dst->src[0];
         const ggml_tensor* K = dst->src[1];
         const ggml_tensor* V = dst->src[2];
@@ -1732,23 +1816,26 @@ namespace op
         const int gqa_ratio = Q->ne[2] / K->ne[2];
         GGML_ASSERT(Q->ne[2] % K->ne[2] == 0);
 
+        float max_bias = 0.0f;
+        memcpy(&max_bias, (const float*)KQV->op_params + 1, sizeof(float));
+
+        static constexpr int64_t FATTN_KQ_STRIDE = 256;
+
+        // The effective batch size for the kernel can be increased by gqa_ratio.
+        // The kernel versions without this optimization are also used for ALiBi, if there is no mask, or if the KV cache is not padded,
+        const bool gqa_opt_applies = gqa_ratio % 2 == 0 && mask && max_bias == 0.0f && K->ne[1] % FATTN_KQ_STRIDE == 0;
+
         const int cc = ggml_cuda_info().devices[device].cc;
 
         switch (K->ne[0]) {
+        case  40:
         case  64:
-        case 128:
-        case 256:
-            if (V->ne[0] != K->ne[0]) {
-                return BEST_FATTN_KERNEL_NONE;
-            }
-            break;
         case  80:
         case  96:
+        case 128:
         case 112:
+        case 256:
             if (V->ne[0] != K->ne[0]) {
-                return BEST_FATTN_KERNEL_NONE;
-            }
-            if (!fp16_mma_available(cc) && !turing_mma_available(cc)) {
                 return BEST_FATTN_KERNEL_NONE;
             }
             break;
@@ -1756,7 +1843,7 @@ namespace op
             if (V->ne[0] != 512) {
                 return BEST_FATTN_KERNEL_NONE;
             }
-            if (!turing_mma_available(cc) || gqa_ratio % 16 != 0) {
+            if (!gqa_opt_applies || gqa_ratio % 16 != 0) {
                 return BEST_FATTN_KERNEL_NONE;
             }
             break;
@@ -1771,6 +1858,7 @@ namespace op
 #endif // GGML_CUDA_FA_ALL_QUANTS
 
         switch (K->type) {
+        case GGML_TYPE_F32:
         case GGML_TYPE_F16:
             break;
         case GGML_TYPE_Q4_1:
@@ -1790,49 +1878,60 @@ namespace op
             return BEST_FATTN_KERNEL_NONE;
         }
 
-        const bool can_use_vector_kernel = Q->ne[0] <= 256 && Q->ne[0] % 64 == 0;
+        // For small batch sizes the vector kernel may be preferable over the kernels optimized for large batch sizes:
+        const bool can_use_vector_kernel = Q->ne[0] <= 256 && Q->ne[0] % 64 == 0 && K->ne[1] % FATTN_KQ_STRIDE == 0;
 
-        // If Turing tensor cores available, use them except for some cases with batch size 1:
-        if (turing_mma_available(cc)) {
-            best_fattn_kernel best = BEST_FATTN_KERNEL_MMA_F16;
-
+        // If Turing tensor cores available, use them:
+        if (turing_mma_available(cc) && K->ne[1] % FATTN_KQ_STRIDE == 0 && Q->ne[0] != 40) {
             if (can_use_vector_kernel) {
-                if (K->type == GGML_TYPE_F16 && V->type == GGML_TYPE_F16) {
+                if (!ggml_is_quantized(K->type) && !ggml_is_quantized(V->type)) {
                     if (cc >= GGML_CUDA_CC_ADA_LOVELACE && Q->ne[1] == 1 && Q->ne[3] == 1 && !(gqa_ratio > 4 && K->ne[1] >= 8192)) {
-                        best = BEST_FATTN_KERNEL_VEC;
+                        return BEST_FATTN_KERNEL_VEC;
                     }
                 }
                 else {
                     if (cc >= GGML_CUDA_CC_ADA_LOVELACE) {
                         if (Q->ne[1] <= 2) {
-                            best = BEST_FATTN_KERNEL_VEC;
+                            return BEST_FATTN_KERNEL_VEC;
                         }
                     }
                     else {
                         if (Q->ne[1] == 1) {
-                            best = BEST_FATTN_KERNEL_VEC;
+                            return BEST_FATTN_KERNEL_VEC;
                         }
                     }
                 }
-                if ((gqa_ratio % 2 != 0 || !mask) && Q->ne[1] == 1) {
-                    best = BEST_FATTN_KERNEL_VEC; // GQA-specific optimizations in the mma kernel do not apply.
+                if (!gqa_opt_applies && Q->ne[1] == 1) {
+                    return BEST_FATTN_KERNEL_VEC;
                 }
             }
 
-            return best;
+            return BEST_FATTN_KERNEL_MMA_F16;
         }
 
-        // Use kernels specialized for small batch sizes if possible:
-        if (Q->ne[1] <= 8 && can_use_vector_kernel) {
-            return BEST_FATTN_KERNEL_VEC;
-        }
-
-        // For large batch sizes, use the WMMA kernel if possible:
-        if (fp16_mma_available(cc)) {
+        // Use the WMMA kernel if possible:
+        if (ggml_cuda_should_use_wmma_fattn(cc) && K->ne[1] % FATTN_KQ_STRIDE == 0 && Q->ne[0] != 40 && Q->ne[0] != 576) {
+            if (can_use_vector_kernel && Q->ne[1] <= 2) {
+                return BEST_FATTN_KERNEL_VEC;
+            }
             return BEST_FATTN_KERNEL_WMMA_F16;
         }
 
-        // If there is no suitable kernel for tensor cores or small batch sizes, use the generic kernel for large batch sizes:
+        // If there are no tensor cores available, use the generic tile kernel:
+        if (can_use_vector_kernel) {
+            if (!ggml_is_quantized(K->type) && !ggml_is_quantized(V->type)) {
+                if (Q->ne[1] == 1) {
+                    if (!gqa_opt_applies) {
+                        return BEST_FATTN_KERNEL_VEC;
+                    }
+                }
+            }
+            else {
+                if (Q->ne[1] <= 2) {
+                    return BEST_FATTN_KERNEL_VEC;
+                }
+            }
+        }
         return BEST_FATTN_KERNEL_TILE;
     }
 

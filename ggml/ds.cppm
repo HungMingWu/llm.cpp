@@ -237,7 +237,7 @@ export {
         ggml_backend_reg(int api_version, void* context) : api_version(api_version), context(context) {}
         virtual ~ggml_backend_reg() = default;
         virtual std::string_view get_name() = 0;
-        virtual std::span<ggml_backend_device*> get_devices() = 0;
+        virtual ggml_backend_device* get_device(size_t index) = 0;
         virtual size_t get_device_count() { return 1; }
         // (optional) get a pointer to a function in the backend
         // backends can add custom functions that are not part of the standard ggml-backend interface
@@ -420,10 +420,13 @@ export {
         GGML_UNARY_OP_HARDSIGMOID,
         GGML_UNARY_OP_EXP,
         GGML_UNARY_OP_GELU_ERF,
+        GGML_UNARY_OP_XIELU,
 
         GGML_UNARY_OP_COUNT,
     };
 
+    // TODO: convert to enum https://github.com/ggml-org/llama.cpp/pull/16187#discussion_r2388538726
+    constexpr int GGML_ROPE_TYPE_NORMAL = 0;
     constexpr int GGML_ROPE_TYPE_NEOX = 2;
     constexpr int GGML_ROPE_TYPE_MROPE = 8;
     constexpr int GGML_ROPE_TYPE_VISION = 24;
@@ -462,18 +465,33 @@ export {
 
     // dynamic tensor allocator
 
+    constexpr size_t MAX_FREE_BLOCKS = 256;
+    constexpr size_t GGML_VBUFFER_MAX_CHUNKS = 16;
+
     struct free_block {
         size_t offset;
         size_t size;
     };
 
-    constexpr size_t MAX_FREE_BLOCKS = 256;
+    struct tallocr_chunk {
+        free_block free_blocks[MAX_FREE_BLOCKS];
+        int n_free_blocks;
+        size_t max_size;
+    public:
+        void remove_block(int idx);
+        void insert_block(size_t offset, size_t size);
+    };
+
+    // relative memory address within an allocation that can be split into multiple buffers (chunks)
+    struct buffer_address {
+        int chunk;     // index of a backend buffer
+        size_t offset; // local memory offset within the buffer
+    };
 
     struct ggml_dyn_tallocr {
         size_t alignment;
-        int n_free_blocks = 0;
-        free_block free_blocks[MAX_FREE_BLOCKS] {};
-        size_t max_size = 0;
+        size_t max_chunk_size;
+        cpp26::inplace_vector<tallocr_chunk, GGML_VBUFFER_MAX_CHUNKS> chunks;
 
 #ifdef GGML_ALLOCATOR_DEBUG
         struct {
@@ -481,26 +499,28 @@ export {
             size_t offset;
         } allocated_tensors[1024]{};
 #endif
+    protected:
+        tallocr_chunk* new_chunk(size_t min_size); // use std::optional<tallocr_chunk&> replace if it exist
     public:
         ggml_dyn_tallocr(size_t alignment);
-        size_t get_max_size() const { return max_size; }
+        size_t max_size(int chunk) const;
         void reset();
-        size_t alloc(size_t size, const ggml_tensor* tensor);
-        void free_tensor(size_t offset, size_t size, const ggml_tensor* tensor);
+        buffer_address alloc(size_t size, const ggml_tensor* tensor);
+        void free_tensor(buffer_address addr, size_t size, const ggml_tensor* tensor);
     };
 
     struct hash_node {
         int n_children;
         int n_views;
         int buffer_id;
-        size_t offset; // offset within the buffer
+        buffer_address addr;
         bool allocated;
     };
 
     struct tensor_alloc {
-        int buffer_id{};
-        size_t offset{};
-        size_t size_max{}; // 0 = pre-allocated, unused, or view
+        int buffer_id;
+        buffer_address addr;
+        size_t size_max; // 0 = pre-allocated, unused, or view
     };
 
     struct leaf_alloc {
@@ -512,10 +532,22 @@ export {
         tensor_alloc src[GGML_MAX_SRC];
     };
 
+    // virtual buffer with contiguous memory range, split into multiple backend buffers (chunks)
+
+    class vbuffer {
+        cpp26::inplace_vector<std::unique_ptr<ggml_backend_buffer>, GGML_VBUFFER_MAX_CHUNKS> chunks;
+    public:
+        vbuffer(ggml_backend_buffer_type* buft, const ggml_dyn_tallocr* talloc, ggml_backend_buffer_usage usage);
+        size_t chunk_size(int chunk);
+        size_t size() const;
+        void alloc(ggml_tensor* tensor, buffer_address buf_addr);
+        void reset();
+    };
+
     struct ggml_gallocr {
     private:
         std::vector<ggml_backend_buffer_type*> bufts; // [n_buffers]
-        std::vector<std::shared_ptr<ggml_backend_buffer>> buffers; // [n_buffers]
+        std::vector<std::shared_ptr<vbuffer>> buffers; // [n_buffers]
         std::vector<std::shared_ptr<ggml_dyn_tallocr>> buf_tallocs; // [n_buffers]
         std::unordered_map<ggml_tensor*, hash_node> hash_map;
         std::vector<node_alloc> node_allocs; // [n_nodes]

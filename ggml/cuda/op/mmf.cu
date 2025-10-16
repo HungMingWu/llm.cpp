@@ -18,10 +18,10 @@ bool ggml_cuda_should_use_mmf(enum ggml_type type,
     }
 
     if (mul_mat_id) {
-        if (type == GGML_TYPE_F32 && src1_ncols > 32) {
+        if (src0_ne[1] <= 1024 && src1_ncols > 512) {
             return false;
         }
-        if ((type == GGML_TYPE_F16 || type == GGML_TYPE_BF16) && src1_ncols > 64) {
+        else if (src0_ne[1] > 1024 && src1_ncols > 128) {
             return false;
         }
     }
@@ -54,7 +54,7 @@ void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream)
             ctx->ne01, ctx->ncols_dst, ctx->s01 / vals_per_T, ctx->stride_col_y / vals_per_T,
             ctx->stride_col_dst,  ctx->ids_s0, ctx->ids_s1, ctx->ne02, ctx->nchannels_y,
             ctx->nchannels_dst, ctx->s02 / vals_per_T, ctx->stride_channel_y, ctx->stride_channel_dst,
-            ctx->ne03, ctx->ne3, ctx->s03 / vals_per_T, ctx->s13, ctx->s3, stream);
+            ctx->ne03, ctx->ne3, ctx->s03 / vals_per_T, ctx->s13, ctx->s3, stream, ctx->ids_info_ptr);
     } break;
     case GGML_TYPE_F16: {
         const half2* src0_d = (const half2*)ctx->src0_d;
@@ -64,7 +64,7 @@ void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream)
             ctx->ne01, ctx->ncols_dst, ctx->s01 / vals_per_T, ctx->stride_col_y / vals_per_T,
             ctx->stride_col_dst, ctx->ids_s0, ctx->ids_s1, ctx->ne02, ctx->nchannels_y,
             ctx->nchannels_dst, ctx->s02 / vals_per_T, ctx->stride_channel_y, ctx->stride_channel_dst,
-            ctx->ne03, ctx->ne3, ctx->s03 / vals_per_T, ctx->s13, ctx->s3, stream);
+            ctx->ne03, ctx->ne3, ctx->s03 / vals_per_T, ctx->s13, ctx->s3, stream, ctx->ids_info_ptr);
     } break;
     case GGML_TYPE_BF16: {
         const nv_bfloat162* src0_d = (const nv_bfloat162*)ctx->src0_d;
@@ -74,7 +74,7 @@ void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream)
             ctx->ne01, ctx->ncols_dst, ctx->s01 / vals_per_T, ctx->stride_col_y / vals_per_T,
             ctx->stride_col_dst, ctx->ids_s0, ctx->ids_s1, ctx->ne02, ctx->nchannels_y,
             ctx->nchannels_dst, ctx->s02 / vals_per_T, ctx->stride_channel_y, ctx->stride_channel_dst,
-            ctx->ne03, ctx->ne3, ctx->s03 / vals_per_T, ctx->s13, ctx->s3, stream);
+            ctx->ne03, ctx->ne3, ctx->s03 / vals_per_T, ctx->s13, ctx->s3, stream, ctx->ids_info_ptr);
     } break;
     default:
         GGML_ABORT("unsupported type: %s", ggml_type_name(src0->type));
