@@ -98,7 +98,7 @@ void ggml_opt_context::build() {
         loss = ggml_sum(ctx_results, outputs);
         loss->set_name("loss_sum");
         const float scale = 1.0f / (opt_period * outputs->nelements());
-        loss = ggml_scale(ctx_results, loss, scale);
+        loss = ggml_scale(ctx_results, loss, scale, false);
         loss->set_name("loss_mean");
         loss_per_datapoint = true;
         break;
@@ -116,7 +116,7 @@ void ggml_opt_context::build() {
         loss = ggml_cross_entropy_loss(ctx_results, outputs, labels);
         loss->set_name("loss_cross_entropy");
         if (opt_period > 1) {
-            loss = ggml_scale(ctx_results, loss, 1.0f / opt_period);
+            loss = ggml_scale(ctx_results, loss, 1.0f / opt_period, false);
             loss->set_name("loss_cross_entropy_scaled");
         }
         loss_per_datapoint = true;
@@ -126,14 +126,14 @@ void ggml_opt_context::build() {
         labels = ggml_dup_tensor(ctx_results, outputs);
         labels->set_flag(GGML_TENSOR_FLAG_INPUT);
         labels->set_name("labels");
-        loss = ggml_sub(ctx_results, outputs, labels);
+        loss = ggml_sub(ctx_results, outputs, labels, false);
         loss->set_name("loss_error");
-        loss = ggml_sqr(ctx_results, loss);
+        loss = ggml_sqr(ctx_results, loss, false);
         loss->set_name("loss_squared_error");
         loss = ggml_sum(ctx_results, loss);
         loss->set_name("loss_sum_squared_error");
         const float scale = 1.0f / (opt_period * outputs->nelements());
-        loss = ggml_scale(ctx_results, loss, scale);
+        loss = ggml_scale(ctx_results, loss, scale, false);
         loss->set_name("loss_mean_squared_error");
         loss_per_datapoint = true;
         break;

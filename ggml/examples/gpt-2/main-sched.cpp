@@ -555,7 +555,7 @@ ggml_cgraph gpt2_graph(
     ggml_tensor* inpL =
         ggml_add(&ctx,
             ggml_get_rows(&ctx, model.wte, embd),
-            ggml_get_rows(&ctx, model.wpe, position));
+            ggml_get_rows(&ctx, model.wpe, position), false);
     inpL->set_name("inpL");
     inpL->src[0]->set_name("wte");
     inpL->src[1]->set_name("wpe");
@@ -566,7 +566,7 @@ ggml_cgraph gpt2_graph(
         // norm
         {
             // [ 768, N]
-            cur = ggml_norm(&ctx, inpL, hparams.eps);
+            cur = ggml_norm(&ctx, inpL, hparams.eps, false);
             cur->set_name("l{}.norm", il);
 
             // cur = ln_1_g*cur + ln_1_b
@@ -574,8 +574,8 @@ ggml_cgraph gpt2_graph(
             cur = ggml_add(&ctx,
                 ggml_mul(&ctx,
                     cur,
-                    model.layers[il].ln_1_g),
-                model.layers[il].ln_1_b);
+                    model.layers[il].ln_1_g, false),
+                model.layers[il].ln_1_b, false);
             cur->set_name("l{}.ln_1_b", il);
             cur->src[0]->set_name("l{}.ln_1_g", il);
         }
@@ -596,7 +596,7 @@ ggml_cgraph gpt2_graph(
 
             cur = ggml_add(&ctx,
                 cur,
-                model.layers[il].c_attn_attn_b);
+                model.layers[il].c_attn_attn_b, false);
             cur->set_name("l{}.attn_b", il);
         }
 
@@ -656,17 +656,17 @@ ggml_cgraph gpt2_graph(
 
             // KQ_scaled = KQ / sqrt(n_embd/n_head)
             // [n_past + N, N, 12]
-            ggml_tensor* KQ_scaled = ggml_scale(&ctx, KQ, KQ_scale);
+            ggml_tensor* KQ_scaled = ggml_scale(&ctx, KQ, KQ_scale, false);
             KQ_scaled->set_name("l{}.KQ_scaled", il);
 
             // KQ_masked = mask_past(KQ_scaled)
             // [n_past + N, N, 12]
-            ggml_tensor* KQ_masked = ggml_diag_mask_inf(&ctx, KQ_scaled, n_past);
+            ggml_tensor* KQ_masked = ggml_diag_mask_inf(&ctx, KQ_scaled, n_past, false);
             KQ_masked->set_name("l{}.KQ_masked", il);
 
             // KQ = soft_max(KQ_masked)
             // [n_past + N, N, 12]
-            ggml_tensor* KQ_soft_max = ggml_soft_max(&ctx, KQ_masked);
+            ggml_tensor* KQ_soft_max = ggml_soft_max(&ctx, KQ_masked, false);
             KQ_soft_max->set_name("l{}.KQ_soft_max", il);
 
             // V_trans = Vmem.view(n_embd/n_head, n_head, n_past + N).permute(1, 2, 0, 3).contiguous()
@@ -712,12 +712,12 @@ ggml_cgraph gpt2_graph(
 
             cur = ggml_add(&ctx,
                 cur,
-                model.layers[il].c_attn_proj_b);
+                model.layers[il].c_attn_proj_b, false);
             cur->set_name("l{}.attn_proj_b", il);
         }
 
         // add the input
-        cur = ggml_add(&ctx, cur, inpL);
+        cur = ggml_add(&ctx, cur, inpL, false);
         cur->set_name("l{}.add", il);
 
         ggml_tensor* inpFF = cur;
@@ -726,7 +726,7 @@ ggml_cgraph gpt2_graph(
         {
             // norm
             {
-                cur = ggml_norm(&ctx, inpFF, hparams.eps);
+                cur = ggml_norm(&ctx, inpFF, hparams.eps, false);
                 cur->set_name("l{}.FFnorm", il);
 
                 // cur = ln_2_g*cur + ln_2_b
@@ -734,8 +734,8 @@ ggml_cgraph gpt2_graph(
                 cur = ggml_add(&ctx,
                     ggml_mul(&ctx,
                         cur,
-                        model.layers[il].ln_2_g),
-                    model.layers[il].ln_2_b);
+                        model.layers[il].ln_2_g, false),
+                    model.layers[il].ln_2_b, false);
                 cur->set_name("l{}.ln_2_b", il);
                 cur->src[0]->set_name("l{}.ln_2_g", il);
             }
@@ -755,12 +755,12 @@ ggml_cgraph gpt2_graph(
 
             cur = ggml_add(&ctx,
                 cur,
-                model.layers[il].c_mlp_fc_b);
+                model.layers[il].c_mlp_fc_b, false);
             cur->set_name("l{}.mlp_fc_b", il);
 
             // GELU activation
             // [3072, N]
-            cur = ggml_gelu(&ctx, cur);
+            cur = ggml_gelu(&ctx, cur, false);
             cur->set_name("l{}.gelu", il);
 
             // projection
@@ -778,19 +778,19 @@ ggml_cgraph gpt2_graph(
 
             cur = ggml_add(&ctx,
                 cur,
-                model.layers[il].c_mlp_proj_b);
+                model.layers[il].c_mlp_proj_b, false);
             cur->set_name("l{}.mlp_proj_b", il);
         }
 
         // input for next layer
-        inpL = ggml_add(&ctx, cur, inpFF);
+        inpL = ggml_add(&ctx, cur, inpFF, false);
         inpL->set_name("l{}.add2", il);
     }
 
     // norm
     {
         // [ 768, N]
-        inpL = ggml_norm(&ctx, inpL, hparams.eps);
+        inpL = ggml_norm(&ctx, inpL, hparams.eps, false);
         inpL->set_name("out_norm");
 
         // inpL = ln_f_g*inpL + ln_f_b
@@ -798,8 +798,8 @@ ggml_cgraph gpt2_graph(
         inpL = ggml_add(&ctx,
             ggml_mul(&ctx,
                 inpL,
-                model.ln_f_g),
-            model.ln_f_b);
+                model.ln_f_g, false),
+            model.ln_f_b, false);
         inpL->set_name("out_ln_f_b");
         inpL->src[0]->set_name("out_ln_f_g");
     }
@@ -811,7 +811,7 @@ ggml_cgraph gpt2_graph(
     inpL->set_name("out_lm_head");
 
     // logits -> probs
-    //inpL = ggml_soft_max(&ctx0, inpL);
+    //inpL = ggml_soft_max(&ctx0, inpL, false);
 
     gf.build_forward_expand(inpL);
 

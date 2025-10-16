@@ -58,7 +58,7 @@ static void ggml_acc_or_set(
         grads = ggml_acc_impl(ctx, grads, tensor, nb1, nb2, nb3, offset, cgraph->grad_accs[src]);
     }
     else {
-        struct ggml_tensor* a_zero = ggml_scale(ctx, src, 0.0f); // FIXME this is going to produce NaN if a contains inf/NaN
+        struct ggml_tensor* a_zero = ggml_scale(ctx, src, 0.0f, false); // FIXME this is going to produce NaN if a contains inf/NaN
         grads = ggml_acc_impl(ctx, a_zero, tensor, nb1, nb2, nb3, offset, false);
     }
     grads->set_name("grad for {}", src->name);
@@ -177,12 +177,6 @@ static void ggml_sub_or_set(
     cgraph->build_forward_expand(grads);
 }
 
-extern ggml_tensor* ggml_add1_impl(
-    ggml_context* ctx,
-    ggml_tensor* a,
-    ggml_tensor* b,
-    bool                  inplace);
-
 static void ggml_add1_or_set(
     ggml_context* ctx,
     ggml_cgraph* cgraph,
@@ -191,7 +185,7 @@ static void ggml_add1_or_set(
     GGML_ASSERT(src);
     auto& grads = cgraph->grads[src];
     if (grads) {
-        grads = ggml_add1_impl(ctx, grads, tensor, cgraph->grad_accs[src]);
+        grads = ggml_add1(ctx, grads, tensor, cgraph->grad_accs[src]);
     }
     else {
         grads = ggml_repeat(ctx, tensor, src);
@@ -310,10 +304,10 @@ static void ggml_compute_backward(
     } break;
     case GGML_OP_MUL: {
         if (src0_needs_grads) {
-            ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, grad, src1));
+            ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, grad, src1, false));
         }
         if (src1_needs_grads) {
-            struct ggml_tensor* tmp = ggml_mul(ctx, src0, grad);
+            struct ggml_tensor* tmp = ggml_mul(ctx, src0, grad, false);
             if (!ggml_are_same_shape(src0, src1)) {
                 tmp = ggml_repeat_back(ctx, tmp, src1);
             }
@@ -322,35 +316,35 @@ static void ggml_compute_backward(
     } break;
     case GGML_OP_DIV: {
         if (src0_needs_grads) {
-            ggml_add_or_set(ctx, cgraph, src0, ggml_div(ctx, grad, src1));
+            ggml_add_or_set(ctx, cgraph, src0, ggml_div(ctx, grad, src1, false));
         }
         if (src1_needs_grads) {
-            ggml_sub_or_set(ctx, cgraph, src1, ggml_mul(ctx, grad, ggml_div(ctx, tensor, src1)));
+            ggml_sub_or_set(ctx, cgraph, src1, ggml_mul(ctx, grad, ggml_div(ctx, tensor, src1, false), false));
         }
     } break;
     case GGML_OP_SQR: {
         if (src0_needs_grads) {
-            ggml_add_or_set(ctx, cgraph, src0, ggml_scale(ctx, ggml_mul(ctx, src0, grad), 2.0f));
+            ggml_add_or_set(ctx, cgraph, src0, ggml_scale(ctx, ggml_mul(ctx, src0, grad, false), 2.0f, false));
         }
     } break;
     case GGML_OP_SQRT: {
         if (src0_needs_grads) {
-            ggml_add_or_set(ctx, cgraph, src0, ggml_scale(ctx, ggml_div(ctx, grad, tensor), 0.5f));
+            ggml_add_or_set(ctx, cgraph, src0, ggml_scale(ctx, ggml_div(ctx, grad, tensor, false), 0.5f, false));
         }
     } break;
     case GGML_OP_LOG: {
         if (src0_needs_grads) {
-            ggml_add_or_set(ctx, cgraph, src0, ggml_div(ctx, grad, src0));
+            ggml_add_or_set(ctx, cgraph, src0, ggml_div(ctx, grad, src0, false));
         }
     } break;
     case GGML_OP_SIN: {
         if (src0_needs_grads) {
-            ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, grad, ggml_cos(ctx, src0)));
+            ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, grad, ggml_cos(ctx, src0), false));
         }
     } break;
     case GGML_OP_COS: {
         if (src0_needs_grads) {
-            ggml_sub_or_set(ctx, cgraph, src0, ggml_mul(ctx, grad, ggml_sin(ctx, src0)));
+            ggml_sub_or_set(ctx, cgraph, src0, ggml_mul(ctx, grad, ggml_sin(ctx, src0), false));
         }
     } break;
     case GGML_OP_SUM: {
@@ -427,7 +421,7 @@ static void ggml_compute_backward(
                 // ggml_mul_mat(ctx,                   // [n,p,qq,rr]
                 //     ggml_cont(ctx,                  // [m,n,q1,r1]
                 //         ggml_transpose(ctx, src0)), // [m,n,q1,r1]
-                //     grad),                          // [m,p,qq,rr]
+                //     grad, false),                          // [m,p,qq,rr]
 
                 // when src0 is bigger than tensor->grad (this is mostly the case in llama),
                 // avoid transpose of src0, rather transpose smaller tensor->grad
@@ -640,7 +634,7 @@ static void ggml_compute_backward(
         switch (ggml_get_unary_op(tensor)) {
         case GGML_UNARY_OP_ABS: {
             if (src0_needs_grads) {
-                ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, ggml_sgn(ctx, src0), grad));
+                ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, ggml_sgn(ctx, src0), grad, false));
             }
         } break;
         case GGML_UNARY_OP_SGN: {
@@ -656,7 +650,7 @@ static void ggml_compute_backward(
         } break;
         case GGML_UNARY_OP_RELU: {
             if (src0_needs_grads) {
-                ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, ggml_step(ctx, src0), grad));
+                ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, ggml_step(ctx, src0), grad, false));
             }
         } break;
         case GGML_UNARY_OP_SILU: {
@@ -666,7 +660,7 @@ static void ggml_compute_backward(
         } break;
         case GGML_UNARY_OP_EXP: {
             if (src0_needs_grads) {
-                ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, tensor, grad));
+                ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, tensor, grad, false));
             }
         } break;
         default: {
@@ -687,10 +681,10 @@ static void ggml_compute_backward(
         case GGML_GLU_OP_SWIGLU: {
             if (src0_needs_grads) {
                 GGML_ASSERT(src1 && "backward pass only implemented for split swiglu");
-                ggml_add_or_set(ctx, cgraph, src0, ggml_silu_back(ctx, ggml_mul(ctx, grad, src1), src0));
+                ggml_add_or_set(ctx, cgraph, src0, ggml_silu_back(ctx, ggml_mul(ctx, grad, src1, false), src0));
             }
             if (src1_needs_grads) {
-                ggml_add_or_set(ctx, cgraph, src1, ggml_mul(ctx, ggml_silu(ctx, src0), grad));
+                ggml_add_or_set(ctx, cgraph, src1, ggml_mul(ctx, ggml_silu(ctx, src0, false), grad, false));
             }
         } break;
         default: {

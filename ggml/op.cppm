@@ -13,7 +13,8 @@ import :ds;
 export {
 	ggml_tensor* ggml_dup(
 		ggml_context* ctx,
-		ggml_tensor* a);
+		ggml_tensor* a,
+		bool inplace);
 
 	ggml_tensor* ggml_count_equal(
 		ggml_context* ctx,
@@ -37,38 +38,45 @@ export {
 	ggml_tensor* ggml_add(
 		ggml_context* ctx,
 		ggml_tensor* a,
-		ggml_tensor* b);
+		ggml_tensor* b,
+		bool inplace);
 
 	ggml_tensor* ggml_mul(
 		ggml_context* ctx,
 		ggml_tensor* a,
-		ggml_tensor* b);
+		ggml_tensor* b,
+		bool inplace);
 
 	ggml_tensor* ggml_div(
 		ggml_context* ctx,
 		ggml_tensor* a,
-		ggml_tensor* b);
+		ggml_tensor* b,
+		bool inplace);
 
 	ggml_tensor* ggml_add1(
 		ggml_context* ctx,
 		ggml_tensor* a,
-		ggml_tensor* b);
+		ggml_tensor* b,
+		bool inplace);
 
 	ggml_tensor* ggml_scale(
 		ggml_context* ctx,
 		ggml_tensor* a,
-		float s);
+		float s,
+		bool inplace);
 
 	// normalize along rows
 	ggml_tensor* ggml_norm(
 		ggml_context* ctx,
 		ggml_tensor* a,
-		float eps);
+		float eps,
+		bool inplace);
 
 	ggml_tensor* ggml_rms_norm(
 		ggml_context* ctx,
 		ggml_tensor* a,
-		float eps);
+		float eps,
+		bool inplace);
 
 	ggml_tensor* ggml_ssm_conv(
 		ggml_context* ctx,
@@ -116,7 +124,8 @@ export {
 
 	ggml_tensor* ggml_sqr(
 		ggml_context* ctx,
-		ggml_tensor* a);
+		ggml_tensor* a,
+		bool inplace);
 
 	ggml_tensor* ggml_sqrt(
 		ggml_context* ctx,
@@ -143,11 +152,13 @@ export {
 	ggml_tensor* ggml_diag_mask_inf(
 		ggml_context* ctx,
 		ggml_tensor* a,
-		int n_past);
+		int n_past,
+		bool inplace);
 
 	ggml_tensor* ggml_soft_max(
 		ggml_context* ctx,
 		ggml_tensor* a,
+		bool inplace,
 		ggml_tensor* mask = nullptr,
 		float scale = 1.0,
 		float max_bias = 0.0);
@@ -166,7 +177,8 @@ export {
 		float ext_factor,
 		float attn_factor,
 		float beta_fast,
-		float beta_slow);
+		float beta_slow,
+		bool inplace);
 
 	ggml_tensor* ggml_rope_ext(
 		ggml_context* ctx,
@@ -181,7 +193,8 @@ export {
 		float ext_factor,
 		float attn_factor,
 		float beta_fast,
-		float beta_slow);
+		float beta_slow,
+		bool inplace);
 
 	ggml_tensor* ggml_concat(
 		ggml_context* ctx,
@@ -216,7 +229,8 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,
 		int n_groups,
-		float eps);
+		float eps,
+		bool inplace);
 
 	ggml_tensor* ggml_acc(
 		ggml_context* ctx,
@@ -325,11 +339,13 @@ export {
 
 	ggml_tensor* ggml_silu(
 		ggml_context* ctx,
-		ggml_tensor* a);
+		ggml_tensor* a,
+		bool inplace);
 
 	ggml_tensor* ggml_gelu(
 		ggml_context* ctx,
-		ggml_tensor* a);
+		ggml_tensor* a,
+		bool inplace);
 
 	ggml_tensor* ggml_l2_norm(
 		ggml_context* ctx,
@@ -349,7 +365,8 @@ export {
 	ggml_tensor* ggml_sub(
 		ggml_context* ctx,
 		ggml_tensor* a,
-		ggml_tensor* b);
+		ggml_tensor* b,
+		bool inplace);
 
 	ggml_tensor* ggml_conv_2d_dw_direct(
 		ggml_context* ctx,
@@ -397,58 +414,6 @@ export {
 		int axis2,
 		int axis3);
 
-	ggml_tensor* ggml_gelu_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a);
-
-	ggml_tensor* ggml_silu_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a);
-
-	ggml_tensor* ggml_tanh_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a);
-
-	ggml_tensor* ggml_relu_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a);
-
-	ggml_tensor* ggml_sqr_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a);
-
-	ggml_tensor* ggml_scale_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		float s);
-
-	ggml_tensor* ggml_add_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b);
-
-	ggml_tensor* ggml_sub_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b);
-
-	ggml_tensor* ggml_norm_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		float eps);
-
-	ggml_tensor* ggml_rms_norm_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		float eps);
-
-	ggml_tensor* ggml_soft_max_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* mask = nullptr,
-		float scale = 1.0,
-		float max_bias = 0.0);
-
 	ggml_tensor* ggml_abs(
 		ggml_context* ctx,
 		ggml_tensor* a);
@@ -466,29 +431,8 @@ export {
 		ggml_tensor* a,
 		ggml_tensor* b,
 		int n_dims,
-		int mode);
-
-	ggml_tensor* ggml_rope_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b,
-		int n_dims,
-		int mode);
-
-	ggml_tensor* ggml_mul_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b);
-
-	ggml_tensor* ggml_div_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b);
-
-	ggml_tensor* ggml_diag_mask_inf_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		int n_past);
+		int mode,
+		bool inplace);
 
 	ggml_tensor* ggml_conv_2d_dw(
 		ggml_context* ctx,
@@ -512,11 +456,7 @@ export {
 	ggml_tensor* ggml_map_custom(
 		ggml_context* ctx,
 		std::initializer_list<ggml_tensor*> srcs,
-		ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
-
-	ggml_tensor* ggml_map_custom_inplace(
-		ggml_context* ctx,
-		std::initializer_list<ggml_tensor*> srcs,
+		bool inplace,
 		ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
 
 	ggml_tensor* ggml_custom(
@@ -525,21 +465,6 @@ export {
 		std::initializer_list<int64_t> ne,
 		std::initializer_list<ggml_tensor*> srcs,
 		ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
-
-	ggml_tensor* ggml_rope_ext_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b,
-		ggml_tensor* c,
-		int n_dims,
-		int mode,
-		int n_ctx_orig,
-		float freq_base,
-		float freq_scale,
-		float ext_factor,
-		float attn_factor,
-		float beta_fast,
-		float beta_slow);
 
 	// Move tensor elements by an offset given for each dimension. Elements that
 	// are shifted beyond the last position are wrapped around to the beginning.
@@ -759,13 +684,8 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,
 		float s,
-		float b);
-
-	ggml_tensor* ggml_scale_bias_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		float s,
-		float b);
+		float b,
+		bool inplace);
 
 	ggml_tensor* ggml_get_rel_pos(
 		ggml_context* ctx,
@@ -777,17 +697,12 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,
 		ggml_tensor* pw,
-		ggml_tensor* ph);
-
-	ggml_tensor* ggml_add_rel_pos_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* pw,
-		ggml_tensor* ph);
+		ggml_tensor* ph,
+		bool inplace);
 
 	ggml_tensor* ggml_neg(ggml_context* ctx, ggml_tensor* a);
 	ggml_tensor* ggml_exp(ggml_context* ctx, ggml_tensor* a);
-	ggml_tensor* ggml_tanh(ggml_context* ctx, ggml_tensor* a);
+	ggml_tensor* ggml_tanh(ggml_context* ctx, ggml_tensor* a, bool inplace);
 
 	// note: casting from f32 to i32 will discard the fractional part
 	ggml_tensor* ggml_cast(ggml_context* ctx, ggml_tensor* a, enum ggml_type type);
@@ -814,7 +729,8 @@ export {
 
 	ggml_tensor* ggml_relu(
 		ggml_context* ctx,
-		ggml_tensor* a);
+		ggml_tensor* a,
+		bool inplace);
 
 	ggml_tensor* ggml_top_k(
 		ggml_context* ctx,
@@ -841,22 +757,6 @@ export {
 		ggml_tensor* a,
 		ggml_tensor* grad,
 		ggml_tensor* params);
-
-	ggml_tensor* ggml_rope_multi_inplace(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b,
-		ggml_tensor* c,
-		int n_dims,
-		int sections[GGML_MROPE_SECTIONS],
-		int mode,
-		int n_ctx_orig,
-		float freq_base,
-		float freq_scale,
-		float ext_factor,
-		float attn_factor,
-		float beta_fast,
-		float beta_slow);
 
 	ggml_tensor* ggml_im2col_3d(
 		ggml_context* ctx,

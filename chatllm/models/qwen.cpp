@@ -464,7 +464,7 @@ namespace chatllm::qwen::audio_tower
         output = ggml::act(ctx, ActFunc::GELU, output);
         output = ggml::permute(ctx, output, 1, 0, 2, 3);
         output = ggml::cont(ctx, output);
-        output = ggml::add(ctx, output, embed_positions.weight);
+        output = ggml::add(ctx, output, embed_positions.weight, false);
 
         for (size_t i = 0; i < layers.size(); i++)
         {
@@ -842,7 +842,7 @@ namespace chatllm::qwen::vit
     {
         ggml::tensor* x0 = proj0.forward(ctx, input0);
         ggml::tensor* x1 = proj1.forward(ctx, input1);
-        ggml::tensor* x = ggml::add(ctx, x0, x1);
+        ggml::tensor* x = ggml::add(ctx, x0, x1, false);
         x = ggml::reshape_2d(ctx, x, ggml::get_dim(x, 2), grid_h * grid_w);
         return x;
     }
@@ -1137,9 +1137,9 @@ namespace chatllm::qwen::vit
         // ggml shape of hidden: [head_size, heads, qlen]
         int sections[4] = { rope_dim / 4, rope_dim / 4, 0, 0 };
 
-        hidden = ggml::rope_ext_inplace(ctx, hidden, pos, freq_factors, rope_dim / 2, GGML_ROPE_TYPE_VISION, n_original_ctx,
+        hidden = ggml::rope_ext(ctx, hidden, pos, freq_factors, rope_dim / 2, GGML_ROPE_TYPE_VISION, n_original_ctx,
             freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow,
-            sections);
+            sections, true);
 
         return hidden;
     }
@@ -1957,7 +1957,7 @@ namespace chatllm::qwen::v3_ranker
         logits = ggml::reshape_2d(ctx, logits, 1, ggml::get_dim(logits, 0));
         logits = ggml::get_rows(ctx, logits, yes_no_ids);
         logits = ggml::reshape_1d(ctx, logits, 2);
-        logits = ggml::soft_max(ctx, logits);
+        logits = ggml::soft_max(ctx, logits, false);
         logits = ggml::view_1d(ctx, logits, 1, 0);
         return logits;
     }

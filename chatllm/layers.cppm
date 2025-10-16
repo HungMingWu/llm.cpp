@@ -75,19 +75,16 @@ export namespace chatllm
         ggml::tensor* get_rows(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
         ggml::tensor* set_rows(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* indices, ggml::tensor* source);
 
-        ggml::tensor* add(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
-        ggml::tensor* add_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
+        ggml::tensor* add(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, bool inplace);
         ggml::tensor* add_id(ComputeContext* ctx, ggml::tensor* as, ggml::tensor* b, ggml::tensor* ids);
 
-        ggml::tensor* sub(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
-        ggml::tensor* sub_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
+        ggml::tensor* sub(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, bool inplace);
 
         // result = B * A^T
         ggml::tensor* mul_mat(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
         ggml::tensor* mul_mat_id(ComputeContext* ctx, ggml::tensor* as, ggml::tensor* b, ggml::tensor* ids);
 
-        ggml::tensor* mul(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
-        ggml::tensor* mul_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
+        ggml::tensor* mul(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, bool inplace);
 
         ggml::tensor* div(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b);
         ggml::tensor* int_div(ComputeContext* ctx, ggml::tensor* a, int b);
@@ -135,42 +132,31 @@ export namespace chatllm
         ggml::tensor* interpolate(ComputeContext* ctx, ggml::tensor* a, InterpolateMode mode, float scale_factor);
         ggml::tensor* interpolate(ComputeContext* ctx, ggml::tensor* a, InterpolateMode mode, int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3);
 
-        ggml::tensor* norm(ComputeContext* ctx, ggml::tensor* a, float eps);
-        ggml::tensor* norm_inplace(ComputeContext* ctx, ggml::tensor* a, float eps);
+        ggml::tensor* norm(ComputeContext* ctx, ggml::tensor* a, float eps, bool inplace);
         ggml::tensor* norm_p2(ComputeContext* ctx, ggml::tensor* a, float eps);
         ggml::tensor* group_norm(ComputeContext* ctx, ggml::tensor* a, int n_groups, float eps);
-        ggml::tensor* rms_norm_inplace(ComputeContext* ctx, ggml::tensor* a, float eps);
-        ggml::tensor* rms_norm(ComputeContext* ctx, ggml::tensor* a, float eps);
+        ggml::tensor* rms_norm(ComputeContext* ctx, ggml::tensor* a, float eps, bool inplace);
         ggml::tensor* simple_norm(ComputeContext* ctx, ggml::tensor* a, float eps); // p=2 normalization
 
-        ggml::tensor* rope(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, int n_dims, int mode);
+        ggml::tensor* rope(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, int n_dims, int mode, bool inplace);
         ggml::tensor* rope_ext(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* pos, ggml::tensor* freq_factors,
             int   n_dims, int   mode, int   n_ctx_orig,
             float freq_base, float freq_scale, float ext_factor,
             float attn_factor, float beta_fast, float beta_slow,
-            const int* sections = nullptr);
-        ggml::tensor* rope_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, int n_dims, int mode);
-        ggml::tensor* rope_ext_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* pos, ggml::tensor* freq_factors,
-            int   n_dims, int   mode, int   n_ctx_orig,
-            float freq_base, float freq_scale, float ext_factor,
-            float attn_factor, float beta_fast, float beta_slow,
-            const int* sections = nullptr);
+            const int* sections, bool inplace);
 
-        ggml::tensor* soft_max(ComputeContext* ctx, ggml::tensor* a);
-        ggml::tensor* soft_max_inplace(ComputeContext* ctx, ggml::tensor* a);
+        ggml::tensor* soft_max(ComputeContext* ctx, ggml::tensor* a, bool inplace);
         ggml::tensor* soft_max_ext(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* mask, float scale, float max_bias);
         void          soft_max_attach_sinks(ggml::tensor* soft_max_result, ggml::tensor* sinks);
 
         ggml::tensor* sigmoid(ComputeContext* ctx, ggml::tensor* a);
 
-        ggml::tensor* diag_mask_inf(ComputeContext* ctx, ggml::tensor* a, int n_past);
-        ggml::tensor* diag_mask_inf_inplace(ComputeContext* ctx, ggml::tensor* a, int n_past);
+        ggml::tensor* diag_mask_inf(ComputeContext* ctx, ggml::tensor* a, int n_past, bool inplace);
 
         ggml::tensor* inplace_act(ComputeContext* ctx, ActFunc act, ggml::tensor* input);
         ggml::tensor* act(ComputeContext* ctx, ActFunc act, ggml::tensor* input);
 
-        ggml::tensor* scale(ComputeContext* ctx, ggml::tensor* a, float  s);
-        ggml::tensor* scale_inplace(ComputeContext* ctx, ggml::tensor* a, float  s);
+        ggml::tensor* scale(ComputeContext* ctx, ggml::tensor* a, float  s, bool inplace);
         // r = s * a + b
         ggml::tensor* scale(ComputeContext* ctx, ggml::tensor* a, float  s, float b);
 
@@ -1086,10 +1072,10 @@ export namespace chatllm
 
             if (scale_depth > 0.0f)
             {
-                hidden_states = ggml::scale(ctx, hidden_states, scale_depth);
+                hidden_states = ggml::scale(ctx, hidden_states, scale_depth, false);
             }
 
-            hidden_states = ggml::add(ctx, hidden_states, residual);
+            hidden_states = ggml::add(ctx, hidden_states, residual, false);
             residual = hidden_states;
 
             hidden_states = post_attention_layernorm.forward(ctx, hidden_states);
@@ -1097,10 +1083,10 @@ export namespace chatllm
 
             if (scale_depth > 0.0f)
             {
-                hidden_states = ggml::scale(ctx, hidden_states, scale_depth);
+                hidden_states = ggml::scale(ctx, hidden_states, scale_depth, false);
             }
 
-            hidden_states = ggml::add(ctx, hidden_states, residual);
+            hidden_states = ggml::add(ctx, hidden_states, residual, false);
 
             return hidden_states;
         }
@@ -1164,7 +1150,7 @@ export namespace chatllm
             hidden_states = post_attention_layernorm.forward(ctx, hidden_states);
             hidden_states = mlp.forward(ctx, hidden_states);
 
-            hidden_states = ggml::add_inplace(ctx, hidden_states, residual);
+            hidden_states = ggml::add(ctx, hidden_states, residual, true);
 
             return hidden_states;
         }
@@ -1257,7 +1243,7 @@ export namespace chatllm
             hidden_states = Base::attention.forward(ctx, hidden_states, n_past);
             hidden_states = post_attention_layernorm.forward(ctx, hidden_states);
 
-            hidden_states = ggml::add_inplace(ctx, hidden_states, residual);
+            hidden_states = ggml::add(ctx, hidden_states, residual, true);
             residual = ggml::cpy(ctx, hidden_states, residual);
             ggml::build_forward_expand(ctx, residual);
 
@@ -1265,7 +1251,7 @@ export namespace chatllm
             hidden_states = mlp.forward(ctx, hidden_states);
             hidden_states = post_mlp_layernorm.forward(ctx, hidden_states);
 
-            hidden_states = ggml::add_inplace(ctx, hidden_states, residual);
+            hidden_states = ggml::add(ctx, hidden_states, residual, true);
 
             return hidden_states;
         }
@@ -2123,14 +2109,14 @@ export namespace chatllm
         ggml::tensor* apply_pos_embedding_k(ComputeContext* ctx, ggml::tensor* k, int hidden_size, int qlen, ggml::tensor* past) const override
         {
             if (!use_rope) return k;
-            return ggml::rope_ext_inplace(ctx, k, past, freq_factors, rope_dim, rope_mode, n_original_ctx,
-                freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow, mrope_sections);    // [qlen, heads, head_size]
+            return ggml::rope_ext(ctx, k, past, freq_factors, rope_dim, rope_mode, n_original_ctx,
+                freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow, mrope_sections, true);    // [qlen, heads, head_size]
         }
         ggml::tensor* apply_pos_embedding_q(ComputeContext* ctx, ggml::tensor* q, int hidden_size, int qlen, ggml::tensor* past) const override
         {
             if (!use_rope) return q;
-            return ggml::rope_ext_inplace(ctx, q, past, freq_factors, rope_dim, rope_mode, n_original_ctx,
-                freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow, mrope_sections);    // [qlen, heads, head_size];
+            return ggml::rope_ext(ctx, q, past, freq_factors, rope_dim, rope_mode, n_original_ctx,
+                freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow, mrope_sections, true);    // [qlen, heads, head_size];
         }
     };
 
@@ -2308,7 +2294,7 @@ export namespace chatllm
             ggml::tensor* scale = gate.forward(ctx, hidden_states);
             ggml::tensor* r = MLP::forward(ctx, hidden_states);
             scale = ggml::sigmoid(ctx, scale);
-            r = ggml::mul(ctx, r, scale);
+            r = ggml::mul(ctx, r, scale, false);
             return r;
         }
 
@@ -2350,7 +2336,7 @@ export namespace chatllm
         {
             ggml::tensor* r1 = mlp1.forward(ctx, hidden_states);
             ggml::tensor* r2 = mlp2.forward(ctx, hidden_states);
-            ggml::tensor* r = ggml::add(ctx, r1, r2);
+            ggml::tensor* r = ggml::add(ctx, r1, r2, false);
             return r;
         }
 
@@ -2811,8 +2797,8 @@ export namespace chatllm
             ggml::tensor* attn_outputs = Base::attention.forward(ctx, dup_hidden, n_past);
             ggml::tensor* feed_forward_hidden_states = mlp.forward(ctx, dup_hidden);
 
-            ggml::tensor* r = ggml::add_inplace(ctx, feed_forward_hidden_states, residual);
-            r = ggml::add_inplace(ctx, r, attn_outputs);
+            ggml::tensor* r = ggml::add(ctx, feed_forward_hidden_states, residual, true);
+            r = ggml::add(ctx, r, attn_outputs, true);
 
             return r;
         }

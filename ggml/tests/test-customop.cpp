@@ -165,7 +165,7 @@ int main(int argc, const char** argv) {
         ggml_context ctx;
         ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 10, 2 });
 
-        ggml_tensor* m1 = ggml_map_custom(&ctx, { t }, custom1, 2);
+        ggml_tensor* m1 = ggml_map_custom(&ctx, { t }, false, custom1, 2);
 
         ggml_cgraph graph;
         graph.build_forward_expand(m1);
@@ -186,7 +186,7 @@ int main(int argc, const char** argv) {
         ggml_context ctx;
         ggml_tensor* t1 = ctx.create(GGML_TYPE_F32, { 10, 2 });
         ggml_tensor* t2 = ctx.create(GGML_TYPE_F32, { 10, 2 });
-        ggml_tensor* m2 = ggml_map_custom(&ctx, { t1, t2 }, custom2);
+        ggml_tensor* m2 = ggml_map_custom(&ctx, { t1, t2 }, false, custom2);
 
         ggml_cgraph graph;
         graph.build_forward_expand(m2);
@@ -215,7 +215,7 @@ int main(int argc, const char** argv) {
         ggml_tensor* t2 = ctx.create(GGML_TYPE_F32, { 10, 2 });
         ggml_tensor* t3 = ctx.create(GGML_TYPE_F32, { 10, 2 });
 
-        ggml_tensor* m3 = ggml_map_custom(&ctx, { t1, t2, t3 }, custom3, 1);
+        ggml_tensor* m3 = ggml_map_custom(&ctx, { t1, t2, t3 }, false, custom3, 1);
 
         ggml_cgraph graph;
         graph.build_forward_expand(m3);

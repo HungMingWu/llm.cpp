@@ -51,7 +51,7 @@ int main(int argc, const char** argv) {
         ggml_tensor* in = ctx.create(GGML_TYPE_F32, { 9, 4 });
         ggml_tensor* out_inplace = ctx.create(GGML_TYPE_F32, { 9, 4 });
 
-        ggml_tensor* out = ggml_add_rel_pos(&ctx, in, rw_f32, rh_f32);
+        ggml_tensor* out = ggml_add_rel_pos(&ctx, in, rw_f32, rh_f32, false);
         ggml_cgraph gf;
         gf.build_forward_expand(out);
 
@@ -66,7 +66,7 @@ int main(int argc, const char** argv) {
         allocr.alloc_graph(&gf);
         backend->compute(&gf);
 
-        out_inplace = ggml_add_rel_pos_inplace(&ctx, out_inplace, rw_f32, rh_f32);
+        out_inplace = ggml_add_rel_pos(&ctx, out_inplace, rw_f32, rh_f32, true);
         ggml_cgraph gf_2;
         gf_2.build_forward_expand(out_inplace);
         allocr.alloc_graph(&gf_2);

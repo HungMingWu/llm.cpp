@@ -112,9 +112,9 @@ static helper_ctx_data helper_get_ctx_data(
     weights->set_name("weights");
     weights->set_flag(GGML_TENSOR_FLAG_PARAM);
 
-    ggml_tensor* intermediary = ggml_add(&ctx_compute, inputs, weights);
+    ggml_tensor* intermediary = ggml_add(&ctx_compute, inputs, weights, false);
 
-    ggml_tensor* outputs = ggml_scale(&ctx_compute, intermediary, 1.0f);
+    ggml_tensor* outputs = ggml_scale(&ctx_compute, intermediary, 1.0f, false);
     outputs->set_name("outputs");
 
     std::unique_ptr<ggml_backend_buffer> buf = backend->alloc_tensors(&ctx_static);
@@ -725,7 +725,7 @@ static std::pair<int, int> test_regression(
     b->set_name("b");
     b->set_flag(GGML_TENSOR_FLAG_PARAM);
 
-    ggml_tensor* f = ggml_add(&ctx_compute, ggml_mul(&ctx_compute, x, a), b);
+    ggml_tensor* f = ggml_add(&ctx_compute, ggml_mul(&ctx_compute, x, a, false), b, false);
     f->set_name("f");
 
     std::unique_ptr<ggml_backend_buffer> buf = backend->alloc_tensors(&ctx_static);

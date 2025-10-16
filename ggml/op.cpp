@@ -109,49 +109,6 @@ static ggml_tensor* ggml_add_impl(
 	return result;
 }
 
-static ggml_tensor* ggml_mul_impl(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	bool                  inplace) {
-	GGML_ASSERT(ggml_can_repeat(b, a));
-
-	struct ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
-
-	result->op = GGML_OP_MUL;
-	result->src.push_back(a);
-	result->src.push_back(b);
-
-	return result;
-}
-
-static struct ggml_tensor* ggml_div_impl(
-	struct ggml_context* ctx,
-	struct ggml_tensor* a,
-	struct ggml_tensor* b,
-	bool                  inplace) {
-	GGML_ASSERT(ggml_can_repeat(b, a));
-
-	struct ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
-
-	result->op = GGML_OP_DIV;
-	result->src.push_back(a);
-	result->src.push_back(b);
-
-	return result;
-}
-
-ggml_tensor* ggml_add1_impl(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	bool                  inplace) {
-	GGML_ASSERT(ggml_is_scalar(b));
-	GGML_ASSERT(ggml_is_padded_1d(a));
-
-	return build(inplace, ctx, a, GGML_OP_ADD1, a, b);
-}
-
 static ggml_tensor* ggml_scale_impl(
 	ggml_context* ctx,
 	ggml_tensor* a,
@@ -173,8 +130,9 @@ static ggml_tensor* ggml_scale_impl(
 
 ggml_tensor* ggml_dup(
 	ggml_context* ctx,
-	ggml_tensor* a) {
-	return ggml_dup_impl(ctx, a, false);
+	ggml_tensor* a,
+	bool inplace) {
+	return ggml_dup_impl(ctx, a, inplace);
 }
 
 ggml_tensor* ggml_count_equal(
@@ -214,67 +172,60 @@ ggml_tensor* ggml_cpy(
 ggml_tensor* ggml_add(
 	ggml_context* ctx,
 	ggml_tensor* a,
-	ggml_tensor* b)
+	ggml_tensor* b,
+	bool inplace)
 {
-	return ggml_add_impl(ctx, a, b, false);
+	return ggml_add_impl(ctx, a, b, inplace);
 }
 
 ggml_tensor* ggml_mul(
 	ggml_context* ctx,
 	ggml_tensor* a,
-	ggml_tensor* b)
+	ggml_tensor* b,
+	bool inplace)
 {
-	return ggml_mul_impl(ctx, a, b, false);
+	GGML_ASSERT(ggml_can_repeat(b, a));
+	return build(inplace, ctx, a, GGML_OP_MUL, a, b);
 }
 
 ggml_tensor* ggml_div(
 	ggml_context* ctx,
 	ggml_tensor* a,
-	ggml_tensor* b)
+	ggml_tensor* b,
+	bool inplace)
 {
-	return ggml_div_impl(ctx, a, b, false);
+	GGML_ASSERT(ggml_can_repeat(b, a));
+	return build(inplace, ctx, a, GGML_OP_DIV, a, b);
 }
 
 ggml_tensor* ggml_add1(
 	ggml_context* ctx,
 	ggml_tensor* a,
-	ggml_tensor* b) {
-	return ggml_add1_impl(ctx, a, b, false);
+	ggml_tensor* b,
+	bool inplace) {
+	GGML_ASSERT(ggml_is_scalar(b));
+	GGML_ASSERT(ggml_is_padded_1d(a));
+
+	return build(inplace, ctx, a, GGML_OP_ADD1, a, b);
 }
 
 ggml_tensor* ggml_scale(
 	ggml_context* ctx,
 	ggml_tensor* a,
-	float s)
+	float s,
+	bool inplace)
 {
-	return ggml_scale_impl(ctx, a, s, 0.0, false);
-}
-
-static ggml_tensor* ggml_norm_impl(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	float eps,
-	bool inplace) {
-	ggml_tensor* result = build(inplace, ctx, a, GGML_OP_NORM, a);
-	result->op_params[0] = std::bit_cast<uint32_t>(eps);
-	return result;
+	return ggml_scale_impl(ctx, a, s, 0.0, inplace);
 }
 
 // normalize along rows
 ggml_tensor* ggml_norm(
 	ggml_context* ctx,
 	ggml_tensor* a,
-	float eps)
-{
-	return ggml_norm_impl(ctx, a, eps, false);
-}
-
-static ggml_tensor* ggml_rms_norm_impl(
-	ggml_context* ctx,
-	ggml_tensor* a,
 	float eps,
-	bool inplace) {
-	ggml_tensor* result = build(inplace, ctx, a, GGML_OP_RMS_NORM, a);
+	bool inplace)
+{
+	ggml_tensor* result = build(inplace, ctx, a, GGML_OP_NORM, a);
 	result->op_params[0] = std::bit_cast<uint32_t>(eps);
 	return result;
 }
@@ -282,9 +233,12 @@ static ggml_tensor* ggml_rms_norm_impl(
 ggml_tensor* ggml_rms_norm(
 	ggml_context* ctx,
 	ggml_tensor* a,
-	float eps)
+	float eps,
+	bool inplace)
 {
-	return ggml_rms_norm_impl(ctx, a, eps, false);
+	ggml_tensor* result = build(inplace, ctx, a, GGML_OP_RMS_NORM, a);
+	result->op_params[0] = std::bit_cast<uint32_t>(eps);
+	return result;
 }
 
 ggml_tensor* ggml_ssm_conv(
@@ -524,9 +478,10 @@ ggml_tensor* ggml_out_prod(
 
 ggml_tensor* ggml_sqr(
 	ggml_context* ctx,
-	ggml_tensor* a)
+	ggml_tensor* a,
+	bool inplace)
 {
-	return build(false, ctx, a, GGML_OP_SQR, a);
+	return build(inplace, ctx, a, GGML_OP_SQR, a);
 }
 
 ggml_tensor* ggml_sqrt(
@@ -574,8 +529,10 @@ ggml_tensor* ggml_clamp(
 ggml_tensor* ggml_diag_mask_inf(
 	ggml_context* ctx,
 	ggml_tensor* a,
-	int n_past) {
-	auto result = build(false, ctx, a, GGML_OP_DIAG_MASK_INF, a);
+	int n_past,
+	bool inplace)
+{
+	auto result = build(inplace, ctx, a, GGML_OP_DIAG_MASK_INF, a);
 	result->op_params[0] = std::bit_cast<uint32_t>(n_past);
 	return result;
 }
@@ -618,11 +575,12 @@ static ggml_tensor* ggml_soft_max_impl(
 ggml_tensor* ggml_soft_max(
 	ggml_context* ctx,
 	ggml_tensor* a,
+	bool inplace,
 	ggml_tensor* mask,
 	float scale,
 	float max_bias)
 {
-	return ggml_soft_max_impl(ctx, a, mask, scale, max_bias, false);
+	return ggml_soft_max_impl(ctx, a, mask, scale, max_bias, inplace);
 }
 
 static struct ggml_tensor* ggml_rope_impl(
@@ -698,10 +656,11 @@ ggml_tensor* ggml_rope_multi(
 	float ext_factor,
 	float attn_factor,
 	float beta_fast,
-	float beta_slow) {
+	float beta_slow,
+	bool inplace) {
 	return ggml_rope_impl(
 		ctx, a, b, c, n_dims, sections, mode, n_ctx_orig, freq_base, freq_scale,
-		ext_factor, attn_factor, beta_fast, beta_slow, false
+		ext_factor, attn_factor, beta_fast, beta_slow, inplace
 	);
 }
 
@@ -718,10 +677,11 @@ ggml_tensor* ggml_rope_ext(
 	float ext_factor,
 	float attn_factor,
 	float beta_fast,
-	float beta_slow) {
+	float beta_slow,
+	bool inplace) {
 	return ggml_rope_impl(
 		ctx, a, b, c, n_dims, NULL, mode, n_ctx_orig, freq_base, freq_scale,
-		ext_factor, attn_factor, beta_fast, beta_slow, false
+		ext_factor, attn_factor, beta_fast, beta_slow, inplace
 	);
 }
 
@@ -835,26 +795,18 @@ ggml_tensor* ggml_upscale(
 	return ggml_upscale_impl(ctx, a, a->ne[0] * scale_factor, a->ne[1] * scale_factor, a->ne[2], a->ne[3], mode);
 }
 
-static ggml_tensor* ggml_group_norm_impl(
+ggml_tensor* ggml_group_norm(
 	ggml_context* ctx,
 	ggml_tensor* a,
 	int n_groups,
 	float eps,
-	bool inplace) {
+	bool inplace)
+{
 	ggml_tensor* result = build(inplace, ctx, a, GGML_OP_GROUP_NORM, a);
 
 	result->op_params[0] = std::bit_cast<uint32_t>(n_groups);
 	result->op_params[1] = std::bit_cast<uint32_t>(eps);
 	return result;
-}
-
-ggml_tensor* ggml_group_norm(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	int n_groups,
-	float eps)
-{
-	return ggml_group_norm_impl(ctx, a, n_groups, eps, false);
 }
 
 static ggml_tensor* ggml_acc_impl(
@@ -1137,18 +1089,37 @@ ggml_tensor* ggml_cont(
 	return result;
 }
 
+static ggml_tensor* ggml_unary_impl(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_unary_op op,
+	bool inplace) {
+	GGML_ASSERT(ggml_is_contiguous_1(a));
+
+	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+	result->op_params[0] = std::bit_cast<int32_t>(op);
+
+	result->op = GGML_OP_UNARY;
+	result->src.push_back(a);
+
+	return result;
+}
+
 ggml_tensor* ggml_silu(
 	ggml_context* ctx,
-	ggml_tensor* a)
+	ggml_tensor* a,
+	bool inplace)
 {
-	return ggml_unary(ctx, a, GGML_UNARY_OP_SILU);
+	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_SILU, inplace);
 }
 
 ggml_tensor* ggml_gelu(
 	ggml_context* ctx,
-	ggml_tensor* a)
+	ggml_tensor* a,
+	bool inplace)
 {
-	return ggml_unary(ctx, a, GGML_UNARY_OP_GELU);
+	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_GELU, inplace);
 }
 
 static ggml_tensor* ggml_l2_norm_impl(
@@ -1220,10 +1191,11 @@ ggml_tensor* ggml_rwkv_wkv7(
 ggml_tensor* ggml_sub(
 	ggml_context* ctx,
 	ggml_tensor* a,
-	ggml_tensor* b)
+	ggml_tensor* b,
+	bool inplace)
 {
 	GGML_ASSERT(ggml_can_repeat(b, a));
-	return build(false, ctx, a, GGML_OP_SUB, a, b);;
+	return build(inplace, ctx, a, GGML_OP_SUB, a, b);;
 }
 
 static int64_t ggml_calc_conv_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
@@ -1343,23 +1315,6 @@ ggml_tensor* ggml_gelu_erf(
 	return ggml_unary(ctx, a, GGML_UNARY_OP_GELU_ERF);
 }
 
-static ggml_tensor* ggml_unary_impl(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_unary_op    op,
-	bool inplace) {
-	GGML_ASSERT(ggml_is_contiguous_1(a));
-
-	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
-
-	result->op_params[0] = std::bit_cast<int32_t>(op);
-
-	result->op = GGML_OP_UNARY;
-	result->src.push_back(a);
-
-	return result;
-}
-
 ggml_tensor* ggml_unary(
 	ggml_context* ctx,
 	ggml_tensor* a,
@@ -1422,70 +1377,6 @@ ggml_tensor* ggml_permute(
 	return result;
 }
 
-static ggml_tensor* ggml_unary_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	enum ggml_unary_op op) {
-	return ggml_unary_impl(ctx, a, op, true);
-}
-
-ggml_tensor* ggml_gelu_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a)
-{
-	return ggml_unary_inplace(ctx, a, GGML_UNARY_OP_GELU);
-}
-
-ggml_tensor* ggml_silu_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a) {
-	return ggml_unary_inplace(ctx, a, GGML_UNARY_OP_SILU);
-}
-
-ggml_tensor* ggml_tanh_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a) {
-	return ggml_unary_inplace(ctx, a, GGML_UNARY_OP_TANH);
-}
-
-ggml_tensor* ggml_relu_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a) {
-	return ggml_unary_inplace(ctx, a, GGML_UNARY_OP_RELU);
-}
-
-static ggml_tensor* ggml_sqr_impl(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	bool inplace) {
-	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
-
-	result->op = GGML_OP_SQR;
-	result->src.push_back(a);
-
-	return result;
-}
-
-ggml_tensor* ggml_sqr_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a) {
-	return ggml_sqr_impl(ctx, a, true);
-}
-
-ggml_tensor* ggml_scale_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	float s) {
-	return ggml_scale_impl(ctx, a, s, 0.0, true);
-}
-
-ggml_tensor* ggml_add_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b) {
-	return ggml_add_impl(ctx, a, b, true);
-}
-
 static ggml_tensor* ggml_sub_impl(
 	ggml_context* ctx,
 	ggml_tensor* a,
@@ -1500,36 +1391,6 @@ static ggml_tensor* ggml_sub_impl(
 	result->src.push_back(b);
 
 	return result;
-}
-
-ggml_tensor* ggml_sub_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b) {
-	return ggml_sub_impl(ctx, a, b, true);
-}
-
-ggml_tensor* ggml_norm_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	float eps) {
-	return ggml_norm_impl(ctx, a, eps, true);
-}
-
-ggml_tensor* ggml_rms_norm_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	float eps) {
-	return ggml_rms_norm_impl(ctx, a, eps, true);
-}
-
-ggml_tensor* ggml_soft_max_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* mask,
-	float scale,
-	float max_bias) {
-	return ggml_soft_max_impl(ctx, a, mask, scale, max_bias, true);
 }
 
 ggml_tensor* ggml_abs(
@@ -1555,58 +1416,11 @@ ggml_tensor* ggml_rope(
 	ggml_tensor* a,
 	ggml_tensor* b,
 	int n_dims,
-	int mode) {
-	return ggml_rope_impl(
-		ctx, a, b, nullptr, n_dims, nullptr, mode, 0, 10000.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, false
-	);
-}
-
-ggml_tensor* ggml_rope_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	int n_dims,
-	int mode) {
-	return ggml_rope_impl(
-		ctx, a, b, nullptr, n_dims, nullptr, mode, 0, 10000.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, true
-	);
-}
-
-ggml_tensor* ggml_mul_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b) {
-	return ggml_mul_impl(ctx, a, b, true);
-}
-
-ggml_tensor* ggml_div_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b) {
-	return ggml_div_impl(ctx, a, b, true);
-}
-
-static ggml_tensor* ggml_diag_mask_inf_impl(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	int n_past,
+	int mode,
 	bool inplace) {
-	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
-
-	int32_t params[] = { n_past };
-	ggml_set_op_params(*result, params, sizeof(params));
-
-	result->op = GGML_OP_DIAG_MASK_INF;
-	result->src.push_back(a);
-
-	return result;
-}
-
-ggml_tensor* ggml_diag_mask_inf_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	int n_past) {
-	return ggml_diag_mask_inf_impl(ctx, a, n_past, true);
+	return ggml_rope_impl(
+		ctx, a, b, nullptr, n_dims, nullptr, mode, 0, 10000.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, inplace
+	);
 }
 
 ggml_tensor* ggml_conv_2d_dw(
@@ -1649,27 +1463,6 @@ ggml_tensor* ggml_conv_1d_dw(
 	result = ggml_reshape(ctx, result, { b->ne[0], b->ne[1], 1 });
 
 	return result;
-}
-
-ggml_tensor* ggml_rope_ext_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	ggml_tensor* c,
-	int n_dims,
-	int mode,
-	int n_ctx_orig,
-	float freq_base,
-	float freq_scale,
-	float ext_factor,
-	float attn_factor,
-	float beta_fast,
-	float beta_slow)
-{
-	return ggml_rope_impl(
-		ctx, a, b, c, n_dims, NULL, mode, n_ctx_orig, freq_base, freq_scale,
-		ext_factor, attn_factor, beta_fast, beta_slow, true
-	);
 }
 
 ggml_tensor* ggml_roll(
@@ -2246,16 +2039,9 @@ ggml_tensor* ggml_scale_bias(
 	ggml_context* ctx,
 	ggml_tensor* a,
 	float s,
-	float b) {
-	return ggml_scale_impl(ctx, a, s, b, false);
-}
-
-ggml_tensor* ggml_scale_bias_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	float s,
-	float b) {
-	return ggml_scale_impl(ctx, a, s, b, true);
+	float b,
+	bool inplace) {
+	return ggml_scale_impl(ctx, a, s, b, inplace);
 }
 
 ggml_tensor* ggml_get_rel_pos(
@@ -2306,44 +2092,21 @@ ggml_tensor* ggml_add_rel_pos(
 	ggml_context* ctx,
 	ggml_tensor* a,
 	ggml_tensor* pw,
-	ggml_tensor* ph) {
-	return ggml_add_rel_pos_impl(ctx, a, pw, ph, false);
-}
-
-ggml_tensor* ggml_add_rel_pos_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* pw,
-	ggml_tensor* ph) {
-	return ggml_add_rel_pos_impl(ctx, a, pw, ph, true);
+	ggml_tensor* ph,
+	bool inplace) {
+	return ggml_add_rel_pos_impl(ctx, a, pw, ph, inplace);
 }
 
 ggml_tensor* ggml_map_custom(
 	ggml_context* ctx,
 	std::initializer_list<ggml_tensor*> srcs,
-	ggml_custom_op_cb fun,
-	std::optional<uint32_t> n_tasks)
-{
-	assert(srcs.size() > 0);
-	const ggml_tensor* a = *srcs.begin();
-	ggml_tensor* result = ggml_dup_tensor(ctx, a);
-	result->hook.func = std::move(fun);
-	result->hook.n_tasks = n_tasks;
-	result->op = GGML_OP_CUSTOM;
-	std::copy(srcs.begin(), srcs.end(), std::back_inserter(result->src));
-
-	return result;
-}
-
-ggml_tensor* ggml_map_custom_inplace(
-	ggml_context* ctx,
-	std::initializer_list<ggml_tensor*> srcs,
+	bool inplace,
 	ggml_custom_op_cb fun,
 	std::optional<uint32_t> n_tasks)
 {
 	assert(srcs.size() > 0);
 	ggml_tensor* a = *srcs.begin();
-	ggml_tensor* result = ggml_view_tensor(ctx, a);
+	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
 	result->hook.func = std::move(fun);
 	result->hook.n_tasks = n_tasks;
 	result->op = GGML_OP_CUSTOM;
@@ -2394,9 +2157,10 @@ ggml_tensor* ggml_cast(
 
 ggml_tensor* ggml_tanh(
 	ggml_context* ctx,
-	ggml_tensor* a)
+	ggml_tensor* a,
+	bool inplace)
 {
-	return ggml_unary(ctx, a, GGML_UNARY_OP_TANH);
+	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_TANH, inplace);
 }
 
 ggml_tensor* ggml_set_1d(
@@ -2434,9 +2198,10 @@ ggml_tensor* ggml_conv_1d_dw_ph(
 
 ggml_tensor* ggml_relu(
 	ggml_context* ctx,
-	ggml_tensor* a)
+	ggml_tensor* a,
+	bool inplace)
 {
-	return ggml_unary(ctx, a, GGML_UNARY_OP_RELU);
+	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_RELU, inplace);
 }
 
 ggml_tensor* ggml_top_k(
@@ -2507,27 +2272,6 @@ ggml_tensor* ggml_opt_step_sgd(
 	result->src.push_back(params);
 
 	return result;
-}
-
-ggml_tensor* ggml_rope_multi_inplace(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	ggml_tensor* c,
-	int n_dims,
-	int sections[GGML_MROPE_SECTIONS],
-	int mode,
-	int n_ctx_orig,
-	float freq_base,
-	float freq_scale,
-	float ext_factor,
-	float attn_factor,
-	float beta_fast,
-	float beta_slow) {
-	return ggml_rope_impl(
-		ctx, a, b, c, n_dims, sections, mode, n_ctx_orig, freq_base, freq_scale,
-		ext_factor, attn_factor, beta_fast, beta_slow, true
-	);
 }
 
 // a: [OC*IC, KD, KH, KW]

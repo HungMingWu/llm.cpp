@@ -542,7 +542,7 @@ ggml_cgraph gpt2_graph(
         inpL =
             ggml_add(&ctx,
                 ggml_get_rows(&ctx, model.wte, inp_tokens),
-                ggml_get_rows(&ctx, model.wpe, position));
+                ggml_get_rows(&ctx, model.wpe, position), false);
     }
     else {
         GGML_ASSERT(!batch.embd.empty());
@@ -564,15 +564,15 @@ ggml_cgraph gpt2_graph(
         // norm
         {
             // [ 768, N]
-            cur = ggml_norm(&ctx, inpL, hparams.eps);
+            cur = ggml_norm(&ctx, inpL, hparams.eps, false);
 
             // cur = ln_1_g*cur + ln_1_b
             // [ 768, N]
             cur = ggml_add(&ctx,
                 ggml_mul(&ctx,
                     cur,
-                    model.layers[il].ln_1_g),
-                model.layers[il].ln_1_b);
+                    model.layers[il].ln_1_g, false),
+                model.layers[il].ln_1_b, false);
         }
 
         // attn
@@ -590,7 +590,7 @@ ggml_cgraph gpt2_graph(
 
             cur = ggml_add(&ctx,
                 cur,
-                model.layers[il].c_attn_attn_b);
+                model.layers[il].c_attn_attn_b, false);
         }
 
         // self-attention
@@ -647,15 +647,15 @@ ggml_cgraph gpt2_graph(
             ggml_tensor* KQ_scaled =
                 ggml_scale(&ctx,
                     KQ,
-                    1.0f / sqrtf(float(n_embd) / n_head));
+                    1.0f / sqrtf(float(n_embd) / n_head), false);
 
             // KQ_masked = mask_past(KQ_scaled)
             // [n_kv, n_tokens, 12]
-            ggml_tensor* KQ_masked = ggml_add(&ctx, KQ_scaled, KQ_mask);
+            ggml_tensor* KQ_masked = ggml_add(&ctx, KQ_scaled, KQ_mask, false);
 
             // KQ = soft_max(KQ_masked)
             // [n_kv, N, 12]
-            ggml_tensor* KQ_soft_max = ggml_soft_max(&ctx, KQ_masked);
+            ggml_tensor* KQ_soft_max = ggml_soft_max(&ctx, KQ_masked, false);
 
             // V_trans = Vmem.view(n_embd/n_head, n_head, n_kv).permute(1, 2, 0, 3).contiguous()
             // [n_kv, 64, 12]
@@ -696,11 +696,11 @@ ggml_cgraph gpt2_graph(
 
             cur = ggml_add(&ctx,
                 cur,
-                model.layers[il].c_attn_proj_b);
+                model.layers[il].c_attn_proj_b, false);
         }
 
         // add the input
-        cur = ggml_add(&ctx, cur, inpL);
+        cur = ggml_add(&ctx, cur, inpL, false);
 
         ggml_tensor* inpFF = cur;
 
@@ -708,15 +708,15 @@ ggml_cgraph gpt2_graph(
         {
             // norm
             {
-                cur = ggml_norm(&ctx, inpFF, hparams.eps);
+                cur = ggml_norm(&ctx, inpFF, hparams.eps, false);
 
                 // cur = ln_2_g*cur + ln_2_b
                 // [ 768, N]
                 cur = ggml_add(&ctx,
                     ggml_mul(&ctx,
                         cur,
-                        model.layers[il].ln_2_g),
-                    model.layers[il].ln_2_b);
+                        model.layers[il].ln_2_g, false),
+                    model.layers[il].ln_2_b, false);
             }
 
             // fully connected
@@ -733,11 +733,11 @@ ggml_cgraph gpt2_graph(
 
             cur = ggml_add(&ctx,
                 cur,
-                model.layers[il].c_mlp_fc_b);
+                model.layers[il].c_mlp_fc_b, false);
 
             // GELU activation
             // [3072, N]
-            cur = ggml_gelu(&ctx, cur);
+            cur = ggml_gelu(&ctx, cur, false);
 
             // projection
             // [ 768, 3072] - model.layers[il].c_mlp_proj_w
@@ -753,25 +753,25 @@ ggml_cgraph gpt2_graph(
 
             cur = ggml_add(&ctx,
                 cur,
-                model.layers[il].c_mlp_proj_b);
+                model.layers[il].c_mlp_proj_b, false);
         }
 
         // input for next layer
-        inpL = ggml_add(&ctx, cur, inpFF);
+        inpL = ggml_add(&ctx, cur, inpFF, false);
     }
 
     // norm
     {
         // [ 768, N]
-        inpL = ggml_norm(&ctx, inpL, hparams.eps);
+        inpL = ggml_norm(&ctx, inpL, hparams.eps, false);
 
         // inpL = ln_f_g*inpL + ln_f_b
         // [ 768, N]
         inpL = ggml_add(&ctx,
             ggml_mul(&ctx,
                 inpL,
-                model.ln_f_g),
-            model.ln_f_b);
+                model.ln_f_g, false),
+            model.ln_f_b, false);
     }
 
     // inpL = WTE * inpL
@@ -780,7 +780,7 @@ ggml_cgraph gpt2_graph(
     inpL = ggml_mul_mat(&ctx, model.lm_head, inpL);
 
     // logits -> probs
-    //inpL = ggml_soft_max(&ctx0, inpL);
+    //inpL = ggml_soft_max(&ctx0, inpL, false);
 
     gf.build_forward_expand(inpL);
 

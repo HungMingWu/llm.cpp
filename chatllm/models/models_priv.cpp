@@ -633,7 +633,7 @@ namespace chatllm
         ggml::tensor* r = transformer->forward(&ctx, input_ids_tensor, past);
 
         if (logit_scale > 0)
-            r = ggml::scale(&ctx, r, logit_scale);
+            r = ggml::scale(&ctx, r, logit_scale, false);
 
         ggml::build_forward_expand(&ctx, r);
 
@@ -687,7 +687,7 @@ namespace chatllm
         else
         {
             if (logit_scale > 0)
-                r = ggml::scale(&ctx, r, logit_scale);
+                r = ggml::scale(&ctx, r, logit_scale, false);
         }
 
         ggml::build_forward_expand(&ctx, r);

@@ -2731,7 +2731,7 @@ struct test_dup : public test_case {
             src->set_name("src_permuted");
         }
 
-        ggml_tensor* out = ggml_dup(ctx, src);
+        ggml_tensor* out = ggml_dup(ctx, src, false);
         out->set_name("out");
 
         return out;
@@ -2904,8 +2904,9 @@ struct test_cont : public test_case {
 // GGML_OP_MUL
 // GGML_OP_DIV
 struct test_bin_bcast : public test_case {
-    using op_t = ggml_tensor * (*) (ggml_context*, ggml_tensor*, ggml_tensor*);
+    using op_t = ggml_tensor * (*) (ggml_context*, ggml_tensor*, ggml_tensor*, bool);
     op_t op;
+    bool inplace;
     const ggml_type type;
     const std::array<int64_t, 4> ne;
     const std::array<int, 4> nr;
@@ -2921,11 +2922,11 @@ struct test_bin_bcast : public test_case {
         return t->nbytes() * 3;
     }
 
-    test_bin_bcast(op_t op, ggml_type type = GGML_TYPE_F32,
+    test_bin_bcast(op_t op, bool inplace, ggml_type type = GGML_TYPE_F32,
         std::array<int64_t, 4> ne = { 10, 10, 1, 1 },
         std::array<int, 4> nr = { 1, 2, 1, 1 },
         int nf = 1)
-        : op(op), type(type), ne(ne), nr(nr), nf(nf) {
+        : op(op), inplace(inplace), type(type), ne(ne), nr(nr), nf(nf) {
     }
 
     ggml_tensor* build_graph(ggml_context* ctx) override {
@@ -2950,7 +2951,7 @@ struct test_bin_bcast : public test_case {
         ggml_tensor* out = a;
 
         for (int i = 0; i < nf; ++i) {
-            out = op(ctx, out, b[i]);
+            out = op(ctx, out, b[i], inplace);
         }
 
         out->set_name("out");
@@ -3070,7 +3071,7 @@ struct test_add1 : public test_case {
         // ggml_set_param(b); // TODO: implement
         b->set_name("b");
 
-        ggml_tensor* out = ggml_add1(ctx, a, b);
+        ggml_tensor* out = ggml_add1(ctx, a, b, false);
         out->set_name("out");
 
         return out;
@@ -3106,13 +3107,7 @@ struct test_scale : public test_case {
         a->set_flag(GGML_TENSOR_FLAG_PARAM);
         a->set_name("a");
 
-        ggml_tensor* out;
-        if (inplace) {
-            out = ggml_scale_bias_inplace(ctx, a, scale, bias);
-        }
-        else {
-            out = ggml_scale_bias(ctx, a, scale, bias);
-        }
+        ggml_tensor* out = ggml_scale_bias(ctx, a, scale, bias, inplace);
         out->set_name("out");
 
         return out;
@@ -3147,7 +3142,7 @@ struct test_softcap : public test_case {
         a->set_flag(GGML_TENSOR_FLAG_PARAM);
         a->set_name("a");
 
-        ggml_tensor* out = ggml_scale(ctx, ggml_tanh(ctx, ggml_scale(ctx, a, 1.0f / softcap)), softcap);
+        ggml_tensor* out = ggml_scale(ctx, ggml_tanh(ctx, ggml_scale(ctx, a, 1.0f / softcap, false), false), softcap, false);
         out->set_name("out");
 
         return out;
@@ -3181,7 +3176,7 @@ struct test_norm : public test_case {
             a->set_name("view of a");
         }
 
-        ggml_tensor* out = ggml_norm(ctx, a, eps);
+        ggml_tensor* out = ggml_norm(ctx, a, eps, false);
         out->set_name("out");
 
         return out;
@@ -3229,11 +3224,11 @@ struct test_norm_mul_add : public test_case {
         a->set_name("a"); w->set_name("w"); b->set_name("b");
 
         // Use a, w and b early to avoid OP_NONE in graph
-        a = ggml_add(ctx, ggml_add(ctx, a, w), b);
+        a = ggml_add(ctx, ggml_add(ctx, a, w, false), b, false);
 
-        ggml_tensor* n = ggml_norm(ctx, a, eps);
-        ggml_tensor* m = ggml_mul(ctx, n, w);
-        ggml_tensor* out = ggml_add(ctx, m, b);
+        ggml_tensor* n = ggml_norm(ctx, a, eps, false);
+        ggml_tensor* m = ggml_mul(ctx, n, w, false);
+        ggml_tensor* out = ggml_add(ctx, m, b, false);
         out->set_name("out");
         return out;
     }
@@ -3269,13 +3264,7 @@ struct test_rms_norm : public test_case {
             a->set_name("view of a");
         }
 
-        ggml_tensor * out;
-        if (inplace) {
-            out = ggml_rms_norm_inplace(ctx, a, eps);
-        }
-        else {
-            out = ggml_rms_norm(ctx, a, eps);
-        }
+        ggml_tensor * out = ggml_rms_norm(ctx, a, eps, inplace);
         out->set_name("out");
 
         return out;
@@ -3380,11 +3369,11 @@ struct test_rms_norm_mul_add : public test_case {
         c->set_name("c");
 
         // Use a, b and c early, so we don't end up with an OP_NONE between rms_norm and mul
-        a = ggml_add(ctx, ggml_add(ctx, a, b), c);
+        a = ggml_add(ctx, ggml_add(ctx, a, b, false), c, false);
         if (multi_add) {
-            a = ggml_add(ctx, ggml_add(ctx, a, b), c);
+            a = ggml_add(ctx, ggml_add(ctx, a, b, false), c, false);
         }
-        ggml_tensor* out = ggml_add(ctx, ggml_mul(ctx, ggml_rms_norm(ctx, a, eps), b), c);
+        ggml_tensor* out = ggml_add(ctx, ggml_mul(ctx, ggml_rms_norm(ctx, a, eps, false), b, false), c, false);
         out->set_name("out");
 
         return out;
@@ -3751,7 +3740,7 @@ struct test_mul_mat : public test_case {
         for (uint32_t i = 1; i < o; ++i) {
             ggml_tensor* out2 = ggml_mul_mat(ctx, a, b);
             out2->set_name("out2");
-            out = ggml_add(ctx, out, out2);
+            out = ggml_add(ctx, out, out2, false);
         }
         return out;
     }
@@ -3817,7 +3806,7 @@ struct test_mul_mat_id : public test_case {
             ggml_tensor* a2 = ggml_new_tensor(ctx, type_a, { k, m, n_mats });
             ggml_tensor* out2 = ggml_mul_mat_id(ctx, a2, b, ids);
             out2->set_name("out2");
-            out = ggml_add(ctx, out, out2);
+            out = ggml_add(ctx, out, out2, false);
         }
 
         return out;
@@ -3918,7 +3907,7 @@ struct test_sqr : public test_case {
         a->set_flag(GGML_TENSOR_FLAG_PARAM);
         a->set_name("a");
 
-        ggml_tensor* out = ggml_sqr(ctx, a);
+        ggml_tensor* out = ggml_sqr(ctx, a, false);
         out->set_name("out");
 
         return out;
@@ -4146,7 +4135,7 @@ struct test_diag_mask_inf : public test_case {
         a->set_flag(GGML_TENSOR_FLAG_PARAM);
         a->set_name("a");
 
-        ggml_tensor* out = ggml_diag_mask_inf(ctx, a, n_past);
+        ggml_tensor* out = ggml_diag_mask_inf(ctx, a, n_past, false);
         out->set_name("out");
 
         return out;
@@ -4205,13 +4194,7 @@ struct test_soft_max : public test_case {
             sinks->set_name("sinks");
         }
 
-        ggml_tensor* out;
-        if (inplace) {
-            out = ggml_soft_max_inplace(ctx, a, mask, scale, max_bias);
-        }
-        else {
-            out = ggml_soft_max(ctx, a, mask, scale, max_bias);
-        }
+        ggml_tensor* out = ggml_soft_max(ctx, a, inplace, mask, scale, max_bias);
         ggml_soft_max_add_sinks(out, sinks);
         out->set_name("out");
 
@@ -4326,12 +4309,7 @@ struct test_rope : public test_case {
                 GGML_ASSERT(n_dims / 4 > 0);
                 int rope_sections[4] = { n_dims / 4, n_dims / 4, 0, 0 }; // Vision-RoPE only use first two dimension for image (x, y) coordinate
                 if (forward) {
-                    if (inplace) {
-                        out = ggml_rope_multi_inplace(ctx, a, pos, freq, n_dims / 2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
-                    }
-                    else {
-                        out = ggml_rope_multi(ctx, a, pos, freq, n_dims / 2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
-                    }
+                    out = ggml_rope_multi(ctx, a, pos, freq, n_dims / 2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f, inplace);
                 }
                 else {
                     out = ggml_rope_multi_back(ctx, a, pos, freq, n_dims / 2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
@@ -4341,12 +4319,7 @@ struct test_rope : public test_case {
                 GGML_ASSERT(n_dims / 3 > 0);
                 int rope_sections[4] = { n_dims / 3, n_dims / 3, n_dims / 3, 0 };
                 if (forward) {
-                    if (inplace) {
-                        out = ggml_rope_multi_inplace(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
-                    }
-                    else {
-                        out = ggml_rope_multi(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
-                    }
+                    out = ggml_rope_multi(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f, inplace);
                 }
                 else {
                     out = ggml_rope_multi_back(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
@@ -4355,12 +4328,7 @@ struct test_rope : public test_case {
         }
         else {
             if (forward) {
-                if (inplace) {
-                    out = ggml_rope_ext_inplace(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
-                }
-                else {
-                    out = ggml_rope_ext(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
-                }
+                out = ggml_rope_ext(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f, inplace);
             }
             else {
                 out = ggml_rope_ext_back(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
@@ -4544,7 +4512,7 @@ struct test_topk_moe : public test_case {
         const int n_tokens = ne[1];
 
         ggml_tensor* logits = ggml_new_tensor(ctx, GGML_TYPE_F32, { ne[0], ne[1], ne[2], ne[3] });
-        ggml_tensor* probs = ggml_soft_max(ctx, logits);
+        ggml_tensor* probs = ggml_soft_max(ctx, logits, false);
         ggml_tensor* selected_experts = ggml_top_k(ctx, probs, n_expert_used); // [n_expert_used, n_tokens]
 
         ggml_tensor* out = ggml_get_rows(ctx, ggml_reshape(ctx, probs, { 1, n_expert, n_tokens }), selected_experts); // [1, n_expert_used, n_tokens]
@@ -4553,7 +4521,7 @@ struct test_topk_moe : public test_case {
             out = ggml_reshape(ctx, out, { n_expert_used, n_tokens });
             ggml_tensor* weights_sum = ggml_sum_rows(ctx, out); // [1, n_tokens]
 
-            out = ggml_div(ctx, out, weights_sum); // [n_expert_used, n_tokens]
+            out = ggml_div(ctx, out, weights_sum, false); // [n_expert_used, n_tokens]
             out = ggml_reshape(ctx, out, { 1, n_expert_used, n_tokens });
         }
 
@@ -4745,7 +4713,7 @@ struct test_group_norm : public test_case {
         ggml_tensor* a = ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
         a->set_name("a");
 
-        ggml_tensor* out = ggml_group_norm(ctx, a, num_groups, eps);
+        ggml_tensor* out = ggml_group_norm(ctx, a, num_groups, eps, false);
         out->set_name("out");
 
         return out;
@@ -4782,9 +4750,9 @@ struct test_group_norm_mul_add : public test_case {
         ggml_tensor* b = ggml_new_tensor(ctx, type, { ne[0], ne[1], ne[2], ne[3] });
         a->set_flag(GGML_TENSOR_FLAG_PARAM); w->set_flag(GGML_TENSOR_FLAG_PARAM); b->set_flag(GGML_TENSOR_FLAG_PARAM);
         a->set_name("a"); w->set_name("w"); b->set_name("b");
-        ggml_tensor* n = ggml_group_norm(ctx, a, num_groups, eps);
-        ggml_tensor* m = ggml_mul(ctx, n, w);
-        ggml_tensor* out = ggml_add(ctx, m, b);
+        ggml_tensor* n = ggml_group_norm(ctx, a, num_groups, eps, false);
+        ggml_tensor* m = ggml_mul(ctx, n, w, false);
+        ggml_tensor* out = ggml_add(ctx, m, b, false);
         out->set_name("out");
         return out;
     }
@@ -5163,7 +5131,7 @@ struct test_cross_entropy_loss : public test_case {
         labels->set_name("labels");
 
         // Ensure labels add up to 1:
-        labels = ggml_soft_max(ctx, labels);
+        labels = ggml_soft_max(ctx, labels, false);
         labels->set_name("labels_normalized");
 
         ggml_tensor* out = ggml_cross_entropy_loss(ctx, logits, labels);
@@ -5212,7 +5180,7 @@ struct test_cross_entropy_loss_back : public test_case {
         labels->set_name("labels");
 
         // Ensure labels add up to 1:
-        labels = ggml_soft_max(ctx, labels);
+        labels = ggml_soft_max(ctx, labels, false);
         labels->set_name("labels_normalized");
 
         ggml_tensor* out = ggml_cross_entropy_loss_back(ctx, grad, logits, labels);
@@ -5363,12 +5331,12 @@ public:
         ggml_tensor* mb,
         llm_norm_type   type) {
         switch (type) {
-        case LLM_NORM:     cur = ggml_norm(ctx, cur, hp.f_norm_eps); break;
-        case LLM_NORM_RMS: cur = ggml_rms_norm(ctx, cur, hp.f_norm_rms_eps); break;
+        case LLM_NORM:     cur = ggml_norm(ctx, cur, hp.f_norm_eps, false); break;
+        case LLM_NORM_RMS: cur = ggml_rms_norm(ctx, cur, hp.f_norm_rms_eps, false); break;
         }
-        cur = ggml_mul(ctx, cur, mw);
+        cur = ggml_mul(ctx, cur, mw, false);
         if (mb) {
-            cur = ggml_add(ctx, cur, mb);
+            cur = ggml_add(ctx, cur, mb, false);
         }
         return cur;
     }
@@ -5412,7 +5380,7 @@ public:
 
         ggml_tensor* kq = ggml_mul_mat(ctx, k, q);
 
-        kq = ggml_soft_max(ctx, kq, kq_mask, kq_scale, 0.0f);
+        kq = ggml_soft_max(ctx, kq, false, kq_mask, kq_scale, 0.0f);
 
         // split cached v into n_head heads
         ggml_tensor* v =
@@ -5529,13 +5497,13 @@ struct test_llama : public test_llm {
                 Qcur = ggml_rope_ext(
                     ctx, ggml_reshape(ctx, Qcur, { hp.n_embd_head, hp.n_head, hp.n_tokens }), inp_pos, nullptr,
                     hp.n_rot, 0, hp.n_ctx_orig, freq_base, freq_scale,
-                    ext_factor, attn_factor, beta_fast, beta_slow
+                    ext_factor, attn_factor, beta_fast, beta_slow, false
                 );
 
                 Kcur = ggml_rope_ext(
                     ctx, ggml_reshape(ctx, Kcur, { hp.n_embd_head, hp.n_head_kv, hp.n_tokens }), inp_pos, nullptr,
                     hp.n_rot, 0, hp.n_ctx_orig, freq_base, freq_scale,
-                    ext_factor, attn_factor, beta_fast, beta_slow
+                    ext_factor, attn_factor, beta_fast, beta_slow, false
                 );
 
                 llm_build_kv_store(ctx, k_l, v_l, Kcur, Vcur);
@@ -5543,7 +5511,7 @@ struct test_llama : public test_llm {
                 cur = llm_build_kqv(ctx, k_l, v_l, Qcur, KQ_mask, 1.0f / sqrtf(float(hp.n_embd_head)));
             }
 
-            struct ggml_tensor* ffn_inp = ggml_add(ctx, cur, inpSA);
+            struct ggml_tensor* ffn_inp = ggml_add(ctx, cur, inpSA, false);
 
             // feed-forward network
             ggml_tensor* ffn_norm = ggml_new_tensor(ctx, GGML_TYPE_F32, { hp.n_embd });
@@ -5554,11 +5522,11 @@ struct test_llama : public test_llm {
             ggml_tensor* ffn_up = ggml_new_tensor(ctx, GGML_TYPE_Q4_0, { hp.n_embd, hp.n_ff });
             struct ggml_tensor* tmp = ggml_mul_mat(ctx, ffn_up, cur);
             cur = ggml_mul_mat(ctx, ffn_gate, cur);
-            cur = ggml_silu(ctx, cur);
-            cur = ggml_mul(ctx, cur, tmp);
+            cur = ggml_silu(ctx, cur, false);
+            cur = ggml_mul(ctx, cur, tmp, false);
             cur = ggml_mul_mat(ctx, ffn_down, cur);
 
-            cur = ggml_add(ctx, cur, ffn_inp);
+            cur = ggml_add(ctx, cur, ffn_inp, false);
 
             // input for next layer
             inpL = cur;
@@ -5652,12 +5620,12 @@ struct test_falcon : public test_llm {
                 // using mode = 2 for neox mode
                 Qcur = ggml_rope_ext(
                     ctx, Qcur, inp_pos, nullptr, hp.n_rot, 2, hp.n_ctx_orig,
-                    freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow
+                    freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow, false
                 );
 
                 Kcur = ggml_rope_ext(
                     ctx, Kcur, inp_pos, nullptr, hp.n_rot, 2, hp.n_ctx_orig,
-                    freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow
+                    freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow, false
                 );
 
                 llm_build_kv_store(ctx, k_l, v_l, Kcur, Vcur);
@@ -5673,13 +5641,13 @@ struct test_falcon : public test_llm {
                 ggml_tensor* ffn_down = ggml_new_tensor(ctx, GGML_TYPE_Q4_0, { hp.n_ff, hp.n_embd });
                 cur = attn_norm;
                 cur = ggml_mul_mat(ctx, ffn_up, cur);
-                cur = ggml_gelu(ctx, cur);
+                cur = ggml_gelu(ctx, cur, false);
                 cur = ggml_mul_mat(ctx, ffn_down, cur);
             }
 
-            cur = ggml_add(ctx, cur, ffn_inp);
+            cur = ggml_add(ctx, cur, ffn_inp, false);
 
-            cur = ggml_add(ctx, cur, inpL);
+            cur = ggml_add(ctx, cur, inpL, false);
 
             // input for next layer
             inpL = cur;
@@ -6197,7 +6165,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
 
     auto add_test_bin_bcast = [&](ggml_type type, std::array<int64_t, 4> ne, std::array<int, 4> nr) {
         for (auto op : { ggml_add, ggml_sub, ggml_mul, ggml_div }) {
-            test_cases.emplace_back(new test_bin_bcast(op, type, ne, nr));
+            test_cases.emplace_back(new test_bin_bcast(op, false, type, ne, nr));
         }
     };
     for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
@@ -6237,20 +6205,20 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     }
 
     // single inplace tests, especially important for WebGPU backend since kernels for inplace vs. not are different
-    test_cases.emplace_back(new test_bin_bcast(ggml_add_inplace, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
-    test_cases.emplace_back(new test_bin_bcast(ggml_mul_inplace, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
-    test_cases.emplace_back(new test_bin_bcast(ggml_sub_inplace, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
-    test_cases.emplace_back(new test_bin_bcast(ggml_div_inplace, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, true, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
+    test_cases.emplace_back(new test_bin_bcast(ggml_mul, true, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
+    test_cases.emplace_back(new test_bin_bcast(ggml_sub, true, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
+    test_cases.emplace_back(new test_bin_bcast(ggml_div, true, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
 
     // fusion
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 2, 1, 1, 1 }, 2));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 2, 1, 1 }, 3));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 1, 2, 1 }, 4));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 2 }, 5));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 1, 2, 2 }, 6));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 2, 2, 2 }, 7));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 2, 2, 2, 2 }, 8));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 2, 1, 1, 1 }, 2));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 2, 1, 1 }, 3));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 1, 2, 1 }, 4));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 2 }, 5));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 1, 2, 2 }, 6));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 2, 2, 2 }, 7));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 2, 2, 2, 2 }, 8));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
 
     test_cases.emplace_back(new test_add1());
     test_cases.emplace_back(new test_scale());
@@ -6845,8 +6813,8 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
         }
     }
 
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 4096, 1, 1, 1 }, { 1,   1, 1, 1 }));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 4096, 1, 1, 1 }, { 1, 512, 1, 1 }));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 4096, 1, 1, 1 }, { 1,   1, 1, 1 }));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 4096, 1, 1, 1 }, { 1, 512, 1, 1 }));
 
     test_cases.emplace_back(new test_cpy(GGML_TYPE_F32, GGML_TYPE_F16, { 512, 3072, 1, 1 }));
     test_cases.emplace_back(new test_cpy(GGML_TYPE_F32, GGML_TYPE_F32, { 8192, 512, 2, 1 }, { 0, 2, 1, 3 }));

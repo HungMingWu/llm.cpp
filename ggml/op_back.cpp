@@ -79,7 +79,7 @@ ggml_tensor* ggml_rope_multi_back(
     float beta_fast,
     float beta_slow) {
     ggml_tensor* result = ggml_rope_multi(
-        ctx, a, b, c, n_dims, sections, mode, n_ctx_orig, freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow);
+        ctx, a, b, c, n_dims, sections, mode, n_ctx_orig, freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow, false);
     result->op = GGML_OP_ROPE_BACK;
     return result;
 }
@@ -99,7 +99,7 @@ ggml_tensor* ggml_rope_ext_back(
     float beta_fast,
     float beta_slow) {
     ggml_tensor* result = ggml_rope_ext(
-        ctx, a, b, c, n_dims, mode, n_ctx_orig, freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow);
+        ctx, a, b, c, n_dims, mode, n_ctx_orig, freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow, false);
     result->op = GGML_OP_ROPE_BACK;
     return result;
 }

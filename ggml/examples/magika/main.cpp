@@ -172,28 +172,28 @@ ggml_cgraph magika_graph(
 
     // dense
     cur = ggml_mul_mat(&ctx, model.dense_w, input);
-    cur = ggml_add(&ctx, cur, model.dense_b); // [128, 1536, n_files]
-    cur = ggml_gelu(&ctx, cur);
+    cur = ggml_add(&ctx, cur, model.dense_b, false); // [128, 1536, n_files]
+    cur = ggml_gelu(&ctx, cur, false);
 
     // reshape
     cur = ggml_reshape(&ctx, cur, { 512, 384, n_files }); // [384, 512, n_files]
     cur = ggml_cont(&ctx, ggml_transpose(&ctx, cur));
 
     // layer normalization
-    cur = ggml_norm(&ctx, cur, hparams.f_norm_eps);
-    cur = ggml_mul(&ctx, cur, model.layer_norm_gamma); // [384, 512, n_files]
-    cur = ggml_add(&ctx, cur, model.layer_norm_beta);  // [384, 512, n_files]
+    cur = ggml_norm(&ctx, cur, hparams.f_norm_eps, false);
+    cur = ggml_mul(&ctx, cur, model.layer_norm_gamma, false); // [384, 512, n_files]
+    cur = ggml_add(&ctx, cur, model.layer_norm_beta, false);  // [384, 512, n_files]
 
     // dense_1
     cur = ggml_cont(&ctx, ggml_transpose(&ctx, cur));
     cur = ggml_mul_mat(&ctx, model.dense_1_w, cur);
-    cur = ggml_add(&ctx, cur, model.dense_1_b); // [256, 384, n_files]
-    cur = ggml_gelu(&ctx, cur);
+    cur = ggml_add(&ctx, cur, model.dense_1_b, false); // [256, 384, n_files]
+    cur = ggml_gelu(&ctx, cur, false);
 
     // dense_2
     cur = ggml_mul_mat(&ctx, model.dense_2_w, cur);
-    cur = ggml_add(&ctx, cur, model.dense_2_b); // [256, 384, n_files]
-    cur = ggml_gelu(&ctx, cur);
+    cur = ggml_add(&ctx, cur, model.dense_2_b, false); // [256, 384, n_files]
+    cur = ggml_gelu(&ctx, cur, false);
 
     // global_max_pooling1d
     cur = ggml_cont(&ctx, ggml_transpose(&ctx, cur)); // [384, 256, n_files]
@@ -201,14 +201,14 @@ ggml_cgraph magika_graph(
     cur = ggml_reshape(&ctx, cur, { 256, n_files }); // [256, n_files]
 
     // layer normalization 1
-    cur = ggml_norm(&ctx, cur, hparams.f_norm_eps);
-    cur = ggml_mul(&ctx, cur, model.layer_norm_1_gamma); // [256, n_files]
-    cur = ggml_add(&ctx, cur, model.layer_norm_1_beta);  // [256, n_files]
+    cur = ggml_norm(&ctx, cur, hparams.f_norm_eps, false);
+    cur = ggml_mul(&ctx, cur, model.layer_norm_1_gamma, false); // [256, n_files]
+    cur = ggml_add(&ctx, cur, model.layer_norm_1_beta, false);  // [256, n_files]
 
     // target_label
     cur = ggml_mul_mat(&ctx, model.target_label_w, cur);
-    cur = ggml_add(&ctx, cur, model.target_label_b); // [n_label, n_files]
-    cur = ggml_soft_max(&ctx, cur); // [n_label, n_files]
+    cur = ggml_add(&ctx, cur, model.target_label_b, false); // [n_label, n_files]
+    cur = ggml_soft_max(&ctx, cur, false); // [n_label, n_files]
     cur->set_name("target_label_probs");
     cur->set_flag(GGML_TENSOR_FLAG_OUTPUT);
 
