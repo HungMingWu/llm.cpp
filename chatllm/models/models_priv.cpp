@@ -431,10 +431,19 @@ namespace chatllm
         while (!aborted && !completed && (n_past + (int)curr_input_ids.size() < gen_config.max_length))
         {
             std::vector<float> lm_logits;
+            const int last_n_past = n_past;
             if (!generate_next_token(curr_input_ids, gen_config, lm_logits))
             {
                 ggml::log(GGML_LOG_LEVEL_ERROR, "Out of memory");
                 aborted = true;
+                break;
+            }
+
+            if (lm_logits.size() == 0)
+            {
+                int num = n_past > last_n_past ? n_past - last_n_past : 0;
+                performance->Accumulate(ModelPerfInfo::Type::Generation, num);
+                completed = true;
                 break;
             }
 
@@ -501,7 +510,10 @@ namespace chatllm
             completed = true;
 
         if (performance)
-            performance->Accumulate(ModelPerfInfo::Type::Generation, output_ids.size() - curr_input_ids.size());
+        {
+            size_t num = output_ids.size() > curr_input_ids.size() ? output_ids.size() - curr_input_ids.size() : 0;
+            performance->Accumulate(ModelPerfInfo::Type::Generation, num);
+        }
 
         after_generate();
 
@@ -537,11 +549,11 @@ namespace chatllm
 
         for (; (remain > batch) && !aborted; p += batch, remain -= batch, past += batch)
         {
-            if (!run_model(p, batch, gen_config, past, lm_logits))
+            if (!run_model(p, batch, gen_config, past, lm_logits, 1))
                 return false;
         }
 
-        return run_model(p, remain, gen_config, past, lm_logits);
+        return run_model(p, remain, gen_config, past, lm_logits, 1);
     }
 
 
@@ -644,12 +656,13 @@ namespace chatllm
     bool BaseModelForConditionalGeneration::run_model(const int* input_ids, const int ids_count,
         const GenerationConfig& gen_config,
         int past,
-        std::vector<float>& output)
+        std::vector<float>& output, const int batch_size,
+        std::function<ggml::tensor* (ComputeContext*, ggml::tensor*)> func_epilog)
     {
         if (!initial_run)
         {
             initial_run = true;
-            int past = gen_config.max_length - ids_count;
+            int past = gen_config.max_length / transformer->get_reserved_batch_size() - ids_count;
             if (past < 0) past = 0;
             if (!before_initial_run(ids_count, gen_config, past))
                 return false;
@@ -661,14 +674,21 @@ namespace chatllm
         set_dbg_ctx(&ctx);
 
         ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Prolog);
-        ggml::tensor* input_ids_tensor = ggml::new_tensor_1d(&ctx, GGML_TYPE_I32, ids_count);
+        ggml::tensor* input_ids_tensor = ggml::new_tensor_2d(&ctx, GGML_TYPE_I32, ids_count, batch_size);
 
         ggml::tensor* r = transformer->forward(&ctx, input_ids_tensor, past);
 
         ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Epilog);
 
-        if (logit_scale > 0)
-            r = ggml::scale(&ctx, r, logit_scale);
+        if (func_epilog)
+        {
+            r = func_epilog(&ctx, r);
+        }
+        else
+        {
+            if (logit_scale > 0)
+                r = ggml::scale(&ctx, r, logit_scale);
+        }
 
         ggml::build_forward_expand(&ctx, r);
 
@@ -765,12 +785,14 @@ namespace chatllm
         before_forward(ctx, input_ids, n_past);
 
         ctx->move_to_layer(LayerAllocatorManager::Prolog);
-        ggml::tensor* hidden_states = word_embeddings->forward(ctx, input_ids);
+        ggml::tensor* hidden_states = custom_embedding ? custom_embedding(ctx, input_ids) : word_embeddings->forward(ctx, input_ids);
         for (auto& layer : layers)
         {
             ctx->move_to_layer(layer->get_id());
             hidden_states = layer->forward(ctx, hidden_states, n_past);
         }
+
+        last_hidden_state = hidden_states;
 
         ctx->move_to_layer(LayerAllocatorManager::Epilog);
         return final_steps->forward(this, ctx, input_ids, hidden_states);
@@ -910,16 +932,30 @@ namespace chatllm
         return r;
     }
 
+    void HeterogeneousModel::reserve_batch_size(int size)
+    {
+        ModelBlock::reserve_batch_size(size);
+        for (auto& layer : layers)
+            layer->reserve_batch_size(size);
+    }
+
     ggml::tensor* LMFinalSteps::forward(HeterogeneousModel* model, ComputeContext* ctx, ggml::tensor* input_ids, ggml::tensor* hidden_states)
     {
-        hidden_states = ggml::view_2d(ctx, hidden_states, model->hidden_size, 1,
+        const int qlen = ggml::get_dim(hidden_states, 1);
+        const int batch = ggml::get_dim(hidden_states, 2);
+        hidden_states = ggml::view_3d(ctx, hidden_states, model->hidden_size, 1, batch,
             ggml::row_size(hidden_states),
-            (ggml::get_dim(input_ids, 0) - 1) * ggml::row_size(hidden_states));
+            ggml::row_size(hidden_states) * qlen,
+            (qlen - 1) * ggml::row_size(hidden_states));
 
         ggml::tensor* transformer_outputs = model->final_layernorm->forward(ctx, hidden_states);
 
-        transformer_outputs =
-            ggml::view_1d(ctx, transformer_outputs, model->hidden_size, 0);
+        // now, this is continous
+        transformer_outputs = ggml::reshape_2d(ctx, transformer_outputs, ggml::get_dim(transformer_outputs, 0), batch);
+
+        model->last_hidden_state = transformer_outputs;
+        if (model->skip_lm_head)
+            return transformer_outputs;
 
         ggml::tensor* lm_logits = model->lm_head ? model->lm_head->forward(ctx, transformer_outputs)
             : model->word_embeddings->forward(ctx, transformer_outputs);
@@ -944,5 +980,60 @@ namespace chatllm
         ggml::tensor* transformer_outputs = model->final_layernorm->forward(ctx, hidden_states);
         transformer_outputs = ggml::simple_norm(ctx, transformer_outputs, 1e-5f);
         return transformer_outputs;
+    }
+
+    TensorGraphEvaluator::TensorGraphEvaluator(const RuntimeConfig& runtime_config, const std::string model_id, size_t GRAPH_SIZE)
+        : GRAPH_SIZE(GRAPH_SIZE),
+        n_threads(runtime_config.n_threads)
+    {
+        model_gpu_layers = BackendContext::get_ngl_of_model(runtime_config.model_gpu_layers, model_id);
+        backend_context.init(model_gpu_layers, 1, GRAPH_SIZE, n_threads);
+    }
+
+    bool TensorGraphEvaluator::evaluate(const GenerationConfig& gen_config,
+        std::function<ggml::tensor* (ComputeContext* ctx)> make_graph,
+        std::function<void(ComputeContext* ctx)> write_input_data,
+        ggml::type expected_result_dtype,
+        std::vector<int64_t>& result_shape,
+        std::vector<uint8_t>& result_buf)
+    {
+        ForwardContext ctx(&backend_context);
+
+        ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Prolog);
+        set_dbg_ctx(&ctx);
+
+        ggml::tensor* r = make_graph(&ctx);
+
+        if (ggml::type_of(r) != expected_result_dtype)
+        {
+            ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Epilog);
+            ggml::tensor* t = ggml::new_tensor_like(&ctx, expected_result_dtype, r);
+            r = ggml::cpy(&ctx, r, t);
+        }
+
+        ggml::get_shape(r, result_shape);
+
+        ggml::build_forward_expand(&ctx, r);
+
+        CHATLLM_CHECK(ctx.allocate()) << "failed to allocate memory";
+
+        if (gen_config.dump_dot.size() > 0)
+        {
+            backend_context.dump_graph(ctx.get_cgraph(), gen_config.dump_dot.c_str());
+            exit(-1);
+        }
+
+        write_input_data(&ctx);
+
+        ctx.compute();
+
+        set_dbg_ctx(nullptr);
+
+        size_t offset = result_buf.size();
+        result_buf.resize(offset + ggml::nbytes(r));
+        Backend::read_tensor_data(r, result_buf.data() + offset);
+        ctx.reset();
+
+        return true;
     }
 }

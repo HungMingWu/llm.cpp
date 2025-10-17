@@ -26,5 +26,7 @@ namespace chatllm
         virtual int load_session(ModelSessionMemory& session) = 0;
 
         virtual void load(const std::string& path, TensorLoader* loader, const std::vector<int>& layer_ids) = 0;
+    public:
+        bool skip_lm_head = false;
     };
 } // namespace chatllm

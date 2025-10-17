@@ -395,6 +395,8 @@ namespace chatllm
         }
     }
 
+    class HeterogeneousModel;
+
     class BaseModelForConditionalGeneration : public BaseModel
     {
     public:
@@ -441,7 +443,9 @@ namespace chatllm
         virtual bool run_model(const int* input_ids, const int ids_count,
             const GenerationConfig& gen_config,
             int past,
-            std::vector<float>& output);
+            std::vector<float>& output,
+            const int batch_size = 1,
+            std::function<ggml::tensor* (ComputeContext*, ggml::tensor*)> func_epilog = nullptr);
 
         virtual bool is_output_terminated(const std::vector<int>& output_ids, int& keep_idx, int& pop_output);
 
@@ -453,7 +457,7 @@ namespace chatllm
         }
 
     protected:
-        ModelBlock* transformer;
+        HeterogeneousModel* transformer;
         const size_t GRAPH_SIZE;
         int batch_input;
         float logit_scale;
@@ -491,6 +495,23 @@ namespace chatllm
         virtual bool is_loaded(void) const;
     protected:
         bool _loaded;
+    };
+
+    class TensorGraphEvaluator
+    {
+    public:
+        TensorGraphEvaluator(const RuntimeConfig& runtime_config, const std::string model_id = "main", size_t GRAPH_SIZE = 4096);
+        virtual bool evaluate(const GenerationConfig& gen_config,
+            std::function<ggml::tensor* (ComputeContext* ctx)> make_graph,
+            std::function<void(ComputeContext* ctx)> write_input_data,
+            ggml::type expected_result_dtype,
+            std::vector<int64_t>& result_shape,
+            std::vector<uint8_t>& result_buf); // result is appended
+    protected:
+        BackendContext backend_context;
+        const size_t GRAPH_SIZE;
+        std::string model_gpu_layers;
+        const int n_threads;
     };
 
     class BaseMediaProjectedEmbeddingGeneration
@@ -550,6 +571,10 @@ namespace chatllm
         int save_session(ModelSessionMemory& session) const override;
         int load_session(ModelSessionMemory& session) override;
         void load(const std::string& path, TensorLoader* loader, const std::vector<int>& layer_ids) override;
+
+        ggml::tensor get_last_hiddle_state(void);
+
+        void reserve_batch_size(int size) override;
     private:
         struct state
         {
@@ -566,6 +591,8 @@ namespace chatllm
         std::unique_ptr<Block> final_layernorm;
         std::unique_ptr<Linear> lm_head;
         Block* logits_pp;
+        ggml::tensor* last_hidden_state = nullptr;
+        std::function<ggml::tensor* (ComputeContext* ctx, ggml::tensor* input_ids)> custom_embedding;
     protected:
         // std::vector<std::unique_ptr<Block>> layers;
         std::vector<Block*> layers;

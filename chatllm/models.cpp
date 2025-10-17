@@ -53,8 +53,9 @@ namespace chatllm
 
     void print_tensor_shape(const char* info, ggml::tensor* tensor)
     {
-        std::println("{}: shape of {} ({}): [{}, {}, {}, {}] [{}, {}, {}, {}]",
-            info, tensor->name, tensor->data,
+        std::println("{}: {} shape of {} ({}): [{}, {}, {}, {}] [{}, {}, {}, {}]",
+            info, ggml::type_to_str(ggml::type_of(tensor)).c_str(),
+            tensor->name, tensor->data,
             tensor->ne[0], tensor->ne[1], tensor->ne[2], tensor->ne[3],
             tensor->nb[0], tensor->nb[1], tensor->nb[2], tensor->nb[3]);
     }
@@ -74,6 +75,16 @@ namespace chatllm
         {
             float* p = (float*)data.data();
             const size_t n = ggml::nbytes(tensor) / sizeof(float);
+            bool flag = false;
+            for (size_t i = 0; i < n; i++)
+            {
+                if (std::isnan(p[i]) || std::isinf(p[i]))
+                {
+                    flag = true;
+                    break;
+                }
+            }
+            //if (!flag) break;
             for (size_t i = 0; i < n; i++)
             {
                 if (!full && ((PRINT_CNT < i) && (i < n - PRINT_CNT))) continue;
@@ -82,6 +93,7 @@ namespace chatllm
                 std::println("[{:3}] = {:+3.18f}", i, t);
                 //printf("[%3d] = %08x\n", (int)i, *(uint32_t *)(p + i));
             }
+            if (flag) exit(-1);
         }
         break;
         case GGML_TYPE_F16:
@@ -148,13 +160,13 @@ namespace chatllm
 
         if (dbg_w)
         {
-            std::print("\n--------------- dbg_w ----------------------\n");
+            std::print("\n--------------- dbg_w");
             print_tensor(dbg_w);
 
             dbg_w = nullptr;
         }
 
-        std::print("\n--------------- {} ----------------------\n", it->second);
+        std::print("\n--------------- {}", it->second);
         bool full = true;
         print_tensor(tensor, 0, full);
 
@@ -166,10 +178,17 @@ namespace chatllm
         dbg_w = tensor;
     }
 
+    void clear_inspected_tensors(void)
+    {
+        inspected_set.clear();
+    }
+
     void inspect_tensor(ggml::tensor* tensor, std::string tag)
     { //return;
         if (nullptr == dbg_ctx) return;
         if (tensor == nullptr) return;
+
+        // if (strstr(tag.c_str(), "gen_vision_model.decoder.mid.0") == nullptr) return;
 
         inspected_set[tensor] = std::move(tag);
 

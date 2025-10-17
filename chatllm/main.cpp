@@ -99,6 +99,7 @@ struct Args
     bool detect_thoughts = false;
     int penalty_window = 256;
     int max_new_tokens = -1;
+    bool single_turn = false;
 };
 
 #define MULTI_LINE_END_MARKER_W  L"\\."
@@ -171,6 +172,7 @@ void usage(const std::string& prog)
         << "                          when enabled,  `" << MULTI_LINE_END_MARKER << "` marks the end of your input.\n"
         << "  --format FMT            conversion format (model specific, FMT = chat | completion | qa) (default: chat)\n"
         << "  --max_new_tokens N      max number of new tokens in a round of generation (default: -1, i.e. unlimited)\n"
+        << "  +single_turn            single-turn (i.e. restart on each turn) (default: OFF)                                  [*]\n"
         << "Performance options:\n"
         << "  -n, --threads N         number of threads for inference (default: number of cores)\n"
         << "  -ngl, --n_gpu_layers N  number of the main model layers to offload to a backend device (GPU) (default: GPU not used)\n"
@@ -349,14 +351,15 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
                 args.show_banner = false;
             }
             handle_flag(tokenize)
-                handle_flag(hide_reference)
-                handle_flag(show)
-                handle_flag(show_devices)
-                handle_flag(reversed_role)
-                handle_flag(rag_dump)
-                handle_flag(rerank_rewrite)
-                handle_flag(moe_on_cpu)
-                handle_flag(detect_thoughts)
+            handle_flag(hide_reference)
+            handle_flag(show)
+            handle_flag(show_devices)
+            handle_flag(reversed_role)
+            handle_flag(rag_dump)
+            handle_flag(rerank_rewrite)
+            handle_flag(moe_on_cpu)
+            handle_flag(detect_thoughts)
+            handle_flag(single_turn)
             else if (utils::is_same_command_option(arg, "--format"))
             {
                 c++;
@@ -640,8 +643,8 @@ public:
 static std::string print_timing(const char* prefix, size_t tok_number, double duration_sec)
 {
     return std::format("{} = {:12.2f} ms / {:5} tokens ( {:8.2f} ms per token, {:8.2f} tokens per second)", prefix, duration_sec, tok_number,
-        duration_sec / tok_number,
-        tok_number / duration_sec * 1000);
+        tok_number > 0 ? duration_sec / tok_number : 0.0,
+        duration_sec > 0.0 ? tok_number / duration_sec * 1000 : 0.0);
 }
 
 static void show_stat(chatllm::Pipeline& pipeline, chatllm::BaseStreamer& streamer)
@@ -740,15 +743,9 @@ static void print_embedding(const std::vector<float>& data, std::ostream& cout)
     cout << std::endl;
 }
 
-static std::string get_temp_file_name() {
-    std::filesystem::path temp_dir = std::filesystem::temp_directory_path();
-    std::filesystem::path temp_file = temp_dir / std::tmpnam(nullptr);
-    return temp_file.string();
-}
-
 static void play_audio(const std::vector<int16_t>& data, const int sample_rate, const int channels, TextStreamer& streamer, std::string export_fn)
 {
-    auto fn = export_fn.size() > 0 ? export_fn : get_temp_file_name();
+    auto fn = export_fn.size() > 0 ? export_fn : utils::tmpname();
     std::ofstream file(fn, std::ios::binary);
     file.write((const char*)data.data(), data.size() * sizeof(data[0]));
     file.close();
@@ -1027,6 +1024,13 @@ void chat(Args& args, chatllm::Pipeline& pipeline, TextStreamer& streamer)
             streamer.cout << ai_prompt << " > " << std::flush;
             std::string output = pipeline.chat(history, gen_config, &streamer);
             history.push_back(output, chatllm::MsgRole::User);
+
+
+            if (args.single_turn)
+            {
+                history.clear();
+                pipeline.restart();
+            }
         }
     }
     else
@@ -1053,6 +1057,12 @@ void chat(Args& args, chatllm::Pipeline& pipeline, TextStreamer& streamer)
             streamer.cout << ai_prompt << " > " << std::flush;
             std::string output = pipeline.chat(history, gen_config, &streamer);
             history.push_back(output, chatllm::MsgRole::Assistant);
+
+            if (args.single_turn)
+            {
+                history.clear();
+                pipeline.restart();
+            }
         }
     }
     streamer.cout << "Bye\n";

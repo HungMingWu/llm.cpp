@@ -894,10 +894,47 @@ namespace chatllm::qwen::vit
         Backend::write_tensor_data(pos, v_pos.data(), 0, length * 2 * sizeof(v_pos[0]));
     }
 
+    void TensorPosHelper::prepare_v2(int grid_h, int grid_w)
+    {
+        CHATLLM_CHECK(grid_h % spatial_merge_size == 0);
+        CHATLLM_CHECK(grid_w % spatial_merge_size == 0);
+
+        length = grid_h * grid_w;
+
+        v_pos.clear();
+        v_pos.resize(length * 2, 0);
+        int* p_h = &v_pos[length * 0];
+        int* p_w = &v_pos[length * 1];
+        int index = 0;
+
+        for (int i = 0; i < grid_h / spatial_merge_size; i++)
+        {
+            for (int j = 0; j < grid_w / spatial_merge_size; j++)
+            {
+                for (int i0 = 0; i0 < spatial_merge_size; i0++)
+                {
+                    for (int j0 = 0; j0 < spatial_merge_size; j0++)
+                    {
+                        p_w[index] = j * spatial_merge_size + j0;
+                        p_h[index] = i * spatial_merge_size + i0;
+                        index++;
+                    }
+                }
+
+            }
+        }
+    }
+
     void TensorPosHelper::prepare(int grid_h, int grid_w)
     {
         CHATLLM_CHECK(grid_h % spatial_merge_size == 0);
         CHATLLM_CHECK(grid_w % spatial_merge_size == 0);
+
+        if (window_size == 0)
+        {
+            prepare_v2(grid_h, grid_w);
+            return;
+        }
 
         const int vit_merger_window_size = window_size / patch_size / spatial_merge_size;
         const int num_windows_h = (grid_h / spatial_merge_size + vit_merger_window_size - 1) / vit_merger_window_size;
@@ -1133,46 +1170,34 @@ namespace chatllm::qwen::vit
     }
 
     MLP::MLP(InitContext* ctx, int hidden_size, int intermediate_size, int output_size)
-        : TheMLP(ctx, hidden_size, intermediate_size, output_size, ActFunc::GELU, true)
+        : TheMLP(ctx, hidden_size, intermediate_size, output_size > 0 ? output_size : hidden_size, ActFunc::GELU, true)
     {
     }
 
-    MultiModalProjector::MultiModalProjector(InitContext* ctx, const Config& config, int lm_hidden_size)
-        :
-        hidden_size(config.hidden_size* config.spatial_merge_size* config.spatial_merge_size),
-        pre_norm(ctx, config.hidden_size),
-        mlp(ctx, hidden_size, hidden_size, lm_hidden_size)
+    MLP::MLP(InitContext* ctx, int hidden_size, int intermediate_size) : MLP(ctx, hidden_size, intermediate_size, hidden_size)
     {
     }
 
-    ggml::tensor* MultiModalProjector::forward(ComputeContext* ctx, ggml::tensor* image_features, int grid_h, int grid_w)
+    MultiModalProjector::MultiModalProjector(InitContext* ctx, const Config& config, int lm_hidden_size) :
+        GenMultiModalProjector<RMSNorm, MLP>(ctx, config.hidden_size, config.spatial_merge_size, lm_hidden_size)
     {
-        auto output = pre_norm.forward(ctx, image_features);
-        output = ggml::reshape(ctx, output, hidden_size, -1);
-        output = mlp.forward(ctx, output);
-        return output;
     }
 
-    int64_t MultiModalProjector::get_param_num(bool effective_only) const
+    MultiModalProjectorV2::MultiModalProjectorV2(InitContext* ctx, const Config& config, int lm_hidden_size) :
+        GenMultiModalProjector<LayerNorm, MLP>(ctx, config.hidden_size, config.spatial_merge_size, lm_hidden_size)
     {
-        int64_t r = 0;
-        r += pre_norm.get_param_num(effective_only);
-        r += mlp.get_param_num(effective_only);
-        return r;
-    }
-
-    void MultiModalProjector::load(const std::string& path, TensorLoader* loader)
-    {
-        pre_norm.load(path + "ln_q.", loader);
-        mlp.load(path + "mlp.", loader);
     }
 
     VisionTransformer::VisionTransformer(InitContext* ctx, const Config& config, int lm_hidden_size)
         : embeddings(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Prolog), config),
-        multi_modal_projector(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Epilog), config, lm_hidden_size),
+        multi_modal_projector(config.is_ver_2_0 ?
+            (Block*)(new MultiModalProjectorV2(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Epilog), config, lm_hidden_size))
+            :
+            new MultiModalProjector(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Epilog), config, lm_hidden_size)),
         window_id(ggml::new_tensor_1d(ctx, ggml::type::GGML_TYPE_I32, config.max_pixels / config.patch_size / config.patch_size)),
         reverse_id(ggml::new_tensor_1d(ctx, ggml::type::GGML_TYPE_I32, config.max_pixels / config.patch_size / config.patch_size)),
-        loaded(false)
+        loaded(false),
+        is_v2(config.is_ver_2_0)
     {
         const int max_length = config.max_pixels / config.patch_size / config.patch_size;
         pos_helper.reset(new TensorPosHelper(max_length,
@@ -1183,12 +1208,23 @@ namespace chatllm::qwen::vit
 
         for (int layer_id = 0; layer_id < config.num_hidden_layers; layer_id++)
         {
-            ViTParams::set_full_attention(config.fullatt_block_indices[layer_id]);
-            ctx->move_to_layer(layer_id);
-            auto layer = new LayerBlock(ctx, config.hidden_size, config.num_attention_heads, config.intermediate_size, max_length);
-            layer->set_id(layer_id);
-            layer->attention.set_pos_helper(pos_helper.get());
-            layers.emplace_back(layer);
+            if (config.is_ver_2_0)
+            {
+                ctx->move_to_layer(layer_id);
+                auto layer = new LayerBlockV2(ctx, config.hidden_size, config.num_attention_heads, config.intermediate_size, max_length);
+                layer->set_id(layer_id);
+                layer->attention.set_pos_helper(pos_helper.get());
+                layers.emplace_back(layer);
+            }
+            else
+            {
+                ViTParams::set_full_attention(config.fullatt_block_indices[layer_id]);
+                ctx->move_to_layer(layer_id);
+                auto layer = new LayerBlock(ctx, config.hidden_size, config.num_attention_heads, config.intermediate_size, max_length);
+                layer->set_id(layer_id);
+                layer->attention.set_pos_helper(pos_helper.get());
+                layers.emplace_back(layer);
+            }
         }
     }
 
@@ -1196,7 +1232,7 @@ namespace chatllm::qwen::vit
     {
         int64_t r = 0;
         r += embeddings.get_param_num(effective_only);
-        r += multi_modal_projector.get_param_num(effective_only);
+        r += multi_modal_projector->get_param_num(effective_only);
         for (size_t i = 0; i < layers.size(); i++)
             r += layers[i]->get_param_num(effective_only);
         return r;
@@ -1207,7 +1243,7 @@ namespace chatllm::qwen::vit
         if (!loader->has_tensor(path + "patch_embed.proj.0.weight")) return;
 
         embeddings.load(path + "patch_embed.", loader);
-        multi_modal_projector.load(path + "merger.", loader);
+        multi_modal_projector->load(path + "merger.", loader);
         for (size_t i = 0; i < layers.size(); i++)
         {
             std::string block_path = path + "blocks." + std::to_string(i) + ".";
@@ -1222,19 +1258,37 @@ namespace chatllm::qwen::vit
         pos_helper->write_mapping_tensors(ctx, window_id, reverse_id);
 
         auto output = embeddings.forward(ctx, input, input, grid_h, grid_w);
-        output = ggml::get_rows(ctx, output, window_id);
+
+        if (!is_v2)
+            output = ggml::get_rows(ctx, output, window_id);
 
         for (size_t i = 0; i < layers.size(); i++)
         {
-            if (layers[i]->attention.mask)
-                pos_helper->write_mask_tensor(ctx, layers[i]->attention.mask);
-            layers[i]->attention.grid_h = grid_h;
-            layers[i]->attention.grid_w = grid_w;
-            output = layers[i]->forward(ctx, output, 0);
+            Block* layer = nullptr;
+            ViTSelfAttention* attn = nullptr;
+            if (is_v2)
+            {
+                auto l = (LayerBlockV2*)layers[i].get();
+                attn = &l->attention;
+                layer = l;
+            }
+            else
+            {
+                auto l = (LayerBlock*)layers[i].get();
+                if (l->attention.mask)
+                    pos_helper->write_mask_tensor(ctx, l->attention.mask);
+                attn = &l->attention;
+                layer = l;
+            }
+
+            attn->grid_h = grid_h;
+            attn->grid_w = grid_w;
+            output = layer->forward(ctx, output, 0);
         }
 
-        output = multi_modal_projector.forward(ctx, output, grid_h, grid_w);
-        output = ggml::get_rows(ctx, output, reverse_id);
+        output = multi_modal_projector->forward(ctx, output, grid_h, grid_w);
+        if (!is_v2)
+            output = ggml::get_rows(ctx, output, reverse_id);
         return output;
     }
 
@@ -1273,22 +1327,36 @@ namespace chatllm::qwen::vit
         if (!vis_cfg.IsObject()) return false;
 
         vis_config.dtype = dtype;
+        vis_config.is_ver_2_0 = vis_cfg["model_type"].ToString() == "qwen2_vl";
 
         vis_config.patch_size = (int)vis_cfg["patch_size"].ToInt();
         vis_config.num_attention_heads = (int)vis_cfg["num_heads"].ToInt();
         vis_config.num_hidden_layers = (int)vis_cfg["depth"].ToInt();
-        vis_config.hidden_size = (int)vis_cfg["hidden_size"].ToInt();
-        vis_config.intermediate_size = (int)vis_cfg["intermediate_size"].ToInt();
         vis_config.spatial_merge_size = (int)vis_cfg["spatial_merge_size"].ToInt();
         vis_config.spatial_patch_size = (int)vis_cfg["spatial_patch_size"].ToInt();
-        vis_config.window_size = (int)vis_cfg["window_size"].ToInt();
-        vis_config.tokens_per_second = (int)vis_cfg["tokens_per_second"].ToInt();
+
         vis_config.temporal_patch_size = (int)vis_cfg["temporal_patch_size"].ToInt();
 
-        auto indices = vis_cfg["fullatt_block_indexes"];
-        CHATLLM_CHECK((int)indices.length() <= VIT_MAX_LAYERS);
-        for (int i = 0; i < (int)indices.length(); i++)
-            vis_config.fullatt_block_indices[indices[i].ToInt()] = true;
+        if (vis_config.is_ver_2_0)
+        {
+            vis_config.hidden_size = (int)vis_cfg["embed_dim"].ToInt();
+            vis_config.intermediate_size = vis_config.hidden_size * (int)vis_cfg["mlp_ratio"].ToInt();
+            vis_config.tokens_per_second = 2;
+            for (int i = 0; i < vis_config.num_hidden_layers; i++)
+                vis_config.fullatt_block_indices[i] = true;
+        }
+        else
+        {
+            vis_config.hidden_size = (int)vis_cfg["hidden_size"].ToInt();
+            vis_config.intermediate_size = (int)vis_cfg["intermediate_size"].ToInt();
+            vis_config.window_size = (int)vis_cfg["window_size"].ToInt();
+            vis_config.tokens_per_second = (int)vis_cfg["tokens_per_second"].ToInt();
+
+            auto indices = vis_cfg["fullatt_block_indexes"];
+            CHATLLM_CHECK((int)indices.length() <= VIT_MAX_LAYERS);
+            for (int i = 0; i < (int)indices.length(); i++)
+                vis_config.fullatt_block_indices[indices[i].ToInt()] = true;
+        }
 
         auto pp_cfg = config["preprocessor_config.json"];
         if (pp_cfg.IsObject())
@@ -1315,7 +1383,6 @@ namespace chatllm::qwen::vit
         backend_context.init(model_gpu_layers, vis_config.num_hidden_layers, GRAPH_SIZE, n_threads);
 
         vis_model.reset(new VisionTransformer(&_ctx, vis_config, lm_hidden_size));
-
         return true;
     }
 

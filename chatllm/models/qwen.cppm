@@ -357,6 +357,7 @@ namespace chatllm::qwen
         struct Config
         {
             ggml::type dtype;
+            bool is_ver_2_0;
             int patch_size;
             int num_attention_heads;
             int num_hidden_layers;
@@ -400,6 +401,8 @@ namespace chatllm::qwen
             void write_mask_tensor(ComputeContext* ctx, ggml::tensor* mask);
             void prepare_pos_tensor(ComputeContext* ctx, ggml::tensor* pos, const int n_past, const int qlen);
             void prepare(int grid_h, int grid_w);
+        protected:
+            void prepare_v2(int grid_h, int grid_w);
         public:
             const int max_length;
             const int original_length;
@@ -437,20 +440,57 @@ namespace chatllm::qwen
         {
         public:
             MLP(InitContext* ctx, int hidden_size, int intermediate_size, int output_size);
+            MLP(InitContext* ctx, int hidden_size, int intermediate_size);
         };
 
-        class MultiModalProjector : public Block
+        template <class Norm, class MLP> class GenMultiModalProjector : public Block
+        {
+        public:
+            GenMultiModalProjector(InitContext* ctx, int hidden_size, int spatial_merge_size, int lm_hidden_size) :
+                hidden_size(hidden_size* spatial_merge_size* spatial_merge_size),
+                pre_norm(ctx, hidden_size),
+                mlp(ctx, this->hidden_size, this->hidden_size, lm_hidden_size)
+            {
+            }
+
+            ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* image_features, int grid_h, int grid_w) override
+            {
+                auto output = pre_norm.forward(ctx, image_features);
+                output = ggml::reshape(ctx, output, hidden_size, -1);
+                output = mlp.forward(ctx, output);
+                return output;
+            }
+
+            int64_t get_param_num(bool effective_only) const override
+            {
+                int64_t r = 0;
+                r += pre_norm.get_param_num(effective_only);
+                r += mlp.get_param_num(effective_only);
+                return r;
+            }
+
+            void load(const std::string& path, TensorLoader* loader) override
+            {
+                pre_norm.load(path + "ln_q.", loader);
+                mlp.load(path + "mlp.", loader);
+            }
+
+        public:
+            const int hidden_size;
+            Norm   pre_norm;
+            MLP    mlp;
+        };
+
+        class MultiModalProjector : public GenMultiModalProjector<RMSNorm, MLP>
         {
         public:
             MultiModalProjector(InitContext* ctx, const Config& config, int lm_hidden_size);
+        };
 
-            ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* image_features, int grid_h, int grid_w);
-            int64_t get_param_num(bool effective_only) const override;
-            void load(const std::string& path, TensorLoader* loader) override;
+        class MultiModalProjectorV2 : public GenMultiModalProjector<LayerNorm, MLP>
+        {
         public:
-            const int hidden_size;
-            RMSNorm   pre_norm;
-            MLP       mlp;
+            MultiModalProjectorV2(InitContext* ctx, const Config& config, int lm_hidden_size);
         };
 
         class VitSiLUMLP : public BaseMLP
@@ -466,21 +506,23 @@ namespace chatllm::qwen
         {
         public:
             typedef LMBlock1<RMSNorm, ViTSelfAttention, RMSNorm, VitSiLUMLP> LayerBlock;
+            typedef LMBlock1<LayerNorm, ViTSelfAttention, LayerNorm, MLP> LayerBlockV2;
             VisionTransformer(InitContext* ctx, const Config& config, int lm_hidden_size);
 
             int64_t get_param_num(bool effective_only) const override;
             void load(const std::string& path, TensorLoader* loader) override;
-            ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* input, int grid_h, int grid_w);
+            ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* input, int grid_h, int grid_w) override;
             bool is_loaded(void) const;
         public:
             PatchEmbedding embeddings;
-            std::vector<std::unique_ptr<LayerBlock>> layers;
-            MultiModalProjector multi_modal_projector;
+            std::vector<std::unique_ptr<Block>> layers;
+            std::unique_ptr<Block> multi_modal_projector;
             std::unique_ptr<TensorPosHelper> pos_helper;
             ggml::tensor* window_id;
             ggml::tensor* reverse_id;
         protected:
             bool loaded;
+            const bool is_v2;
         };
 
         class VisualEmbeddingGeneration
@@ -493,8 +535,9 @@ namespace chatllm::qwen
 
         protected:
             bool run_model(const GenerationConfig& gen_config, BaseTokenizer* tok, ggml::type dtype, const BaseTokenizer::MediaAsEmbeddingVector& image, std::vector<uint8_t>& buf);
-        protected:
+        public:
             std::unique_ptr<VisionTransformer> vis_model;
+        protected:
             BackendContext backend_context;
             const size_t GRAPH_SIZE;
             InitContext _ctx; // weight context

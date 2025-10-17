@@ -662,8 +662,6 @@ void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
 
 bool ggml_backend_sched::reserve(const ggml_cgraph* measure_graph)
 {
-    reset();
-
     synchronize();
 
     split_graph(*measure_graph);
