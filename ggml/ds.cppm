@@ -19,18 +19,6 @@ export module ggml:ds;
 constexpr size_t GGML_MAX_OP_PARAMS = 64;
 constexpr size_t GGML_MAX_SRC = 10;
 
-#ifndef GGML_SCHED_MAX_BACKENDS
-#define GGML_SCHED_MAX_BACKENDS 16
-#endif
-
-#ifndef GGML_SCHED_MAX_SPLIT_INPUTS
-#define GGML_SCHED_MAX_SPLIT_INPUTS 30
-#endif
-
-#ifndef GGML_SCHED_MAX_COPIES
-#define GGML_SCHED_MAX_COPIES 4
-#endif
-
 export {
     using ggml_type = ggml_type;
     using ggml_prec = ggml_prec;
@@ -57,6 +45,9 @@ export {
         GGML_TENSOR_FLAG_PARAM = 4, // ...contains trainable parameters
         GGML_TENSOR_FLAG_LOSS = 8, // ...defines loss for numerical optimization (multiple loss tensors add up)
     };
+
+    constexpr size_t GGML_SCHED_MAX_SPLIT_INPUTS = 30;
+    constexpr size_t GGML_SCHED_MAX_COPIES = 4;
 
     // available tensor operations:
     enum ggml_op {

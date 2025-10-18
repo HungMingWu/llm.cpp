@@ -14,8 +14,6 @@ module;
 #include <functional>
 #include "basics.h"
 
-#define GGML_N_TASKS_MAX (-1)
-
 #undef MIN
 #undef MAX
 

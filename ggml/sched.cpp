@@ -11,18 +11,6 @@ module;
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_ABORT(...)
 
-#ifndef GGML_SCHED_MAX_BACKENDS
-#define GGML_SCHED_MAX_BACKENDS 16
-#endif
-
-#ifndef GGML_SCHED_MAX_SPLIT_INPUTS
-#define GGML_SCHED_MAX_SPLIT_INPUTS GGML_MAX_SRC
-#endif
-
-#ifndef GGML_SCHED_MAX_COPIES
-#define GGML_SCHED_MAX_COPIES 4
-#endif
-
 module ggml;
 
 ggml_backend_sched::ggml_backend_sched(std::span<ggml_backend*> backends,
@@ -31,8 +19,7 @@ ggml_backend_sched::ggml_backend_sched(std::span<ggml_backend*> backends,
     bool op_offload)
 {
 
-    GGML_ASSERT(backends.size() > 0);
-    GGML_ASSERT(backends.size() <= GGML_SCHED_MAX_BACKENDS);
+    GGML_ASSERT(!backends.empty());
     GGML_ASSERT(backends.back()->get_device()->get_type() == GGML_BACKEND_DEVICE_TYPE_CPU);
     GGML_ASSERT(backends.size() == bufts.size());
 
