@@ -4,7 +4,7 @@ module;
 #include <string.h>
 #include <algorithm>
 #include <bit>
-#include "../helper.h"
+#include "helper.h"
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_ABORT(...)
 

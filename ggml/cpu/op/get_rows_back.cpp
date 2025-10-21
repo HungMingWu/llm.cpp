@@ -4,7 +4,7 @@ module;
 #include <string.h>
 #include <span>
 #include "mdspan.hpp"
-#include "../helper.h"
+#include "helper.h"
 #define GGML_ABORT(...)
 
 module ggml;

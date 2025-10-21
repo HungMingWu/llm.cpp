@@ -4,7 +4,7 @@ module;
 #include <algorithm>
 #include <bit>
 #include <iostream>
-#include "../helper.h"
+#include "helper.h"
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
