@@ -1,16 +1,13 @@
 module;
 #include <stdint.h>
 #include <array>
-#include <condition_variable>
 #include <format>
 #include <functional>
 #include <list>
 #include <memory>
-#include <mutex>
 #include <span>
 #include <string_view>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #include "internal_ds.h"
 #include "inplace_vector.hpp"
@@ -412,6 +409,10 @@ export {
         GGML_UNARY_OP_EXP,
         GGML_UNARY_OP_GELU_ERF,
         GGML_UNARY_OP_XIELU,
+        GGML_UNARY_OP_FLOOR,
+        GGML_UNARY_OP_CEIL,
+        GGML_UNARY_OP_ROUND,
+        GGML_UNARY_OP_TRUNC,
 
         GGML_UNARY_OP_COUNT,
     };
@@ -552,6 +553,7 @@ export {
         void init_tensor(ggml_tensor* tensor, tensor_alloc* tensor_alloc);
         void alloc_graph_impl(const ggml_cgraph &graph,
             std::span<const int> node_buffer_ids, std::span<const int> leaf_buffer_ids);
+        void free_extra_space(ggml_tensor* node, ggml_tensor* parent);
     public:
         ggml_gallocr(std::span<ggml_backend_buffer_type*> bufts);
         ggml_gallocr(ggml_backend_buffer_type* buft) :
@@ -599,7 +601,6 @@ export {
         std::unordered_map<const ggml_tensor*, ggml_tensor*> grad_accs; // accumulators for node gradients
         std::vector<ggml_tensor*> leafs;     // tensors with constant data
         std::unordered_map<const ggml_tensor*, int32_t> use_counts; // number of uses of each tensor
-        std::unordered_set<ggml_tensor*> visited_hash_set;
 
         enum ggml_cgraph_eval_order order = GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT;
         void visit_parents(ggml_tensor*);
@@ -611,6 +612,7 @@ export {
         std::span<ggml_tensor*> getNodes() { return nodes; }
         void reset();
         ggml_tensor* get_tensor(std::string_view name);
+        int32_t get_use_count(int node_idx) const;
     };
 
     // Evaluation callback for each node in the graph (set with ggml_backend_sched_set_eval_callback)

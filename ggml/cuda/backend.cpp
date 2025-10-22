@@ -1388,6 +1388,109 @@ bool ggml_cuda_should_use_topk_moe(const ggml_tensor* softmax, const ggml_tensor
     return true;
 }
 
+static int ggml_node_list_find_tensor(const struct ggml_cgraph* cgraph,
+    const int* idxs,
+    int                        count,
+    const struct ggml_tensor* tensor) {
+    GGML_ASSERT(cgraph && idxs);
+    for (int i = 0; i < count; ++i) {
+        const int node_idx = idxs[i];
+
+        if (node_idx >= cgraph->nodes.size()) {
+            return -1;
+        }
+        if (cgraph->nodes[node_idx] == tensor) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static bool ggml_can_fuse_subgraph_ext(const struct ggml_cgraph* cgraph,
+    const int* node_idxs,
+    int                        count,
+    const enum ggml_op* ops,
+    const int* outputs,
+    int                        num_outputs) {
+    GGML_ASSERT(outputs && num_outputs > 0);
+
+    for (int i = 0; i < count; ++i) {
+        if (node_idxs[i] >= cgraph->nodes.size()) {
+            return false;
+        }
+
+        const struct ggml_tensor* node = cgraph->nodes[node_idxs[i]];
+
+        if (node->op != ops[i]) {
+            return false;
+        }
+
+        if (ggml_node_list_find_tensor(cgraph, outputs, num_outputs, node) != -1) {
+            continue;
+        }
+
+        if (node->flags & GGML_TENSOR_FLAG_OUTPUT) {
+            return false;
+        }
+
+        int subgraph_uses = 0;
+        for (int j = i + 1; j < count; ++j) {
+            const struct ggml_tensor* other_node = cgraph->nodes[node_idxs[j]];
+            for (int src_idx = 0; src_idx < GGML_MAX_SRC; src_idx++) {
+                if (other_node->src[src_idx] == node) {
+                    subgraph_uses++;
+                }
+            }
+        }
+
+        if (subgraph_uses != cgraph->get_use_count(node_idxs[i])) {
+            return false;
+        }
+
+        // if node is a view, check if the view_src and all it's parent view_srcs are within the subgraph
+        struct ggml_tensor* view_src = node->view_src;
+        while (view_src) {
+            if (ggml_node_list_find_tensor(cgraph, node_idxs, count, view_src) == -1) {
+                return false;
+            }
+            view_src = view_src->view_src;
+        }
+    }
+
+    return true;
+}
+
+// Returns true if the subgraph formed by {node_idxs} can be fused
+// checks whethers all nodes which are not part of outputs can be elided
+// by checking if their num_uses are confined to the subgraph
+static inline bool ggml_can_fuse_subgraph(const struct ggml_cgraph* cgraph,
+    int                        node_idx,
+    int                        count,
+    const enum ggml_op* ops,
+    const int* outputs,
+    int                        num_outputs) {
+    GGML_ASSERT(count < 32);
+    if (node_idx + count > cgraph->nodes.size()) {
+        return false;
+    }
+
+    int idxs[32];
+
+    for (int i = 0; i < count; ++i) {
+        idxs[i] = node_idx + i;
+    }
+
+    return ggml_can_fuse_subgraph_ext(cgraph, idxs, count, ops, outputs, num_outputs);
+}
+
+inline bool ggml_can_fuse_subgraph(const struct ggml_cgraph* cgraph,
+    int                                 start_idx,
+    std::initializer_list<enum ggml_op> ops,
+    std::initializer_list<int>          outputs = {}) {
+    return ggml_can_fuse_subgraph(cgraph, start_idx, ops.size(), ops.begin(), outputs.begin(), outputs.size());
+}
+
+
 static bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, std::initializer_list<enum ggml_op> ops, std::initializer_list<enum ggml_unary_op> unary_ops) {
 #ifndef NDEBUG
     const size_t num_unary = std::count(ops.begin(), ops.end(), GGML_OP_UNARY);
@@ -1398,15 +1501,8 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, s
     std::initializer_list<enum ggml_op> topk_moe_ops = ggml_cuda_topk_moe_ops(false);
     std::initializer_list<enum ggml_op> topk_moe_ops_with_norm = ggml_cuda_topk_moe_ops(true);
 
-    if (ops.size() == topk_moe_ops_with_norm.size() && std::equal(ops.begin(), ops.end(), topk_moe_ops_with_norm.begin())) {
-
-        if (node_idx + topk_moe_ops_with_norm.size() > cgraph->nodes.size()) {
-            return false;
-        }
-
-        for (size_t i = 0; i < topk_moe_ops_with_norm.size(); i++) {
-            if (cgraph->nodes[node_idx + i]->op != topk_moe_ops_with_norm.begin()[i]) return false;
-        }
+    if (ops.size() == topk_moe_ops_with_norm.size() &&
+        ggml_can_fuse_subgraph(cgraph, node_idx, topk_moe_ops_with_norm, { node_idx + 3, node_idx + 8 })) {
         ggml_tensor* softmax = cgraph->nodes[node_idx];
         ggml_tensor* weights = cgraph->nodes[node_idx + 8];
 
@@ -1415,16 +1511,8 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, s
         }
     }
 
-    if (ops.size() == topk_moe_ops.size() && std::equal(ops.begin(), ops.end(), topk_moe_ops.begin())) {
-
-        if (node_idx + topk_moe_ops.size() > cgraph->nodes.size()) {
-            return false;
-        }
-
-        for (size_t i = 0; i < topk_moe_ops.size(); i++) {
-            if (cgraph->nodes[node_idx + i]->op != topk_moe_ops.begin()[i]) return false;
-        }
-
+    if (ops.size() == topk_moe_ops.size() &&
+        ggml_can_fuse_subgraph(cgraph, node_idx, topk_moe_ops, { node_idx + 3, node_idx + 4 })) {
         ggml_tensor* softmax = cgraph->nodes[node_idx];
         ggml_tensor* weights = cgraph->nodes[node_idx + 4];
         if (ggml_cuda_should_use_topk_moe(softmax, weights)) {
@@ -1462,7 +1550,7 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, s
         }
 
         //if rms norm is the B operand, then we don't handle broadcast
-        if (rms_norm == mul->src[1] && !ggml_are_same_shape(mul->src[0], rms_norm->src[1])) {
+        if (rms_norm == mul->src[1] && !ggml_are_same_shape(mul->src[0], rms_norm)) {
             return false;
         }
 

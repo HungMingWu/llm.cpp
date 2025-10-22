@@ -286,5 +286,4 @@ uint32_t get_device_count(const char* endpoint) {
 }
 
 void ggml_backend_rpc_start_server(const char* endpoint, const char* cache_dir,
-    size_t n_threads, size_t n_devices,
-    ggml_backend_device** devices, size_t* free_mem, size_t* total_mem);
+    size_t n_threads, size_t n_devices, ggml_backend_device** devices);

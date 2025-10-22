@@ -243,6 +243,26 @@ void ggml_gallocr::free_node(ggml_tensor* node) {
 	hn.allocated = false;
 }
 
+// free the extra space at the end if the new tensor is smaller
+void ggml_gallocr::free_extra_space(ggml_tensor* node, ggml_tensor* parent) {
+	auto& hn = hash_map[node];
+	auto& p_hn = hash_map[parent];
+
+	size_t parent_size = bufts[p_hn.buffer_id]->get_alloc_size(parent);
+	size_t node_size = bufts[hn.buffer_id]->get_alloc_size(node);
+
+	GGML_ASSERT(parent_size >= node_size);
+
+	if (parent_size > node_size) {
+		auto p_alloc = buf_tallocs[p_hn.buffer_id];
+		buffer_address p_addr = p_hn.addr;
+		p_addr.offset += node_size;
+		size_t extra_size = parent_size - node_size;
+		AT_PRINTF("freeing extra %zu bytes from parent %s for %s\n", extra_size, parent->name, node->name);
+		p_alloc->free_tensor(p_addr, extra_size, parent);
+	}
+}
+
 void ggml_gallocr::allocate_node(ggml_tensor* node, int buffer_id) {
 	GGML_ASSERT(buffer_id >= 0);
 	if (!is_allocated(node) && !ggml_is_view(node)) {
@@ -287,6 +307,7 @@ void ggml_gallocr::allocate_node(ggml_tensor* node, int buffer_id) {
 							hn.addr = p_hn.addr;
 							p_hn.allocated = false; // avoid freeing the parent
 							view_src_hn.allocated = false;
+							free_extra_space(node, view_src);
 							return;
 						}
 					}
@@ -295,6 +316,7 @@ void ggml_gallocr::allocate_node(ggml_tensor* node, int buffer_id) {
 						hn.buffer_id = p_hn.buffer_id;
 						hn.addr = p_hn.addr;
 						p_hn.allocated = false; // avoid freeing the parent
+						free_extra_space(node, parent);
 						return;
 					}
 				}

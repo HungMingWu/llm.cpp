@@ -33,6 +33,7 @@ public:
     bool graph_compute(const std::vector<uint8_t>& input, rpc_msg_graph_compute_rsp& response);
     bool init_tensor(const rpc_msg_init_tensor_req& request);
     bool get_alloc_size(const rpc_msg_get_alloc_size_req& request, rpc_msg_get_alloc_size_rsp& response);
+    bool get_device_memory(const rpc_msg_get_device_memory_req& request, rpc_msg_get_device_memory_rsp& response);
 
 private:
     bool get_cached_file(uint64_t hash, std::vector<uint8_t>& data);

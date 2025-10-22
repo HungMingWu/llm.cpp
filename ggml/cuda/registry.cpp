@@ -311,9 +311,10 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_CONV_2D_DW:
     case GGML_OP_CONV_TRANSPOSE_2D:
     case GGML_OP_POOL_2D:
-    case GGML_OP_SUM:
     case GGML_OP_ACC:
         return true;
+    case GGML_OP_SUM:
+        return ggml_is_contiguous_rows(op->src[0]);
     case GGML_OP_ARGSORT:
         // TODO: Support arbitrary column width
         return op->src[0]->ne[0] <= 1024;

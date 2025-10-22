@@ -814,4 +814,29 @@ export {
 		float alpha_p,
 		float beta,
 		float eps);
+
+	ggml_tensor* ggml_floor(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		bool inplace);
+
+	ggml_tensor* ggml_ceil(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		bool inplace);
+
+	ggml_tensor* ggml_round(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		bool inplace);
+
+	/**
+	 * Truncates the fractional part of each element in the tensor (towards zero).
+	 * For example: trunc(3.7) = 3.0, trunc(-2.9) = -2.0
+	 * Similar to std::trunc in C/C++.
+	 */
+	ggml_tensor* ggml_trunc(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		bool inplace);
 }

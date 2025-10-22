@@ -2421,3 +2421,35 @@ ggml_tensor* ggml_xielu(
 
 	return result;
 }
+
+ggml_tensor* ggml_floor(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	bool inplace)
+{
+	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_FLOOR, inplace);
+}
+
+ggml_tensor* ggml_ceil(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	bool inplace)
+{
+	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_CEIL, inplace);
+}
+
+ggml_tensor* ggml_round(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	bool inplace)
+{
+	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_ROUND, inplace);
+}
+
+ggml_tensor* ggml_trunc(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	bool inplace)
+{
+	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_TRUNC, inplace);
+}

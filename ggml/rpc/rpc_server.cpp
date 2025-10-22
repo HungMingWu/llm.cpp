@@ -476,6 +476,20 @@ bool rpc_server::graph_compute(const std::vector<uint8_t>& input, rpc_msg_graph_
     return true;
 }
 
+bool rpc_server::get_device_memory(const rpc_msg_get_device_memory_req& request, rpc_msg_get_device_memory_rsp& response) {
+    uint32_t dev_id = request.device;
+    if (dev_id >= backends.size()) {
+        return false;
+    }
+    size_t free, total;
+    ggml_backend_device* dev = backends[dev_id]->get_device();
+    dev->get_memory(&free, &total);
+    response.free_mem = free;
+    response.total_mem = total;
+    //LOG_DBG("[%s] device: %u, free_mem: %" PRIu64 ", total_mem: %" PRIu64 "\n", __func__, dev_id, response.free_mem, response.total_mem);
+    return true;
+}
+
 rpc_server::~rpc_server() {
     for (auto buffer : buffers) {
         delete buffer;

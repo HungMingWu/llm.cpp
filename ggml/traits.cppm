@@ -621,6 +621,10 @@ static const char* GGML_UNARY_OP_NAME[GGML_UNARY_OP_COUNT] = {
     "EXP",
     "GELU_ERF",
     "XIELU",
+    "FLOOR",
+    "CEIL",
+    "ROUND",
+    "TRUNC",
 };
 
 static const char* GGML_GLU_OP_NAME[GGML_GLU_OP_COUNT] = {

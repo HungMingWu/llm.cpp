@@ -709,9 +709,7 @@ static void ggml_compute_backward(
 void ggml_cgraph::visit_parents(ggml_tensor* node)
 {
     // check if already visited
-    if (auto [_, inserted] = visited_hash_set.emplace(node); !inserted) {
-        return;
-    }
+    if (use_counts.contains(node)) return;
 
     use_counts[node] = 0;
     if (order == GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT) {
@@ -1114,13 +1112,20 @@ void ggml_dump_graph_nodes(ggml_cgraph* cgraph, const char* binary_name)
     fclose(fp);
 }
 
+int32_t ggml_cgraph::get_use_count(int node_idx) const {
+    const ggml_tensor* node = nodes[node_idx];
+
+    if (!use_counts.contains(node)) return 0;
+    return use_counts.at(node);
+}
+
 // return true if the node's results are only used by N other nodes
 // and can be fused into their calculations.
 static inline bool ggml_node_has_n_uses(const ggml_cgraph* cgraph, int node_idx, int32_t n_uses) {
     ggml_tensor* node = cgraph->nodes[node_idx];
 
     // check the use count against how many we're replacing
-    if (cgraph->visited_hash_set.count(node) == 0 || cgraph->use_counts.at(node) != n_uses) {
+    if (cgraph->get_use_count(node_idx) != n_uses) {
         return false;
     }
 

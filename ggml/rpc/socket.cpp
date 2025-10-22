@@ -61,7 +61,7 @@ static bool recv_msg(sockfd_t sockfd, std::vector<uint8_t>& input) {
 }
 
 static void rpc_serve_client(std::span<std::unique_ptr<ggml_backend>> backends, const char* cache_dir,
-    sockfd_t sockfd, const std::vector<size_t>& free_mem, const std::vector<size_t>& total_mem) {
+    sockfd_t sockfd) {
     rpc_server server(backends, cache_dir);
     uint8_t cmd;
     if (!recv_data(sockfd, &cmd, 1)) {
@@ -285,17 +285,10 @@ static void rpc_serve_client(std::span<std::unique_ptr<ggml_backend>> backends, 
             if (!recv_msg(sockfd, &request, sizeof(request))) {
                 return;
             }
-            auto dev_id = request.device;
-            if (dev_id >= backends.size()) {
+            rpc_msg_get_device_memory_rsp response;
+            if (!server.get_device_memory(request, response)) {
                 return;
             }
-            rpc_msg_get_device_memory_rsp response;
-            response.free_mem = free_mem[dev_id];
-            response.total_mem = total_mem[dev_id];
-#if 0
-            LOG_DBG("[get_device_mem] device: {}, free_mem: {}, total_mem: {}\n", dev_id,
-                response.free_mem, response.total_mem);
-#endif
             if (!send_msg(sockfd, &response, sizeof(response))) {
                 return;
             }
@@ -356,15 +349,12 @@ static std::shared_ptr<socket_t> socket_accept(sockfd_t srv_sockfd) {
 }
 
 void ggml_backend_rpc_start_server(const char* endpoint, const char* cache_dir,
-    size_t n_threads, size_t n_devices,
-    ggml_backend_device** devices, size_t* free_mem, size_t* total_mem) {
-    if (n_devices == 0 || devices == nullptr || free_mem == nullptr || total_mem == nullptr) {
+    size_t n_threads, size_t n_devices, ggml_backend_device** devices) {
+    if (n_devices == 0 || devices == nullptr) {
         fprintf(stderr, "Invalid arguments to ggml_backend_rpc_start_server\n");
         return;
     }
     std::vector<std::unique_ptr<ggml_backend>> backends;
-    std::vector<size_t> free_mem_vec(free_mem, free_mem + n_devices);
-    std::vector<size_t> total_mem_vec(total_mem, total_mem + n_devices);
     printf("Starting RPC server v%d.%d.%d\n",
         RPC_PROTO_MAJOR_VERSION,
         RPC_PROTO_MINOR_VERSION,
@@ -374,8 +364,10 @@ void ggml_backend_rpc_start_server(const char* endpoint, const char* cache_dir,
     printf("Devices:\n");
     for (size_t i = 0; i < n_devices; i++) {
         auto dev = devices[i];
+        size_t free, total;
+        dev->get_memory(&free, &total);
         printf("  %s: %s (%zu MiB, %zu MiB free)\n", dev->get_name(), dev->get_description(),
-            total_mem[i] / 1024 / 1024, free_mem[i] / 1024 / 1024);
+            total / 1024 / 1024, free / 1024 / 1024);
         auto backend = dev->init_backend(nullptr);
         if (!backend) {
             fprintf(stderr, "Failed to create backend for device %s\n", dev->get_name());
@@ -415,7 +407,7 @@ void ggml_backend_rpc_start_server(const char* endpoint, const char* cache_dir,
         }
         printf("Accepted client connection\n");
         fflush(stdout);
-        rpc_serve_client(backends, cache_dir, client_socket->fd, free_mem_vec, total_mem_vec);
+        rpc_serve_client(backends, cache_dir, client_socket->fd);
         printf("Client connection closed\n");
         fflush(stdout);
     }
