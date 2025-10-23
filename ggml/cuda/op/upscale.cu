@@ -1,106 +1,70 @@
-static __global__ void upscale_f32(const float* x, float* dst,
-    const int nb00, const int nb01, const int nb02, const int nb03,
-    const int ne10, const int ne11, const int ne12, const int ne13,
-    const float sf0, const float sf1, const float sf2, const float sf3) {
-    int index = threadIdx.x + blockIdx.x * blockDim.x;
-    if (index >= ne10 * ne11 * ne12 * ne13) {
-        return;
-    }
+#include "helper.h"
+#include "cuda_func.h"
+#include "launch.cuh"
 
-    int i10 = index % ne10;
-    int i11 = (index / ne10) % ne11;
-    int i12 = (index / (ne10 * ne11)) % ne12;
-    int i13 = (index / (ne10 * ne11 * ne12)) % ne13;
-
-    int i00 = i10 / sf0;
-    int i01 = i11 / sf1;
-    int i02 = i12 / sf2;
-    int i03 = i13 / sf3;
-
-    dst[index] = *(float*)((char*)x + i03 * nb03 + i02 * nb02 + i01 * nb01 + i00 * nb00);
-}
-
-static __global__ void upscale_f32_bilinear(const float* x, float* dst,
-    const int nb00, const int nb01, const int nb02, const int nb03,
-    const int ne00_src, const int ne01_src,
-    const int ne10_dst, const int ne11_dst, const int ne12_dst, const int ne13_dst,
-    const float sf0, const float sf1, const float sf2, const float sf3,
-    const float pixel_offset) {
-    const int64_t index = threadIdx.x + blockIdx.x * blockDim.x;
-    const int64_t dst_total_elements = ne10_dst * ne11_dst * ne12_dst * ne13_dst;
-
-    if (index >= dst_total_elements) {
-        return;
-    }
-
-    const int i10_dst = index % ne10_dst;
-    const int i11_dst = (index / ne10_dst) % ne11_dst;
-    const int i12_dst = (index / (ne10_dst * ne11_dst)) % ne12_dst;
-    const int i13_dst = index / (ne10_dst * ne11_dst * ne12_dst);
-
-    const int i02_src = (int)(i12_dst / sf2);
-    const int i03_src = (int)(i13_dst / sf3);
-
-    const float y_src_f = ((float)i11_dst + pixel_offset) / sf1 - pixel_offset;
-    int y0_src = (int)floorf(y_src_f);
-    int y1_src = y0_src + 1;
-
-    y0_src = max(0, min(y0_src, ne01_src - 1));
-    y1_src = max(0, min(y1_src, ne01_src - 1));
-
-    float dy = y_src_f - (float)y0_src;
-    dy = max(0.0f, min(dy, 1.0f));
-
-    float x_src_f = ((float)i10_dst + pixel_offset) / sf0 - pixel_offset;
-    int x0_src = (int)floorf(x_src_f);
-    int x1_src = x0_src + 1;
-
-    x0_src = max(0, min(x0_src, ne00_src - 1));
-    x1_src = max(0, min(x1_src, ne00_src - 1));
-
-    float dx = x_src_f - (float)x0_src;
-    dx = max(0.0f, min(dx, 1.0f));
-
-    const float* p_a = (const float*)((const char*)x + (int64_t)x0_src * nb00 + (int64_t)y0_src * nb01 + (int64_t)i02_src * nb02 + (int64_t)i03_src * nb03);
-    const float* p_b = (const float*)((const char*)x + (int64_t)x1_src * nb00 + (int64_t)y0_src * nb01 + (int64_t)i02_src * nb02 + (int64_t)i03_src * nb03);
-    const float* p_c = (const float*)((const char*)x + (int64_t)x0_src * nb00 + (int64_t)y1_src * nb01 + (int64_t)i02_src * nb02 + (int64_t)i03_src * nb03);
-    const float* p_d = (const float*)((const char*)x + (int64_t)x1_src * nb00 + (int64_t)y1_src * nb01 + (int64_t)i02_src * nb02 + (int64_t)i03_src * nb03);
-
-    const float val_a = *p_a;
-    const float val_b = *p_b;
-    const float val_c = *p_c;
-    const float val_d = *p_d;
-
-    float result = val_a * (1.0f - dx) * (1.0f - dy) +
-        val_b * dx * (1.0f - dy) +
-        val_c * (1.0f - dx) * dy +
-        val_d * dx * dy;
-
-    dst[index] = result;
-}
-
-static constexpr size_t CUDA_UPSCALE_BLOCK_SIZE = 256;
-
-void upscale_f32_cuda(const float* x, float* dst,
-    const int nb00, const int nb01, const int nb02, const int nb03,
-    const int ne10, const int ne11, const int ne12, const int ne13,
-    const float sf0, const float sf1, const float sf2, const float sf3,
-    cudaStream_t stream)
+void upscale_f32_cuda(const upscale_context& ctx, cudaStream_t stream)
 {
-    const int64_t dst_size = ne10 * ne11 * ne12 * ne13;
-    const int64_t num_blocks = (dst_size + CUDA_UPSCALE_BLOCK_SIZE - 1) / CUDA_UPSCALE_BLOCK_SIZE;
+    std::array<int64_t, 4> dst_ne = { ctx.ne0, ctx.ne1, ctx.ne2, ctx.ne3 };
+    std::array<size_t, 4> dst_nb = { ctx.nb0, ctx.nb1, ctx.nb2, ctx.nb3 };
+    auto dst_data = make_strided_mdspan(ctx.dst_d, dst_ne, dst_nb);
+    std::array<int64_t, 4> src0_ne = { ctx.ne00, ctx.ne01, ctx.ne02, ctx.ne03 };
+    std::array<size_t, 4> src0_nb = { ctx.nb00, ctx.nb01, ctx.nb02, ctx.nb03 };
+    auto src0_data = make_strided_mdspan(ctx.src0_d, src0_ne, src0_nb);
+    launch_functor(stream, std::make_tuple(ctx.ne3, ctx.ne2, ctx.ne1, ctx.ne0),
+        [=] __device__(int64_t i13, int64_t i12, int64_t i11, int64_t i10) {
+            int64_t i00 = i10 / ctx.sf0;
+            int64_t i01 = i11 / ctx.sf1;
+            int64_t i02 = i12 / ctx.sf2;
+            int64_t i03 = i13 / ctx.sf3;
 
-    upscale_f32 << <num_blocks, CUDA_UPSCALE_BLOCK_SIZE, 0, stream >> > (x, dst, nb00, nb01, nb02, nb03, ne10, ne11, ne12, ne13, sf0, sf1, sf2, sf3);
+            dst_data(i13, i12, i11, i10) = src0_data(i03, i02, i01, i00);
+        }
+    );
 }
 
-void upscale_f32_bilinear_cuda(const float* x, float* dst,
-    const int nb00, const int nb01, const int nb02, const int nb03,
-    const int ne00_src, const int ne01_src,
-    const int ne10_dst, const int ne11_dst, const int ne12_dst, const int ne13_dst,
-    const float sf0, const float sf1, const float sf2, const float sf3,
-    const float pixel_offset, cudaStream_t stream) {
-    const int64_t dst_size = ne10_dst * ne11_dst * ne12_dst * ne13_dst;
-    const int64_t num_blocks = (dst_size + CUDA_UPSCALE_BLOCK_SIZE - 1) / CUDA_UPSCALE_BLOCK_SIZE;
+void upscale_f32_bilinear_cuda(const upscale_context& ctx, const float pixel_offset, cudaStream_t stream) {
+    std::array<int64_t, 4> dst_ne = { ctx.ne0, ctx.ne1, ctx.ne2, ctx.ne3 };
+    std::array<size_t, 4> dst_nb = { ctx.nb0, ctx.nb1, ctx.nb2, ctx.nb3 };
+    auto dst_data = make_strided_mdspan(ctx.dst_d, dst_ne, dst_nb);
+    std::array<int64_t, 4> src0_ne = { ctx.ne00, ctx.ne01, ctx.ne02, ctx.ne03 };
+    std::array<size_t, 4> src0_nb = { ctx.nb00, ctx.nb01, ctx.nb02, ctx.nb03 };
+    auto src0_data = make_strided_mdspan(ctx.src0_d, src0_ne, src0_nb);
+    launch_functor(stream, std::make_tuple(ctx.ne3, ctx.ne2, ctx.ne1, ctx.ne0),
+        [=] __device__(int64_t i13, int64_t i12, int64_t i11, int64_t i10) {
+            const int i02_src = (int)(i12 / ctx.sf2);
+            const int i03_src = (int)(i13 / ctx.sf3);
 
-    upscale_f32_bilinear << <num_blocks, CUDA_UPSCALE_BLOCK_SIZE, 0, stream >> > (x, dst, nb00, nb01, nb02, nb03, ne00_src, ne01_src, ne10_dst, ne11_dst, ne12_dst, ne13_dst, sf0, sf1, sf2, sf3, pixel_offset);
+            const float y_src_f = ((float)i11 + pixel_offset) / ctx.sf1 - pixel_offset;
+            int64_t y0_src = (int64_t)floorf(y_src_f);
+            int64_t y1_src = y0_src + 1;
+
+            y0_src = max(int64_t{ 0 }, min(y0_src, src0_ne[1] - 1));
+            y1_src = max(int64_t{ 0 }, min(y1_src, src0_ne[1] - 1));
+
+            float dy = y_src_f - (float)y0_src;
+            dy = max(0.0f, min(dy, 1.0f));
+
+            float x_src_f = ((float)i10 + pixel_offset) / ctx.sf0 - pixel_offset;
+            int64_t x0_src = (int64_t)floorf(x_src_f);
+            int64_t x1_src = x0_src + 1;
+
+            x0_src = max(int64_t{ 0 }, min(x0_src, src0_ne[0] - 1));
+            x1_src = max(int64_t{ 0 }, min(x1_src, src0_ne[0] - 1));
+
+            float dx = x_src_f - (float)x0_src;
+            dx = max(0.0f, min(dx, 1.0f));
+
+            const float val_a = src0_data(i03_src, i02_src, y0_src, x0_src);
+            const float val_b = src0_data(i03_src, i02_src, y0_src, x1_src);
+            const float val_c = src0_data(i03_src, i02_src, y1_src, x0_src);
+            const float val_d = src0_data(i03_src, i02_src, y1_src, x1_src);
+
+            float result = val_a * (1.0f - dx) * (1.0f - dy) +
+                val_b * dx * (1.0f - dy) +
+                val_c * (1.0f - dx) * dy +
+                val_d * dx * dy;
+
+            dst_data(i13, i12, i11, i10) = result;
+        }
+    );
 }

@@ -428,16 +428,9 @@ namespace op
         const int64_t OH = is_2D ? dst->ne[2] : 1;
         const int64_t OW = dst->ne[1];
 
-        const int64_t IC_IH_IW = src1->nb[is_2D ? 2 : 1] / 4; // nb is byte offset, src is type float32
         const int64_t N = src1->ne[is_2D ? 3 : 2];
-        const int64_t IH_IW = src1->nb[is_2D ? 3 : 2] / 4; // nb is byte offset, src is type float32
 
-        if (dst->type == GGML_TYPE_F16) {
-            im2col_cuda_f16(src1_d, (half*)dst_d, IW, IH, OW, OH, KW, KH, IC, N, IC_IH_IW, IH_IW, s0, s1, p0, p1, d0, d1, stream);
-        }
-        else {
-            im2col_cuda_f32(src1_d, (float*)dst_d, IW, IH, OW, OH, KW, KH, IC, N, IC_IH_IW, IH_IW, s0, s1, p0, p1, d0, d1, stream);
-        }
+        im2col_cuda(dst->type, src1_d, dst_d, IW, IH, OW, OH, KW, KH, IC, N, s0, s1, p0, p1, d0, d1, stream);
     }
 
     void im2col_3d(cudaStream_t stream, ggml_tensor* dst)
@@ -475,11 +468,10 @@ namespace op
         const int64_t OH = dst->ne[2];
         const int64_t OW = dst->ne[1];
 
-        const size_t  es = ggml_element_size(src1);
-        const int64_t stride_x = src1->nb[0] / es;
-        const int64_t stride_y = src1->nb[1] / es;
-        const int64_t stride_z = src1->nb[2] / es;
-        const int64_t stride_q = src1->nb[3] / es;
+        const int64_t stride_x = src1->nb[0];
+        const int64_t stride_y = src1->nb[1];
+        const int64_t stride_z = src1->nb[2];
+        const int64_t stride_q = src1->nb[3];
 
         im2col_3d_cuda(dst->type, src1_d, dst_d, N, IC, ID, IH, IW, OC, KD, KH, KW, OD, OH, OW,
             stride_q, stride_z, stride_y, stride_x,
@@ -1640,8 +1632,6 @@ namespace op
 
     void upscale(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
-        const float* src0_d = (const float*)src0->data;
-        float* dst_d = (float*)dst->data;
 
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
@@ -1649,24 +1639,41 @@ namespace op
         const int mode_flags = dst->op_params[0];
         const ggml_scale_mode mode = (ggml_scale_mode)(mode_flags & 0xFF);
 
-        float sf0 = (float)dst->ne[0] / src0->ne[0];
-        float sf1 = (float)dst->ne[1] / src0->ne[1];
-        float sf2 = (float)dst->ne[2] / src0->ne[2];
-        const float sf3 = (float)dst->ne[3] / src0->ne[3];
-
+        upscale_context ctx{
+            .src0_d = (const float*)src0->data,
+			.dst_d = (float*)dst->data,
+            .ne00 = src0->ne[0],
+            .ne01 = src0->ne[1],
+            .ne02 = src0->ne[2],
+            .ne03 = src0->ne[3],
+            .ne0 = dst->ne[0],
+            .ne1 = dst->ne[1],
+            .ne2 = dst->ne[2],
+            .ne3 = dst->ne[3],
+            .nb00 = src0->nb[0],
+            .nb01 = src0->nb[1],
+            .nb02 = src0->nb[2],
+            .nb03 = src0->nb[3],
+            .nb0 = dst->nb[0],
+            .nb1 = dst->nb[1],
+            .nb2 = dst->nb[2],
+            .nb3 = dst->nb[3],
+            .sf0 = (float)dst->ne[0] / src0->ne[0],
+            .sf1 = (float)dst->ne[1] / src0->ne[1],
+            .sf2 = (float)dst->ne[2] / src0->ne[2],
+            .sf3 = (float)dst->ne[3] / src0->ne[3]
+        };
         if (mode == GGML_SCALE_MODE_NEAREST) {
-            upscale_f32_cuda(src0_d, dst_d, src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3], dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3], sf0, sf1, sf2, sf3, stream);
+            upscale_f32_cuda(ctx, stream);
         }
         else if (mode == GGML_SCALE_MODE_BILINEAR) {
             float pixel_offset = 0.5f;
             if (mode_flags & GGML_SCALE_FLAG_ALIGN_CORNERS) {
-                sf0 = (float)(dst->ne[0] - 1) / (src0->ne[0] - 1);
-                sf1 = (float)(dst->ne[1] - 1) / (src0->ne[1] - 1);
+                ctx.sf0 = (float)(dst->ne[0] - 1) / (src0->ne[0] - 1);
+                ctx.sf1 = (float)(dst->ne[1] - 1) / (src0->ne[1] - 1);
                 pixel_offset = 0.0f;
             }
-            upscale_f32_bilinear_cuda(src0_d, dst_d, src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3],
-                src0->ne[0], src0->ne[1], dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3],
-                sf0, sf1, sf2, sf3, pixel_offset, stream);
+            upscale_f32_bilinear_cuda(ctx, pixel_offset, stream);
         }
     }
 
@@ -2728,13 +2735,23 @@ namespace op
             .ne00 = src0->ne[0],
             .ne01 = src0->ne[1],
             .ne02 = src0->ne[2],
-            .ne03 = src0->ne[3],
+			.ne10 = src1->ne[0],
+			.ne11 = src1->ne[1],
+            .ne20 = src2->ne[0],
+            .ne21 = src2->ne[1],
             .ne0 = dst->ne[0],
             .ne1 = dst->ne[1],
+            .ne2 = dst->ne[2],
+            .nb00 = src0->nb[0],
             .nb01 = src0->nb[1],
 			.nb02 = src0->nb[2],
+			.nb10 = src1->nb[0],
 			.nb11 = src1->nb[1],
+            .nb20 = src2->nb[0],
 			.nb21 = src2->nb[1],
+            .nb0 = dst->nb[0],
+            .nb1 = dst->nb[1],
+            .nb2 = dst->nb[2],
             .src0_d = (const float*)src0->data,
             .src1_d = (const float*)src1->data,
             .src2_d = (const int32_t*)src2->data,

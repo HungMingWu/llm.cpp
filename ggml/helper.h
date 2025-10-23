@@ -22,7 +22,7 @@ namespace details {
         for (auto &v : new_strides) {
             assert(v % stride_size == 0 && "Stride must be divisible by the minimum stride size");
             v /= stride_size;
-		}
+        }
         return new_strides;
     }
 
@@ -30,7 +30,7 @@ namespace details {
     auto make_strided_mdspan(T* data, const std::span<const int64_t, N>& extents, const std::span<const size_t, N>& strides) {
         auto ext = details::construct_extent_type(extents, Indx{});
         auto new_strides = details::construct_stride(strides, Indx{});
-        auto mapping = std::experimental::layout_stride::mapping{ ext, new_strides };
+        auto mapping = std::experimental::layout_stride::mapping<decltype(ext)> { ext, new_strides };
         return std::experimental::mdspan(data, mapping);
     }
 }

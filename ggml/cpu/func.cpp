@@ -5596,26 +5596,26 @@ static void ggml_compute_forward_add_id_f32(
 
 	GGML_ASSERT(dst->nb[0] == sizeof(float));
 	GGML_ASSERT(src1->nb[0] == sizeof(float));
+	GGML_ASSERT(dst->ne[3] == 1);
+	GGML_ASSERT(src0->ne[3] == 1);
 
-	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
-	auto src0_data = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
+	auto dst_data = make_strided_mdspan<3>(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	auto src0_data = make_strided_mdspan<3>(static_cast<const float*>(src0->data), src0->ne, src0->nb);
 	auto src1_data = make_strided_mdspan<2>(static_cast<const float*>(src1->data), src1->ne, src1->nb);
 	auto src2_data = make_strided_mdspan<2>(static_cast<const int32_t*>(src2->data), src2->ne, src2->nb);
 
-	for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
-		for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
-			for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
-				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
-					// src1 indices
-					const int i11 = src2_data[i2, i1];
+	for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+		for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+			stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+				// src1 indices
+				const int i11 = src2_data[i2, i1];
 
-					GGML_ASSERT(i11 >= 0 && i11 < src1->ne[1]);
+				GGML_ASSERT(i11 >= 0 && i11 < src1->ne[1]);
 
-					for (int64_t i0 = 0; i0 < dst->ne[0]; i0++)
-						dst_data[i3, i2, i1, i0] = src0_data[i3, i2, i1, i0] + src1_data[i11, i0];
-				});
-				scope.spawn(std::move(sender));
-			}
+				for (int64_t i0 = 0; i0 < dst->ne[0]; i0++)
+					dst_data[i2, i1, i0] = src0_data[i2, i1, i0] + src1_data[i11, i0];
+			});
+			scope.spawn(std::move(sender));
 		}
 	}
 }
@@ -5705,7 +5705,7 @@ void ggml_compute_forward_opt_step_sgd(
 // ggml_compute_forward_im2col_3d
 // src0: kernel [OC*IC, KD, KH, KW]
 // src1: image [N*IC, ID, IH, IW]
-// dst:  result [N*OD, OH, OW, IC * KD * KH * KW]
+// dst:  result [N, OD, OH, OW, IC * KD * KH * KW]
 template <typename dst_t>
 static void ggml_compute_forward_im2col_3d(
 	exec::static_thread_pool& pool,
@@ -5741,22 +5741,14 @@ static void ggml_compute_forward_im2col_3d(
 	const int64_t OD = dst->ne[3] / N;
 	const int64_t OH = dst->ne[2];
 	const int64_t OW = dst->ne[1];
-	const int64_t OH_OW = OH * OW;
-	const int64_t KD_KH_KW = KD * KH * KW;
-	const int64_t KH_KW = KH * KW;
-	const int64_t IC_KD_KH_KW = IC * KD * KH * KW;
 
-	std::array<int64_t, 8> new_dst_ne = { KW, KH, KD, IC, OW, OH, OD, N }; // reverse order
-	std::array<size_t, 8> new_dst_nb;
-	new_dst_nb[0] = sizeof(dst_t);
-	for (size_t i = 1; i < 8; i++) {
-		new_dst_nb[i] = new_dst_ne[i - 1] * new_dst_nb[i - 1];
-	}
 	GGML_ASSERT(src1->nb[0] == sizeof(float));
 
-	auto src_data = make_strided_mdspan(static_cast<const float*>(src1->data), src1->ne, src1->nb); // [ID, IH, IW]
-	auto dst_data = make_strided_mdspan<8>(static_cast<dst_t*>(dst->data), new_dst_ne, new_dst_nb); // [ID, IH, IW]
-	// im2col: [N*IC, ID, IH, IW] => [N, OD, OH, OW, IC, KD, KH, KW]
+	std::array<int64_t, 5> new_src_ne = { IW, IH, ID, IC, N }; // reverse order
+	std::array<size_t, 5> new_src_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3], src1->nb[3]* IC};
+	auto src_data = make_strided_mdspan<5>(static_cast<const float*>(src1->data), new_src_ne, new_src_nb);
+	std::experimental::mdspan dst_data(static_cast<dst_t*>(dst->data), N, OD, OH, OW, IC, KD, KH, KW);
+	// im2col: [N, IC, ID, IH, IW] => [N, OD, OH, OW, IC, KD, KH, KW]
 	for (int64_t iic = 0; iic < IC; iic++) {
 		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
 			for (int64_t in = 0; in < N; in++) {
@@ -5775,7 +5767,7 @@ static void ggml_compute_forward_im2col_3d(
 											dst_data[in, iod, ioh, iow, iic, ikd, ikh, ikw] = 0;
 										}
 										else {
-											dst_data[in, iod, ioh, iow, iic, ikd, ikh, ikw] = fromFloat32<dst_t>(src_data[in * IC + iic, iid, iih, iiw]);
+											dst_data[in, iod, ioh, iow, iic, ikd, ikh, ikw] = fromFloat32<dst_t>(src_data[in, iic, iid, iih, iiw]);
 										}
 									}
 								}

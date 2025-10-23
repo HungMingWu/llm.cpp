@@ -117,20 +117,15 @@ void pool2d_nchw_kernel_f32_f32_cuda(
     const float* src, float* dst, enum ggml_op_pool op,
     cudaStream_t stream);
 
-void im2col_cuda_f16(const float* x, half* dst,
+void im2col_cuda(ggml_type dst_type, const float* x, void* dst,
     int64_t IW, int64_t IH, int64_t OW, int64_t OH, int64_t KW, int64_t KH, int64_t IC,
-    int64_t N, int64_t IC_IH_IW, int64_t IH_IW,
-    int s0, int s1, int p0, int p1, int d0, int d1, cudaStream_t stream);
-
-void im2col_cuda_f32(const float* x, float* dst,
-    int64_t IW, int64_t IH, int64_t OW, int64_t OH, int64_t KW, int64_t KH, int64_t IC,
-    int64_t N, int64_t IC_IH_IW, int64_t IH_IW,
+    int64_t N,
     int s0, int s1, int p0, int p1, int d0, int d1, cudaStream_t stream);
 
 void im2col_3d_cuda(ggml_type dst_type, const float* src1_d, void* dst_d,
     int64_t N, int64_t IC, int64_t ID, int64_t IH, int64_t IW, int64_t OC,
     int64_t KD, int64_t KH, int64_t KW, int64_t OD, int64_t OH, int64_t OW,
-    int64_t stride_q, int64_t stride_z, int64_t stride_y, int64_t stride_x,
+    size_t stride_q, size_t stride_z, size_t stride_y, size_t stride_x,
     int s0, int s1, int s2, int p0, int p1, int p2, int d0, int d1, int d2, cudaStream_t stream);
 
 // unary
@@ -489,18 +484,19 @@ void sum_f32_cuda(ggml_cuda_pool& pool, const float* x, float* dst, const int64_
 void sum_rows_f32_cuda(const float* x, float* dst, const int ncols, const int nrows, cudaStream_t stream);
 
 // upscale
-void upscale_f32_cuda(const float* x, float* dst,
-    const int nb00, const int nb01, const int nb02, const int nb03,
-    const int ne10, const int ne11, const int ne12, const int ne13,
-    const float sf0, const float sf1, const float sf2, const float sf3,
-    cudaStream_t stream);
+struct upscale_context {
+    const float* src0_d;
+    float* dst_d;
+    int64_t ne00, ne01, ne02, ne03;
+    int64_t ne0, ne1, ne2, ne3;
+    size_t nb00, nb01, nb02, nb03;
+    size_t nb0, nb1, nb2, nb3;
+    float sf0, sf1, sf2, sf3;
+};
 
-void upscale_f32_bilinear_cuda(const float* x, float* dst,
-    const int nb00, const int nb01, const int nb02, const int nb03,
-    const int ne00_src, const int ne01_src,
-    const int ne10_dst, const int ne11_dst, const int ne12_dst, const int ne13_dst,
-    const float sf0, const float sf1, const float sf2, const float sf3,
-    const float pixel_offset, cudaStream_t stream);
+void upscale_f32_cuda(const upscale_context& ctx, cudaStream_t stream);
+
+void upscale_f32_bilinear_cuda(const upscale_context& ctx, const float pixel_offset, cudaStream_t stream);
 
 // acc
 void acc_f32_cuda(const float* x, const float* y, float* dst, const int64_t n_elements,
@@ -708,9 +704,13 @@ void roll_f32_cuda(const float* __restrict__ src,
 
 // add_id.cu
 struct add_id_context {
-    int64_t ne00, ne01, ne02, ne03;
-    int64_t ne0, ne1;
-    size_t nb01, nb02, nb11, nb21;
+    int64_t ne00, ne01, ne02;
+    int64_t ne10, ne11;
+    int64_t ne20, ne21;
+    int64_t ne0, ne1, ne2;
+    size_t nb00, nb01, nb02;
+    size_t nb10, nb11, nb20, nb21;
+	size_t nb0, nb1, nb2;
     const float* src0_d;
     const float* src1_d;
     const int32_t* src2_d;
