@@ -278,7 +278,7 @@ void dup_cuda(const dup_context* ctx, cudaStream_t stream);
 
 // scale
 void scale_f32_cuda(const float* x, float* dst, const float scale,
-    const float bias, const int64_t nelements, cudaStream_t stream);
+    const float bias, const size_t nelements, cudaStream_t stream);
 
 // norm
 void norm_f32_cuda(
