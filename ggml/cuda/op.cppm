@@ -1720,25 +1720,40 @@ namespace op
 
     void pad(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
-        const float* src0_d = (const float*)src0->data;
-        float* dst_d = (float*)dst->data;
 
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
         GGML_ASSERT(ggml_is_contiguous(src0));
 
-        const int32_t lp0 = ((const int32_t*)(dst->op_params))[0];
-        const int32_t rp0 = ((const int32_t*)(dst->op_params))[1];
-        const int32_t lp1 = ((const int32_t*)(dst->op_params))[2];
-        const int32_t rp1 = ((const int32_t*)(dst->op_params))[3];
-        const int32_t lp2 = ((const int32_t*)(dst->op_params))[4];
-        const int32_t rp2 = ((const int32_t*)(dst->op_params))[5];
-        const int32_t lp3 = ((const int32_t*)(dst->op_params))[6];
-        const int32_t rp3 = ((const int32_t*)(dst->op_params))[7];
-
-        pad_f32_cuda(src0_d, dst_d,
-            lp0, rp0, lp1, rp1, lp2, rp2, lp3, rp3,
-            dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3], stream);
+        pad_context ctx{
+            .src0_d = (const float*)src0->data,
+            .dst_d = (float*)dst->data,
+            .ne00 = src0->ne[0],
+            .ne01 = src0->ne[1],
+            .ne02 = src0->ne[2],
+            .ne03 = src0->ne[3],
+            .ne0 = dst->ne[0],
+            .ne1 = dst->ne[1],
+            .ne2 = dst->ne[2],
+            .ne3 = dst->ne[3],
+            .nb00 = src0->nb[0],
+            .nb01 = src0->nb[1],
+            .nb02 = src0->nb[2],
+            .nb03 = src0->nb[3],
+            .nb0 = dst->nb[0],
+            .nb1 = dst->nb[1],
+            .nb2 = dst->nb[2],
+            .nb3 = dst->nb[3],
+            .lp0 = ((const int32_t*)(dst->op_params))[0],
+            .rp0 = ((const int32_t*)(dst->op_params))[1],
+            .lp1 = ((const int32_t*)(dst->op_params))[2],
+            .rp1 = ((const int32_t*)(dst->op_params))[3],
+            .lp2 = ((const int32_t*)(dst->op_params))[4],
+            .rp2 = ((const int32_t*)(dst->op_params))[5],
+            .lp3 = ((const int32_t*)(dst->op_params))[6],
+            .rp3 = ((const int32_t*)(dst->op_params))[7]
+        };
+        pad_f32_cuda(ctx, stream);
     }
 
     void pad_reflect_1d(cudaStream_t stream, ggml_tensor* dst) {

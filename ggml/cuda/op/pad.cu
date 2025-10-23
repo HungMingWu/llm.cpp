@@ -1,48 +1,25 @@
-static __global__ void pad_f32(const float* src, float* dst,
-    const int lp0, const int rp0, const int lp1, const int rp1,
-    const int lp2, const int rp2, const int lp3, const int rp3,
-    const int ne0, const int ne1, const int ne2, const int ne3) {
-    // blockIdx.z: i3*ne2+i2
-    // blockIdx.y: i1
-    // blockIDx.x: i0 / CUDA_PAD_BLOCK_SIZE
-    // gridDim.y:  ne1
-    int i0 = threadIdx.x + blockIdx.x * blockDim.x;
-    int i1 = blockIdx.y;
-    int i2 = blockIdx.z % ne2;
-    int i3 = blockIdx.z / ne2;
-    if (i0 >= ne0 || i1 >= ne1 || i2 >= ne2 || i3 >= ne3) {
-        return;
-    }
+#include "helper.h"
+#include "cuda_func.h"
+#include "launch.cuh"
 
-    // operation
-    const int64_t dst_idx = i3 * (ne0 * ne1 * ne2) + i2 * (ne0 * ne1) + i1 * ne0 + i0;
-    if ((i0 >= lp0 && i0 < ne0 - rp0) &&
-        (i1 >= lp1 && i1 < ne1 - rp1) &&
-        (i2 >= lp2 && i2 < ne2 - rp2) &&
-        (i3 >= lp3 && i3 < ne3 - rp3)) {
-        const int64_t i00 = i0 - lp0;
-        const int64_t i01 = i1 - lp1;
-        const int64_t i02 = i2 - lp2;
-        const int64_t i03 = i3 - lp3;
-        const int64_t ne02 = ne2 - lp2 - rp2;
-        const int64_t ne01 = ne1 - lp1 - rp1;
-        const int64_t ne00 = ne0 - lp0 - rp0;
-
-        const int64_t src_idx = i03 * (ne00 * ne01 * ne02) + i02 * (ne00 * ne01) + i01 * ne00 + i00;
-
-        dst[dst_idx] = src[src_idx];
-    }
-    else {
-        dst[dst_idx] = 0.0f;
-    }
-}
-
-void pad_f32_cuda(const float* src, float* dst,
-    const int lp0, const int rp0, const int lp1, const int rp1,
-    const int lp2, const int rp2, const int lp3, const int rp3,
-    const int ne0, const int ne1, const int ne2, const int ne3, cudaStream_t stream) {
-    static constexpr size_t CUDA_PAD_BLOCK_SIZE = 256;
-    int num_blocks = (ne0 + CUDA_PAD_BLOCK_SIZE - 1) / CUDA_PAD_BLOCK_SIZE;
-    dim3 gridDim(num_blocks, ne1, ne2 * ne3);
-    pad_f32 << <gridDim, CUDA_PAD_BLOCK_SIZE, 0, stream >> > (src, dst, lp0, rp0, lp1, rp1, lp2, rp2, lp3, rp3, ne0, ne1, ne2, ne3);
+void pad_f32_cuda(const pad_context &ctx, cudaStream_t stream) {
+    std::array<int64_t, 4> dst_ne = { ctx.ne0, ctx.ne1, ctx.ne2, ctx.ne3 };
+    std::array<size_t, 4> dst_nb = { ctx.nb0, ctx.nb1, ctx.nb2, ctx.nb3 };
+    auto dst_data = make_strided_mdspan(ctx.dst_d, dst_ne, dst_nb);
+    std::array<int64_t, 4> src0_ne = { ctx.ne00, ctx.ne01, ctx.ne02, ctx.ne03 };
+    std::array<size_t, 4> src0_nb = { ctx.nb00, ctx.nb01, ctx.nb02, ctx.nb03 };
+    auto src0_data = make_strided_mdspan(ctx.src0_d, src0_ne, src0_nb);
+    launch_functor(stream, std::make_tuple(ctx.ne3, ctx.ne2, ctx.ne1, ctx.ne0),
+        [=] __device__(int64_t i13, int64_t i12, int64_t i11, int64_t i10) {
+            if ((i10 >= ctx.lp0 && i10 < ctx.ne0 - ctx.rp0) &&
+                (i11 >= ctx.lp1 && i11 < ctx.ne1 - ctx.rp1) &&
+                (i12 >= ctx.lp2 && i12 < ctx.ne2 - ctx.rp2) &&
+                (i13 >= ctx.lp3 && i13 < ctx.ne3 - ctx.rp3)) {
+                dst_data(i13, i12, i11, i10) = src0_data(i13 - ctx.lp3, i12 - ctx.lp2, i11 - ctx.lp1, i10 - ctx.lp0);
+            }
+            else {
+                dst_data(i13, i12, i11, i10) = 0.0f;
+            }
+        }
+    );
 }

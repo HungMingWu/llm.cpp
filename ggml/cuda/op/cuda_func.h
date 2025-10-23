@@ -504,10 +504,17 @@ void acc_f32_cuda(const float* x, const float* y, float* dst, const int64_t n_el
     const int64_t s1, const int64_t s2, const int64_t s3, const int64_t offset, cudaStream_t stream);
 
 // pad.cu
-void pad_f32_cuda(const float* src, float* dst,
-    const int lp0, const int rp0, const int lp1, const int rp1,
-    const int lp2, const int rp2, const int lp3, const int rp3,
-    const int ne0, const int ne1, const int ne2, const int ne3, cudaStream_t stream);
+struct pad_context {
+    const float* src0_d;
+    float* dst_d;
+    int64_t ne00, ne01, ne02, ne03;
+    int64_t ne0, ne1, ne2, ne3;
+    size_t nb00, nb01, nb02, nb03;
+    size_t nb0, nb1, nb2, nb3;
+    const int lp0, rp0, lp1, rp1, lp2, rp2, lp3, rp3;
+};
+
+void pad_f32_cuda(const pad_context& ctx, cudaStream_t stream);
 
 // pad_reflect_1d.cu
 void pad_reflect_1d_cuda(
