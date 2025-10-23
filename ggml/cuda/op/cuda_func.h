@@ -487,10 +487,10 @@ void sum_rows_f32_cuda(const float* x, float* dst, const int ncols, const int nr
 struct upscale_context {
     const float* src0_d;
     float* dst_d;
-    int64_t ne00, ne01, ne02, ne03;
-    int64_t ne0, ne1, ne2, ne3;
-    size_t nb00, nb01, nb02, nb03;
-    size_t nb0, nb1, nb2, nb3;
+    int64_t src0_ne[4];
+    int64_t dst_ne[4];
+    size_t src0_nb[4];
+    size_t dst_nb[4];
     float sf0, sf1, sf2, sf3;
 };
 
@@ -507,10 +507,10 @@ void acc_f32_cuda(const float* x, const float* y, float* dst, const int64_t n_el
 struct pad_context {
     const float* src0_d;
     float* dst_d;
-    int64_t ne00, ne01, ne02, ne03;
-    int64_t ne0, ne1, ne2, ne3;
-    size_t nb00, nb01, nb02, nb03;
-    size_t nb0, nb1, nb2, nb3;
+    int64_t src0_ne[4];
+    int64_t dst_ne[4];
+    size_t src0_nb[4];
+    size_t dst_nb[4];
     const int lp0, rp0, lp1, rp1, lp2, rp2, lp3, rp3;
 };
 
@@ -711,20 +711,21 @@ void roll_f32_cuda(const float* __restrict__ src,
 
 // add_id.cu
 struct add_id_context {
-    int64_t ne00, ne01, ne02;
-    int64_t ne10, ne11;
-    int64_t ne20, ne21;
-    int64_t ne0, ne1, ne2;
-    size_t nb00, nb01, nb02;
-    size_t nb10, nb11, nb20, nb21;
-	size_t nb0, nb1, nb2;
+    int64_t src0_ne[4];
+    int64_t src1_ne[4];
+    int64_t src2_ne[4];
+    int64_t dst_ne[4];
+    size_t src0_nb[4];
+    size_t src1_nb[4];
+    size_t src2_nb[4];
+    size_t dst_nb[4];
     const float* src0_d;
     const float* src1_d;
     const int32_t* src2_d;
     float* dst_d;
 };
 
-void add_id_cuda(const add_id_context* ctx, cudaStream_t stream);
+void add_id_cuda(const add_id_context &ctx, cudaStream_t stream);
 
 // opt-step-sgd.cu
 void opt_step_sgd_f32_cuda(

@@ -41,3 +41,10 @@ auto make_strided_mdspan(T* data, const std::array<int64_t, N>& extents, const s
         std::span{ extents }.template first<M>(),
         std::span{strides}.template first<M>());
 }
+
+template <size_t M = 4, typename T, size_t N>
+auto make_strided_mdspan(T* data, const int64_t (&extents)[N], const size_t (&strides)[N]) {
+    return details::make_strided_mdspan(data,
+        std::span{ extents }.template first<M>(),
+        std::span{ strides }.template first<M>());
+}
