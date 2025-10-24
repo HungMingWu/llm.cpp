@@ -633,9 +633,9 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,
 		ggml_tensor* b,
-		int s0,
-		int p0,
-		int d0);
+		int stride,
+		int padding,
+		int dilation);
 
 	ggml_tensor* ggml_conv_transpose_2d_p0(
 		ggml_context* ctx,

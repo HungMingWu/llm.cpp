@@ -154,28 +154,28 @@ namespace op
     void conv_transpose_1d(cudaStream_t stream, ggml_tensor* dst)
     {
         const ggml_tensor* src0 = dst->src[0];
-        const float* src0_d = (const float*)src0->data;
-
         const ggml_tensor* src1 = dst->src[1];
-        const float* src1_d = (const float*)src1->data;
 
-        float* dst_d = (float*)dst->data;
-
-        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
         GGML_ASSERT(ggml_is_contiguous(src0));
         GGML_ASSERT(ggml_is_contiguous(src1));
 
-        const int s0 = std::bit_cast<int>(dst->op_params[0]);
+        conv_transpose_1d_context ctx {
+            .src0_type = src0->type,
+			.src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+			.src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+			.dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+			.src0_d = src0->data,
+			.src1_d = (const float*)src1->data,
+			.dst_d = (float*)dst->data,
+            .stride = std::bit_cast<int>(dst->op_params[0]),
+			.padding = std::bit_cast<int>(dst->op_params[1]),
+			.dilation = std::bit_cast<int>(dst->op_params[2])
+        };
 
-        const int64_t output_size = dst->nelements();
-
-        conv_transpose_1d_f32_f32_cuda(s0, output_size,
-            src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3],
-            src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3],
-            dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3],
-            src0_d, src1_d, dst_d, stream);
+        conv_transpose_1d_f32_cuda(ctx, stream);
     }
 
     void mul_mat_vec_f(cudaStream_t stream, const ggml_tensor* ids, ggml_tensor* dst)

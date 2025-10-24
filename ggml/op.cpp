@@ -1890,31 +1890,23 @@ ggml_tensor* ggml_im2col(
 
 ggml_tensor* ggml_conv_transpose_1d(
 	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	int s0,
-	int p0,
-	int d0)
+	ggml_tensor* a, // [CIn, COut, K]
+	ggml_tensor* b, // [CIn, L]
+	int stride,
+	int padding,
+	int dilation)
 {
 	GGML_ASSERT(ggml_is_matrix(b));
 	GGML_ASSERT(a->ne[2] == b->ne[1]);
 	GGML_ASSERT(a->ne[3] == 1);
 
-	GGML_ASSERT(p0 == 0);
-	GGML_ASSERT(d0 == 1);
+	const int64_t COut = a->ne[1];
+	const int64_t L = b->ne[0];
+	const int64_t K = a->ne[0];
+	const int64_t LOut = (L - 1) * stride - 2 * padding + dilation * (K - 1) + 1;
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { LOut, COut, 1, 1 });
 
-	auto ggml_calc_conv_transpose_1d_output_size = [](int64_t ins, int64_t ks, int s, int p, int d) -> int64_t {
-		return (ins - 1) * s - 2 * p + d * (ks - 1) + 1;
-	};
-
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, {
-		ggml_calc_conv_transpose_1d_output_size(b->ne[0], a->ne[0], s0, 0 /*p0*/, 1 /*d0*/),
-		a->ne[1],
-		b->ne[2],
-		1
-	});
-
-	int32_t params[] = { s0, p0, d0 };
+	int32_t params[] = { stride, padding, dilation };
 	ggml_set_op_params(*result, params, sizeof(params));
 
 	result->op = GGML_OP_CONV_TRANSPOSE_1D;

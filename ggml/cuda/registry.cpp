@@ -240,7 +240,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     {
         ggml_type src0_type = op->src[0]->type;
         ggml_type src1_type = op->src[1]->type;
-        if (src0_type == GGML_TYPE_F32 && src1_type == GGML_TYPE_F32) {
+        if ((src0_type == GGML_TYPE_F32 || src0_type == GGML_TYPE_F16) && src1_type == GGML_TYPE_F32) {
             return true;
         }
         return false;

@@ -47,13 +47,19 @@ static int get_mmq_x_max_host(const int cc) {
 
 void arange_f32_cuda(float* dst, size_t dst_size, const float start, const float step, cudaStream_t stream);
 
-void conv_transpose_1d_f32_f32_cuda(
-    const int s0, const int output_size,
-    const int src0_ne0, const int src0_ne1, const int src0_ne2, const int src0_ne3,
-    const int src1_ne0, const int src1_ne1, const int src1_ne2, const int src1_ne3,
-    const int dst_ne0, const int dst_ne1, const int dst_ne2, const int dst_ne3,
-    const float* src0, const float* src1, float* dst,
-    cudaStream_t stream);
+// conv-transpose-1d.h
+struct conv_transpose_1d_context {
+    ggml_type src0_type;
+    int64_t src0_ne[4];
+    int64_t src1_ne[4];
+    int64_t dst_ne[4];
+    const void* src0_d;
+    const float* src1_d;
+    float* dst_d;;
+    const int stride, padding, dilation;
+};
+
+void conv_transpose_1d_f32_cuda(const conv_transpose_1d_context& ctx, cudaStream_t stream);
 
 // From quantize.cu
 void quantize_row_q8_1_cuda(

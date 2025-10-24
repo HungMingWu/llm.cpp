@@ -472,66 +472,43 @@ static void ggml_compute_forward_conv_transpose_1d(
 
 	GGML_ASSERT(src1->type == GGML_TYPE_F32);
 	GGML_ASSERT(dst->type == GGML_TYPE_F32);
-
-	const int nk = src0->ne[0] * src0->ne[1] * src0->ne[2];
-
 	GGML_ASSERT(src0->nb[0] == sizeof(T));
 	GGML_ASSERT(src1->nb[0] == sizeof(float));
 	GGML_ASSERT(src0->ne[2] == src1->ne[1]);
 	GGML_ASSERT(dst->ne[1] == src0->ne[1]);
 
-	const int64_t Cin = src0->ne[2];
-	const int64_t Cout = src0->ne[1];
+	const int64_t CIn = src0->ne[2];
+	const int64_t COut = src0->ne[1];
 	const int64_t K = src0->ne[0];
 	const int64_t L = src1->ne[0];
+	const int64_t LOut = dst->ne[0];
+	const int32_t stride = ((const int32_t*)(dst->op_params))[0];
+	const int32_t padding = ((const int32_t*)(dst->op_params))[1];
+	const int32_t dilation = ((const int32_t*)(dst->op_params))[2];
+	GGML_ASSERT(LOut == (L - 1) * stride - 2 * padding + dilation * (K - 1) + 1);
 
-	std::vector<T> wdata(nk);
-	std::vector<float> wdata_src(src1->ne[0] * src1->ne[1]);
-	std::experimental::mdspan src0_data(static_cast<const T*>(src0->data), Cin, Cout, K);
-	std::experimental::mdspan src1_data(static_cast<const float*>(src1->data), Cin, L);
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), Cout, dst->ne[0]);
-	std::experimental::mdspan permute_kernel(wdata.data(), Cout, K, Cin);
-	std::experimental::mdspan permute_source(wdata_src.data(), L, Cin);
+	std::experimental::mdspan src0_data(static_cast<const T*>(src0->data), CIn, COut, K);
+	std::experimental::mdspan src1_data(static_cast<const float*>(src1->data), CIn, L);
+	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), COut, LOut);
 
-	// permute kernel data (src0) from (Cin x Cout K K) to (Cout x K x Cin)
-	for (int64_t i = 0; i < Cin; i++) {
-		for (int64_t j = 0; j < Cout; j++) {
-			for (int64_t k = 0; k < K; k++) {
-				permute_kernel[j, k, i] = src0_data[i, j, k];
-			}
-		}
-	}
-
-	// permute source data (src1) from (Cin x L) to (L x Cin)
-	for (int64_t i = 0; i < Cin; i++) {
-		for (int64_t j = 0; j < L; j++) {
-			permute_source[j, i] = src1_data[i, j];
-		}
-	}
-
-	// need to zero dst since we are accumulating into it
-	memset(dst->data, 0, dst->nbytes());
-
-	const int32_t s0 = ((const int32_t*)(dst->op_params))[0];
-
-	stdexec::scheduler auto scheduler = pool.get_scheduler();
-
-	for (int64_t i = 0; i < Cout; i++) {
-		stdexec::sender auto sender = stdexec::schedule(scheduler) |
-			stdexec::then([=, &wdata, &wdata_src] {
-				for (int64_t l = 0; l < L; l++) {
-					for (int64_t j = 0; j < K; j++) {
-						float v = 0.0;
-						for (int64_t k = 0; k < Cin; k++) {
-							v += permute_source[l, k] * toFloat32(permute_kernel[i, j, k]);
-						}
-						dst_data[i, l * s0 + j] += v;
+	for (int64_t cout = 0; cout < COut; cout++) {
+		for (int64_t lout = 0; lout < LOut; lout++) {
+			stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+				float accumulator = 0.0;
+				for (int64_t cin = 0; cin < CIn; cin++) {
+					for (int64_t k = 0; k < K; k++) {
+						int64_t lin = lout + padding - k * dilation;
+						if (lin % stride != 0) continue;
+						lin /= stride;
+						if (lin < 0 || lin >= L) continue;
+						accumulator += toFloat32(src0_data[cin, cout, k]) * src1_data[cin, lin];
 					}
 				}
+				dst_data[cout, lout] = accumulator;
 			});
-		scope.spawn(std::move(sender));
+			scope.spawn(std::move(sender));
+		}
 	}
-	stdexec::sync_wait(scope.on_empty());
 }
 
 template <typename T>
