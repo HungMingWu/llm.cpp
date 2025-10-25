@@ -637,11 +637,12 @@ export {
 		int padding,
 		int dilation);
 
-	ggml_tensor* ggml_conv_transpose_2d_p0(
+	ggml_tensor* ggml_conv_transpose_2d(
 		ggml_context* ctx,
 		ggml_tensor* a,
 		ggml_tensor* b,
-		int stride);
+		int stride,
+		int padding = 0);
 
 	ggml_tensor* ggml_pad_reflect_1d(
 		ggml_context* ctx,

@@ -669,16 +669,17 @@ void conv2d_dw_cuda(conv2d_dw_context* ctx, cudaStream_t stream);
 
 // conv2d-transpose.cu
 struct conv2d_transpose_context {
-    const int input_w, input_h;
-    const int output_w, output_h;
-    const int channels_in, channels_out;
-    const int kernel_w, kernel_h;
-    const int stride, batches;
+    const int64_t WIn, HIn;
+    const int64_t WOut, HOut;
+    const int64_t CIn, COut;
+    const int64_t Kw, Kh;
+    const int64_t stride, N;
     const float* input_data;
     float* output_data;
     const half* kernel_data;
+    const int padding0, padding1;
 };
-void conv_2d_transpose_p0_cuda(conv2d_transpose_context* ctx, cudaStream_t stream);
+void conv_2d_transpose_cuda(conv2d_transpose_context &ctx, cudaStream_t stream);
 
 //mean.cu
 void mean_cuda(ggml_cuda_pool& pool, const float* src0_d, float* dst_d, const int64_t ncols, const int64_t nrows, cudaStream_t stream);

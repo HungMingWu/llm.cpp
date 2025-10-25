@@ -2346,11 +2346,9 @@ namespace op
 
         GGML_ASSERT(kernel->type == GGML_TYPE_F16 && input->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
 
-        const int channels_in = input->ne[2];
         const int stride = dst->op_params[0];
-        const int batches = input->ne[3];
 
-        GGML_ASSERT(channels_in == kernel->ne[3]);
+        GGML_ASSERT(kernel->ne[3] == input->ne[2]);
         GGML_ASSERT(stride > 0);
 
         GGML_ASSERT(ggml_is_contiguous(input));
@@ -2358,22 +2356,24 @@ namespace op
         GGML_ASSERT(ggml_is_contiguous(dst));
 
         conv2d_transpose_context ctx{
-            .input_w = static_cast<int>(input->ne[0]),
-            .input_h = static_cast<int>(input->ne[1]),
-            .output_w = static_cast<int>(dst->ne[0]),
-            .output_h = static_cast<int>(dst->ne[1]),
-            .channels_in = channels_in,
-            .channels_out = static_cast<int>(kernel->ne[2]),
-            .kernel_w = static_cast<int>(kernel->ne[0]),
-            .kernel_h = static_cast<int>(kernel->ne[1]),
+            .WIn = input->ne[0],
+            .HIn = input->ne[1],
+            .WOut = dst->ne[0],
+            .HOut =dst->ne[1],
+            .CIn = kernel->ne[3],
+            .COut = kernel->ne[2],
+            .Kw = kernel->ne[0],
+            .Kh = kernel->ne[1],
             .stride = stride,
-            .batches = batches,
+            .N = input->ne[3],
             .input_data = (const float*)input->data,
             .output_data = (float*)dst->data,
             .kernel_data = (const half*)kernel->data,
+			.padding0 = std::bit_cast<int>(dst->op_params[1]),
+            .padding1 = std::bit_cast<int>(dst->op_params[2]),
         };
 
-        conv_2d_transpose_p0_cuda(&ctx, stream);
+        conv_2d_transpose_cuda(ctx, stream);
     }
 
     void glu(cudaStream_t stream, ggml_tensor* dst) {

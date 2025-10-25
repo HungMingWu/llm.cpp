@@ -1916,25 +1916,28 @@ ggml_tensor* ggml_conv_transpose_1d(
 	return result;
 }
 
-ggml_tensor* ggml_conv_transpose_2d_p0(
+ggml_tensor* ggml_conv_transpose_2d(
 	ggml_context* ctx,
 	ggml_tensor* a,
 	ggml_tensor* b,
-	int stride)
+	int stride,
+	int padding)
 {
 	GGML_ASSERT(a->ne[3] == b->ne[2]);
-
+	GGML_ASSERT(padding == 0); // relax this later
 	auto ggml_calc_conv_transpose_output_size = [](int64_t ins, int64_t ks, int s, int p) -> int64_t {
 		return (ins - 1) * s - 2 * p + ks;
 	};
 
 	ggml_tensor* result = ctx->create(GGML_TYPE_F32, {
-		ggml_calc_conv_transpose_output_size(b->ne[0], a->ne[0], stride, 0 /*p0*/),
-		ggml_calc_conv_transpose_output_size(b->ne[1], a->ne[1], stride, 0 /*p1*/),
+		ggml_calc_conv_transpose_output_size(b->ne[0], a->ne[0], stride, padding /*p0*/),
+		ggml_calc_conv_transpose_output_size(b->ne[1], a->ne[1], stride, padding /*p1*/),
 		a->ne[2], b->ne[3]
 	});
 
 	result->op_params[0] = std::bit_cast<uint32_t>(stride);
+	result->op_params[1] = std::bit_cast<uint32_t>(padding);
+	result->op_params[2] = std::bit_cast<uint32_t>(padding);
 
 	result->op = GGML_OP_CONV_TRANSPOSE_2D;
 	result->src.push_back(a);
