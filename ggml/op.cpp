@@ -1916,29 +1916,60 @@ ggml_tensor* ggml_conv_transpose_1d(
 	return result;
 }
 
-ggml_tensor* ggml_conv_transpose_2d_p0(
+ggml_tensor* ggml_conv_transpose_2d(
 	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	int stride)
+	ggml_tensor* kernel,
+	ggml_tensor* input,
+	int32_t stride,
+	int32_t padding,
+	int32_t dilation)
 {
-	GGML_ASSERT(a->ne[3] == b->ne[2]);
+	return ggml_conv_transpose_2d(
+		ctx,
+		kernel,
+		input,
+		{ stride, stride },
+		{ padding, padding },
+		{ dilation, dilation });
+}
 
-	auto ggml_calc_conv_transpose_output_size = [](int64_t ins, int64_t ks, int s, int p) -> int64_t {
-		return (ins - 1) * s - 2 * p + ks;
-	};
+ggml_tensor* ggml_conv_transpose_2d(
+	ggml_context* ctx,
+	ggml_tensor* kernel, // [CIn, COut, Kh, Kw]
+	ggml_tensor* input, // [N, CIn, HIn, WIn]
+	std::pair<int32_t, int32_t> stride, // (stride_h, stride_w)
+	std::pair<int32_t, int32_t> padding, // (padding_h, padding_w)
+	std::pair<int32_t, int32_t> dilation) // (dilation_h, dilation_w)	
+{
+	GGML_ASSERT(kernel->ne[3] == input->ne[2]);
+	auto [stride_h, stride_w] = stride;
+	auto [padding_h, padding_w] = padding;
+	auto [dilation_h, dilation_w] = dilation;
+
+	const int64_t CIn = kernel->ne[3];
+	const int64_t COut = kernel->ne[2];
+	const int64_t Kh = kernel->ne[1];
+	const int64_t Kw = kernel->ne[0];
+	const int64_t N = input->ne[3];
+	const int64_t HIn = input->ne[1];
+	const int64_t WIn = input->ne[0];
 
 	ggml_tensor* result = ctx->create(GGML_TYPE_F32, {
-		ggml_calc_conv_transpose_output_size(b->ne[0], a->ne[0], stride, 0 /*p0*/),
-		ggml_calc_conv_transpose_output_size(b->ne[1], a->ne[1], stride, 0 /*p1*/),
-		a->ne[2], b->ne[3]
+		(WIn - 1) * stride_w - 2 * padding_w + dilation_w * (Kw - 1) + 1,
+		(HIn - 1) * stride_h - 2 * padding_h + dilation_h * (Kh - 1) + 1,
+		COut, N
 	});
 
-	result->op_params[0] = std::bit_cast<uint32_t>(stride);
+	result->op_params[0] = std::bit_cast<uint32_t>(stride_w);
+	result->op_params[1] = std::bit_cast<uint32_t>(stride_h);
+	result->op_params[2] = std::bit_cast<uint32_t>(padding_w);
+	result->op_params[3] = std::bit_cast<uint32_t>(padding_h);
+	result->op_params[4] = std::bit_cast<uint32_t>(dilation_w);
+	result->op_params[5] = std::bit_cast<uint32_t>(dilation_h);
 
 	result->op = GGML_OP_CONV_TRANSPOSE_2D;
-	result->src.push_back(a);
-	result->src.push_back(b);
+	result->src.push_back(kernel);
+	result->src.push_back(input);
 
 	return result;
 }

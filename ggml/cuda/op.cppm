@@ -2344,13 +2344,12 @@ namespace op
         const ggml_tensor* kernel = dst->src[0];
         const ggml_tensor* input = dst->src[1];
 
-        GGML_ASSERT(kernel->type == GGML_TYPE_F16 && input->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
+        GGML_ASSERT((kernel->type == GGML_TYPE_F16 || kernel->type == GGML_TYPE_F32)
+            && input->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
 
-        const int channels_in = input->ne[2];
         const int stride = dst->op_params[0];
-        const int batches = input->ne[3];
 
-        GGML_ASSERT(channels_in == kernel->ne[3]);
+        GGML_ASSERT(kernel->ne[3] == input->ne[2]);
         GGML_ASSERT(stride > 0);
 
         GGML_ASSERT(ggml_is_contiguous(input));
@@ -2358,22 +2357,28 @@ namespace op
         GGML_ASSERT(ggml_is_contiguous(dst));
 
         conv2d_transpose_context ctx{
-            .input_w = static_cast<int>(input->ne[0]),
-            .input_h = static_cast<int>(input->ne[1]),
-            .output_w = static_cast<int>(dst->ne[0]),
-            .output_h = static_cast<int>(dst->ne[1]),
-            .channels_in = channels_in,
-            .channels_out = static_cast<int>(kernel->ne[2]),
-            .kernel_w = static_cast<int>(kernel->ne[0]),
-            .kernel_h = static_cast<int>(kernel->ne[1]),
-            .stride = stride,
-            .batches = batches,
+			.kernel_type = kernel->type,
+            .WIn = input->ne[0],
+            .HIn = input->ne[1],
+            .WOut = dst->ne[0],
+            .HOut =dst->ne[1],
+            .CIn = kernel->ne[3],
+            .COut = kernel->ne[2],
+            .Kw = kernel->ne[0],
+            .Kh = kernel->ne[1],
+            .N = input->ne[3],
             .input_data = (const float*)input->data,
             .output_data = (float*)dst->data,
-            .kernel_data = (const half*)kernel->data,
+            .kernel_data = kernel->data,
+            .stride_w = std::bit_cast<int32_t>(dst->op_params[0]),
+			.stride_h = std::bit_cast<int32_t>(dst->op_params[1]),
+			.padding_w = std::bit_cast<int32_t>(dst->op_params[2]),
+            .padding_h = std::bit_cast<int32_t>(dst->op_params[3]),
+            .dilation_w = std::bit_cast<int32_t>(dst->op_params[4]),
+            .dilation_h = std::bit_cast<int32_t>(dst->op_params[5]),
         };
 
-        conv_2d_transpose_p0_cuda(&ctx, stream);
+        conv_2d_transpose_cuda(ctx, stream);
     }
 
     void glu(cudaStream_t stream, ggml_tensor* dst) {

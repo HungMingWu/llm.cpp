@@ -637,11 +637,21 @@ export {
 		int padding,
 		int dilation);
 
-	ggml_tensor* ggml_conv_transpose_2d_p0(
+	ggml_tensor* ggml_conv_transpose_2d(
 		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b,
-		int stride);
+		ggml_tensor* kernel,
+		ggml_tensor* input,
+		int32_t stride,
+		int32_t padding = 0,
+		int32_t dilation = 1);
+
+	ggml_tensor* ggml_conv_transpose_2d(
+		ggml_context* ctx,
+		ggml_tensor* kernel,
+		ggml_tensor* input,
+		std::pair<int32_t, int32_t> stride = { 1, 1 },
+		std::pair<int32_t, int32_t>	padding = { 0, 0 },
+		std::pair<int32_t, int32_t> dilation = { 1, 1 });
 
 	ggml_tensor* ggml_pad_reflect_1d(
 		ggml_context* ctx,

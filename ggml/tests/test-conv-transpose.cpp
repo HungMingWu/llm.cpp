@@ -196,9 +196,9 @@ void test_conv_transpose_2d(void) {
         ggml_context ctx;
         ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 3, 2, 2, 1 }); // w x h x cin
         ggml_tensor* k = ctx.create(GGML_TYPE_F16, { 2, 2, 3, 2 }); // w x h cin x cout
-        ggml_tensor* out_1 = ggml_conv_transpose_2d_p0(&ctx, k, t, 1);
-        ggml_tensor* out_2 = ggml_conv_transpose_2d_p0(&ctx, k, t, 2);
-        ggml_tensor* out_3 = ggml_conv_transpose_2d_p0(&ctx, k, t, 3);
+        ggml_tensor* out_1 = ggml_conv_transpose_2d(&ctx, k, t, 1);
+        ggml_tensor* out_2 = ggml_conv_transpose_2d(&ctx, k, t, 2);
+        ggml_tensor* out_3 = ggml_conv_transpose_2d(&ctx, k, t, 3);
         ggml_cgraph gf_1;
         ggml_cgraph gf_2;
         ggml_cgraph gf_3;

@@ -517,80 +517,93 @@ static void ggml_compute_forward_conv_transpose_2d(
 	exec::async_scope& scope,
 	ggml_tensor* dst) {
 
-	const ggml_tensor* src0 = dst->src[0];
-	const ggml_tensor* src1 = dst->src[1];
+	const ggml_tensor* kernel = dst->src[0];
+	const ggml_tensor* input = dst->src[1];
 
-	GGML_ASSERT(src1->type == GGML_TYPE_F32);
+	GGML_ASSERT(input->type == GGML_TYPE_F32);
 	GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-	const int nk = src0->ne[0] * src0->ne[1] * src0->ne[2] * src0->ne[3];
+	GGML_ASSERT(kernel->nb[0] == sizeof(T));
+	GGML_ASSERT(input->nb[0] == sizeof(float));
+	GGML_ASSERT(kernel->ne[3] == input->ne[2]);
+	GGML_ASSERT(dst->ne[2] == kernel->ne[2]);
+	GGML_ASSERT(dst->ne[3] == input->ne[3]);
 
-	GGML_ASSERT(src0->nb[0] == sizeof(T));
-	GGML_ASSERT(src1->nb[0] == sizeof(float));
-	GGML_ASSERT(src0->ne[3] == src1->ne[2]);
-	GGML_ASSERT(dst->ne[2] == src0->ne[2]);
+	const int64_t CIn = kernel->ne[3];
+	const int64_t COut = kernel->ne[2];
+	const int64_t Kh = kernel->ne[1];
+	const int64_t Kw = kernel->ne[0];
+	const int64_t N = dst->ne[3];
+	const int64_t HOut = dst->ne[1];
+	const int64_t WOut = dst->ne[0];
+	const int64_t HIn = input->ne[1];
+	const int64_t WIn = input->ne[0];
+	std::experimental::mdspan kernel_data(static_cast<const T*>(kernel->data), CIn, COut, Kh, Kw);
+	std::experimental::mdspan input_kernel(static_cast<const float*>(input->data), N, CIn, HIn, WIn);
+	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), N, COut, HOut, WOut);
 
-	const int64_t Cin = src0->ne[3];
-	const int64_t Cout = src0->ne[2];
-	const int64_t Kh = src0->ne[1];
-	const int64_t Kw = src0->ne[0];
-	const int64_t Sh = src1->ne[1];
-	const int64_t Sw = src1->ne[0];
+	const int32_t stride_w = std::bit_cast<int32_t>(dst->op_params[0]);
+	const int32_t stride_h = std::bit_cast<int32_t>(dst->op_params[1]);
+	const int32_t padding_w = std::bit_cast<int32_t>(dst->op_params[2]);
+	const int32_t padding_h = std::bit_cast<int32_t>(dst->op_params[3]);
+	const int32_t dilation_w = std::bit_cast<int32_t>(dst->op_params[4]);
+	const int32_t dilation_h = std::bit_cast<int32_t>(dst->op_params[5]);
 
-	std::vector<T> wdata(nk);
-	std::vector<float> wdata_src(Cin * Sw * Sh);
-	std::experimental::mdspan src0_data(static_cast<const T*>(src0->data), Cin, Cout, Kh, Kw);
-	std::experimental::mdspan src1_data(static_cast<const float*>(src1->data), Cin, Sh, Sw);
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), Cout, dst->ne[1], dst->ne[0]);
-	std::experimental::mdspan permute_kernel(wdata.data(), Cout, Kh, Kw, Cin);
-	std::experimental::mdspan permute_source(wdata_src.data(), Sh, Sw, Cin);
+	for (int64_t n = 0; n < N; n++) {
+		for (int64_t cout = 0; cout < COut; cout++) {
+			for (int64_t hout = 0; hout < HOut; hout++) {
+				for (int64_t wout = 0; wout < WOut; wout++) {
+					stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+						float accumulator = 0;
 
-	// permute kernel data (src0) from (Cin x Cout x Kh x Kw) to (Cout x Kh x Kw x Cin)
-	for (int64_t i = 0; i < Cin; i++) {
-		for (int64_t j = 0; j < Cout; j++) {
-			for (int64_t k = 0; k < Kh; k++) {
-				for (int64_t l = 0; l < Kw; l++) {
-					permute_kernel[j, k, l, i] = src0_data[i, j, k, l];
-				}
-			}
-		}
-	}
+						for (int64_t cin = 0; cin < CIn; cin++) {
+							for (int64_t kh = 0; kh < Kh; ++kh) {
+								int64_t hin = hout + padding_h  - kh * dilation_h;
+								if (hin < 0 || hin % stride_h) continue;
+								hin /= stride_h;
+								if (hin >= HIn) continue;
 
-	// permute source data (src1) from (Cin x Sh x Sw) to (Sh x Sw x Cin)
-	for (int64_t i = 0; i < Cin; i++) {
-		for (int64_t j = 0; j < Sh; j++) {
-			for (int64_t k = 0; k < Sw; k++) {
-				permute_source[j, k, i] = src1_data[i, j, k];
-			}
-		}
-	}
+								for (int64_t kw = 0; kw < Kw; ++kw) {
+									int64_t win = wout + padding_w - kw * dilation_w;
+									if (win < 0 || win % stride_w) continue;
+									win /= stride_w;
+									if (win >= WIn) continue;
 
-	memset(dst->data, 0, dst->nbytes());
-
-	const int32_t stride = std::bit_cast<int32_t>(dst->op_params[0]);
-
-	stdexec::scheduler auto scheduler = pool.get_scheduler();
-
-	for (int64_t i = 0; i < Cout; i++) {
-		stdexec::sender auto sender = stdexec::schedule(scheduler) |
-			stdexec::then([=, &wdata, &wdata_src] {
-				for (int64_t h = 0; h < Sh; h++) {
-					for (int64_t w = 0; w < Sw; w++) {
-						for (int64_t j = 0; j < Kh; j++) {
-							for (int64_t k = 0; k < Kw; k++) {
-								float v = 0.0f;
-								for (int64_t l = 0; l < Cin; l++) {
-									v += permute_source[h, w, l] * toFloat32(permute_kernel[i, j, k, l]);
+									accumulator += input_kernel[n, cin, hin, win] *
+										toFloat32(kernel_data[cin, cout, kh, kw]);
 								}
-								dst_data[i, (h * stride + j), w * stride + k] += v;
 							}
 						}
-					}
+
+						dst_data[n, cout, hout, wout] = accumulator;
+					});
+					scope.spawn(std::move(sender));
 				}
-			});
-		scope.spawn(std::move(sender));
+			}
+		}
 	}
-	stdexec::sync_wait(scope.on_empty());
+}
+
+static void ggml_compute_forward_conv_transpose_2d(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+
+	switch (src0->type) {
+	case GGML_TYPE_F16:
+	{
+		ggml_compute_forward_conv_transpose_2d<ggml_fp16_t>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_conv_transpose_2d<ggml_fp32_t>(pool, scope, dst);
+	} break;
+	default:
+	{
+		GGML_ABORT("fatal error");
+	}
+	}
 }
 
 static void ggml_compute_forward_conv_transpose_1d(
@@ -6104,8 +6117,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_CONV_TRANSPOSE_2D:
 	{
-		GGML_ASSERT(tensor->src[0]->type == GGML_TYPE_F16);
-		ggml_compute_forward_conv_transpose_2d<ggml_fp16_t>(pool, scope, tensor);
+		ggml_compute_forward_conv_transpose_2d(pool, scope, tensor);
 	} break;
 	case GGML_OP_POOL_1D:
 	{

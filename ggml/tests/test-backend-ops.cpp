@@ -2501,7 +2501,7 @@ struct test_conv_transpose_2d : public test_case {
         ggml_tensor* kernel = ggml_new_tensor(ctx, GGML_TYPE_F16, { ne_kernel[0], ne_kernel[1], ne_kernel[2], ne_kernel[3] });
         kernel->set_name("kernel");
 
-        ggml_tensor* out = ggml_conv_transpose_2d_p0(ctx, kernel, input, stride);
+        ggml_tensor* out = ggml_conv_transpose_2d(ctx, kernel, input, stride);
         out->set_name("out");
 
         return out;
