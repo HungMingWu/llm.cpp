@@ -2344,7 +2344,8 @@ namespace op
         const ggml_tensor* kernel = dst->src[0];
         const ggml_tensor* input = dst->src[1];
 
-        GGML_ASSERT(kernel->type == GGML_TYPE_F16 && input->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
+        GGML_ASSERT((kernel->type == GGML_TYPE_F16 || kernel->type == GGML_TYPE_F32)
+            && input->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
 
         const int stride = dst->op_params[0];
 
@@ -2356,6 +2357,7 @@ namespace op
         GGML_ASSERT(ggml_is_contiguous(dst));
 
         conv2d_transpose_context ctx{
+			.kernel_type = kernel->type,
             .WIn = input->ne[0],
             .HIn = input->ne[1],
             .WOut = dst->ne[0],
@@ -2368,7 +2370,7 @@ namespace op
             .N = input->ne[3],
             .input_data = (const float*)input->data,
             .output_data = (float*)dst->data,
-            .kernel_data = (const half*)kernel->data,
+            .kernel_data = kernel->data,
 			.padding0 = std::bit_cast<int>(dst->op_params[1]),
             .padding1 = std::bit_cast<int>(dst->op_params[2]),
         };

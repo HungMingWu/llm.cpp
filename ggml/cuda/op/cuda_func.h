@@ -669,6 +669,7 @@ void conv2d_dw_cuda(conv2d_dw_context* ctx, cudaStream_t stream);
 
 // conv2d-transpose.cu
 struct conv2d_transpose_context {
+    ggml_type kernel_type;
     const int64_t WIn, HIn;
     const int64_t WOut, HOut;
     const int64_t CIn, COut;
@@ -676,7 +677,7 @@ struct conv2d_transpose_context {
     const int64_t stride, N;
     const float* input_data;
     float* output_data;
-    const half* kernel_data;
+    const void* kernel_data;
     const int padding0, padding1;
 };
 void conv_2d_transpose_cuda(conv2d_transpose_context &ctx, cudaStream_t stream);

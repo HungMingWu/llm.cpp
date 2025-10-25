@@ -581,6 +581,28 @@ static void ggml_compute_forward_conv_transpose_2d(
 	}
 }
 
+static void ggml_compute_forward_conv_transpose_2d(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+
+	switch (src0->type) {
+	case GGML_TYPE_F16:
+	{
+		ggml_compute_forward_conv_transpose_2d<ggml_fp16_t>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_conv_transpose_2d<ggml_fp32_t>(pool, scope, dst);
+	} break;
+	default:
+	{
+		GGML_ABORT("fatal error");
+	}
+	}
+}
+
 static void ggml_compute_forward_conv_transpose_1d(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -6092,8 +6114,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_CONV_TRANSPOSE_2D:
 	{
-		GGML_ASSERT(tensor->src[0]->type == GGML_TYPE_F16);
-		ggml_compute_forward_conv_transpose_2d<ggml_fp16_t>(pool, scope, tensor);
+		ggml_compute_forward_conv_transpose_2d(pool, scope, tensor);
 	} break;
 	case GGML_OP_POOL_1D:
 	{

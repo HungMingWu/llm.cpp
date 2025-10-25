@@ -639,8 +639,8 @@ export {
 
 	ggml_tensor* ggml_conv_transpose_2d(
 		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b,
+		ggml_tensor* kernel,
+		ggml_tensor* input,
 		int stride,
 		int padding = 0);
 
