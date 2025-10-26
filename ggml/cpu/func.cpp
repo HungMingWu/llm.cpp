@@ -5235,122 +5235,91 @@ template <typename kernel_t>
 static void ggml_compute_forward_conv_2d_impl(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
-	const ggml_tensor* kernel,  // [KW, KH, IC, OC]
-	const ggml_tensor* src,     // [W, H, C, N]
-	ggml_tensor* dst     // [OW, OH, OC, N]
+	ggml_tensor* dst     // [N, COut, OH, OW]
 ) {
-
+	const ggml_tensor* kernel = dst->src[0];  // [COut, CIn, KH, KW]
+	const ggml_tensor* input = dst->src[1];     // [N, CIn, IH, IW]
 	GGML_ASSERT(ggml_is_contiguous(kernel));
+	GGML_ASSERT(input->ne[2] == kernel->ne[2]);
+	GGML_ASSERT(kernel->ne[3] == dst->ne[2]);
 
-	const int32_t stride_x = dst->op_params[0];
-	const int32_t stride_y = dst->op_params[1];
-	const int32_t pad_x = dst->op_params[2];
-	const int32_t pad_y = dst->op_params[3];
-	const int32_t dilation_x = dst->op_params[4];
-	const int32_t dilation_y = dst->op_params[5];
+	const int32_t stride_w = dst->op_params[0];
+	const int32_t stride_h = dst->op_params[1];
+	const int32_t pad_w = dst->op_params[2];
+	const int32_t pad_h = dst->op_params[3];
+	const int32_t dilation_w = dst->op_params[4];
+	const int32_t dilation_h = dst->op_params[5];
 
-	const int64_t c_in = src->ne[2];
-	const int64_t c_out = kernel->ne[3];
-	GGML_ASSERT(c_in == kernel->ne[2]);
+	const int64_t N = input->ne[3];
+	const int64_t COut = kernel->ne[3];
+	const int64_t KH = kernel->ne[1];
+	const int64_t KW = kernel->ne[0];
+	const int64_t OH = dst->ne[1];
+	const int64_t OW = dst->ne[0];
+	const int64_t CIn = input->ne[2];
+	const int64_t IH = input->ne[1];
+	const int64_t IW = input->ne[0];
+	std::experimental::mdspan input_data(static_cast<const float*>(input->data), N, CIn, IH, IW);
+	std::experimental::mdspan kernel_data(static_cast<const kernel_t*>(kernel->data), COut, CIn, KH, KW);
+	std::experimental::mdspan output_data(static_cast<float*>(dst->data), N, COut, OH, OW);
 
-	const int64_t src_w = src->ne[0];
-	const int64_t src_h = src->ne[1];
-	const int64_t knl_w = kernel->ne[0];
-	const int64_t knl_h = kernel->ne[1];
-	const int64_t dst_w = dst->ne[0];
-	const int64_t dst_h = dst->ne[1];
-	GGML_ASSERT(c_out == dst->ne[2]);
-
-	auto src_data = make_strided_mdspan(static_cast<const float*>(src->data), src->ne, src->nb);
-	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
-
-	const int64_t knl_n = knl_w * knl_h * c_in;
-	const int64_t patch_total = dst->ne[3] * dst_w * dst_h;
-
-	std::vector<kernel_t> data_w(patch_total * c_in * knl_h * knl_w);
-	std::array<int64_t, 6> element_ne = { knl_w, knl_h, c_in, dst_w, dst_h, dst->ne[3] }; // reverse order
-	std::array<size_t, 6> element_nb = {
-		sizeof(kernel_t),
-		sizeof(kernel_t) * knl_w,
-		sizeof(kernel_t) * knl_w * knl_h,
-		sizeof(kernel_t) * knl_w * knl_h * c_in,
-		sizeof(kernel_t) * knl_w * knl_h * c_in * dst_w,
-		sizeof(kernel_t) * knl_w * knl_h * c_in * dst_w * dst_h
+	auto calculate_input_coord = [](int64_t out_coord,
+		int64_t kern_coord,
+		int64_t stride,
+		int64_t dilation,
+		int64_t padding) -> int64_t {
+		return out_coord * stride + kern_coord * dilation - padding;
 	};
-	auto element_data = make_strided_mdspan<6>(static_cast<kernel_t*>(data_w.data()), element_ne, element_nb);
 
-	//im2col for a patch
-	for (int64_t batch_n = 0; batch_n < dst->ne[3]; batch_n++) {
-		for (int64_t src_x = 0; src_x < dst_h; src_x++) {
-			for (int64_t src_y = 0; src_y < dst_w; src_y++) {
-				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
-					for (int64_t ic = 0; ic < c_in; ++ic) {
-						for (int64_t ky = 0; ky < knl_h; ++ky) {
-							for (int64_t kx = 0; kx < knl_w; ++kx) {
-								const int64_t sy = src_x * stride_y + ky * dilation_y - pad_y;
-								const int64_t sx = src_y * stride_x + kx * dilation_x - pad_x;
+	for (int64_t n = 0; n < N; n++) {
+		for (int64_t cout = 0; cout < COut; cout++) {
+			for (int64_t oh = 0; oh < OH; oh++) {
+				for (int64_t ow = 0; ow < OW; ow++) {
+					stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+						const int64_t kh_min = std::max(int64_t{ 0 }, (pad_h - oh * stride_h + dilation_h - 1) / dilation_h);
+						const int64_t kh_max = std::min(KH, (IH + pad_h - oh * stride_h + dilation_h - 1) / dilation_h);
+						const int64_t kw_min = std::max(int64_t{ 0 }, (pad_w - ow * stride_w + dilation_w - 1) / dilation_w);
+						const int64_t kw_max = std::min(KW, (IW + pad_w - ow * stride_w + dilation_w - 1) / dilation_w);
+						float accumulator = 0.0f;
 
-								float src_val;
-								if (sy < 0 || sy >= src_h || sx < 0 || sx >= src_w) {
-									src_val = 0.0f;
+						for (int64_t cin = 0; cin < CIn; cin++) {
+							for (int64_t kh = kh_min; kh < kh_max; kh++) {
+								const int64_t ih = calculate_input_coord(oh, kh, stride_h, dilation_h, pad_h);
+
+								for (int64_t kw = kw_min; kw < kw_max; kw++) {
+									const int64_t iw = calculate_input_coord(ow, kw, stride_w, dilation_w, pad_w);
+
+									accumulator += input_data[n, cin, ih, iw] *
+										toFloat32(kernel_data[cout, cin, kh, kw]);
 								}
-								else {
-									src_val = src_data[batch_n, ic, sy, sx];
-								}
-
-								element_data[batch_n, src_x, src_y, ic, ky, kx] = fromFloat32<kernel_t>(src_val);
 							}
 						}
-					}
-				});
-				scope.spawn(std::move(sender));
+
+						output_data[n, cout, oh, ow] = accumulator;
+					});
+					scope.spawn(std::move(sender));
+				}
 			}
 		}
 	}
-
-	stdexec::sync_wait(scope.on_empty());
-
-	std::vector<float> gemm_output1(patch_total * c_out);
-	// GEMM: patches[patch_total, knl_n] กั kernel[knl_n, c_out] = output[patch_total, c_out]
-	ggml_call_mul_mat(kernel->type, pool, scope, patch_total, c_out, knl_n, data_w.data(), kernel->data, gemm_output1.data());
-
-	stdexec::sync_wait(scope.on_empty());
-
-	std::experimental::mdspan gemm_output2(gemm_output1.data(), dst->ne[3], dst_h, dst_w, c_out);
-	//permute back [N, OH, OW, OC] to [N, OC, OH, OW]
-
-	for (int64_t batch_n = 0; batch_n < dst->ne[3]; batch_n++) {
-		for (int64_t dst_y = 0; dst_y < dst_h; dst_y++) {
-			stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
-				for (int64_t dst_x = 0; dst_x < dst_w; dst_x++)
-					for (int64_t oc = 0; oc < c_out; ++oc)
-						dst_data[batch_n, oc, dst_y, dst_x] = gemm_output2[batch_n, dst_y, dst_x, oc];;
-			});
-			scope.spawn(std::move(sender));
-		}
-	}
-	stdexec::sync_wait(scope.on_empty());
 }
 
 void ggml_compute_forward_conv_2d(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	ggml_tensor* dst) {
+	const ggml_tensor* kernel = dst->src[0];
 
-	const ggml_tensor* src0 = dst->src[0];
-	const ggml_tensor* src1 = dst->src[1];
-
-	switch (src0->type) {
+	switch (kernel->type) {
 	case GGML_TYPE_F32:
-		ggml_compute_forward_conv_2d_impl<ggml_fp32_t>(pool, scope, src0, src1, dst);
+		ggml_compute_forward_conv_2d_impl<ggml_fp32_t>(pool, scope, dst);
 		break;
 	case GGML_TYPE_F16:
-		ggml_compute_forward_conv_2d_impl<ggml_fp16_t>(pool, scope, src0, src1, dst);
+		ggml_compute_forward_conv_2d_impl<ggml_fp16_t>(pool, scope, dst);
 		break;
 	default:
 		break;
 	}
-
 }
 
 template <typename kernel_t>

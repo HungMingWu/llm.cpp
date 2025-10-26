@@ -124,7 +124,8 @@ ggml_cgraph build_graph(const test_model& model) {
     gf.build_forward_expand(im2col_0);
 
     // recalculate for avoid fragmentation
-    ggml_tensor* conv2d_res = ggml_conv_2d(model.ctx.get(), model.a, model.b, s0, s1, p0, p1, d0, d1);
+    ggml_tensor* conv2d_res = ggml_conv_2d(model.ctx.get(), model.a, model.b, { /*stride_h*/s1, /*stride_w*/ s0 },
+        { /*padding_h*/p1, /*padding_w*/p0 }, { /*dilation_h*/d1, /*dilation_w*/d0 }, /*direct*/false);
     conv2d_res->set_name("conv2d_res");
     gf.build_forward_expand(conv2d_res);
 

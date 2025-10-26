@@ -980,13 +980,13 @@ namespace chatllm
 
     ggml::tensor* ggml::conv_2d(ComputeContext* ctx, ggml::tensor* kernel, ggml::tensor* data, int stride, int padding, int dilation)
     {
-        return ggml::conv_2d(ctx, kernel, data, stride, stride, padding, padding, dilation, dilation);
+        return ggml::conv_2d(ctx, kernel, data, { stride, stride }, { padding, padding }, { dilation, dilation });
     }
 
     ggml::tensor* ggml::conv_2d(ComputeContext* ctx, ggml::tensor* kernel, ggml::tensor* data,
-        int stride0, int stride1, int padding0, int padding1, int dilation0, int dilation1)
+        std::pair<int, int> stride, std::pair<int, int> padding, std::pair<int, int> dilation)
     {
-        ggml::tensor* tensor = ggml_conv_2d(ctx->get_ctx(), kernel, data, stride0, stride1, padding0, padding1, dilation0, dilation1);
+        ggml::tensor* tensor = ggml_conv_2d(ctx->get_ctx(), kernel, data, stride, padding, dilation);
         ctx->cb_op_tensor(tensor);
         return tensor;
     }
@@ -1281,7 +1281,8 @@ namespace chatllm
         ggml::tensor* output = nullptr;
         if (groups == 1)
         {
-            output = ggml::conv_2d(ctx, weight, input, stride[0], stride[1], padding[0], padding[1], dilation[0], dilation[1]);
+            output = ggml::conv_2d(ctx, weight, input, { /*stride_h*/stride[1], /*stride_w*/stride[0] },
+                { /*padding_h*/padding[1], /*padding_w*/padding[0] }, { /*dilation_h*/dilation[1], /*dilation_w*/dilation[0]});
         }
         else if (groups == in_channels)
         {

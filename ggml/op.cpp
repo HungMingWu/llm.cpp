@@ -972,27 +972,68 @@ ggml_tensor* ggml_conv_1d(
 	return result;
 }
 
+static int64_t ggml_calc_conv_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
+	return (ins + 2 * p - d * (ks - 1) - 1) / s + 1;
+}
+
 ggml_tensor* ggml_conv_2d(
 	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	int s0,
-	int s1,
-	int p0,
-	int p1,
-	int d0,
-	int d1) {
-	ggml_tensor* im2col = ggml_im2col(ctx, a, b, s0, s1, p0, p1, d0, d1, true, a->type); // [N, OH, OW, IC * KH * KW]
+	ggml_tensor* kernel,
+	ggml_tensor* input,
+	std::pair<int, int> stride,
+	std::pair<int, int> padding,
+	std::pair<int, int> dilation,
+	bool direct)
+{
+	auto [stride_h, stride_w] = stride;;
+	auto [padding_h, padding_w] = padding;
+	auto [dilation_h, dilation_w] = dilation;
+	if (direct) {
+		GGML_ASSERT(kernel->ne[2] == input->ne[2]);
 
-	ggml_tensor* result =
-		ggml_mul_mat(ctx,
-			ggml_reshape(ctx, im2col, { im2col->ne[0], im2col->ne[3] * im2col->ne[2] * im2col->ne[1] }), // [N, OH, OW, IC * KH * KW] => [N*OH*OW, IC * KH * KW]
-			ggml_reshape(ctx, a, { (a->ne[0] * a->ne[1] * a->ne[2]), a->ne[3] }));                       // [OC¡AIC, KH, KW] => [OC, IC * KH * KW]
+		const int64_t N = input->ne[3];
+		const int64_t IH = input->ne[1];
+		const int64_t IW = input->ne[0];
+		const int64_t COut = kernel->ne[3];
+		const int64_t KH = kernel->ne[1];
+		const int64_t KW = kernel->ne[0];
 
-	result = ggml_reshape(ctx, result, { im2col->ne[1], im2col->ne[2], im2col->ne[3], a->ne[3] }); // [OC, N, OH, OW]
-	result = ggml_cont(ctx, ggml_permute(ctx, result, 0, 1, 3, 2)); // [N, OC, OH, OW]
 
-	return result;
+		int64_t ne[4];
+		ne[0] = ggml_calc_conv_output_size(IW, KW, stride_w, padding_w, dilation_w);
+		ne[1] = ggml_calc_conv_output_size(IH, KH, stride_h, padding_h, dilation_h);
+		ne[2] = COut;
+		ne[3] = N;
+
+		ggml_tensor* result = ctx->create(input->type, { ne[0], ne[1], ne[2], ne[3] });
+
+		result->op_params[0] = std::bit_cast<int32_t>(stride_w);
+		result->op_params[1] = std::bit_cast<int32_t>(stride_h);
+		result->op_params[2] = std::bit_cast<int32_t>(padding_w);
+		result->op_params[3] = std::bit_cast<int32_t>(padding_h);
+		result->op_params[4] = std::bit_cast<int32_t>(dilation_w);
+		result->op_params[5] = std::bit_cast<int32_t>(dilation_h);
+
+		result->op = GGML_OP_CONV_2D;
+		result->src.push_back(kernel);
+		result->src.push_back(input);
+
+		return result;
+	}
+	else {
+		ggml_tensor* im2col = ggml_im2col(ctx, kernel, input, stride_w, stride_h,
+			padding_w, padding_h, dilation_w, dilation_h, true, kernel->type); // [N, OH, OW, IC * KH * KW]
+
+		ggml_tensor* result =
+			ggml_mul_mat(ctx,
+				ggml_reshape(ctx, im2col, { im2col->ne[0], im2col->ne[3] * im2col->ne[2] * im2col->ne[1] }), // [N, OH, OW, IC * KH * KW] => [N*OH*OW, IC * KH * KW]
+				ggml_reshape(ctx, kernel, { (kernel->ne[0] * kernel->ne[1] * kernel->ne[2]), kernel->ne[3] }));                       // [OC¡AIC, KH, KW] => [OC, IC * KH * KW]
+
+		result = ggml_reshape(ctx, result, { im2col->ne[1], im2col->ne[2], im2col->ne[3], kernel->ne[3] }); // [OC, N, OH, OW]
+		result = ggml_cont(ctx, ggml_permute(ctx, result, 0, 1, 3, 2)); // [N, OC, OH, OW]
+
+		return result;
+	}
 }
 
 ggml_tensor* ggml_cross_entropy_loss(
@@ -1196,10 +1237,6 @@ ggml_tensor* ggml_sub(
 {
 	GGML_ASSERT(ggml_can_repeat(b, a));
 	return build(inplace, ctx, a, GGML_OP_SUB, a, b);;
-}
-
-static int64_t ggml_calc_conv_output_size(int64_t ins, int64_t ks, int s, int p, int d) {
-	return (ins + 2 * p - d * (ks - 1) - 1) / s + 1;
 }
 
 ggml_tensor* ggml_conv_2d_dw_direct(
@@ -1621,42 +1658,6 @@ ggml_tensor* ggml_set_rows(
 	result->src.push_back(b);
 	result->src.push_back(c);
 	result->src.push_back(a); // note: order is weird due to legacy reasons (https://github.com/ggml-org/llama.cpp/pull/16063#discussion_r2385795931)
-
-	return result;
-}
-
-ggml_tensor* ggml_conv_2d_direct(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	int s0,
-	int s1,
-	int p0,
-	int p1,
-	int d0,
-	int d1)
-{
-	GGML_ASSERT(a->ne[2] == b->ne[2]);
-	//GGML_ASSERT(a->type == b->type);
-
-	int64_t ne[4];
-	ne[0] = ggml_calc_conv_output_size(b->ne[0], a->ne[0], s0, p0, d0);
-	ne[1] = ggml_calc_conv_output_size(b->ne[1], a->ne[1], s1, p1, d1);
-	ne[2] = a->ne[3];
-	ne[3] = b->ne[3];
-
-	ggml_tensor* result = ctx->create(b->type, { ne[0], ne[1], ne[2], ne[3] });
-
-	result->op_params[0] = std::bit_cast<int32_t>(s0);
-	result->op_params[1] = std::bit_cast<int32_t>(s1);
-	result->op_params[2] = std::bit_cast<int32_t>(p0);
-	result->op_params[3] = std::bit_cast<int32_t>(p1);
-	result->op_params[4] = std::bit_cast<int32_t>(d0);
-	result->op_params[5] = std::bit_cast<int32_t>(d1);
-
-	result->op = GGML_OP_CONV_2D;
-	result->src.push_back(a);
-	result->src.push_back(b);
 
 	return result;
 }

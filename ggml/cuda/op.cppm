@@ -2271,42 +2271,36 @@ namespace op
     void conv2d(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* kernel = dst->src[0];
         const ggml_tensor* input = dst->src[1];
-        void* K_D = kernel->data;
-        const float* X_D = (const float*)input->data;
-        float* Y_D = (float*)dst->data;
 
         GGML_ASSERT(ggml_is_contiguous(kernel));
         GGML_ASSERT(kernel->type == GGML_TYPE_F16 || kernel->type == GGML_TYPE_F32);
 
         // same number of input channels
-        GGML_ASSERT(input->ne[2] == kernel->ne[2]);
+        GGML_ASSERT(input->ne[2] == kernel->ne[2]);    
 
-        const int32_t* p = (const int32_t*)dst->op_params;
-        const int       ST_X = p[0];  // stride_x
-        const int       ST_Y = p[1];  // stride_y
-        const int       PD_X = p[2];  // padding_x
-        const int       PD_Y = p[3];  // padding_y
-        const int       DL_X = p[4];  // dilation_x
-        const int       DL_Y = p[5];  // dilation_y
+        conv2d_context ctx{
+            .kernel_type = kernel->type,
+            .N = input->ne[3],   // n_batches
+            .CIn = input->ne[2],   // input_channels
+            .IH = input->ne[1],   // input_h
+            .IW = input->ne[0],  // input_w
+            .COut = kernel->ne[3],  // ouptut_chanles
+            .OH = dst->ne[1],     // output_h
+            .OW = dst->ne[0],     // output_w
+            .KH = kernel->ne[1],  // kernel_h
+            .KW = kernel->ne[0],  // kernel_w
+            .input_d = (const float*)input->data,
+            .kernel_d = kernel->data,
+            .output_d = (float*)dst->data,
+            .stride_w = dst->op_params[0],
+			.stride_h = dst->op_params[1],
+            .pad_w = dst->op_params[2],
+            .pad_h = dst->op_params[3],
+            .dilation_w = dst->op_params[4],
+            .dilation_h = dst->op_params[5]
+        };
 
-        // No cwhn
-        GGML_ASSERT(p[6] == false);
-
-        const int IW = input->ne[0];   // input_w
-        const int IH = input->ne[1];   // input_h
-        const int OW = dst->ne[0];     // output_w
-        const int OH = dst->ne[1];     // output_h
-        const int KW = kernel->ne[0];  // kernel_w
-        const int KH = kernel->ne[1];  // kernel_h
-        const int IC = input->ne[2];   // input_channels
-        const int OC = kernel->ne[3];  // ouptut_chanles
-        const int B = input->ne[3];   // n_batches
-
-        const int64_t total = B * OC * OH * OW;
-        conv2d_cuda(kernel->type,
-			X_D, K_D, Y_D,
-            IW, IH, OW, OH, KW, KH, ST_X, ST_Y, PD_X, PD_Y, DL_X, DL_Y, IC, OC, B, stream);
-
+        conv2d_cuda(ctx, stream);
     }
 
     void conv2d_dw(cudaStream_t stream, ggml_tensor* dst) {

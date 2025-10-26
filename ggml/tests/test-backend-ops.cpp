@@ -2323,7 +2323,8 @@ struct test_conv_2d : public test_case {
         }
 
         ggml_tensor* out =
-            ggml_conv_2d_direct(ctx, kernel, input, stride0, stride1, padding0, padding1, dilation0, dilation1);
+            ggml_conv_2d(ctx, kernel, input, { /*stride_h*/stride1, /*stride_w*/stride0 },
+                { /*padding_h*/padding1, /*padding_w*/padding0 }, { /*dilation_h*/dilation1, /*dilation_w*/dilation0}, /*direct*/true);
         out->set_name("out");
         return out;
     }

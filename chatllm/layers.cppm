@@ -176,7 +176,7 @@ export namespace chatllm
 
         ggml::tensor* conv_2d(ComputeContext* ctx, ggml::tensor* kernel, ggml::tensor* data, int stride, int padding, int dilation);
         ggml::tensor* conv_2d(ComputeContext* ctx, ggml::tensor* kernel, ggml::tensor* data,
-            int stride0, int stride1, int padding0, int padding1, int dilation0, int dilation1);
+            std::pair<int, int> stride, std::pair<int, int> padding, std::pair<int, int> dilation);
         ggml::tensor* conv_2d_depthwise(ComputeContext* ctx, ggml::tensor* kernel, ggml::tensor* data,
             int stride0, int stride1, int padding0, int padding1, int dilation0, int dilation1);
 

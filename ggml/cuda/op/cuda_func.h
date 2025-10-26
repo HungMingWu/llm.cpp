@@ -806,12 +806,20 @@ struct mul_mat_vec_f_context {
 void mul_mat_vec_f_cuda(const mul_mat_vec_f_context* ctx, cudaStream_t stream);
 
 // conv2d.cu
-void conv2d_cuda(ggml_type kernel_type,
-    const float* X_D, void* K_D, float* Y_D,
-    const int IW, const int IH, const int OW, const int OH,
-    const int KW, const int KH, const int ST_X, const int ST_Y,
-    const int PD_X, const int PD_Y, const int DL_X, const int DL_Y,
-    const int IC, const int OC, const int B, cudaStream_t stream);
+struct conv2d_context {
+    ggml_type kernel_type;
+    const int64_t N, CIn, IH, IW;
+    const int64_t COut, OH, OW;
+    const int64_t KH, KW;
+    const float* input_d;
+    const void* kernel_d;
+    float* output_d;
+    const int stride_w, stride_h;
+    const int pad_w, pad_h;
+    const int dilation_w, dilation_h;
+};
+
+void conv2d_cuda(const conv2d_context& ctx, cudaStream_t stream);
 
 // topk-moe.cu
 void launch_topk_moe_cuda(bool with_norm, const float* logits_d, float* weights_d, int32_t* ids_d,

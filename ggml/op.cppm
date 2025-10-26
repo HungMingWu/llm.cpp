@@ -297,14 +297,12 @@ export {
 
 	ggml_tensor* ggml_conv_2d(
 		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b,
-		int s0,
-		int s1,
-		int p0,
-		int p1,
-		int d0,
-		int d1);
+		ggml_tensor* kernel,  // convolution kernel [COut, CIn, KH, KW]
+		ggml_tensor* input,  // input data [N, CIn, IH, IW]
+		std::pair<int, int> stride, // [stride_h, stride_w]
+		std::pair<int, int> padding, // [padding_h, padding_w]
+		std::pair<int, int> dilation, //  [dilation_h, dilation_w]
+		bool direct = false);
 
 	ggml_tensor* ggml_cross_entropy_loss(
 		ggml_context* ctx,
@@ -549,17 +547,6 @@ export {
 		ggml_tensor* a,  // destination
 		ggml_tensor* b,  // source
 		ggml_tensor* c); // row indices
-
-	ggml_tensor* ggml_conv_2d_direct(
-		ggml_context* ctx,
-		ggml_tensor* a,   // convolution kernel [KW, KH, IC, OC]
-		ggml_tensor* b,   // input data [W, H, C, N]
-		int s0,  // stride dimension 0
-		int s1,  // stride dimension 1
-		int p0,  // padding dimension 0
-		int p1,  // padding dimension 1
-		int d0,  // dilation dimension 0
-		int d1); // dilation dimension 1
 
 	// Up- or downsamples the input to the specified size.
 	// 2D scale modes (eg. bilinear) are applied to the first two dimensions.
