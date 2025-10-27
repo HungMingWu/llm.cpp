@@ -2312,25 +2312,25 @@ namespace op
         conv2d_dw_context ctx{
 			.input_is_contiguous = ggml_is_contiguous(input),
             .input_is_contiguous_channels = ggml_is_contiguous_channels(input),
-            .in_w = static_cast<int>(input->ne[0]),
-            .in_h = static_cast<int>(input->ne[1]),
-            .kernel_w = static_cast<int>(kernel->ne[0]),
-            .kernel_h = static_cast<int>(kernel->ne[1]),
-            .out_w = static_cast<int>(dst->ne[0]),
-			.out_h = static_cast<int>(dst->ne[1]),
-            .channels = static_cast<int>(dst->ne[2]),
-            .batches = static_cast<int>(dst->ne[3]),
+            .in_w = input->ne[0],
+            .in_h = input->ne[1],
+            .kernel_w = kernel->ne[0],
+            .kernel_h = kernel->ne[1],
+            .out_w = dst->ne[0],
+			.out_h = dst->ne[1],
+            .channels = dst->ne[2],
+            .batches = dst->ne[3],
             .x_d = (const float*)input->data,
             .y_d = (float*)dst->data,
             .w_d = (const float*)kernel->data,
-            .stride_x = dst->op_params[0],
-            .stride_y = dst->op_params[1],
-            .padding_x = dst->op_params[2],
-			.padding_y = dst->op_params[3],
-            .dilation_x = dst->op_params[4],
-			.dilation_y = dst->op_params[5]
+            .stride_w = dst->op_params[0],
+            .stride_h = dst->op_params[1],
+            .padding_w = dst->op_params[2],
+            .padding_h = dst->op_params[3],
+            .dilation_w = dst->op_params[4],
+            .dilation_h = dst->op_params[5]
         };
-        conv2d_dw_cuda(&ctx, stream);
+        conv2d_dw_cuda(ctx, stream);
     }
 
     //input is (W, H, C_in, N), Kernel is (W, H, C_out, C_in)

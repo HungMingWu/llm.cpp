@@ -366,17 +366,6 @@ export {
 		ggml_tensor* b,
 		bool inplace);
 
-	ggml_tensor* ggml_conv_2d_dw_direct(
-		ggml_context* ctx,
-		ggml_tensor* a,
-		ggml_tensor* b,
-		int stride0,
-		int stride1,
-		int pad0,
-		int pad1,
-		int dilation0,
-		int dilation1);
-
 	ggml_tensor* ggml_repeat(
 		ggml_context* ctx,
 		ggml_tensor* a,
@@ -438,7 +427,8 @@ export {
 		ggml_tensor* b,
 		std::pair<int, int> stride,  //  [stride_h, stride_w]
 		std::pair<int, int>	padding, // [padding_h, padding_w]
-		std::pair<int, int> dilation); //  [dilation_h, dilation_w]
+		std::pair<int, int> dilation,  //  [dilation_h, dilation_w]
+		bool direct = false);
 
 	ggml_tensor* ggml_conv_1d_dw(
 		ggml_context* ctx,

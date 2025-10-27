@@ -2337,7 +2337,7 @@ struct test_conv_2d_dw : public test_case {
     const int stride;
     const int padding;
     const int dilation;
-    const bool cwhn;
+    const bool cwhn; // may reanme to nhwc
 
     std::string vars() override {
         return std::format("ne_input={},ne_kernel={},stride={},padding={},dilation={},cwhn={}",
@@ -2366,9 +2366,9 @@ struct test_conv_2d_dw : public test_case {
             kernel = ggml_permute(ctx, kernel, 3, 2, 0, 1);
         }
 
-        ggml_tensor* out = ggml_conv_2d_dw_direct(
+        ggml_tensor* out = ggml_conv_2d_dw(
             ctx, kernel, input,
-            stride, stride, padding, padding, dilation, dilation);
+            { stride, stride }, { padding, padding }, { dilation, dilation }, true);
         out->set_name("out");
         return out;
     }

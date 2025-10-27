@@ -1238,44 +1238,6 @@ ggml_tensor* ggml_sub(
 	return build(inplace, ctx, a, GGML_OP_SUB, a, b);;
 }
 
-ggml_tensor* ggml_conv_2d_dw_direct(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	int stride0,
-	int stride1,
-	int pad0,
-	int pad1,
-	int dilation0,
-	int dilation1) {
-	GGML_ASSERT(a->ne[2] == 1);
-	GGML_ASSERT(a->ne[3] == b->ne[2]);
-
-	ggml_tensor* result = ctx->create(b->type, {
-		ggml_calc_conv_output_size(b->ne[0], a->ne[0], stride0, pad0, dilation0),
-		ggml_calc_conv_output_size(b->ne[1], a->ne[1], stride1, pad1, dilation1),
-		b->ne[2],
-		b->ne[3]
-	});
-
-	if (ggml_is_contiguous_channels(b)) {
-		// Result will be permuted the same way as input (CWHN order)
-		const int64_t type_size = ggml_type_size(result->type);
-		GGML_ASSERT(ggml_blck_size(result->type) == 1);
-		result->nb[0] = result->ne[2] * type_size;
-		result->nb[1] = result->ne[0] * result->nb[0];
-		result->nb[2] = type_size;
-	}
-
-	int32_t params[] = { stride0, stride1, pad0, pad1, dilation0, dilation1 };
-	ggml_set_op_params(*result, params, sizeof(params));
-
-	result->op = GGML_OP_CONV_2D_DW;
-	result->src.push_back(a);
-	result->src.push_back(b);
-	return result;
-}
-
 ggml_tensor* ggml_repeat(
 	ggml_context* ctx,
 	ggml_tensor* a,
@@ -1465,18 +1427,53 @@ ggml_tensor* ggml_conv_2d_dw(
 	ggml_tensor* b,
 	std::pair<int, int> stride,
 	std::pair<int, int>	padding,
-	std::pair<int, int> dilation) {
-	ggml_tensor* new_a = ggml_reshape(ctx, a, { a->ne[0], a->ne[1], 1, a->ne[2] * a->ne[3] });
-	ggml_tensor* im2col = ggml_im2col(ctx, new_a,
-		ggml_reshape(ctx, b, { b->ne[0], b->ne[1], 1, b->ne[2] * b->ne[3] }),
-		stride, padding, dilation, true, GGML_TYPE_F16); // [N * IC, OH, OW, KH * KW]
-	ggml_tensor* new_b = ggml_reshape(ctx, im2col, { im2col->ne[0], im2col->ne[2] * im2col->ne[1], b->ne[2], b->ne[3] }); // [N * IC, OH, OW, KH * KW] => [N, IC, OH * OW, KH * KW]
+	std::pair<int, int> dilation,
+	bool direct) {
 
-	new_a = ggml_reshape(ctx, new_a, { (new_a->ne[0] * new_a->ne[1]), new_a->ne[2], new_a->ne[3], 1 });                       // [OC¡A1, KH, KW] => [1, OC, 1, KH * KW]
-	ggml_tensor* result = ggml_mul_mat(ctx, new_a, new_b);
-	result = ggml_reshape(ctx, result, { im2col->ne[1], im2col->ne[2], b->ne[2], b->ne[3] }); // [N, OC, OH, OW]
+	if (direct) {
+		GGML_ASSERT(a->ne[2] == 1);
+		GGML_ASSERT(a->ne[3] == b->ne[2]);
 
-	return result;
+		auto [stride_h, stride_w] = stride;
+		auto [padding_h, padding_w] = padding;
+		auto [dilation_h, dilation_w] = dilation;
+
+		ggml_tensor* result = ctx->create(b->type, {
+			ggml_calc_conv_output_size(b->ne[0], a->ne[0], stride_w, padding_w, dilation_w),
+			ggml_calc_conv_output_size(b->ne[1], a->ne[1], stride_h, padding_h, dilation_h),
+			b->ne[2],
+			b->ne[3]
+		});
+
+		if (ggml_is_contiguous_channels(b)) {
+			// Result will be permuted the same way as input (NHWC order)
+			const int64_t type_size = ggml_type_size(result->type);
+			GGML_ASSERT(ggml_blck_size(result->type) == 1);
+			result->nb[0] = result->ne[2] * type_size;
+			result->nb[1] = result->ne[0] * result->nb[0];
+			result->nb[2] = type_size;
+		}
+
+		int32_t params[] = { stride_w, stride_h, padding_w, padding_h, dilation_w, dilation_h };
+		ggml_set_op_params(*result, params, sizeof(params));
+
+		result->op = GGML_OP_CONV_2D_DW;
+		result->src.push_back(a);
+		result->src.push_back(b);
+		return result;
+	}
+	else {
+		ggml_tensor* new_a = ggml_reshape(ctx, a, { a->ne[0], a->ne[1], 1, a->ne[2] * a->ne[3] });
+		ggml_tensor* im2col = ggml_im2col(ctx, new_a,
+			ggml_reshape(ctx, b, { b->ne[0], b->ne[1], 1, b->ne[2] * b->ne[3] }),
+			stride, padding, dilation, true, GGML_TYPE_F16); // [N * IC, OH, OW, KH * KW]
+		ggml_tensor* new_b = ggml_reshape(ctx, im2col, { im2col->ne[0], im2col->ne[2] * im2col->ne[1], b->ne[2], b->ne[3] }); // [N * IC, OH, OW, KH * KW] => [N, IC, OH * OW, KH * KW]
+
+		new_a = ggml_reshape(ctx, new_a, { (new_a->ne[0] * new_a->ne[1]), new_a->ne[2], new_a->ne[3], 1 });                       // [OC¡A1, KH, KW] => [1, OC, 1, KH * KW]
+		ggml_tensor* result = ggml_mul_mat(ctx, new_a, new_b);
+		result = ggml_reshape(ctx, result, { im2col->ne[1], im2col->ne[2], b->ne[2], b->ne[3] }); // [N, OC, OH, OW]
+		return result;
+	}
 }
 
 ggml_tensor* ggml_conv_1d_dw(

@@ -4548,145 +4548,118 @@ void ggml_compute_forward_sub(
 
 struct ggml_conv_2d_dw_params {
 	int64_t channels;
-	int64_t batch;
-	int64_t src_w;
-	int64_t src_h;
-	int64_t dst_w;
-	int64_t dst_h;
-	int64_t knl_w;
-	int64_t knl_h;
-	int stride_x;
-	int stride_y;
-	int pad_x;
-	int pad_y;
-	int dilation_x;
-	int dilation_y;
+	int64_t batches;
+	int64_t in_w;
+	int64_t in_h;
+	int64_t out_w;
+	int64_t out_h;
+	int64_t kernel_w;
+	int64_t kernel_h;
+	int stride_w;
+	int stride_h;
+	int padding_w;
+	int padding_h;
+	int dilation_w;
+	int dilation_h;
 };
 
-static void ggml_compute_forward_conv_2d_dw_whcn(
+static int64_t calculate_input_coord (int64_t out_coord, int64_t kern_coord, int64_t stride, int64_t dilation, int64_t padding)  {
+	return out_coord * stride + kern_coord * dilation - padding;
+}
+
+static void ggml_compute_forward_conv_2d_dw_nchw(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	const ggml_tensor* src,
 	const ggml_tensor* kernel,
 	ggml_tensor* dst,
-	const ggml_conv_2d_dw_params& p) {
+	const ggml_conv_2d_dw_params& ctx) {
+	// [N, C, H, W] layout
+	std::experimental::mdspan input_data(static_cast<const float*>(src->data), ctx.batches, ctx.channels, ctx.in_h, ctx.in_w);
+	std::experimental::mdspan kernel_data(static_cast<const float*>(kernel->data), ctx.channels, ctx.kernel_h, ctx.kernel_w);
+	std::experimental::mdspan output_data(static_cast<float*>(dst->data), ctx.batches, ctx.channels, ctx.out_h, ctx.out_w);
 
-	const int64_t n = p.channels * p.batch;
-	const int64_t per_thread = (n + pool.available_parallelism() - 1) / pool.available_parallelism();
-	stdexec::scheduler auto scheduler = pool.get_scheduler();
-	for (int64_t start = 0; start < n; start += per_thread) {
-		const int64_t end = std::min(start + per_thread, n);
-		std::experimental::mdspan dst_data(static_cast<float*>(dst->data), n, p.dst_h, p.dst_w);
-		std::experimental::mdspan knl_data(static_cast<const float*>(kernel->data), n, p.knl_h, p.knl_w);
-		std::experimental::mdspan src_data(static_cast<const float*>(src->data), n, p.src_h, p.src_w);
-		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-			for (int64_t i = start; i < end; ++i) {
-				for (int64_t dst_y = 0; dst_y < p.dst_h; ++dst_y) {
-					for (int64_t dst_x = 0; dst_x < p.dst_w; ++dst_x) {
-						float sum = 0.0f;
-						for (int64_t knl_y = 0; knl_y < p.knl_h; ++knl_y) {
-							const int64_t src_y = dst_y * p.stride_y + knl_y * p.dilation_y - p.pad_y;
-							if (src_y < 0 || src_y >= p.src_h) {
-								continue;
-							}
-							for (int64_t knl_x = 0; knl_x < p.knl_w; ++knl_x) {
-								const int64_t src_x = dst_x * p.stride_x + knl_x * p.dilation_x - p.pad_x;
-								if (src_x < 0 || src_x >= p.src_w) {
-									continue;
-								}
-								sum += knl_data[i, knl_y, knl_x]
-									* src_data[i, src_y, src_x];
+	for (int64_t batch = 0; batch < ctx.batches; batch++) {
+		for (int64_t channel = 0; channel < ctx.channels; channel++) {
+			for (int64_t oh = 0; oh < ctx.out_h; oh++) {
+				for (int64_t ow = 0; ow < ctx.out_w; ow++) {
+					stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+						const int64_t kh_min = std::max(int64_t{ 0 }, (ctx.padding_h - oh * ctx.stride_h + ctx.dilation_h - 1) / ctx.dilation_h);
+						const int64_t kh_max = std::min(ctx.kernel_h, (ctx.in_h + ctx.padding_h - oh * ctx.stride_h + ctx.dilation_h - 1) / ctx.dilation_h);
+						const int64_t kw_min = std::max(int64_t{ 0 }, (ctx.padding_w - ow * ctx.stride_w + ctx.dilation_w - 1) / ctx.dilation_w);
+						const int64_t kw_max = std::min(ctx.kernel_w, (ctx.in_w + ctx.padding_w - ow * ctx.stride_w + ctx.dilation_w - 1) / ctx.dilation_w);
+
+						float accumulator = 0;
+						for (int64_t kh = kh_min; kh < kh_max; kh++) {
+							int64_t ih = calculate_input_coord(oh, kh, ctx.stride_h, ctx.dilation_h, ctx.padding_h);
+
+							for (int64_t kw = kw_min; kw < kw_max; kw++) {
+								int64_t iw = calculate_input_coord(ow, kw, ctx.stride_w, ctx.dilation_w, ctx.padding_w);
+
+								const float input_val = input_data[batch, channel, ih, iw];
+								const float kernel_val = kernel_data[channel, kh, kw];
+
+								accumulator += input_val * kernel_val;
 							}
 						}
-						dst_data[i, dst_y, dst_x] = sum;
-					}
+
+						output_data[batch, channel, oh, ow] = accumulator;
+					});
+					scope.spawn(std::move(sender));
 				}
 			}
-		});
-		scope.spawn(std::move(sender));
+		}
 	}
 }
 
-static void ggml_compute_forward_conv_2d_dw_cwhn(
+static void ggml_compute_forward_conv_2d_dw_nhwc(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	const ggml_tensor* src,
 	const ggml_tensor* kernel,
 	ggml_tensor* dst,
-	const ggml_conv_2d_dw_params& p) {
+	const ggml_conv_2d_dw_params& ctx) {
 
-	const int64_t c = p.channels;
-	std::experimental::mdspan knl_data(static_cast<const float*>(kernel->data), p.knl_h, p.knl_w, p.channels);
-	std::experimental::mdspan src_data(static_cast<const float*>(src->data), p.batch, p.src_h, p.src_w, p.channels);
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), p.dst_h, p.dst_w, p.channels);
-	const int64_t rows_total = p.dst_h * p.batch;
-	const int64_t rows_per_thread = (rows_total + pool.available_parallelism() - 1) / pool.available_parallelism();
+	// [N, H, W, C] layout
+	std::experimental::mdspan input_data(static_cast<const float*>(src->data), ctx.batches, ctx.in_h, ctx.in_w, ctx.channels);
+	std::experimental::mdspan kernel_data(static_cast<const float*>(kernel->data), ctx.kernel_h, ctx.kernel_w, ctx.channels);
+	std::experimental::mdspan output_data(static_cast<float*>(dst->data), ctx.batches, ctx.out_h, ctx.out_w, ctx.channels);
 
-#ifdef GGML_SIMD
-	const int64_t pkg_size = GGML_F32_EPR;
-	const int64_t pkg_count = c / pkg_size;
-	const int64_t c_pkg_end = pkg_count * pkg_size;
-#else
-	const int64_t c_pkg_end = 0;
-#endif
-	stdexec::scheduler auto scheduler = pool.get_scheduler();
-	for (int64_t row_start = 0; row_start < rows_total; row_start += rows_per_thread) {
-		const int64_t row_end = std::min(row_start + rows_per_thread, rows_total);
-		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-			for (int64_t row = row_start; row < row_end; ++row) {
-				const int64_t dst_y = row % p.dst_h;
-				for (int64_t dst_x = 0; dst_x < p.dst_w; ++dst_x) {
-					const int64_t src_y_base = dst_y * p.stride_y - p.pad_y;
-					const int64_t src_x_base = dst_x * p.stride_x - p.pad_x;
+	for (int64_t batch = 0; batch < ctx.batches; batch++) {
+		for (int64_t oh = 0; oh < ctx.out_h; oh++) {
+			for (int64_t ow = 0; ow < ctx.out_w; ow++) {
+				for (int64_t channel = 0; channel < ctx.channels; channel++) {
+					stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+						const int64_t kh_min = std::max(int64_t{ 0 }, (ctx.padding_h - oh * ctx.stride_h + ctx.dilation_h - 1) / ctx.dilation_h);
+						const int64_t kh_max = std::min(ctx.kernel_h, (ctx.in_h + ctx.padding_h - oh * ctx.stride_h + ctx.dilation_h - 1) / ctx.dilation_h);
+						const int64_t kw_min = std::max(int64_t{ 0 }, (ctx.padding_w - ow * ctx.stride_w + ctx.dilation_w - 1) / ctx.dilation_w);
+						const int64_t kw_max = std::min(ctx.kernel_w, (ctx.in_w + ctx.padding_w - ow * ctx.stride_w + ctx.dilation_w - 1) / ctx.dilation_w);
 
-#ifdef GGML_SIMD
-					// Vectorized loop
-					for (int64_t c_i = 0; c_i < c_pkg_end; c_i += pkg_size) {
-						GGML_F32_VEC sum = GGML_F32_VEC_ZERO;
-						for (int64_t knl_y = 0; knl_y < p.knl_h; ++knl_y) {
-							const int64_t src_y = src_y_base + knl_y * p.dilation_y;
-							if (src_y < 0 || src_y >= p.src_h) {
-								continue;
-							}
-							for (int64_t knl_x = 0; knl_x < p.knl_w; ++knl_x) {
-								const int64_t src_x = src_x_base + knl_x * p.dilation_x;
-								if (src_x < 0 || src_x >= p.src_w) {
-									continue;
-								}
-								GGML_F32_VEC k = GGML_F32_VEC_LOAD(knl_data + (knl_y * p.knl_w + knl_x) * c + c_i);
-								GGML_F32_VEC s = GGML_F32_VEC_LOAD(src_data + (src_y * p.src_w + src_x) * c + c_i);
-								sum = GGML_F32_VEC_FMA(sum, k, s);
+						float accumulator = 0;
+						for (int64_t kh = kh_min; kh < kh_max; kh++) {
+							int64_t ih = calculate_input_coord(oh, kh, ctx.stride_h, ctx.dilation_h, ctx.padding_h);
+
+							for (int64_t kw = kw_min; kw < kw_max; kw++) {
+								int64_t iw = calculate_input_coord(ow, kw, ctx.stride_w, ctx.dilation_w, ctx.padding_w);
+
+								const float input_val = input_data[batch, ih, iw, channel];
+								const float kernel_val = kernel_data[kh, kw, channel];
+
+								accumulator += input_val * kernel_val;
 							}
 						}
-						GGML_F32_VEC_STORE(dst_data + c_i, sum);
-					}
-#endif
-					// Scalar loop
-					for (int64_t c_i = c_pkg_end; c_i < c; ++c_i) {
-						float sum = 0.0f;
-						for (int64_t knl_y = 0; knl_y < p.knl_h; ++knl_y) {
-							const int64_t src_y = src_y_base + knl_y * p.dilation_y;
-							if (src_y < 0 || src_y >= p.src_h) {
-								continue;
-							}
-							for (int64_t knl_x = 0; knl_x < p.knl_w; ++knl_x) {
-								const int64_t src_x = src_x_base + knl_x * p.dilation_x;
-								if (src_x < 0 || src_x >= p.src_w) {
-									continue;
-								}
-								sum += knl_data[knl_y, knl_x, c_i]
-									* src_data[row / p.dst_h, src_y, src_x, c_i];
-							}
-						}
-						dst_data[row, dst_x, c_i] = sum;
-					}
+
+						output_data[batch, oh, ow, channel] = accumulator;
+					});
+					scope.spawn(std::move(sender));
 				}
 			}
-		});
-		scope.spawn(std::move(sender));
+		}
 	}
 }
 
+// TODO
+// NEED SIMD
 void ggml_compute_forward_conv_2d_dw(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
@@ -4694,33 +4667,33 @@ void ggml_compute_forward_conv_2d_dw(
 
 	const ggml_tensor* kernel = dst->src[0];
 	const ggml_tensor* src = dst->src[1];
-	ggml_conv_2d_dw_params p{
+	ggml_conv_2d_dw_params ctx {
 		.channels = src->ne[2],
-		.batch = src->ne[3],
-		.src_w = src->ne[0],
-		.src_h = src->ne[1],
-		.dst_w = dst->ne[0],
-		.dst_h = dst->ne[1],
-		.knl_w = kernel->ne[0],
-		.knl_h = kernel->ne[1],
-		.stride_x = dst->op_params[0],
-		.stride_y = dst->op_params[1],
-		.pad_x = dst->op_params[2],
-		.pad_y = dst->op_params[3],
-		.dilation_x = dst->op_params[4],
-		.dilation_y = dst->op_params[5]
+		.batches = src->ne[3],
+		.in_w = src->ne[0],
+		.in_h = src->ne[1],
+		.out_w = dst->ne[0],
+		.out_h = dst->ne[1],
+		.kernel_w = kernel->ne[0],
+		.kernel_h = kernel->ne[1],
+		.stride_w = dst->op_params[0],
+		.stride_h = dst->op_params[1],
+		.padding_w = dst->op_params[2],
+		.padding_h = dst->op_params[3],
+		.dilation_w = dst->op_params[4],
+		.dilation_h = dst->op_params[5]
 	};
 
-	GGML_ASSERT(kernel->ne[3] == p.channels);
-	GGML_ASSERT(dst->ne[3] == p.batch);
+	GGML_ASSERT(kernel->ne[3] == ctx.channels);
+	GGML_ASSERT(dst->ne[3] == ctx.batches);
 
 	if (ggml_is_contiguous(src)) {
-		ggml_compute_forward_conv_2d_dw_whcn(pool, scope, src, kernel, dst, p);
+		ggml_compute_forward_conv_2d_dw_nchw(pool, scope, src, kernel, dst, ctx);
 	}
 	else if (ggml_is_contiguous_channels(src)) {
 		// kernel should also have channels most contiguous in memory
 		GGML_ASSERT(kernel->nb[0] >= kernel->nb[2] && kernel->nb[1] >= kernel->nb[0]);
-		ggml_compute_forward_conv_2d_dw_cwhn(pool, scope, src, kernel, dst, p);
+		ggml_compute_forward_conv_2d_dw_nhwc(pool, scope, src, kernel, dst, ctx);
 	}
 	else {
 		GGML_ABORT("non-contiguous memory layout not supported");
@@ -5262,14 +5235,6 @@ static void ggml_compute_forward_conv_2d_impl(
 	std::experimental::mdspan input_data(static_cast<const float*>(input->data), N, CIn, IH, IW);
 	std::experimental::mdspan kernel_data(static_cast<const kernel_t*>(kernel->data), COut, CIn, KH, KW);
 	std::experimental::mdspan output_data(static_cast<float*>(dst->data), N, COut, OH, OW);
-
-	auto calculate_input_coord = [](int64_t out_coord,
-		int64_t kern_coord,
-		int64_t stride,
-		int64_t dilation,
-		int64_t padding) -> int64_t {
-		return out_coord * stride + kern_coord * dilation - padding;
-	};
 
 	for (int64_t n = 0; n < N; n++) {
 		for (int64_t cout = 0; cout < COut; cout++) {

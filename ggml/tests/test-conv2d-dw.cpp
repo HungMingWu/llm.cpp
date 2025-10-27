@@ -96,8 +96,8 @@ bool test_conv_2d_dw(
         knl = ggml_cont(ctx, ggml_permute(ctx, knl, 2, 3, 1, 0));
         knl = ggml_permute(ctx, knl, 3, 2, 0, 1);
     }
-    ggml_tensor* res = ggml_conv_2d_dw_direct(
-        ctx, knl, src, stride, stride, pad, pad, dilation, dilation);
+    ggml_tensor* res = ggml_conv_2d_dw(
+        ctx, knl, src, { stride, stride }, { pad, pad }, { dilation, dilation }, true);
     if (contiguous_channels) {
         res = ggml_cont(ctx, res);
     }
