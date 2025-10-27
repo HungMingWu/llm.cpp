@@ -685,6 +685,7 @@ struct conv2d_transpose_context {
 void conv_2d_transpose_cuda(conv2d_transpose_context &ctx, cudaStream_t stream);
 
 //mean.cu
+void mean_fallback(const float* src0_d, float* dst_d, const int64_t ncols, const int64_t nrows, cudaStream_t stream);
 void mean_cuda(ggml_cuda_pool& pool, const float* src0_d, float* dst_d, const int64_t ncols, const int64_t nrows, cudaStream_t stream);
 
 //set-rows.cu

@@ -1,10 +1,6 @@
-#include "cuda_func.h"
-#include "reduce_rows.cuh"
-
-#ifdef GGML_CUDA_USE_CUB
 #include <cub/cub.cuh>
+#include "cuda_func.h"
 using namespace cub;
-#endif  // GGML_CUDA_USE_CUB
 
 template <typename T> __global__ void divide_by_count(T* result, size_t count) {
     *result /= static_cast<T>(count);
@@ -12,7 +8,6 @@ template <typename T> __global__ void divide_by_count(T* result, size_t count) {
 
 void mean_cuda(ggml_cuda_pool& pool, const float* src0_d, float* dst_d, const int64_t ncols, const int64_t nrows, cudaStream_t stream) {
     // Special case for reducing vectors
-#ifdef GGML_CUDA_USE_CUB
 #ifdef USE_CUDA_GRAPH
     cudaStreamCaptureStatus iscapturing;
     CUDA_CHECK(cudaStreamIsCapturing(stream, &iscapturing));
@@ -44,17 +39,5 @@ void mean_cuda(ggml_cuda_pool& pool, const float* src0_d, float* dst_d, const in
         divide_by_count<float> << <1, 1, 0, stream >> > (dst_d, ncols);
         return;
     }
-#endif // GGML_CUDA_USE_CUB
-    const dim3 block_nums(nrows, 1, 1);
-
-    const int id = ggml_cuda_get_device();
-    const int nsm = ggml_cuda_info().devices[id].nsm;
-    if ((nrows / nsm) < 2) {
-        const dim3 block_dims(512, 1, 1);
-        reduce_rows_f32</*norm=*/true> << <block_nums, block_dims, 0, stream >> > (src0_d, dst_d, ncols);
-    }
-    else {
-        const dim3 block_dims(ncols < 1024 ? 32 : 128, 1, 1);
-        reduce_rows_f32</*norm=*/true> << <block_nums, block_dims, 0, stream >> > (src0_d, dst_d, ncols);
-    }
+    mean_fallback(src0_d, dst_d, ncols, nrows, stream);
 }

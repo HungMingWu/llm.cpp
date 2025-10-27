@@ -7,7 +7,7 @@ set(CUDART_VERSION "${CMAKE_MATCH_1}")
 message(STATUS "CUDART_VERSION: ${CUDART_VERSION}")
 
 if (NOT DEFINED GGML_USE_HIP AND NOT DEFINED GGML_USE_MUSA AND CUDART_VERSION GREATER_EQUAL 11010)
-    set(CUDA_USE_CUB FALSE)
+    set(CUDA_USE_CUB TRUE)
 else()
     set(CUDA_USE_CUB FALSE)
 endif()
@@ -59,7 +59,7 @@ target_sources(libggml
       op/getrows.cu
       op/gla.cu
       op/im2col.cu
-      op/mean.cu
+      op/mean_common.cu
       op/mmf.cu
       op/mmid.cu
       op/mmq.cu
@@ -91,11 +91,13 @@ target_sources(libggml
 if (CUDA_USE_CUB)
 target_sources(libggml
 PRIVATE
+      op/mean_cub.cu
       op/sum_cub.cu
 )
 else()
 target_sources(libggml
 PRIVATE
+      op/mean_fallback.cu
       op/sum_fallback.cu
 )
 endif()
