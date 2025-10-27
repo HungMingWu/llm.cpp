@@ -536,16 +536,16 @@ std::unique_ptr<ggml_cuda_pool> ggml_backend_cuda::new_pool_for_device(int devic
 }
 
 template <ggml_type type>
-static const float alphaVal = 1.0f;
+const float alphaVal = 1.0f;
 
 template <ggml_type type>
-static const float betaVal = 0.0f;
+const float betaVal = 0.0f;
 
 template <>
-static const half alphaVal<GGML_TYPE_F16> = 1.0;
+const half alphaVal<GGML_TYPE_F16> = 1.0;
 
 template <>
-static const half betaVal<GGML_TYPE_F16> = 0.0;
+const half betaVal<GGML_TYPE_F16> = 0.0;
 
 template<ggml_type src0_type, typename src0_t, cublasComputeType_t compute_type, cudaDataType_t data_type>
 static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const ggml_tensor* src0, const ggml_tensor* src1, ggml_tensor* dst) {
