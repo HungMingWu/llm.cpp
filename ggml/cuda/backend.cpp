@@ -18,36 +18,6 @@ module;
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
 #define GGML_UNUSED(x) (void)(x)
-#define GGML_TENSOR_LOCALS_1(type, prefix, pointer, array) \
-    const type prefix##0 = (pointer)->array[0]; \
-    GGML_UNUSED(prefix##0);
-#define GGML_TENSOR_LOCALS_2(type, prefix, pointer, array) \
-    GGML_TENSOR_LOCALS_1    (type, prefix, pointer, array) \
-    const type prefix##1 = (pointer)->array[1]; \
-    GGML_UNUSED(prefix##1);
-#define GGML_TENSOR_LOCALS_3(type, prefix, pointer, array) \
-    GGML_TENSOR_LOCALS_2    (type, prefix, pointer, array) \
-    const type prefix##2 = (pointer)->array[2]; \
-    GGML_UNUSED(prefix##2);
-
-#define GGML_TENSOR_LOCALS(type, prefix, pointer, array) \
-    GGML_TENSOR_LOCALS_3  (type, prefix, pointer, array) \
-    const type prefix##3 = (pointer)->array[3]; \
-    GGML_UNUSED(prefix##3);
-
-#define GGML_TENSOR_UNARY_OP_LOCALS \
-    GGML_TENSOR_LOCALS(int64_t, ne0, src0, ne) \
-    GGML_TENSOR_LOCALS(size_t,  nb0, src0, nb) \
-    GGML_TENSOR_LOCALS(int64_t, ne,  dst,  ne) \
-    GGML_TENSOR_LOCALS(size_t,  nb,  dst,  nb)
-
-#define GGML_TENSOR_BINARY_OP_LOCALS \
-    GGML_TENSOR_LOCALS(int64_t, ne0, src0, ne) \
-    GGML_TENSOR_LOCALS(size_t,  nb0, src0, nb) \
-    GGML_TENSOR_LOCALS(int64_t, ne1, src1, ne) \
-    GGML_TENSOR_LOCALS(size_t,  nb1, src1, nb) \
-    GGML_TENSOR_LOCALS(int64_t, ne,  dst,  ne) \
-    GGML_TENSOR_LOCALS(size_t,  nb,  dst,  nb)
 
 module ggml;
 import :cuda.backend;
@@ -619,18 +589,16 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
     // Byte offsets and tensor dimensions are currently used in an inconsistent way for dst.
     // As long as dst is contiguous this does not matter though.
 
-    GGML_TENSOR_BINARY_OP_LOCALS
-
     const int64_t ne_dst = dst->nelements();
     cudaStream_t main_stream = ctx.stream();
     CUBLAS_CHECK(cublasSetStream(ctx.cublas_handle(), main_stream));
 
     float* dst_ddf = (float*)dst->data;
     const size_t ts_src1 = ggml_type_size(src1->type);
-    GGML_ASSERT(nb10 == ts_src1);
-    int64_t s11 = nb11 / ts_src1;
-    int64_t s12 = nb12 / ts_src1;
-    int64_t s13 = nb13 / ts_src1;
+    GGML_ASSERT(src1->nb[0] == ts_src1);
+    int64_t s11 = src1->nb[1] / ts_src1;
+    int64_t s12 = src1->nb[2] / ts_src1;
+    int64_t s13 = src1->nb[3] / ts_src1;
 
     const cuda_t* src0_ptr = nullptr;
     const cuda_t* src1_ptr = nullptr;
@@ -653,11 +621,11 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
         const int64_t ne_src1 = src1->nelements();
         src1_alloc.alloc(ne_src1);
 
-        convert_to_nc_cuda(src1->type, src1->data, src1_alloc.get(), ne10, ne11, ne12, ne13, s11, s12, s13, main_stream);
+        convert_to_nc_cuda(src1->type, src1->data, src1_alloc.get(), src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3], s11, s12, s13, main_stream);
         src1_ptr = src1_alloc.get();
-        s11 = ne10;
-        s12 = ne11 * s11;
-        s13 = ne12 * s12;
+        s11 = src1->ne[0];
+        s12 = src1->ne[1] * s11;
+        s13 = src1->ne[2] * s12;
 
         is_src1_cont_2 = true;
     }
@@ -703,48 +671,48 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
         beta = &beta_f32;
     }
 
-    GGML_ASSERT(ne12 % ne02 == 0);
-    GGML_ASSERT(ne13 % ne03 == 0);
+    GGML_ASSERT(src1->ne[2] % src0->ne[2] == 0);
+    GGML_ASSERT(src1->ne[3] % src0->ne[3] == 0);
 
     // broadcast factors
-    const int64_t r2 = ne12 / ne02;
-    const int64_t r3 = ne13 / ne03;
+    const int64_t r2 = src1->ne[2] / src0->ne[2];
+    const int64_t r3 = src1->ne[3] / src0->ne[3];
 
     if (r2 == 1 && r3 == 1 && is_src0_cont_2 && is_src1_cont_2) {
-        // with a [0, 2, 1, 3] perm. and ne02==1 the matrix strides need to be determined from dim 3:
-        const int64_t sma = ne02 == 1 ? nb03 / nb00 : nb02 / nb00;
-        const int64_t smb = ne12 == 1 ? s13 : s12;
+        // with a [0, 2, 1, 3] perm. and src0->ne[2]==1 the matrix strides need to be determined from dim 3:
+        const int64_t sma = src0->ne[2] == 1 ? src0->nb[3] / src0->nb[0] : src0->nb[2] / src0->nb[0];
+        const int64_t smb = src1->ne[2] == 1 ? s13 : s12;
 
         // there is no broadcast and src0, src1 are contiguous across dims 2, 3
         // use cublasGemmStridedBatchedEx
         CUBLAS_CHECK(
             cublasGemmStridedBatchedEx(ctx.cublas_handle(), CUBLAS_OP_T, CUBLAS_OP_N,
-                ne01, ne11, ne10,
-                alpha, src0_ptr, cu_data_type_a, nb01 / nb00, sma,     // strideA
+                src0->ne[1], src1->ne[1], src1->ne[0],
+                alpha, src0_ptr, cu_data_type_a, src0->nb[1] / src0->nb[0], sma,     // strideA
                 src1_ptr, cu_data_type_b, s11, smb,     // strideB
-                beta, dst_t, cu_data_type, ne0, ne1 * ne0, // strideC
-                ne12 * ne13,
+                beta, dst_t, cu_data_type, dst->ne[0], dst->ne[1] * dst->ne[0], // strideC
+                src1->ne[2] * src1->ne[3],
                 cu_compute_type,
                 CUBLAS_GEMM_DEFAULT_TENSOR_OP));
     }
     else {
         // use cublasGemmBatchedEx
-        const int64_t ne23 = ne12 * ne13;
+        const int64_t ne23 = src1->ne[2] * src1->ne[3];
 
         ggml_cuda_pool_alloc<const void*> ptrs_src(ctx.pool(), 2 * ne23);
         ggml_cuda_pool_alloc<      void*> ptrs_dst(ctx.pool(), 1 * ne23);
 
         size_t src1_stride_size = sizeof(cuda_t);
 
-        dim3 block_dims(ne13, ne12);
+        dim3 block_dims(src1->ne[3], src1->ne[2]);
         k_compute_batched_ptrs_cuda(
             src0_ptr, src1_ptr, dst_t,
             ptrs_src.get(), ptrs_dst.get(),
-            ne12, ne13,
+            src1->ne[2], src1->ne[3],
             ne23,
-            nb02, nb03,
-            (src1->type == src0_type) ? nb12 : s12 * src1_stride_size,
-            (src1->type == src0_type) ? nb13 : s13 * src1_stride_size,
+            src0->nb[2], src0->nb[3],
+            (src1->type == src0_type) ? src1->nb[2] : s12 * src1_stride_size,
+            (src1->type == src0_type) ? src1->nb[3] : s13 * src1_stride_size,
             nbd2, nbd3,
             r2, r3, main_stream);
 
@@ -752,10 +720,10 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
 
         CUBLAS_CHECK(
             cublasGemmBatchedEx(ctx.cublas_handle(), CUBLAS_OP_T, CUBLAS_OP_N,
-                ne01, ne11, ne10,
-                alpha, (const void**)(ptrs_src.get() + 0 * ne23), cu_data_type_a, nb01 / nb00,
+                src0->ne[1], src1->ne[1], src1->ne[0],
+                alpha, (const void**)(ptrs_src.get() + 0 * ne23), cu_data_type_a, src0->nb[1] / src0->nb[0],
                 (const void**)(ptrs_src.get() + 1 * ne23), cu_data_type_b, s11,
-                beta, (void**)(ptrs_dst.get() + 0 * ne23), cu_data_type, ne0,
+                beta, (void**)(ptrs_dst.get() + 0 * ne23), cu_data_type, dst->ne[0],
                 ne23,
                 cu_compute_type,
                 CUBLAS_GEMM_DEFAULT_TENSOR_OP));
