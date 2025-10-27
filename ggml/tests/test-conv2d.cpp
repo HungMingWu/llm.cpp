@@ -111,21 +111,17 @@ void load_model(test_model& model, bool use_gpu = false) {
 ggml_cgraph build_graph(const test_model& model) {
     ggml_cgraph gf;
 
-    int s0 = 1;
-    int s1 = 1;
-    int p0 = 1;
-    int p1 = 1;
-    int d0 = 1;
-    int d1 = 1;
+	std::pair<int, int> stride = { 1, 1 }; // {stride_h, stride_w}
+	std::pair<int, int> padding = { 1, 1 }; // {padding_h, padding_w}
+	std::pair<int, int> dilation = { 1, 1 }; // {dilation_h, dilation_w}
 
     // split conv2d in fundamental methods for test unit
-    ggml_tensor* im2col_0 = ggml_im2col(model.ctx.get(), model.a, model.b, s0, s1, p0, p1, d0, d1, true, GGML_TYPE_F16);
+    ggml_tensor* im2col_0 = ggml_im2col(model.ctx.get(), model.a, model.b, stride, padding, dilation, true, GGML_TYPE_F16);
     im2col_0->set_name("im2col_res");
     gf.build_forward_expand(im2col_0);
 
     // recalculate for avoid fragmentation
-    ggml_tensor* conv2d_res = ggml_conv_2d(model.ctx.get(), model.a, model.b, { /*stride_h*/s1, /*stride_w*/ s0 },
-        { /*padding_h*/p1, /*padding_w*/p0 }, { /*dilation_h*/d1, /*dilation_w*/d0 }, /*direct*/false);
+    ggml_tensor* conv2d_res = ggml_conv_2d(model.ctx.get(), model.a, model.b, stride, padding, dilation, /*direct*/false);
     conv2d_res->set_name("conv2d_res");
     gf.build_forward_expand(conv2d_res);
 

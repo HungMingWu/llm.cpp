@@ -992,9 +992,9 @@ namespace chatllm
     }
 
     ggml::tensor* ggml::conv_2d_depthwise(ComputeContext* ctx, ggml::tensor* kernel, ggml::tensor* data,
-        int stride0, int stride1, int padding0, int padding1, int dilation0, int dilation1)
+        std::pair<int, int> stride, std::pair<int, int> padding, std::pair<int, int> dilation)
     {
-        ggml::tensor* tensor = ggml_conv_2d_dw(ctx->get_ctx(), kernel, data, stride0, stride1, padding0, padding1, dilation0, dilation1);
+        ggml::tensor* tensor = ggml_conv_2d_dw(ctx->get_ctx(), kernel, data, stride, padding, dilation);
         ctx->cb_op_tensor(tensor);
         return tensor;
     }
@@ -1255,23 +1255,24 @@ namespace chatllm
 
     Conv2D::Conv2D(InitContext* ctx, int in_channels, int out_channels, int kernel_size, int stride, int padding,
         int dilation, int groups, bool bias)
-        : Conv2D(ctx, in_channels, out_channels, kernel_size, kernel_size, stride, stride, padding, padding, dilation, dilation,
+        : Conv2D(ctx, in_channels, out_channels, kernel_size, kernel_size, 
+            { stride, stride }, { padding, padding }, { dilation, dilation },
             groups, bias ? out_channels : 0)
     {
     }
 
     Conv2D::Conv2D(InitContext* ctx, int in_channels, int out_channels, int kernel_size0, int kernel_size1,
-        int stride0, int stride1,
-        int padding0, int padding1,
-        int dilation0, int dilation1,
+        std::pair<int, int> stride,
+        std::pair<int, int>	padding,
+        std::pair<int, int> dilation,
         int groups, int bias_dim)
         : ConvBase(ctx, kernel_size0, kernel_size1, in_channels / groups, out_channels, bias_dim),
         in_channels(in_channels),
         out_channels(out_channels),
         kernel_size{ kernel_size0, kernel_size1 },
-        stride{ stride0, stride1 },
-        padding{ padding0, padding1 },
-        dilation{ dilation0, dilation1 },
+        stride{ stride },
+        padding{ padding },
+        dilation{ dilation },
         groups(groups)
     {
     }
@@ -1281,13 +1282,12 @@ namespace chatllm
         ggml::tensor* output = nullptr;
         if (groups == 1)
         {
-            output = ggml::conv_2d(ctx, weight, input, { /*stride_h*/stride[1], /*stride_w*/stride[0] },
-                { /*padding_h*/padding[1], /*padding_w*/padding[0] }, { /*dilation_h*/dilation[1], /*dilation_w*/dilation[0]});
+            output = ggml::conv_2d(ctx, weight, input, stride, padding, dilation);
         }
         else if (groups == in_channels)
         {
             CHATLLM_CHECK((out_channels % in_channels) == 0) << "not implemented groups: " << groups;
-            output = ggml::conv_2d_depthwise(ctx, weight, input, stride[0], stride[1], padding[0], padding[1], dilation[0], dilation[1]);
+            output = ggml::conv_2d_depthwise(ctx, weight, input, stride, padding, dilation);
         }
         else
         {

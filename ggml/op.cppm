@@ -291,9 +291,9 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,
 		ggml_tensor* b,
-		int s0,
-		int p0,
-		int d0);
+		int stride_w,
+		int padding_w,
+		int dilation_w);
 
 	ggml_tensor* ggml_conv_2d(
 		ggml_context* ctx,
@@ -436,20 +436,17 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,
 		ggml_tensor* b,
-		int s0,
-		int s1,
-		int p0,
-		int p1,
-		int d0,
-		int d1);
+		std::pair<int, int> stride,  //  [stride_h, stride_w]
+		std::pair<int, int>	padding, // [padding_h, padding_w]
+		std::pair<int, int> dilation); //  [dilation_h, dilation_w]
 
 	ggml_tensor* ggml_conv_1d_dw(
 		ggml_context* ctx,
 		ggml_tensor* a,
 		ggml_tensor* b,
-		int s0,
-		int p0,
-		int d0);
+		int stride_w,
+		int padding_w,
+		int dilation_w);
 
 	ggml_tensor* ggml_map_custom(
 		ggml_context* ctx,
@@ -607,12 +604,9 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,  // convolution kernel
 		ggml_tensor* b,  // data
-		int s0, // stride dimension 0
-		int s1, // stride dimension 1
-		int p0, // padding dimension 0
-		int p1, // padding dimension 1
-		int d0, // dilation dimension 0
-		int d1, // dilation dimension 1
+		std::pair<int, int> stride,  //  [stride_h, stride_w]
+		std::pair<int, int>	padding, // [padding_h, padding_w]
+		std::pair<int, int> dilation, //  [dilation_h, dilation_w]
 		bool is_2D,
 		enum ggml_type dst_type);
 
@@ -628,17 +622,17 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* kernel,
 		ggml_tensor* input,
-		int32_t stride,
-		int32_t padding = 0,
-		int32_t dilation = 1);
+		int stride,
+		int padding = 0,
+		int dilation = 1);
 
 	ggml_tensor* ggml_conv_transpose_2d(
 		ggml_context* ctx,
 		ggml_tensor* kernel,
 		ggml_tensor* input,
-		std::pair<int32_t, int32_t> stride = { 1, 1 },
-		std::pair<int32_t, int32_t>	padding = { 0, 0 },
-		std::pair<int32_t, int32_t> dilation = { 1, 1 });
+		std::pair<int, int> stride = { 1, 1 },
+		std::pair<int, int>	padding = { 0, 0 },
+		std::pair<int, int> dilation = { 1, 1 });
 
 	ggml_tensor* ggml_pad_reflect_1d(
 		ggml_context* ctx,

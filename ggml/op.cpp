@@ -957,10 +957,10 @@ ggml_tensor* ggml_conv_1d(
 	ggml_context* ctx,
 	ggml_tensor* a,
 	ggml_tensor* b,
-	int s0,
-	int p0,
-	int d0) {
-	ggml_tensor* im2col = ggml_im2col(ctx, a, b, s0, 0, p0, 0, d0, 0, false, GGML_TYPE_F16); // [N, OL, IC * K]
+	int stride_w,
+	int padding_w,
+	int dilation_w) {
+	ggml_tensor* im2col = ggml_im2col(ctx, a, b, { 0, stride_w }, { 0, padding_w }, { 0, dilation_w }, false, GGML_TYPE_F16); // [N, OL, IC * K]
 
 	ggml_tensor* result =
 		ggml_mul_mat(ctx,
@@ -985,9 +985,6 @@ ggml_tensor* ggml_conv_2d(
 	std::pair<int, int> dilation,
 	bool direct)
 {
-	auto [stride_h, stride_w] = stride;;
-	auto [padding_h, padding_w] = padding;
-	auto [dilation_h, dilation_w] = dilation;
 	if (direct) {
 		GGML_ASSERT(kernel->ne[2] == input->ne[2]);
 
@@ -998,6 +995,9 @@ ggml_tensor* ggml_conv_2d(
 		const int64_t KH = kernel->ne[1];
 		const int64_t KW = kernel->ne[0];
 
+		auto [stride_h, stride_w] = stride;;
+		auto [padding_h, padding_w] = padding;
+		auto [dilation_h, dilation_w] = dilation;
 
 		int64_t ne[4];
 		ne[0] = ggml_calc_conv_output_size(IW, KW, stride_w, padding_w, dilation_w);
@@ -1021,8 +1021,7 @@ ggml_tensor* ggml_conv_2d(
 		return result;
 	}
 	else {
-		ggml_tensor* im2col = ggml_im2col(ctx, kernel, input, stride_w, stride_h,
-			padding_w, padding_h, dilation_w, dilation_h, true, kernel->type); // [N, OH, OW, IC * KH * KW]
+		ggml_tensor* im2col = ggml_im2col(ctx, kernel, input, stride, padding, dilation, true, kernel->type); // [N, OH, OW, IC * KH * KW]
 
 		ggml_tensor* result =
 			ggml_mul_mat(ctx,
@@ -1464,16 +1463,13 @@ ggml_tensor* ggml_conv_2d_dw(
 	ggml_context* ctx,
 	ggml_tensor* a,
 	ggml_tensor* b,
-	int s0,
-	int s1,
-	int p0,
-	int p1,
-	int d0,
-	int d1) {
+	std::pair<int, int> stride,
+	std::pair<int, int>	padding,
+	std::pair<int, int> dilation) {
 	ggml_tensor* new_a = ggml_reshape(ctx, a, { a->ne[0], a->ne[1], 1, a->ne[2] * a->ne[3] });
 	ggml_tensor* im2col = ggml_im2col(ctx, new_a,
 		ggml_reshape(ctx, b, { b->ne[0], b->ne[1], 1, b->ne[2] * b->ne[3] }),
-		s0, s1, p0, p1, d0, d1, true, GGML_TYPE_F16); // [N * IC, OH, OW, KH * KW]
+		stride, padding, dilation, true, GGML_TYPE_F16); // [N * IC, OH, OW, KH * KW]
 	ggml_tensor* new_b = ggml_reshape(ctx, im2col, { im2col->ne[0], im2col->ne[2] * im2col->ne[1], b->ne[2], b->ne[3] }); // [N * IC, OH, OW, KH * KW] => [N, IC, OH * OW, KH * KW]
 
 	new_a = ggml_reshape(ctx, new_a, { (new_a->ne[0] * new_a->ne[1]), new_a->ne[2], new_a->ne[3], 1 });                       // [OC¡A1, KH, KW] => [1, OC, 1, KH * KW]
@@ -1487,13 +1483,13 @@ ggml_tensor* ggml_conv_1d_dw(
 	ggml_context* ctx,
 	ggml_tensor* a,
 	ggml_tensor* b,
-	int s0,
-	int p0,
-	int d0) {
+	int stride_w,
+	int padding_w,
+	int dilation_w) {
 	ggml_tensor* new_a = ggml_reshape(ctx, a, { a->ne[0], 1, a->ne[1], a->ne[2] });
 	ggml_tensor* new_b = ggml_reshape(ctx, b, { b->ne[0], 1, b->ne[1], b->ne[2] });
 
-	ggml_tensor* im2col = ggml_im2col(ctx, new_a, new_b, s0, 0, p0, 0, d0, 0, false, GGML_TYPE_F16);
+	ggml_tensor* im2col = ggml_im2col(ctx, new_a, new_b, { 0, stride_w }, { 0, padding_w }, { 0, dilation_w }, false, GGML_TYPE_F16);
 
 	ggml_tensor* result = ggml_mul_mat(ctx, im2col, a);
 
@@ -1850,12 +1846,9 @@ ggml_tensor* ggml_im2col(
 	ggml_context* ctx,
 	ggml_tensor* a,
 	ggml_tensor* b,
-	int s0,
-	int s1,
-	int p0,
-	int p1,
-	int d0,
-	int d1,
+	std::pair<int, int> stride,
+	std::pair<int, int> padding,
+	std::pair<int, int> dilation,
 	bool is_2D,
 	enum ggml_type dst_type) {
 	if (is_2D) {
@@ -1866,9 +1859,11 @@ ggml_tensor* ggml_im2col(
 		GGML_ASSERT(b->ne[1] == a->ne[1]);
 		GGML_ASSERT(b->ne[3] == 1);
 	}
-
-	const int64_t OH = is_2D ? ggml_calc_conv_output_size(b->ne[1], a->ne[1], s1, p1, d1) : 0;
-	const int64_t OW = ggml_calc_conv_output_size(b->ne[0], a->ne[0], s0, p0, d0);
+	auto [stride_h, stride_w] = stride;
+	auto [padding_h, padding_w] = padding;
+	auto [dilation_h, dilation_w] = dilation;
+	const int64_t OH = is_2D ? ggml_calc_conv_output_size(b->ne[1], a->ne[1], stride_h, padding_h, dilation_h) : 0;
+	const int64_t OW = ggml_calc_conv_output_size(b->ne[0], a->ne[0], stride_w, padding_w, dilation_w);
 
 	GGML_ASSERT((!is_2D || OH > 0) && "b too small compared to a");
 	GGML_ASSERT((OW > 0) && "b too small compared to a");
@@ -1878,8 +1873,8 @@ ggml_tensor* ggml_im2col(
 		OW,
 		is_2D ? OH : b->ne[2],
 		is_2D ? b->ne[3] : 1,
-		});
-	int32_t params[] = { s0, s1, p0, p1, d0, d1, (is_2D ? 1 : 0) };
+	});
+	int32_t params[] = { stride_w, stride_h, padding_w, padding_h, dilation_w, dilation_h, (is_2D ? 1 : 0) };
 	ggml_set_op_params(*result, params, sizeof(params));
 
 	result->op = GGML_OP_IM2COL;
@@ -1921,9 +1916,9 @@ ggml_tensor* ggml_conv_transpose_2d(
 	ggml_context* ctx,
 	ggml_tensor* kernel,
 	ggml_tensor* input,
-	int32_t stride,
-	int32_t padding,
-	int32_t dilation)
+	int stride,
+	int padding,
+	int dilation)
 {
 	return ggml_conv_transpose_2d(
 		ctx,
@@ -1938,9 +1933,9 @@ ggml_tensor* ggml_conv_transpose_2d(
 	ggml_context* ctx,
 	ggml_tensor* kernel, // [CIn, COut, Kh, Kw]
 	ggml_tensor* input, // [N, CIn, HIn, WIn]
-	std::pair<int32_t, int32_t> stride, // (stride_h, stride_w)
-	std::pair<int32_t, int32_t> padding, // (padding_h, padding_w)
-	std::pair<int32_t, int32_t> dilation) // (dilation_h, dilation_w)	
+	std::pair<int, int> stride, // (stride_h, stride_w)
+	std::pair<int, int> padding, // (padding_h, padding_w)
+	std::pair<int, int> dilation) // (dilation_h, dilation_w)	
 {
 	GGML_ASSERT(kernel->ne[3] == input->ne[2]);
 	auto [stride_h, stride_w] = stride;

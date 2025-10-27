@@ -2166,7 +2166,7 @@ struct test_im2col : public test_case {
         ggml_tensor* kernel = ggml_new_tensor(ctx, type_kernel, { ne_kernel[0], ne_kernel[1], ne_kernel[2], ne_kernel[3] });
         kernel->set_name("kernel");
 
-        ggml_tensor* out = ggml_im2col(ctx, kernel, input, s0, s1, p0, p1, d0, d1, is_2D, dst_type);
+        ggml_tensor* out = ggml_im2col(ctx, kernel, input, { s1, s0 }, { p1, p0 }, { d1, d0 }, is_2D, dst_type);
         out->set_name("out");
 
         return out;

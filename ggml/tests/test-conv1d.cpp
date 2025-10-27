@@ -108,16 +108,16 @@ void load_model(test_model& model, bool use_gpu = false) {
 ggml_cgraph build_graph(test_model& model) {
     ggml_cgraph gf;
 
-    int s0 = 1;
-    int p0 = 1;
-    int d0 = 1;
+    int stride_w = 1;
+    int padding_w = 1;
+    int dilation_w = 1;
 
     // split conv1d in fundamental methods for test unit
-    ggml_tensor* im2col_0 = ggml_im2col(&model.ctx, model.a, model.b, s0, 0, p0, 0, d0, 0, false, GGML_TYPE_F16);
+    ggml_tensor* im2col_0 = ggml_im2col(&model.ctx, model.a, model.b, { 0, stride_w }, { 0, padding_w }, { 0, dilation_w }, false, GGML_TYPE_F16);
     im2col_0->set_name("im2col_res");
     gf.build_forward_expand(im2col_0);
 
-    ggml_tensor* conv1d_res = ggml_conv_1d(&model.ctx, model.a, model.b, s0, p0, d0);
+    ggml_tensor* conv1d_res = ggml_conv_1d(&model.ctx, model.a, model.b, stride_w, padding_w, dilation_w);
     conv1d_res->set_name("conv1d_res");
     gf.build_forward_expand(conv1d_res);
 

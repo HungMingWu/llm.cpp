@@ -178,7 +178,7 @@ export namespace chatllm
         ggml::tensor* conv_2d(ComputeContext* ctx, ggml::tensor* kernel, ggml::tensor* data,
             std::pair<int, int> stride, std::pair<int, int> padding, std::pair<int, int> dilation);
         ggml::tensor* conv_2d_depthwise(ComputeContext* ctx, ggml::tensor* kernel, ggml::tensor* data,
-            int stride0, int stride1, int padding0, int padding1, int dilation0, int dilation1);
+            std::pair<int, int> stride, std::pair<int, int> padding, std::pair<int, int> dilation);
 
         // gate = gate.clamp(min=None, max=self.limit)
         // up   = up.clamp(min=-self.limit, max=self.limit)
@@ -419,17 +419,17 @@ export namespace chatllm
     protected:
         Conv2D(InitContext* ctx, int in_channels, int out_channels,
             int kernel_size0, int kernel_size1,
-            int stride0, int stride1,
-            int padding0, int padding1,
-            int dilation0, int dilation1,
+            std::pair<int, int> stride, //  [stride_h, stride_w]
+            std::pair<int, int>	padding, // [padding_h, padding_w]
+            std::pair<int, int> dilation, //  [dilation_h, dilation_w]
             int groups, int bias_dim);
     protected:
         const int in_channels;
         const int out_channels;
         const int kernel_size[2];
-        const int stride[2];
-        const int padding[2];
-        const int dilation[2];
+        const std::pair<int, int> stride; //  [stride_h, stride_w]
+        const std::pair<int, int> padding; // [padding_h, padding_w]
+        const std::pair<int, int> dilation;  //  [dilation_h, dilation_w]
         const int groups;
     };
 
