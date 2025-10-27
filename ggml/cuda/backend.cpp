@@ -535,51 +535,20 @@ std::unique_ptr<ggml_cuda_pool> ggml_backend_cuda::new_pool_for_device(int devic
     return std::unique_ptr<ggml_cuda_pool>(new ggml_cuda_pool_leg(device));
 }
 
-// Type traits for mapping ggml types to CUDA/cuBLAS types
-template<ggml_type T>
-struct batched_mul_mat_traits;
+template <ggml_type type>
+static const float alphaVal = 1.0f;
 
-template<>
-struct batched_mul_mat_traits<GGML_TYPE_F32> {
-    using cuda_type = float;
-    static inline const cublasComputeType_t compute_type = CUBLAS_COMPUTE_32F;
-    static inline const cudaDataType_t data_type = CUDA_R_32F;
-    static inline const ggml_type ggml_type_val = GGML_TYPE_F32;
-    static inline const float alpha = 1.0f;
-    static inline const float beta = 0.0f;
-    static inline const void* get_alpha() { static const float val = alpha; return &val; }
-    static inline const void* get_beta() { static const float val = beta; return &val; }
-};
+template <ggml_type type>
+static const float betaVal = 0.0f;
 
-template<>
-struct batched_mul_mat_traits<GGML_TYPE_BF16> {
-    using cuda_type = nv_bfloat16;
-    static inline const cublasComputeType_t compute_type = CUBLAS_COMPUTE_32F;
-    static inline const cudaDataType_t data_type = CUDA_R_16BF;
-    static inline const ggml_type ggml_type_val = GGML_TYPE_BF16;
-    static inline const float alpha = 1.0f;
-    static inline const float beta = 0.0f;
-    static inline const void* get_alpha() { static const float val = alpha; return &val; }
-    static inline const void* get_beta() { static const float val = beta; return &val; }
-};
+template <>
+static const half alphaVal<GGML_TYPE_F16> = 1.0;
 
-template<>
-struct batched_mul_mat_traits<GGML_TYPE_F16> {
-    using cuda_type = half;
-    static inline const cublasComputeType_t compute_type = CUBLAS_COMPUTE_16F;
-    static inline const cudaDataType_t data_type = CUDA_R_16F;
-    static inline const ggml_type ggml_type_val = GGML_TYPE_F16;
-    static inline const half alpha = 1.0;
-    static inline const half beta = 0.0;
-    static inline const void* get_alpha() { static const half val = alpha; return &val; }
-    static inline const void* get_beta() { static const half val = beta; return &val; }
-};
+template <>
+static const half betaVal<GGML_TYPE_F16> = 0.0;
 
-template<ggml_type src0_type>
+template<ggml_type src0_type, typename src0_t, cublasComputeType_t compute_type, cudaDataType_t data_type>
 static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const ggml_tensor* src0, const ggml_tensor* src1, ggml_tensor* dst) {
-    using traits = batched_mul_mat_traits<src0_type>;
-    using cuda_t = typename traits::cuda_type;
-
     GGML_ASSERT(!ggml_is_transposed(src0));
     GGML_ASSERT(!ggml_is_transposed(src1));
     GGML_ASSERT(dynamic_cast<cuda_split_backend_buffer_type*>(src0->buffer->get_type()) == nullptr);
@@ -600,21 +569,21 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
     int64_t s12 = src1->nb[2] / ts_src1;
     int64_t s13 = src1->nb[3] / ts_src1;
 
-    const cuda_t* src0_ptr = nullptr;
-    const cuda_t* src1_ptr = nullptr;
+    const src0_t* src0_ptr = nullptr;
+    const src0_t* src1_ptr = nullptr;
 
-    ggml_cuda_pool_alloc<cuda_t> src0_alloc(ctx.pool());
-    ggml_cuda_pool_alloc<cuda_t> src1_alloc(ctx.pool());
+    ggml_cuda_pool_alloc<src0_t> src0_alloc(ctx.pool());
+    ggml_cuda_pool_alloc<src0_t> src1_alloc(ctx.pool());
 
     bool is_src0_cont_2 = ggml_is_contiguous_2(src0);
     bool is_src1_cont_2 = ggml_is_contiguous_2(src1);
 
     // Handle src0
-    src0_ptr = (const cuda_t*)src0->data;
+    src0_ptr = (const src0_t*)src0->data;
 
     // Handle src1 - convert if necessary
     if (src1->type == src0_type) {
-        src1_ptr = (const cuda_t*)src1->data;
+        src1_ptr = (const src0_t*)src1->data;
     }
     else {
         // Convert src1 to target type using traits conversion functions
@@ -631,17 +600,15 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
     }
 
     // Setup destination buffer
-    ggml_cuda_pool_alloc<cuda_t> dst_temp(ctx.pool());
+    ggml_cuda_pool_alloc<src0_t> dst_temp(ctx.pool());
     char* dst_t;
     size_t nbd2 = dst->nb[2];
     size_t nbd3 = dst->nb[3];
 
-    cublasComputeType_t cu_compute_type = traits::compute_type;
-    cudaDataType_t cu_data_type = traits::data_type;
-    cudaDataType_t cu_data_type_a = traits::data_type;
-    cudaDataType_t cu_data_type_b = traits::data_type;
-    const void* alpha = traits::get_alpha();
-    const void* beta = traits::get_beta();
+    cublasComputeType_t cu_compute_type = compute_type;
+    cudaDataType_t cu_data_type = data_type;
+    const void* alpha = &alphaVal<src0_type>;
+    const void* beta = &betaVal<src0_type>;
     const float alpha_f32 = 1.0f;
     const float beta_f32 = 0.0f;
 
@@ -651,8 +618,8 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
         }
         else {
             dst_t = (char*)dst_temp.alloc(ne_dst);
-            nbd2 /= sizeof(float) / sizeof(cuda_t);
-            nbd3 /= sizeof(float) / sizeof(cuda_t);
+            nbd2 /= sizeof(float) / sizeof(src0_t);
+            nbd3 /= sizeof(float) / sizeof(src0_t);
         }
     }
     else {
@@ -688,8 +655,8 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
         CUBLAS_CHECK(
             cublasGemmStridedBatchedEx(ctx.cublas_handle(), CUBLAS_OP_T, CUBLAS_OP_N,
                 src0->ne[1], src1->ne[1], src1->ne[0],
-                alpha, src0_ptr, cu_data_type_a, src0->nb[1] / src0->nb[0], sma,     // strideA
-                src1_ptr, cu_data_type_b, s11, smb,     // strideB
+                alpha, src0_ptr, /*type_a*/data_type, src0->nb[1] / src0->nb[0], sma,     // strideA
+                src1_ptr, /*type_b*/data_type, s11, smb,     // strideB
                 beta, dst_t, cu_data_type, dst->ne[0], dst->ne[1] * dst->ne[0], // strideC
                 src1->ne[2] * src1->ne[3],
                 cu_compute_type,
@@ -702,7 +669,7 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
         ggml_cuda_pool_alloc<const void*> ptrs_src(ctx.pool(), 2 * ne23);
         ggml_cuda_pool_alloc<      void*> ptrs_dst(ctx.pool(), 1 * ne23);
 
-        size_t src1_stride_size = sizeof(cuda_t);
+        size_t src1_stride_size = sizeof(src0_t);
 
         dim3 block_dims(src1->ne[3], src1->ne[2]);
         k_compute_batched_ptrs_cuda(
@@ -721,8 +688,8 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
         CUBLAS_CHECK(
             cublasGemmBatchedEx(ctx.cublas_handle(), CUBLAS_OP_T, CUBLAS_OP_N,
                 src0->ne[1], src1->ne[1], src1->ne[0],
-                alpha, (const void**)(ptrs_src.get() + 0 * ne23), cu_data_type_a, src0->nb[1] / src0->nb[0],
-                (const void**)(ptrs_src.get() + 1 * ne23), cu_data_type_b, s11,
+                alpha, (const void**)(ptrs_src.get() + 0 * ne23), /*type_a*/data_type, src0->nb[1] / src0->nb[0],
+                (const void**)(ptrs_src.get() + 1 * ne23), /*type_b*/data_type, s11,
                 beta, (void**)(ptrs_dst.get() + 0 * ne23), cu_data_type, dst->ne[0],
                 ne23,
                 cu_compute_type,
@@ -731,7 +698,7 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
 
     // Convert output back to F32 if needed
     if (dst->op_params[0] == GGML_PREC_DEFAULT && cu_data_type != CUDA_R_32F) {
-        to_fp32_cuda(traits::ggml_type_val, dst_temp.get(), dst_ddf, ne_dst, main_stream);
+        to_fp32_cuda(src0_type, dst_temp.get(), dst_ddf, ne_dst, main_stream);
     }
 }
 
@@ -740,13 +707,13 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda& ctx, const ggml_
 
     switch (src0->type) {
     case GGML_TYPE_F32:
-        ggml_cuda_mul_mat_batched_cublas_impl<GGML_TYPE_F32>(ctx, src0, src1, dst);
+        ggml_cuda_mul_mat_batched_cublas_impl<GGML_TYPE_F32, float, CUBLAS_COMPUTE_32F, CUDA_R_32F>(ctx, src0, src1, dst);
         break;
     case GGML_TYPE_BF16:
-        ggml_cuda_mul_mat_batched_cublas_impl<GGML_TYPE_BF16>(ctx, src0, src1, dst);
+        ggml_cuda_mul_mat_batched_cublas_impl<GGML_TYPE_BF16, nv_bfloat16, CUBLAS_COMPUTE_32F, CUDA_R_16BF>(ctx, src0, src1, dst);
         break;
     case GGML_TYPE_F16:
-        ggml_cuda_mul_mat_batched_cublas_impl<GGML_TYPE_F16>(ctx, src0, src1, dst);
+        ggml_cuda_mul_mat_batched_cublas_impl<GGML_TYPE_F16, half, CUBLAS_COMPUTE_16F, CUDA_R_16F>(ctx, src0, src1, dst);
         break;
     default:
         GGML_ABORT("Unsupported type");
