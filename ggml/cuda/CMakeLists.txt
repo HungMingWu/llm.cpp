@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.18)  # for CMAKE_CUDA_ARCHITECTURES
 set(CUDA_FLAGS --expt-relaxed-constexpr -extended-lambda -Xcudafe --diag_suppress=737)
 
+file(READ "${CUDAToolkit_INCLUDE_DIRS}/cuda_runtime_api.h" CUDART_HEADER_CONTENTS)
+string(REGEX MATCH "#define CUDART_VERSION[ \t]+([0-9]+)" _ ${CUDART_HEADER_CONTENTS})
+set(CUDART_VERSION "${CMAKE_MATCH_1}")
+message(STATUS "CUDART_VERSION: ${CUDART_VERSION}")
+
+if (NOT DEFINED GGML_USE_HIP AND NOT DEFINED GGML_USE_MUSA AND CUDART_VERSION GREATER_EQUAL 11010)
+    set(CUDA_USE_CUB FALSE)
+else()
+    set(CUDA_USE_CUB FALSE)
+endif()
+
 configure_file (${CMAKE_CURRENT_LIST_DIR}/cuda_config.h.in ${CMAKE_CURRENT_BINARY_DIR}/cuda_config.h)
 target_sources(libggml
   PUBLIC
@@ -69,7 +80,6 @@ target_sources(libggml
       op/softmax.cu
       op/ssm-conv.cu
       op/ssm-scan.cu
-      op/sum.cu
       op/sumrows.cu
       op/topk-moe.cu
       op/tsembd.cu
@@ -77,6 +87,18 @@ target_sources(libggml
       op/upscale.cu
       op/wkv.cu
 )
+
+if (CUDA_USE_CUB)
+target_sources(libggml
+PRIVATE
+      op/sum_cub.cu
+)
+else()
+target_sources(libggml
+PRIVATE
+      op/sum_fallback.cu
+)
+endif()
 
 target_include_directories(libggml
   PRIVATE
