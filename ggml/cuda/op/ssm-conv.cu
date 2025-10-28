@@ -1,13 +1,11 @@
 #define GGML_ASSERT(...)
 #define GGML_ABORT(...)
-#define GGML_UNUSED(x) (void)(x)
 
 template <size_t split_d_inner, size_t d_conv>
 static __global__ void ssm_conv_f32(const float* __restrict__ src0, const float* __restrict__ src1,
-    const int src0_nb0, const int src0_nb1, const int src0_nb2, const int src1_nb1,
+    const int /*src0_nb0*/, const int src0_nb1, const int src0_nb2, const int src1_nb1,
     float* __restrict__ dst, const int dst_nb0, const int dst_nb1, const int dst_nb2,
     const int64_t n_t) {
-    GGML_UNUSED(src0_nb0);
     const int tid = threadIdx.x;
     const int bidx = blockIdx.x;
     const int bidy = blockIdx.y;

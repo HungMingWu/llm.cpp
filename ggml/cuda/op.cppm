@@ -1799,9 +1799,8 @@ namespace op
         BEST_FATTN_KERNEL_MMA_F16 = 400,
     };
 
-    best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const ggml_tensor* dst) {
+    best_fattn_kernel ggml_cuda_get_best_fattn_kernel([[maybe_unused]] const int device, [[maybe_unused]] const ggml_tensor* dst) {
 #ifndef FLASH_ATTN_AVAILABLE
-        GGML_UNUSED(device); GGML_UNUSED(dst);
         return BEST_FATTN_KERNEL_NONE;
 #endif// FLASH_ATTN_AVAILABLE
 

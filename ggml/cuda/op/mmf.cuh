@@ -1,7 +1,6 @@
 #pragma once
 #include "mma.cuh"
 #define GGML_ASSERT(x) assert(x)
-#define GGML_UNUSED_VARS(...)
 
 using namespace ggml_cuda_mma;
 
@@ -11,11 +10,16 @@ using namespace ggml_cuda_mma;
 template <typename T, int rows_per_block, int cols_per_block, int nwarps, bool has_ids>
 __launch_bounds__(ggml_cuda_get_physical_warp_size()* nwarps, 1)
 static __global__ void mul_mat_f(
-    const T* __restrict__ x, const float* __restrict__ y, const int32_t* __restrict__ ids, float* __restrict__ dst,
-    const int ncols, const int ncols_dst_total, const int nchannels_dst, const int stride_row, const int stride_col_y, const int stride_col_dst,
-    const int stride_col_id, const int stride_row_id,
-    const int channel_ratio, const int stride_channel_x, const int stride_channel_y, const int stride_channel_dst,
-    const int sample_ratio, const int stride_sample_x, const int stride_sample_y, const int stride_sample_dst) {
+    [[maybe_unused]] const T* __restrict__ x, [[maybe_unused]] const float* __restrict__ y,
+    [[maybe_unused]] const int32_t* __restrict__ ids, [[maybe_unused]] float* __restrict__ dst,
+    [[maybe_unused]] const int ncols, [[maybe_unused]] const int ncols_dst_total,
+    [[maybe_unused]] const int nchannels_dst, [[maybe_unused]] const int stride_row,
+    [[maybe_unused]] const int stride_col_y, [[maybe_unused]] const int stride_col_dst,
+    [[maybe_unused]] const int stride_col_id, [[maybe_unused]] const int stride_row_id,
+    [[maybe_unused]] const int channel_ratio, [[maybe_unused]] const int stride_channel_x,
+    [[maybe_unused]] const int stride_channel_y, [[maybe_unused]] const int stride_channel_dst,
+    [[maybe_unused]] const int sample_ratio, [[maybe_unused]] const int stride_sample_x,
+    [[maybe_unused]] const int stride_sample_y, [[maybe_unused]] const int stride_sample_dst) {
 #if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
     typedef tile<16, 8, T>     tile_A;
     typedef tile< 8, 8, T>     tile_B;
@@ -217,11 +221,6 @@ static __global__ void mul_mat_f(
         }
     }
 #else
-    GGML_UNUSED_VARS(x, y, ids, dst,
-        ncols, ncols_dst_total, nchannels_dst, stride_row, stride_col_y, stride_col_dst,
-        stride_col_id, stride_row_id,
-        channel_ratio, stride_channel_x, stride_channel_y, stride_channel_dst,
-        sample_ratio, stride_sample_x, stride_sample_y, stride_sample_dst);
     NO_DEVICE_CODE;
 #endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 }
@@ -230,13 +229,17 @@ static __global__ void mul_mat_f(
 template <typename T, int rows_per_block, int cols_per_block, int nwarps>
 __launch_bounds__(ggml_cuda_get_physical_warp_size()* nwarps, 1)
 static __global__ void mul_mat_f_ids(
-    const T* __restrict__ x, const float* __restrict__ y,
-    const int32_t* __restrict__ ids_src_compact, const int32_t* __restrict__ ids_dst_compact,
-    const int32_t* __restrict__ expert_bounds, float* __restrict__ dst,
-    const int ncols, const int ncols_dst_total, const int nchannels_dst, const int stride_row, const int stride_col_y, const int stride_col_dst,
-    const int channel_ratio, const int stride_channel_x, const int stride_channel_y, const int stride_channel_dst,
-    const int sample_ratio, const int stride_sample_x, const int stride_sample_y, const int stride_sample_dst,
-    const uint3 sis1_fd, const uint3 nch_fd) {
+    [[maybe_unused]] const T* __restrict__ x, [[maybe_unused]] const float* __restrict__ y,
+    [[maybe_unused]] const int32_t* __restrict__ ids_src_compact, [[maybe_unused]] const int32_t* __restrict__ ids_dst_compact,
+    [[maybe_unused]] const int32_t* __restrict__ expert_bounds, [[maybe_unused]] float* __restrict__ dst,
+    [[maybe_unused]] const int ncols, [[maybe_unused]] const int ncols_dst_total,
+    [[maybe_unused]] const int nchannels_dst, [[maybe_unused]] const int stride_row,
+    [[maybe_unused]] const int stride_col_y, [[maybe_unused]] const int stride_col_dst,
+    [[maybe_unused]] const int channel_ratio, [[maybe_unused]] const int stride_channel_x,
+    [[maybe_unused]] const int stride_channel_y, [[maybe_unused]] const int stride_channel_dst,
+    [[maybe_unused]] const int sample_ratio, [[maybe_unused]] const int stride_sample_x,
+    [[maybe_unused]] const int stride_sample_y, [[maybe_unused]] const int stride_sample_dst,
+    [[maybe_unused]] const uint3 sis1_fd, [[maybe_unused]] const uint3 nch_fd) {
 #if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
     typedef tile<16, 8, T>     tile_A;
     typedef tile< 8, 8, T>     tile_B;
@@ -261,8 +264,6 @@ static __global__ void mul_mat_f_ids(
     }
 
     const int col_base = tile_idx * cols_per_block;
-
-    GGML_UNUSED(channel_ratio);
 
     const int channel_x = expert_idx;
     const int sample_dst = 0;
@@ -463,10 +464,6 @@ static __global__ void mul_mat_f_ids(
         }
     }
 #else
-    GGML_UNUSED_VARS(x, y, ids_src_compact, ids_dst_compact, expert_bounds, dst,
-        ncols, ncols_dst_total, nchannels_dst, stride_row, stride_col_y, stride_col_dst,
-        channel_ratio, stride_channel_x, stride_channel_y, stride_channel_dst,
-        sample_ratio, stride_sample_x, stride_sample_y, stride_sample_dst, sis1_fd, nch_fd);
     NO_DEVICE_CODE;
 #endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 }
@@ -526,7 +523,7 @@ void mul_mat_f_cuda(
     const int64_t ncols_x, const int64_t nrows_x, const int64_t ncols_dst,
     const int64_t stride_row, const int64_t stride_col_y, const int64_t stride_col_dst,
     const int64_t stride_col_id, const int64_t stride_row_id,
-    const int64_t nchannels_x, const int64_t nchannels_y, const int64_t nchannels_dst,
+    const int64_t nchannels_x, const int64_t /*nchannels_y*/, const int64_t nchannels_dst,
     const int64_t stride_channel_x, const int64_t stride_channel_y, const int64_t stride_channel_dst, const int64_t nsamples_x,
     const int64_t nsamples_dst, const int64_t stride_sample_x, const int64_t stride_sample_y, const int64_t stride_sample_dst,
     cudaStream_t stream, const mmf_ids_data* ids_data) {
@@ -627,8 +624,6 @@ void mul_mat_f_cuda(
         GGML_ABORT("fatal error");
     } break;
     }
-
-    GGML_UNUSED_VARS(nchannels_y);
 }
 
 template <typename T>

@@ -48,8 +48,6 @@ public:
 		}
 
 		return NULL;
-
-		GGML_UNUSED(reg);
 #else
 		return nullptr;
 #endif

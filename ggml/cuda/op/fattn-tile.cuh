@@ -1,5 +1,4 @@
 #pragma once
-#define GGML_UNUSED_VARS(...)
 
 // nbatch_fa == number of KQ rows to process per iteration
 // nbatch_K == number of K columns to load in parallel for KQ calculation
@@ -696,27 +695,27 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
 template<int DKQ, int DV, int ncols1, int ncols2, bool use_logit_softcap> // D == head size
 __launch_bounds__(ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, ncols1 * ncols2), ggml_cuda_fattn_tile_get_occupancy(DKQ, DV, ncols1 * ncols2))
 static __global__ void flash_attn_tile(
-    const char* __restrict__ Q,
-    const char* __restrict__ K,
-    const char* __restrict__ V,
-    const char* __restrict__ mask,
-    const char* __restrict__ sinks,
-    const int* __restrict__ KV_max,
-    float* __restrict__ dst,
-    float2 * __restrict__ dst_meta,
-    const float scale,
-    const float max_bias,
-    const float m0,
-    const float m1,
-    const uint32_t n_head_log2,
-    const float logit_softcap,
-    const int32_t ne00, const int32_t ne01, const int32_t ne02, const int32_t ne03,
-    const int32_t nb01, const int32_t nb02, const int32_t nb03,
-    const int32_t ne10, const int32_t ne11, const int32_t ne12, const int32_t ne13,
-    const int32_t nb11, const int32_t nb12, const int64_t nb13,
-    const int32_t nb21, const int32_t nb22, const int64_t nb23,
-    const int32_t ne31, const int32_t ne32, const int32_t ne33,
-    const int32_t nb31, const int32_t nb32, const int64_t nb33) {
+    [[maybe_unused]] const char* __restrict__ Q,
+    [[maybe_unused]] const char* __restrict__ K,
+    [[maybe_unused]] const char* __restrict__ V,
+    [[maybe_unused]] const char* __restrict__ mask,
+    [[maybe_unused]] const char* __restrict__ sinks,
+    [[maybe_unused]] const int* __restrict__ KV_max,
+    [[maybe_unused]] float* __restrict__ dst,
+    [[maybe_unused]] float2 * __restrict__ dst_meta,
+    [[maybe_unused]] const float scale,
+    [[maybe_unused]] const float max_bias,
+    [[maybe_unused]] const float m0,
+    [[maybe_unused]] const float m1,
+    [[maybe_unused]] const uint32_t n_head_log2,
+    [[maybe_unused]] const float logit_softcap,
+    [[maybe_unused]] const int32_t ne00, [[maybe_unused]] const int32_t ne01, [[maybe_unused]] const int32_t ne02, [[maybe_unused]] const int32_t ne03,
+    [[maybe_unused]] const int32_t nb01, [[maybe_unused]] const int32_t nb02, [[maybe_unused]] const int32_t nb03,
+    [[maybe_unused]] const int32_t ne10, [[maybe_unused]] const int32_t ne11, [[maybe_unused]] const int32_t ne12, [[maybe_unused]] const int32_t ne13,
+    [[maybe_unused]] const int32_t nb11, [[maybe_unused]] const int32_t nb12, [[maybe_unused]] const int64_t nb13,
+    [[maybe_unused]] const int32_t nb21, [[maybe_unused]] const int32_t nb22, [[maybe_unused]] const int64_t nb23,
+    [[maybe_unused]] const int32_t ne31, [[maybe_unused]] const int32_t ne32, [[maybe_unused]] const int32_t ne33,
+    [[maybe_unused]] const int32_t nb31, [[maybe_unused]] const int32_t nb32, [[maybe_unused]] const int64_t nb33) {
 #ifdef FLASH_ATTN_AVAILABLE
 
     // Skip unused kernel variants for faster compilation:
@@ -727,15 +726,6 @@ static __global__ void flash_attn_tile(
 #endif // GGML_USE_WMMA_FATTN
         (use_logit_softcap && !(DV == 128 || DV == 256))
         ) {
-        GGML_UNUSED_VARS(Q, K, V, mask, sinks, KV_max, dst, dst_meta, scale,
-            max_bias, m0, m1, n_head_log2, logit_softcap,
-            ne00, ne01, ne02, ne03,
-            nb01, nb02, nb03,
-            ne10, ne11, ne12, ne13,
-            nb11, nb12, nb13,
-            nb21, nb22, nb23,
-            ne31, ne32, ne33,
-            nb31, nb32, nb33);
         NO_DEVICE_CODE;
         return;
     }

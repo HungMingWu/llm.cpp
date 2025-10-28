@@ -227,10 +227,10 @@ static void launch_bin_bcast_pack(const bin_bcast_context* ctx, cudaStream_t str
         int64_t ne2 = cne[2];
         int64_t ne3 = cne[3];
 
-        //int64_t ne00 = cne0[0]; GGML_UNUSED(ne00);
-        //int64_t ne01 = cne0[1]; GGML_UNUSED(ne01);
-        //int64_t ne02 = cne0[2]; GGML_UNUSED(ne02);
-        //int64_t ne03 = cne0[3]; GGML_UNUSED(ne03);
+        //[[maybe_unused]] int64_t ne00 = cne0[0];
+        //[[maybe_unused]] int64_t ne01 = cne0[1];
+        //[[maybe_unused]] int64_t ne02 = cne0[2];
+        //[[maybe_unused]] int64_t ne03 = cne0[3];
 
         size_t nb0 = cnb[0];
         size_t nb1 = cnb[1];

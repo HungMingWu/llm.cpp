@@ -11,7 +11,6 @@ module;
 #include <tuple>
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
-#define GGML_UNUSED(x) (void)(x)
 #define GGML_ABORT(...)
 
 module ggml;
@@ -556,7 +555,7 @@ std::tuple<double, double> ggml_opt_result::get_accuracy() const {
 void ggml_opt_epoch_callback_progress_bar(
     bool               train,
     ggml_opt_context* opt_ctx,
-    ggml_opt_dataset* dataset,
+    ggml_opt_dataset* /*dataset*/,
     ggml_opt_result*  result,
     int64_t            ibatch,
     int64_t            ibatch_max,
@@ -626,8 +625,6 @@ void ggml_opt_epoch_callback_progress_bar(
         fprintf(stderr, "\n");
     }
     fflush(stderr);
-
-    GGML_UNUSED(dataset);
 }
 
 void ggml_opt_fit(

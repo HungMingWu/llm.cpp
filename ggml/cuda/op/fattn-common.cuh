@@ -66,11 +66,9 @@ using vec_dot_KQ_t = float (*)(
 
 template <int D, int nthreads>
 static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_f16(
-    const char* __restrict__ K_c, const void* __restrict__ Q_v, const int* __restrict__ Q_q8, const void* __restrict__ Q_ds_v) {
+    const char* __restrict__ K_c, const void* __restrict__ Q_v, const int* __restrict__ /*Q_q8*/, const void* __restrict__ /*Q_ds_v*/) {
 
     const half2* K_h2 = (const half2*)K_c;
-    GGML_UNUSED(Q_q8);
-    GGML_UNUSED(Q_ds_v);
 
     constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
     constexpr int cpy_ne = cpy_nb / 4;
@@ -96,10 +94,9 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_f16(
 
 template<int D, int nthreads>
 static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q4_0(
-    const char* __restrict__ K_c, const void* __restrict__ Q_v, const int* __restrict__ Q_q8, const void* __restrict__ Q_ds_v) {
+    const char* __restrict__ K_c, const void* __restrict__ /*Q_v*/, const int* __restrict__ Q_q8, const void* __restrict__ Q_ds_v) {
 
     const block_q4_0* K_q4_0 = (const block_q4_0*)K_c;
-    GGML_UNUSED(Q_v);
 
     float sum = 0.0f;
 
@@ -127,10 +124,9 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q4_0(
 
 template<int D, int nthreads>
 static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q4_1(
-    const char* __restrict__ K_c, const void* __restrict__ Q_v, const int* __restrict__ Q_q8, const void* __restrict__ Q_ds_v) {
+    const char* __restrict__ K_c, const void* __restrict__ /*Q_v*/, const int* __restrict__ Q_q8, const void* __restrict__ Q_ds_v) {
 
     const block_q4_1* K_q4_1 = (const block_q4_1*)K_c;
-    GGML_UNUSED(Q_v);
 
     float sum = 0.0f;
 
@@ -160,10 +156,9 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q4_1(
 
 template<int D, int nthreads>
 static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q5_0(
-    const char* __restrict__ K_c, const void* __restrict__ Q_v, const int* __restrict__ Q_q8, const void* __restrict__ Q_ds_v) {
+    const char* __restrict__ K_c, const void* __restrict__ /*Q_v*/, const int* __restrict__ Q_q8, const void* __restrict__ Q_ds_v) {
 
     const block_q5_0* K_q5_0 = (const block_q5_0*)K_c;
-    GGML_UNUSED(Q_v);
 
     float sum = 0.0f;
 
@@ -205,10 +200,9 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q5_0(
 
 template<int D, int nthreads>
 static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q5_1(
-    const char* __restrict__ K_c, const void* __restrict__ Q_v, const int* __restrict__ Q_q8, const void* __restrict__ Q_ds_v) {
+    const char* __restrict__ K_c, const void* __restrict__ /*Q_v*/, const int* __restrict__ Q_q8, const void* __restrict__ Q_ds_v) {
 
     const block_q5_1* K_q5_1 = (const block_q5_1*)K_c;
-    GGML_UNUSED(Q_v);
 
     float sum = 0.0f;
 
@@ -251,10 +245,9 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q5_1(
 
 template <int D, int nthreads>
 static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q8_0(
-    const char* __restrict__ K_c, const void* __restrict__ Q_v, const int* __restrict__ Q_q8, const void* __restrict__ Q_ds_v) {
+    const char* __restrict__ K_c, const void* __restrict__ /*Q_v*/, const int* __restrict__ Q_q8, const void* __restrict__ Q_ds_v) {
 
     const block_q8_0* K_q8_0 = (const block_q8_0*)K_c;
-    GGML_UNUSED(Q_v);
 
     float sum = 0.0f;
 

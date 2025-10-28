@@ -7,24 +7,19 @@
 #include "../common.h"
 #include "block.h"
 
-#define GGML_UNUSED(x) (void)(x)
-
 [[noreturn]]
 static __device__ void no_device_code(
-    const char* file_name, const int line, const char* function_name, const int arch, const char* arch_list)
+    const char* file_name, const int line, const char* function_name, const int arch, [[maybe_unused]] const char* arch_list)
 {
 
 #if defined(GGML_USE_HIP)
     printf("%s:%d: ERROR: HIP kernel %s has no device code compatible with HIP arch %d.\n",
         file_name, line, function_name, arch);
-    GGML_UNUSED(arch_list);
 #else
     printf("%s:%d: ERROR: CUDA kernel %s has no device code compatible with CUDA arch %d. ggml-cuda.cu was compiled for: %s\n",
         file_name, line, function_name, arch, arch_list);
 #endif // defined(GGML_USE_HIP)
     __trap();
-
-    GGML_UNUSED(no_device_code); // suppress unused function warning
 
 #if defined(GGML_USE_MUSA)
     __builtin_unreachable();
@@ -106,7 +101,7 @@ static __device__ __forceinline__ int warp_reduce_any(int x) {
     }
 }
 
-static __device__ __forceinline__ half ggml_cuda_hmax(const half a, const half b) {
+static __device__ __forceinline__ half ggml_cuda_hmax(const half a, [[maybe_unused]] const half b) {
 #ifdef FP16_AVAILABLE
 
 #if !defined(GGML_USE_HIP) && CUDART_VERSION < CUDART_HMAX
@@ -117,12 +112,11 @@ static __device__ __forceinline__ half ggml_cuda_hmax(const half a, const half b
 
 #else
     NO_DEVICE_CODE;
-    GGML_UNUSED(b);
     return a;
 #endif // FP16_AVAILABLE
 }
 
-static __device__ __forceinline__ half2 ggml_cuda_hmax2(const half2 a, const half2 b) {
+static __device__ __forceinline__ half2 ggml_cuda_hmax2([[maybe_unused]] const half2 a, [[maybe_unused]] const half2 b) {
 #if defined(GGML_USE_HIP) && HIP_VERSION >= 50700000
     return half2(__hmax(a.x, b.x), __hmax(a.y, b.y));
 #elif !defined(GGML_USE_HIP) && CUDART_VERSION >= CUDART_HMAX
@@ -133,8 +127,6 @@ static __device__ __forceinline__ half2 ggml_cuda_hmax2(const half2 a, const hal
     reinterpret_cast<half&>(ret.y) = __float2half(fmaxf(__high2float(a), __high2float(b)));
     return ret;
 #else
-    GGML_UNUSED(a);
-    GGML_UNUSED(b);
     NO_DEVICE_CODE;
 #endif
 }

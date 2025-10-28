@@ -2,9 +2,8 @@
 #include <float.h>
 #include "common.cuh"
 
-static int ggml_cuda_fattn_vec_get_nthreads_host(const int cc) {
+static int ggml_cuda_fattn_vec_get_nthreads_host(const int /*cc*/) {
     return 128;
-    GGML_UNUSED(cc);
 }
 
 static constexpr __device__ int ggml_cuda_fattn_vec_get_nthreads_device() {

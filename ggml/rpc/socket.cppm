@@ -27,7 +27,6 @@ module;
 #define GGML_PRINT_DEBUG(...)
 
 #define GGML_RPC_MAX_SERVERS       16
-#define GGML_UNUSED(x) (void)(x)
 
 module ggml:rpc.socket;
 import :rpc.ds;
@@ -206,7 +205,7 @@ std::shared_ptr<socket_t> get_socket(const std::string& endpoint) {
     static std::mutex mutex;
     std::lock_guard<std::mutex> lock(mutex);
     static std::unordered_map<std::string, std::weak_ptr<socket_t>> sockets;
-    static bool initialized = false;
+    [[maybe_unused]] static bool initialized = false;
 
     auto it = sockets.find(endpoint);
     if (it != sockets.end()) {
@@ -228,8 +227,6 @@ std::shared_ptr<socket_t> get_socket(const std::string& endpoint) {
         }
         initialized = true;
     }
-#else
-    GGML_UNUSED(initialized);
 #endif
     auto sock = socket_connect(host.c_str(), port);
     if (!sock) {

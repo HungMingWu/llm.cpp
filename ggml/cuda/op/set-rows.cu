@@ -6,7 +6,6 @@
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_ABORT(...)
-#define GGML_UNUSED(x) (void)(x)
 
 static constexpr size_t CUDA_SET_ROWS_BLOCK_SIZE = 256;
 
@@ -17,7 +16,7 @@ template<typename idx_t, typename block_type, int qk>
 static __global__ void k_set_rows_quant(
     const float* __restrict__ src0, const idx_t* __restrict__ src1, block_type* __restrict__ dst,
     const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
-    const int64_t ne10, const int64_t ne11, const int64_t ne12, const int64_t ne13,
+    const int64_t /*ne10*/, const int64_t ne11, const int64_t ne12, const int64_t /*ne13*/,
     const int64_t s01, const int64_t s02, const int64_t s03,
     const int64_t s10, const int64_t s11, const int64_t s12,
     const int64_t s1, const int64_t s2, const int64_t s3) {
@@ -48,16 +47,13 @@ static __global__ void k_set_rows_quant(
     block_type* dst_block = dst_row_ptr + i00 / qk;
 
     quantize_block(src_block, dst_block);
-
-    GGML_UNUSED(ne10);
-    GGML_UNUSED(ne13);
 }
 
 template<typename src_t, typename idx_t, typename dst_t>
 static __global__ void k_set_rows(
     const src_t* __restrict__ src0, const idx_t* __restrict__ src1, dst_t* __restrict__ dst,
     const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
-    const int64_t ne10, const int64_t ne11, const int64_t ne12, const int64_t ne13,
+    const int64_t /*ne10*/, const int64_t ne11, const int64_t ne12, const int64_t /*ne13*/,
     const int64_t s01, const int64_t s02, const int64_t s03,
     const int64_t s10, const int64_t s11, const int64_t s12,
     const int64_t s1, const int64_t s2, const int64_t s3) {
@@ -84,9 +80,6 @@ static __global__ void k_set_rows(
     dst_t* dst_row_ptr = dst + dst_row * s1 + i02 * s2 + i03 * s3;
 
     dst_row_ptr[i00] = ggml_cuda_cast<dst_t>(src0_row[i00]);
-
-    GGML_UNUSED(ne10);
-    GGML_UNUSED(ne13);
 }
 
 // Template dispatch function for quantized set_rows

@@ -215,11 +215,10 @@ struct fattn_mma_f16_config<256, 256> {
         return 64;
     }
 
-    static constexpr __device__ int get_nbatch_combine_device(int ncols) {
+    static constexpr __device__ int get_nbatch_combine_device([[maybe_unused]] int ncols) {
 #if __CUDA_ARCH__ == GGML_CUDA_CC_TURING
         return ncols <= 16 ? 128 : 64;
 #else
-        GGML_UNUSED(ncols);
         return 128;
 #endif // __CUDA_ARCH__ == GGML_CUDA_CC_TURING
     }

@@ -17,8 +17,6 @@ module;
 #define GGML_ABORT(...)
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
-#define GGML_UNUSED(x) (void)(x)
-
 module ggml;
 import :cuda.backend;
 import :cuda.op;
@@ -1529,7 +1527,7 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
     [[maybe_unused]] std::vector<void*>& ggml_cuda_cpy_fn_ptrs, bool& graph_evaluated_or_captured, bool& use_cuda_graph,
     bool& cuda_graph_update_required) {
     // flag used to determine whether it is an integrated_gpu
-    const bool integrated = ggml_cuda_info().devices[device].integrated;
+    [[maybe_unused]] const bool integrated = ggml_cuda_info().devices[device].integrated;
 
     while (!graph_evaluated_or_captured) {
         // Only perform the graph execution if CUDA graphs are not enabled, or we are capturing the graph.
@@ -1617,8 +1615,6 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
                     assert(src->buffer);
                     assert(buffer_type_from_device(src->buffer->get_type(), device));
                 }
-#else
-                GGML_UNUSED(integrated);
 #endif // NDEBUG
 
                 bool ok = compute_forward(node);

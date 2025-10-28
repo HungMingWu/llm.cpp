@@ -12,7 +12,6 @@ using namespace cub;
 
 #define GGML_ASSERT(...)
 #define GGML_ABORT(...)
-#define GGML_UNUSED(x) (void)(x)
 
 // We would like to keep pragma unroll for cases where L_template is not 0,
 // so we suppress the clang transformation warning.
