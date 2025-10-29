@@ -564,27 +564,19 @@ namespace op
         GGML_ASSERT(dst->nb[0] == ggml_type_size(dst->type));
 
         get_row_context ctx{
-            .stream = stream,
             .src0_d = src0->data,
             .src0_type = src0->type,
             .src1_d = (const int32_t*)src1->data,
             .dst_d = dst->data,
             .dst_type = dst->type,
-            .ne00 = src0->ne[0],
-            .nb01 = src0->nb[1],
-            .nb02 = src0->nb[2],
-            .nb03 = src0->nb[3],
-            .ne10 = src1->ne[0],
-            .ne11 = src1->ne[1],
-            .ne12 = src1->ne[2],
-            .nb10 = src1->nb[0],
-            .nb11 = src1->nb[1],
-            .nb12 = src1->nb[2],
-            .nb1 = dst->nb[1],
-            .nb2 = dst->nb[2],
-            .nb3 = dst->nb[3]
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .src1_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] }
         };
-        get_rows_cuda(&ctx);
+        get_rows_cuda(ctx, stream);
     }
 
     void get_rows_back(cudaStream_t stream, ggml_tensor* dst) {
@@ -609,7 +601,7 @@ namespace op
             .ne10 = src1->ne[0],
             .ne1 = dst->ne[1],
         };
-        get_rows_back_cuda(&context, stream);
+        get_rows_back_cuda(context, stream);
     }
 
     void argmax(cudaStream_t stream, ggml_tensor* dst) {
@@ -1170,28 +1162,26 @@ namespace op
         const int32_t* ids_from_sorted = ids_buf_dev.ptr + 1 * ne_get_rows;
 
         get_row_context ctx1{
-            .stream = stream,
             .src0_d = src1->data,
             .src0_type = src1->type,
             .src1_d = ids_to_sorted,
             .dst_d = src1_sorted.ptr,
             .dst_type = type_src1_sorted,
-            .ne00 = src1->ne[0],
-            .nb01 = src1->nb[1],
-            .nb02 = src1->nb[2],
-            .nb03 = src1->nb[3],
-            .ne10 = ne_get_rows,
-            .ne11 = 1,
-            .ne12 = 1,
-            .nb10 = sizeof(int32_t),
-            .nb11 = ne_get_rows * sizeof(int32_t),
-            .nb12 = ne_get_rows * sizeof(int32_t),
-            .nb1 = src1->ne[0] * ts_src1_sorted,
-            .nb2 = ne_get_rows * src1->ne[0] * ts_src1_sorted,
-            .nb3 = ne_get_rows * src1->ne[0] * ts_src1_sorted
+            .src0_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .src0_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
+            .src1_ne = { ne_get_rows, 1, 1, 1 },
+            .src1_nb = { sizeof(int32_t),
+                         sizeof(int32_t) * ne_get_rows,
+                         sizeof(int32_t) * ne_get_rows,
+                         sizeof(int32_t) * ne_get_rows },
+            .dst_ne = { src1->ne[0], ne_get_rows, 1, 1 },
+            .dst_nb = { ts_src1_sorted, 
+                        ts_src1_sorted * src1->ne[0],
+                        ts_src1_sorted * src1->ne[0] * ne_get_rows,
+                        ts_src1_sorted* src1->ne[0] * ne_get_rows }
         };
 
-        get_rows_cuda(&ctx1);
+        get_rows_cuda(ctx1, stream);
         CUDA_CHECK(cudaGetLastError());
 
         char* src1_data_cur = (char*)src1_sorted.ptr;
@@ -1243,28 +1233,27 @@ namespace op
             dst_data_cur += dst_slice.nb[2];
         }
 
+		// maybe need to regular src1 and dst's dimensions
         get_row_context ctx2{
-            .stream = stream,
             .src0_d = dst_sorted.ptr,
             .src0_type = type_dst_sorted,
             .src1_d = ids_from_sorted,
             .dst_d = dst->data,
             .dst_type = dst->type,
-            .ne00 = dst->ne[0],
-            .nb01 = dst->ne[0] * ts_dst_sorted,
-            .nb02 = ne_get_rows * dst->ne[0] * ts_dst_sorted,
-            .nb03 = ne_get_rows * dst->ne[0] * ts_dst_sorted,
-            .ne10 = ne_get_rows,
-            .ne11 = 1,
-            .ne12 = 1,
-            .nb10 = sizeof(int32_t),
-            .nb11 = ne_get_rows * sizeof(int32_t),
-            .nb12 = ne_get_rows * sizeof(int32_t),
-            .nb1 = dst->nb[1],
-            .nb2 = dst->nb[2],
-            .nb3 = dst->nb[3]
+            .src0_ne = { dst->ne[0], ne_get_rows, 1, 1 },
+            .src0_nb = { ts_dst_sorted,
+                         dst->ne[0] * ts_dst_sorted,
+                         dst->ne[0] * ts_dst_sorted * ne_get_rows,
+                         dst->ne[0] * ts_dst_sorted * ne_get_rows },
+            .src1_ne = { ne_get_rows, 1, 1, 1 },
+            .src1_nb = { sizeof(int32_t),
+                         sizeof(int32_t) * ne_get_rows,
+                         sizeof(int32_t) * ne_get_rows,
+                         sizeof(int32_t) * ne_get_rows },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] }
         };
-        get_rows_cuda(&ctx2);
+        get_rows_cuda(ctx2, stream);
     }
 
     void out_prod(cudaStream_t stream, cublasHandle_t handle, ggml_tensor* dst) {

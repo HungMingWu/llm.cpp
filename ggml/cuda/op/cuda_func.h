@@ -189,17 +189,17 @@ void leaky_relu_cuda(bool, const void*, void*, const int, const float, cudaStrea
 
 // get_row
 struct get_row_context {
-    cudaStream_t stream;
     const void* src0_d;
     ggml_type src0_type;
     const int32_t* src1_d;
     void* dst_d;
     ggml_type dst_type;
-    int64_t ne00;
-    size_t nb01, nb02, nb03;
-    int64_t ne10, ne11, ne12;
-    size_t nb10, nb11, nb12;
-    size_t nb1, nb2, nb3;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t src1_ne[4];
+    size_t src1_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
 };
 
 struct get_row_back_context {
@@ -211,8 +211,8 @@ struct get_row_back_context {
     const int64_t ne1;
 };
 
-void get_rows_cuda(const get_row_context *ctx);
-void get_rows_back_cuda(const get_row_back_context* ctx, cudaStream_t stream);
+void get_rows_cuda(const get_row_context &ctx, cudaStream_t stream);
+void get_rows_back_cuda(const get_row_back_context &ctx, cudaStream_t stream);
 
 // argmax
 struct argmax_context {
