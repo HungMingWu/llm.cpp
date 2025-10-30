@@ -8,14 +8,21 @@ void ggml_log_callback_default(ggml_log_level, std::string_view text) {
     std::println("{}", text);
 }
 
-ggml_log_callback g_logger = ggml_log_callback_default;
+struct Logger {
+    ggml_log_callback logger = ggml_log_callback_default;
+};
+
+Logger& get_logger() {
+    static Logger logger;
+    return logger;
+}
 
 void log(ggml_log_level level, std::string_view output)
 {
-    g_logger(level, output);
+    get_logger().logger(level, output);
 }
 
 void ggml_log_set(ggml_log_callback ggml_log_set)
 {
-	g_logger = ggml_log_set ? ggml_log_set : ggml_log_callback_default;
+    get_logger().logger = ggml_log_set ? ggml_log_set : ggml_log_callback_default;
 }
