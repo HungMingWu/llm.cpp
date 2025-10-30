@@ -36,6 +36,11 @@ import :cpu.op;
 import :cpu.llamafile.sgemm;
 #endif
 
+static int register_ok = []() {
+	get_reg().register_backend(ggml_backend_cpu_reg());
+	return 0;
+}();
+
 // ggml_compute_forward_mul_mat
 
 template <typename T, typename U>

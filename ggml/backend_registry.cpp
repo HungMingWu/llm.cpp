@@ -4,8 +4,6 @@ module;
 #include <string>
 #include <vector>
 
-#define GGML_USE_CPU
-
 #define GGML_BACKEND_API_VERSION 1
 
 static std::string path_str(const std::filesystem::path& path) {
@@ -29,9 +27,6 @@ module ggml;
 import :log;
 
 ggml_backend_registry::ggml_backend_registry() {
-#ifdef GGML_USE_CUDA
-	register_backend(ggml_backend_cuda_reg());
-#endif
 #ifdef GGML_USE_METAL
 	register_backend(ggml_backend_metal_reg());
 #endif
@@ -55,9 +50,6 @@ ggml_backend_registry::ggml_backend_registry() {
 #endif
 #ifdef GGML_USE_RPC
 	register_backend(ggml_backend_rpc_reg());
-#endif
-#ifdef GGML_USE_CPU
-	register_backend(ggml_backend_cpu_reg());
 #endif
 }
 

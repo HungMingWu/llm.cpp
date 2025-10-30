@@ -5,6 +5,11 @@ module;
 module ggml;
 import :cuda.op;
 
+static int register_ok = []() {
+    get_reg().register_backend(ggml_backend_cuda_reg());
+    return 0;
+}();
+
 bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
 {
     // split buffers can only be used with GGML_OP_MUL_MAT
