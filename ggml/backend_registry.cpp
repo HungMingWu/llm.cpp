@@ -165,3 +165,124 @@ void ggml_backend_registry::unload_backend(ggml_backend_reg_t reg, bool silent) 
 	// remove backend
 	backends.erase(it);
 }
+
+namespace fs = std::filesystem;
+static ggml_backend_reg* ggml_backend_load_best(std::u8string name_path, bool silent, std::optional<fs::path> user_search_path) {
+	// enumerate all the files that match [lib]ggml-name-*.[so|dll] in the search paths
+	const fs::path file_prefix = backend_filename_prefix() + name_path + u8"-";
+	const fs::path file_extension = backend_filename_extension();
+
+	std::vector<fs::path> search_paths;
+	if (!user_search_path.has_value()) {
+#ifdef GGML_BACKEND_DIR
+		search_paths.push_back(GGML_BACKEND_DIR);
+#endif
+		// default search paths: executable directory, current directory
+		search_paths.push_back(get_executable_path());
+		search_paths.push_back(fs::current_path());
+	}
+	else {
+		search_paths.push_back(user_search_path.value());
+	}
+
+	int best_score = 0;
+	fs::path best_path;
+
+	for (const auto& search_path : search_paths) {
+		if (!fs::exists(search_path)) {
+			GGML_LOG_DEBUG("{}: search path {} does not exist\n", __func__, path_str(search_path));
+			continue;
+		}
+		fs::directory_iterator dir_it(search_path, fs::directory_options::skip_permission_denied);
+		for (const auto& entry : dir_it) {
+			if (entry.is_regular_file()) {
+				auto filename = entry.path().filename();
+				auto ext = entry.path().extension();
+				if (filename.native().find(file_prefix) == 0 && ext == file_extension) {
+					dl_handle_ptr handle{ dl_load_library(entry) };
+					if (!handle && !silent) {
+						GGML_LOG_ERROR("{}: failed to load {}: {}\n", __func__, path_str(entry.path()), dl_error());
+					}
+					if (handle) {
+						auto score_fn = (ggml_backend_score_t)dl_get_sym(handle.get(), "ggml_backend_score");
+						if (score_fn) {
+							int s = score_fn();
+#ifndef NDEBUG
+							GGML_LOG_DEBUG("{}: {} score: {}\n", __func__, path_str(entry.path()), s);
+#endif
+							if (s > best_score) {
+								best_score = s;
+								best_path = entry.path();
+							}
+						}
+						else {
+							if (!silent) {
+								GGML_LOG_INFO("{}: failed to find ggml_backend_score in {}\n", __func__, path_str(entry.path()));
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if (best_score == 0) {
+		// try to load the base backend
+		for (const auto& search_path : search_paths) {
+			fs::path filename = backend_filename_prefix() + name_path + backend_filename_extension();
+			fs::path path = search_path / filename;
+			if (fs::exists(path)) {
+				return get_reg().load_backend(path, silent);
+			}
+		}
+		return nullptr;
+	}
+
+	return get_reg().load_backend(best_path, silent);
+}
+
+// Dynamic loading
+ggml_backend_reg* ggml_backend_load(const char* path) {
+	return get_reg().load_backend(path, false);
+}
+
+void ggml_backend_load_all_from_path(std::optional<fs::path> dir_path = {}) {
+#ifdef NDEBUG
+	bool silent = true;
+#else
+	bool silent = false;
+#endif
+
+	ggml_backend_load_best(u8"blas", silent, dir_path);
+	ggml_backend_load_best(u8"cann", silent, dir_path);
+	ggml_backend_load_best(u8"cuda", silent, dir_path);
+	ggml_backend_load_best(u8"hip", silent, dir_path);
+	ggml_backend_load_best(u8"metal", silent, dir_path);
+	ggml_backend_load_best(u8"rpc", silent, dir_path);
+	ggml_backend_load_best(u8"sycl", silent, dir_path);
+	ggml_backend_load_best(u8"vulkan", silent, dir_path);
+	ggml_backend_load_best(u8"opencl", silent, dir_path);
+	ggml_backend_load_best(u8"musa", silent, dir_path);
+	ggml_backend_load_best(u8"cpu", silent, dir_path);
+	// check the environment variable GGML_BACKEND_PATH to load an out-of-tree backend
+	const char* backend_path = std::getenv("GGML_BACKEND_PATH");
+	if (backend_path) {
+		ggml_backend_load(backend_path);
+	}
+}
+
+void ggml_backend_load_all()
+{
+	ggml_backend_load_all_from_path();
+}
+
+std::unique_ptr<ggml_backend> ggml_backend_init_best()
+{
+	ggml_backend_device* dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU);
+	dev = dev ? dev : ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_IGPU);
+	dev = dev ? dev : ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+	if (!dev) {
+		return nullptr;
+	}
+	return dev->init_backend(nullptr);
+}

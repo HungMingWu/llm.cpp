@@ -41,3 +41,42 @@ const char* dl_error()
     const char* rslt = dlerror();
     return rslt != nullptr ? rslt : "";
 }
+
+std::u8string backend_filename_prefix()
+{
+    return u8"libggml-";
+}
+
+std::u8string backend_filename_extension()
+{
+    return u8".so";
+}
+
+std::filesystem::path get_executable_path()
+{
+    std::string base_path = ".";
+    std::vector<char> path(1024);
+    while (true) {
+        // get executable path
+#    if defined(__linux__)
+        ssize_t len = readlink("/proc/self/exe", path.data(), path.size());
+#    elif defined(__FreeBSD__)
+        ssize_t len = readlink("/proc/curproc/file", path.data(), path.size());
+#    endif
+        if (len == -1) {
+            break;
+        }
+        if (len < (ssize_t)path.size()) {
+            base_path = std::string(path.data(), len);
+            // remove executable name
+            auto last_slash = base_path.find_last_of('/');
+            if (last_slash != std::string::npos) {
+                base_path = base_path.substr(0, last_slash);
+            }
+            break;
+        }
+        path.resize(path.size() * 2);
+    }
+
+    return base_path + "/";
+}

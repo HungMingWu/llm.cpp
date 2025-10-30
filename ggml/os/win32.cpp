@@ -53,3 +53,29 @@ const char* dl_error()
 {
 	return "";
 }
+
+std::u8string backend_filename_prefix()
+{
+	return u8"ggml-";
+}
+
+std::u8string backend_filename_extension()
+{
+	return u8".dll";
+}
+
+std::filesystem::path get_executable_path()
+{
+	std::vector<wchar_t> path(MAX_PATH);
+	DWORD len = GetModuleFileNameW(NULL, path.data(), path.size());
+	if (len == 0) {
+		return {};
+	}
+	std::wstring base_path(path.data(), len);
+	// remove executable name
+	auto last_slash = base_path.find_last_of('\\');
+	if (last_slash != std::string::npos) {
+		base_path = base_path.substr(0, last_slash);
+	}
+	return base_path + L"\\";
+}

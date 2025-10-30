@@ -23,4 +23,8 @@ export
 	using dl_handle_ptr = std::unique_ptr<std::remove_pointer_t<dl_handle>, dl_handle_deleter>;
 
 	void get_memory(size_t* free, size_t* total);
+
+	std::u8string backend_filename_prefix();
+	std::u8string backend_filename_extension();
+	std::filesystem::path get_executable_path();
 }

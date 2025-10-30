@@ -58,12 +58,13 @@ struct ggml_backend_registry {
 	void unload_backend(ggml_backend_reg_t reg, bool silent);
 };
 
-static ggml_backend_registry& get_reg() {
-	static ggml_backend_registry reg;
-	return reg;
-}
-
 export {
+
+	ggml_backend_registry& get_reg() {
+		static ggml_backend_registry reg;
+		return reg;
+	}
+
 	std::span<ggml_backend_device*> backend_devs()
 	{
 		return get_reg().devices;
@@ -217,6 +218,9 @@ export {
 	 float ggml_softplus(float input) {
 		 return (input > 20.0f) ? input : logf(1 + expf(input));
 	 };
+
+	 void ggml_backend_load_all();
+	 std::unique_ptr<ggml_backend> ggml_backend_init_best();
 
 	 // Remove later
 	 size_t ggml_backend_reg_count() {
