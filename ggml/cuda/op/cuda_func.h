@@ -695,14 +695,15 @@ struct set_rows_context {
     const void* src0_d;
     const void* src1_d;
     void* dst_d;
-    const int64_t ne00, ne01, ne02, ne03;
-    const size_t nb00, nb01, nb02, nb03;
-    const int64_t ne10, ne11, ne12, ne13;
-    const size_t nb10, nb11, nb12, nb13;
-    size_t nb1, nb2, nb3;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t src1_ne[4];
+    size_t src1_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
 };
 
-void set_rows_cuda(set_rows_context* context, cudaStream_t stream);
+void set_rows_cuda(const set_rows_context &context, cudaStream_t stream);
 
 // softcap.cu
 void softcap_f32_cuda(const float* x, float* dst, const float scale, const float softcap, const int k, cudaStream_t stream);

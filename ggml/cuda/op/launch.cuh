@@ -41,6 +41,7 @@ static void launch_functor(cudaStream_t stream, std::tuple<Args...> tuple, Funct
         return ((1 * args) * ...);
     }, tuple);
     assert(total_elements < (1ll << 40 ) - 256);
+    if (total_elements == 0) return;
     const int64_t blocks = (total_elements + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     launch_kernel << < blocks, BLOCK_SIZE, 0, stream >> > (total_elements, tuple, functor);

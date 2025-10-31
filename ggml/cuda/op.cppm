@@ -2483,27 +2483,14 @@ namespace op
             .src0_d = src0->data,
             .src1_d = src1->data,
             .dst_d = dst->data,
-            .ne00 = src0->ne[0],
-            .ne01 = src0->ne[1],
-            .ne02 = src0->ne[2],
-            .ne03 = src0->ne[3],
-            .nb00 = src0->nb[0],
-            .nb01 = src0->nb[1],
-            .nb02 = src0->nb[2],
-            .nb03 = src0->nb[3],
-            .ne10 = src1->ne[0],
-            .ne11 = src1->ne[1],
-            .ne12 = src1->ne[2],
-            .ne13 = src1->ne[3],
-            .nb10 = src1->nb[0],
-            .nb11 = src1->nb[1],
-            .nb12 = src1->nb[2],
-            .nb13 = src1->nb[3],
-            .nb1 = dst->nb[1],
-            .nb2 = dst->nb[2],
-            .nb3 = dst->nb[3]
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .src1_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
         };
-        set_rows_cuda(&ctx, stream);
+        set_rows_cuda(ctx, stream);
     }
 
     void fused_add(cudaStream_t stream, ggml_tensor* dst, int n_fuse)
