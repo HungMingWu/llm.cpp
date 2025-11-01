@@ -2,6 +2,7 @@
 #include "common.cuh"
 #include "convert.cuh"
 #include <utility>
+#include <cooperative_groups/reduce.h>
 
 static constexpr size_t CUDA_SOFT_MAX_BLOCK_SIZE = 1024;
 #define GGML_PAD1(x, n) (((x) + (n) - 1) & ~((n) - 1))
@@ -17,13 +18,13 @@ static __global__ void soft_max_f32(
     const float* x, const T* mask, const float* sinks, float* dst, const soft_max_params p) {
     const int ncols = ncols_template == 0 ? p.ncols : ncols_template;
 
-    const int tid = threadIdx.x;
-
     const int64_t i03 = blockIdx.z;
     const int64_t i02 = blockIdx.y;
     const int64_t i01 = blockIdx.x;
 
     auto block = cooperative_groups::this_thread_block();
+    const int tid = block.thread_rank();
+    auto tile = cooperative_groups::tiled_partition<32>(block);
 
     //TODO: noncontigous inputs/outputs
     const int rowx = blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.x * gridDim.y;
@@ -38,8 +39,8 @@ static __global__ void soft_max_f32(
 
     const int block_size = block_size_template == 0 ? blockDim.x : block_size_template;
 
-    const int warp_id = threadIdx.x / WARP_SIZE;
-    const int lane_id = threadIdx.x % WARP_SIZE;
+    const int tile_id = tid / tile.size();
+    const int lane_id = tile.thread_rank();
 
     const float slope = get_alibi_slope(p.max_bias, i02, p.n_head_log2, p.m0, p.m1);
 
@@ -65,20 +66,18 @@ static __global__ void soft_max_f32(
     }
 
     // find the max value in the block
-    max_val = warp_reduce_max(max_val);
+    max_val = cooperative_groups::reduce(tile, max_val, cooperative_groups::greater<float>());
     if (block_size > WARP_SIZE) {
-        if (warp_id == 0) {
+        if (tile_id == 0) {
             buf_iw[lane_id] = -INFINITY;
         }
         block.sync();
-
         if (lane_id == 0) {
-            buf_iw[warp_id] = max_val;
+            buf_iw[tile_id] = max_val;
         }
         block.sync();
 
-        max_val = buf_iw[lane_id];
-        max_val = warp_reduce_max(max_val);
+        max_val = cooperative_groups::reduce(tile, buf_iw[lane_id], cooperative_groups::greater<float>());
     }
 
     float tmp = 0.0f; // partial sum
@@ -97,21 +96,19 @@ static __global__ void soft_max_f32(
     }
 
     // find the sum of exps in the block
-    tmp = warp_reduce_sum(tmp);
+    tmp = cooperative_groups::reduce(tile, tmp, cooperative_groups::plus<float>());
+    //tmp = warp_reduce_sum(tmp);
     if (block_size > WARP_SIZE) {
-        block.sync();
-        if (warp_id == 0) {
+        if (tile_id == 0) {
             buf_iw[lane_id] = 0.0f;
         }
         block.sync();
-
         if (lane_id == 0) {
-            buf_iw[warp_id] = tmp;
+            buf_iw[tile_id] = tmp;
         }
         block.sync();
 
-        tmp = buf_iw[lane_id];
-        tmp = warp_reduce_sum(tmp);
+        tmp = cooperative_groups::reduce(tile, buf_iw[lane_id], cooperative_groups::plus<float>());
     }
 
     if (sinks) {

@@ -14,7 +14,7 @@ Based on C++26 Standard
 - C++26 Static refelection (Clang P2296 branch support, but no mainstream compiler support yet)
 
 ### Minimum Requirement
-CUDA Version: 9, Compute Capability >= 3
+CUDA Version: 10, Compute Capability >= 3
 
 ### How to build
 
