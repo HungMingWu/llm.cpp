@@ -140,17 +140,20 @@ public:
         : ggml_backend_reg(api_version, context)
     {
         for (int i = 0; i < ggml_cuda_info().device_count; i++) {
-            ggml_backend_cuda_device* dev = new ggml_backend_cuda_device(this);
-            dev->device = i;
-            dev->name = GGML_CUDA_NAME + std::to_string(i);
-
             cudaDeviceProp prop;
             CUDA_CHECK(cudaGetDeviceProperties(&prop, i));
-            dev->description = prop.name;
-            
-            dev->pci_bus_id = std::format("{:04x}:{:02x}:{:02x}.0", prop.pciDomainID, prop.pciBusID, prop.pciDeviceID);
-
-            devices.push_back(dev);
+            if (prop.major < 3) {
+                GGML_LOG_INFO("{}: skipping device {} {} with compute capability {}.{} (minimum is 3.0)",
+					__func__, i, prop.name, prop.major, prop.minor);
+                continue;
+            } else {
+                ggml_backend_cuda_device* dev = new ggml_backend_cuda_device(this);
+                dev->device = i;
+                dev->name = GGML_CUDA_NAME + std::to_string(i);
+                dev->description = prop.name;
+                dev->pci_bus_id = std::format("{:04x}:{:02x}:{:02x}.0", prop.pciDomainID, prop.pciBusID, prop.pciDeviceID);
+                devices.push_back(dev);
+            }
         }
     }
 

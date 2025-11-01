@@ -1452,7 +1452,7 @@ namespace op
                 .m1 = m1
             }
         };
-        soft_max_f32_cuda(&ctx, stream);
+        soft_max_f32_cuda(ctx, stream);
     }
 
     void soft_max_back(cudaStream_t stream, ggml_tensor* dst) {

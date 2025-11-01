@@ -1,19 +1,10 @@
 #include "cuda_func.h"
 #include "common.cuh"
+#include "convert.cuh"
 #include <utility>
 
 static constexpr size_t CUDA_SOFT_MAX_BLOCK_SIZE = 1024;
 #define GGML_PAD1(x, n) (((x) + (n) - 1) & ~((n) - 1))
-
-template <typename T>
-static __device__ __forceinline__ float t2f32(T val) {
-    return (float)val;
-}
-
-template <>
-__device__ float __forceinline__ t2f32<half>(half val) {
-    return __half2float(val);
-}
 
 // When ncols_template == 0 the bounds for the loops in this function are not known and can't be unrolled.
 // As we want to keep pragma unroll for all other cases we supress the clang transformation warning here.
@@ -31,6 +22,8 @@ static __global__ void soft_max_f32(
     const int64_t i03 = blockIdx.z;
     const int64_t i02 = blockIdx.y;
     const int64_t i01 = blockIdx.x;
+
+    auto block = cooperative_groups::this_thread_block();
 
     //TODO: noncontigous inputs/outputs
     const int rowx = blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.x * gridDim.y;
@@ -65,7 +58,7 @@ static __global__ void soft_max_f32(
             break;
         }
 
-        const float val = x[col] * p.scale + (mask ? slope * t2f32(mask[col]) : 0.0f);
+        const float val = x[col] * p.scale + (mask ? slope * ggml_cuda_cast<float>(mask[col]) : 0.0f);
 
         vals[col] = val;
         max_val = max(max_val, val);
@@ -77,12 +70,12 @@ static __global__ void soft_max_f32(
         if (warp_id == 0) {
             buf_iw[lane_id] = -INFINITY;
         }
-        __syncthreads();
+        block.sync();
 
         if (lane_id == 0) {
             buf_iw[warp_id] = max_val;
         }
-        __syncthreads();
+        block.sync();
 
         max_val = buf_iw[lane_id];
         max_val = warp_reduce_max(max_val);
@@ -106,16 +99,16 @@ static __global__ void soft_max_f32(
     // find the sum of exps in the block
     tmp = warp_reduce_sum(tmp);
     if (block_size > WARP_SIZE) {
-        __syncthreads();
+        block.sync();
         if (warp_id == 0) {
             buf_iw[lane_id] = 0.0f;
         }
-        __syncthreads();
+        block.sync();
 
         if (lane_id == 0) {
             buf_iw[warp_id] = tmp;
         }
-        __syncthreads();
+        block.sync();
 
         tmp = buf_iw[lane_id];
         tmp = warp_reduce_sum(tmp);
@@ -142,9 +135,9 @@ static __global__ void soft_max_f32(
 #pragma clang diagnostic pop
 #endif // __clang__
 
-template<int... Ns, typename T>
-static void launch_soft_max_kernels(const float* x, const T* mask, const float* sinks, float* dst,
-    const soft_max_params& p, cudaStream_t stream, dim3 block_dims, dim3 block_nums, size_t nbytes_shared)
+template <typename T, int... Ns>
+static void launch_soft_max_kernels(const softmax_context& ctx,
+    cudaStream_t stream, dim3 block_dims, dim3 block_nums, size_t nbytes_shared)
 {
     const int id = ggml_cuda_get_device();
     const size_t smpbo = ggml_cuda_info().devices[id].smpbo;
@@ -153,14 +146,14 @@ static void launch_soft_max_kernels(const float* x, const T* mask, const float* 
         constexpr int ncols = decltype(I)::value;
         constexpr int block = (ncols > 1024 ? 1024 : ncols);
 
-        if (p.ncols == ncols) {
+        if (ctx.params.ncols == ncols) {
             CUDA_SET_SHARED_MEMORY_LIMIT(reinterpret_cast<const void*>(soft_max_f32<true, ncols, block, T>), smpbo);
             soft_max_f32<true, ncols, block> << <block_nums, block_dims, nbytes_shared, stream >> >
-                (x, mask, sinks, dst, p);
+                (/*x*/ctx.src0_d, /*mask*/static_cast<const T*>(ctx.src1_d), /*sinks*/ctx.src2_d, ctx.dst_d, ctx.params);
             return true;
         }
         return false;
-        };
+    };
 
     // unary fold over launch_kernel
     if ((launch_kernel(std::integral_constant<int, Ns>{}) || ...)) {
@@ -169,17 +162,18 @@ static void launch_soft_max_kernels(const float* x, const T* mask, const float* 
 
     //default case
     CUDA_SET_SHARED_MEMORY_LIMIT(reinterpret_cast<const void*>(soft_max_f32<true, 0, 0, T>), smpbo);
-    soft_max_f32<true, 0, 0> << <block_nums, block_dims, nbytes_shared, stream >> > (x, mask, sinks, dst, p);
+    soft_max_f32<true, 0, 0> << <block_nums, block_dims, nbytes_shared, stream >> > (
+        /*x*/ctx.src0_d, /*mask*/static_cast<const T*>(ctx.src1_d), /*sinks*/ctx.src2_d, ctx.dst_d, ctx.params);
 }
 
-template<typename T>
-static void soft_max_f32_cuda(const float* x, const T* mask, const float* sinks, float* dst, const soft_max_params& params, cudaStream_t stream) {
+template <typename T>
+static void soft_max_f32_cuda(const softmax_context& ctx, cudaStream_t stream) {
     int nth = WARP_SIZE;
-    const int64_t ncols_x = params.ncols;
+    const int64_t ncols_x = ctx.params.ncols;
 
     while (nth < ncols_x && nth < CUDA_SOFT_MAX_BLOCK_SIZE) nth *= 2;
     const dim3 block_dims(nth, 1, 1);
-    const dim3 block_nums(params.ne01, params.ne02, params.ne03);
+    const dim3 block_nums(ctx.params.ne01, ctx.params.ne02, ctx.params.ne03);
     const size_t nbytes_shared = (GGML_PAD1(ncols_x, WARP_SIZE) + WARP_SIZE) * sizeof(float);
     static_assert(CUDA_SOFT_MAX_BLOCK_SIZE == 1024, "These values need to be adjusted.");
 
@@ -189,23 +183,22 @@ static void soft_max_f32_cuda(const float* x, const T* mask, const float* sinks,
 
 
     if (nbytes_shared <= smpbo) {
-        launch_soft_max_kernels<32, 64, 128, 256, 512, 1024, 2048, 4096>(x, mask, sinks, dst, params, stream, block_dims, block_nums, nbytes_shared);
+        launch_soft_max_kernels<T, 32, 64, 128, 256, 512, 1024, 2048, 4096>(ctx, stream, block_dims, block_nums, nbytes_shared);
     }
     else {
         const size_t nbytes_shared_low = WARP_SIZE * sizeof(float);
-        soft_max_f32<false, 0, 0> << <block_nums, block_dims, nbytes_shared_low, stream >> > (x, mask, sinks, dst, params);
+        soft_max_f32<false, 0, 0> << <block_nums, block_dims, nbytes_shared_low, stream >> > (ctx.src0_d, 
+            /*mask*/static_cast<const T*>(ctx.src1_d), /*sinks*/ctx.src2_d, ctx.dst_d, ctx.params);
     }
 }
 
-void soft_max_f32_cuda(const softmax_context* ctx, cudaStream_t stream)
+void soft_max_f32_cuda(const softmax_context &ctx, cudaStream_t stream)
 {
-    if (ctx->use_f16) {
-        soft_max_f32_cuda(ctx->src0_d, (const half*)ctx->src1_d, ctx->src2_d,
-            ctx->dst_d, ctx->params, stream);
+    if (ctx.use_f16) {
+        soft_max_f32_cuda<half>(ctx, stream);
     }
     else {
-        soft_max_f32_cuda(ctx->src0_d, (const float*)ctx->src1_d, ctx->src2_d,
-            ctx->dst_d, ctx->params, stream);
+        soft_max_f32_cuda<float>(ctx, stream);
     }
 }
 

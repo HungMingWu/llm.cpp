@@ -420,7 +420,7 @@ struct softmax_context {
     soft_max_params params;
 };
 
-void soft_max_f32_cuda(const softmax_context* ctx, cudaStream_t stream);
+void soft_max_f32_cuda(const softmax_context &ctx, cudaStream_t stream);
 void soft_max_back_f32_cuda(
     const float* grad, const float* dstf, float* dst,
     const int ncols, const int nrows, const float scale, cudaStream_t stream);
