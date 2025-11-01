@@ -3048,7 +3048,13 @@ static void ggml_compute_forward_soft_max_f32(
 	}();
 
 	// sinks
-	const float* sk = src2 ? (float*)((char*)src2->data) : nullptr;
+	auto sk = [=]() -> std::span<const float> {
+		if (!src2) return {};
+		else {
+			assert(src2->ne[0] == src0->ne[2]);
+			return { static_cast<const float*>(src2->data), static_cast<size_t>(src2->ne[0]) };
+		}
+	}();
 
 	for (int64_t i01 = 0; i01 < nh; i01 ++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
@@ -3064,9 +3070,7 @@ static void ggml_compute_forward_soft_max_f32(
 					for (size_t i00 = 0; i00 < src0->ne[0]; i00++) {
 						wp[i00] = src0_data[i03, i02, i01, i00] * scale;
 						if (!src1_data.empty()) {
-							if constexpr (std::is_same_v<src1_t, ggml_fp16_t> || std::is_same_v<src1_t, ggml_fp32_t>) {
-								wp[i00] += slope * toFloat32(src1_data[i03 % src1_data.extent(0), i02 % src1_data.extent(1), i01, i00]);
-							}
+							wp[i00] += slope * toFloat32(src1_data[i03 % src1_data.extent(0), i02 % src1_data.extent(1), i01, i00]);
 						}
 #ifndef NDEBUG
 						//printf("p[%d] = %f\n", i, p[i]);
@@ -3077,7 +3081,7 @@ static void ggml_compute_forward_soft_max_f32(
 					float max = *std::max_element(wp.begin(), wp.end());
 
 					// if we have sinks, make a correction as if they were included in the softmax
-					if (sk) {
+					if (!sk.empty()) {
 						max = std::max(max, sk[i02]);
 					}
 
@@ -3089,7 +3093,7 @@ static void ggml_compute_forward_soft_max_f32(
 					}
 					assert(sum > 0.0);
 
-					if (sk) {
+					if (!sk.empty()) {
 						sum += (ggml_float)expf(sk[i02] - max);
 					}
 
@@ -3133,23 +3137,12 @@ static void ggml_compute_forward_soft_max(
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src1 = dst->src[1];
-	if (!src1) {
-		ggml_compute_forward_soft_max_f32<std::nullptr_t>(pool, scope, dst);
-		return;
-	}
-	switch (src1->type) {
-	case GGML_TYPE_F32:
-	{
-		ggml_compute_forward_soft_max_f32<ggml_fp32_t>(pool, scope, dst);
-	} break;
-	case GGML_TYPE_F16:
-	{
+	if (!src1 || src1->type == GGML_TYPE_F16) {
 		ggml_compute_forward_soft_max_f32<ggml_fp16_t>(pool, scope, dst);
-	} break;
-	default:
-	{
-		assert(false);
 	}
+	else {
+		GGML_ASSERT(src1->type == GGML_TYPE_F32);
+		ggml_compute_forward_soft_max_f32<ggml_fp32_t>(pool, scope, dst);
 	}
 }
 

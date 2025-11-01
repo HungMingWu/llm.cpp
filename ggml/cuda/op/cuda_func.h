@@ -401,16 +401,15 @@ struct soft_max_params {
     int64_t ncols;
     int64_t nrows_x;
     int64_t nrows_y;
-    int64_t ne00;
-    int64_t ne01;
-    int64_t ne02;
-    int64_t ne03;
-    int64_t nb11;
-    int64_t nb12;
-    int64_t nb13;
+    int64_t src0_ne[4];
+	size_t src0_nb[4];
+    int64_t src1_ne[4];
+    size_t src1_nb[4];
+    int64_t src2_ne[4];
+    size_t src2_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
 
-    int64_t ne12;
-    int64_t ne13;
     float scale;
     float max_bias;
     float m0;
@@ -429,7 +428,7 @@ struct softmax_context {
     soft_max_params params;
 };
 
-void soft_max_f32_cuda(const softmax_context* ctx, cudaStream_t stream);
+void soft_max_f32_cuda(const softmax_context &ctx, cudaStream_t stream);
 void soft_max_back_f32_cuda(
     const float* grad, const float* dstf, float* dst,
     const int ncols, const int nrows, const float scale, cudaStream_t stream);
