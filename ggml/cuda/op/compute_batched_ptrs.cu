@@ -34,8 +34,15 @@ void k_compute_batched_ptrs_cuda(
     size_t  nbd2, size_t  nbd3,
     int64_t r2, int64_t r3, cudaStream_t stream)
 {
-    dim3 block_dims(ne13, ne12);
-    k_compute_batched_ptrs << <1, block_dims, 0, stream >> > (
+    const int threads_x = 16;
+    const int threads_y = 16;
+    dim3 block_dims(threads_x, threads_y);
+
+    dim3 grid_dims(
+        (ne13 + threads_x - 1) / threads_x,
+        (ne12 + threads_y - 1) / threads_y
+    );
+    k_compute_batched_ptrs << <grid_dims, block_dims, 0, stream >> > (
         src0_as_f16, src1_as_f16, dst,
         ptrs_src, ptrs_dst,
         ne12, ne13,

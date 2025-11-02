@@ -2,6 +2,7 @@
 #include <assert.h>
 #include "cuda_func.h"
 #include "convert.cuh"
+#include "unary.cuh"
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
 static constexpr size_t CUDA_RELU_BLOCK_SIZE = 256;
@@ -15,12 +16,6 @@ static __host__ __device__ float step(float x) {
     return x > 0.0f;
 }
 
-static __host__ __device__ float gelu(float x) {
-    static const float GELU_COEF_A = 0.044715f;
-    static const float SQRT_2_OVER_PI = 0.79788456080286535587989211986876f;
-    return 0.5f * x * (1.0f + tanhf(SQRT_2_OVER_PI * x * (1.0f + GELU_COEF_A * x * x)));
-}
-
 static __host__ __device__ float gelu_erf(float x) {
     const float SQRT_2_INV = 0.70710678118654752440084436210484f;
 
@@ -31,10 +26,6 @@ static __device__ __forceinline__ float gelu_quick(float x) {
     const float GELU_QUICK_COEF = -1.702f;
 
     return x * (1.0f / (1.0f + expf(GELU_QUICK_COEF * x)));
-}
-
-static __host__ __device__ float silu(float x) {
-    return x / (1.0f + expf(-x));
 }
 
 static __host__ __device__ float relu(float x) {
@@ -341,13 +332,8 @@ static __global__ void swiglu_oai_kernel(const T* x, const T* g, T* dst, const i
 
     float xi = x[j0];
     float gi = g[j1];
-    xi = fminf(xi, limit);
-    gi = fmaxf(fminf(gi, limit), -limit);
 
-    float out_glu = xi / (1.0f + expf(-xi * alpha));
-    out_glu = out_glu * (1.0f + gi);
-
-    dst[i] = out_glu;
+    dst[i] = swiglu_oai(xi, gi, alpha, limit);
 }
 
 void swiglu_oai_cuda(const float* x, const float* g, float* dst, const int64_t k, const int64_t n, const int64_t o0, const int64_t o1, const float alpha, const float limit, cudaStream_t stream) {

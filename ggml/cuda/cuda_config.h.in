@@ -17,3 +17,9 @@ constexpr bool force_enable_cuda_mmq_v = true;
 #else
 constexpr bool force_enable_cuda_mmq_v = false;
 #endif
+
+#ifdef GGML_CUDA_USE_CUB
+constexpr bool enable_cuda_cub_v = true;
+#else
+constexpr bool enable_cuda_cub_v = false;
+#endif

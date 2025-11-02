@@ -254,6 +254,7 @@ void ggml_backend_load_all_from_path(std::optional<fs::path> dir_path = {}) {
 	ggml_backend_load_best(u8"sycl", silent, dir_path);
 	ggml_backend_load_best(u8"vulkan", silent, dir_path);
 	ggml_backend_load_best(u8"opencl", silent, dir_path);
+	ggml_backend_load_best(u8"hexagon", silent, dir_path);
 	ggml_backend_load_best(u8"musa", silent, dir_path);
 	ggml_backend_load_best(u8"cpu", silent, dir_path);
 	// check the environment variable GGML_BACKEND_PATH to load an out-of-tree backend

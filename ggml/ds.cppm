@@ -23,6 +23,7 @@ export {
     using ggml_sort_order = ggml_sort_order;
     using ggml_scale_mode = ggml_scale_mode;
     using ggml_scale_flag = ggml_scale_flag;
+    using ggml_glu_op = ggml_glu_op;
 
     constexpr size_t GGML_MAX_DIMS = 4;
     constexpr size_t GGML_MAX_NAME = 64;
@@ -174,17 +175,6 @@ export {
         GGML_FTYPE_MOSTLY_IQ1_M = 23, // except 1d tensors
         GGML_FTYPE_MOSTLY_BF16 = 24, // except 1d tensors
         GGML_FTYPE_MOSTLY_MXFP4 = 25, // except 1d tensors
-    };
-
-    enum ggml_glu_op {
-        GGML_GLU_OP_REGLU,
-        GGML_GLU_OP_GEGLU,
-        GGML_GLU_OP_SWIGLU,
-        GGML_GLU_OP_SWIGLU_OAI,
-        GGML_GLU_OP_GEGLU_ERF,
-        GGML_GLU_OP_GEGLU_QUICK,
-
-        GGML_GLU_OP_COUNT,
     };
 
     //
@@ -422,6 +412,7 @@ export {
     constexpr int GGML_ROPE_TYPE_NEOX = 2;
     constexpr int GGML_ROPE_TYPE_MROPE = 8;
     constexpr int GGML_ROPE_TYPE_VISION = 24;
+    constexpr int GGML_ROPE_TYPE_IMROPE = 40; // binary: 101000
 
     // functionality supported by the device
     struct ggml_backend_dev_caps {

@@ -4,7 +4,7 @@
 #include <bit>
 
 #include "../../internal_ds.h"
-#include "../common.h"
+#include "common.h"
 #include "block.h"
 
 [[noreturn]]
@@ -137,8 +137,11 @@ static __device__ __forceinline__ half2 ggml_cuda_hmax2([[maybe_unused]] const h
 // and a shift:
 //
 // n/d = (mulhi(n, mp) + n) >> L;
-static const uint3 init_fastdiv_values(uint32_t d) {
-    assert(d != 0);
+static const uint3 init_fastdiv_values(uint64_t d_64) {
+    assert(d_64 != 0);
+    assert(d_64 <= std::numeric_limits<uint32_t>::max());
+
+    uint32_t d = (uint32_t)d_64;
 
     // compute L = ceil(log2(d));
     uint32_t L = 0;

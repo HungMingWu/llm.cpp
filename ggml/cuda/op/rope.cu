@@ -118,7 +118,7 @@ template<bool forward, bool has_ff, typename T>
 static __global__ void rope_multi(
     const T* x, T* dst, const int ne0, const int ne1, const int ne2, const int s1, const int s2,
     const int n_dims, const int32_t* pos, const float freq_scale, const float ext_factor, const float attn_factor,
-    const rope_corr_dims corr_dims, const float theta_scale, const float* freq_factors, const mrope_sections sections) {
+    const rope_corr_dims corr_dims, const float theta_scale, const float* freq_factors, const mrope_sections sections, const bool is_imrope) {
     const int i0 = 2 * (blockDim.y * blockIdx.y + threadIdx.y);
 
     if (i0 >= ne0) {
@@ -145,17 +145,33 @@ static __global__ void rope_multi(
     const int sector = (i0 / 2) % sect_dims;
 
     float theta_base = 0.0;
-    if (sector < sections.v[0]) {
-        theta_base = pos[channel_x] * powf(theta_scale, i0 / 2.0f);
+    if (is_imrope) {
+        if (sector % 3 == 1 && sector < 3 * sections.v[1]) { // h
+            theta_base = pos[channel_x + ne2 * 1] * powf(theta_scale, i0 / 2.0f);
+        }
+        else if (sector % 3 == 2 && sector < 3 * sections.v[2]) { // w
+            theta_base = pos[channel_x + ne2 * 2] * powf(theta_scale, i0 / 2.0f);
+        }
+        else if (sector % 3 == 0 && sector < 3 * sections.v[0]) { // t
+            theta_base = pos[channel_x] * powf(theta_scale, i0 / 2.0f);
+        }
+        else {
+            theta_base = pos[channel_x + ne2 * 3] * powf(theta_scale, i0 / 2.0f);
+        }
     }
-    else if (sector >= sections.v[0] && sector < sec_w) {
-        theta_base = pos[channel_x + ne2 * 1] * powf(theta_scale, i0 / 2.0f);
-    }
-    else if (sector >= sec_w && sector < sec_w + sections.v[2]) {
-        theta_base = pos[channel_x + ne2 * 2] * powf(theta_scale, i0 / 2.0f);
-    }
-    else if (sector >= sec_w + sections.v[2]) {
-        theta_base = pos[channel_x + ne2 * 3] * powf(theta_scale, i0 / 2.0f);
+    else {
+        if (sector < sections.v[0]) {
+            theta_base = pos[channel_x] * powf(theta_scale, i0 / 2.0f);
+        }
+        else if (sector >= sections.v[0] && sector < sec_w) {
+            theta_base = pos[channel_x + ne2 * 1] * powf(theta_scale, i0 / 2.0f);
+        }
+        else if (sector >= sec_w && sector < sec_w + sections.v[2]) {
+            theta_base = pos[channel_x + ne2 * 2] * powf(theta_scale, i0 / 2.0f);
+        }
+        else if (sector >= sec_w + sections.v[2]) {
+            theta_base = pos[channel_x + ne2 * 3] * powf(theta_scale, i0 / 2.0f);
+        }
     }
 
     const float freq_factor = has_ff ? freq_factors[i0 / 2] : 1.0f;
@@ -176,7 +192,7 @@ template<bool forward, typename T>
 static void rope_multi_cuda(
     const T* x, T* dst, const int ne0, const int ne1, const int ne2, const int s1, const int s2, const int n_dims, const int nr,
     const int32_t* pos, const float freq_scale, const float freq_base, const float ext_factor, const float attn_factor,
-    const rope_corr_dims corr_dims, const float* freq_factors, const mrope_sections sections, cudaStream_t stream) {
+    const rope_corr_dims corr_dims, const float* freq_factors, const mrope_sections sections, const bool is_imrope, cudaStream_t stream) {
     //GGML_ASSERT(ne0 % 2 == 0);
     const dim3 block_dims(1, CUDA_ROPE_BLOCK_SIZE, 1);
     const int n_blocks_x = (ne0 + 2 * CUDA_ROPE_BLOCK_SIZE - 1) / (2 * CUDA_ROPE_BLOCK_SIZE);
@@ -187,12 +203,12 @@ static void rope_multi_cuda(
     if (freq_factors == nullptr) {
         rope_multi<forward, false, T> << <block_nums, block_dims, 0, stream >> > (
             x, dst, ne0, ne1, ne2, s1, s2, n_dims, pos, freq_scale, ext_factor,
-            attn_factor, corr_dims, theta_scale, freq_factors, sections);
+            attn_factor, corr_dims, theta_scale, freq_factors, sections, is_imrope);
     }
     else {
         rope_multi<forward, true, T> << <block_nums, block_dims, 0, stream >> > (
             x, dst, ne0, ne1, ne2, s1, s2, n_dims, pos, freq_scale, ext_factor,
-            attn_factor, corr_dims, theta_scale, freq_factors, sections);
+            attn_factor, corr_dims, theta_scale, freq_factors, sections, is_imrope);
     }
 }
 
@@ -336,80 +352,80 @@ static void rope_norm_cuda(
 }
 
 template <bool forward>
-void rope_cuda(const rope_context* ctx, cudaStream_t stream)
+void rope_cuda(const rope_context &ctx, cudaStream_t stream)
 {
     rope_corr_dims corr_dims;
-    ggml_rope_yarn_corr_dims(ctx->n_dims, ctx->n_ctx_orig,
-        ctx->freq_base, ctx->beta_fast, ctx->beta_slow, corr_dims.v);
+    ggml_rope_yarn_corr_dims(ctx.n_dims, ctx.n_ctx_orig,
+        ctx.freq_base, ctx.beta_fast, ctx.beta_slow, corr_dims.v);
 
-    if (ctx->is_neox) {
-        if (ctx->src0_type == GGML_TYPE_F32) {
+    if (ctx.is_neox) {
+        if (ctx.src0_type == GGML_TYPE_F32) {
             rope_neox_cuda<forward>(
-                (const float*)ctx->src0_d, (float*)ctx->dst_d,
-                ctx->ne00, ctx->ne01, ctx->s01, ctx->s02, ctx->n_dims, ctx->nr,
-                ctx->pos, ctx->freq_scale, ctx->freq_base,
-                ctx->ext_factor, ctx->attn_factor, corr_dims, ctx->freq_factors, stream);
+                (const float*)ctx.src0_d, (float*)ctx.dst_d,
+                ctx.ne00, ctx.ne01, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
+                ctx.pos, ctx.freq_scale, ctx.freq_base,
+                ctx.ext_factor, ctx.attn_factor, corr_dims, ctx.freq_factors, stream);
         }
-        else if (ctx->src0_type == GGML_TYPE_F16) {
+        else if (ctx.src0_type == GGML_TYPE_F16) {
             rope_neox_cuda<forward>(
-                (const half*)ctx->src0_d, (half*)ctx->dst_d,
-                ctx->ne00, ctx->ne01, ctx->s01, ctx->s02, ctx->n_dims, ctx->nr,
-                ctx->pos, ctx->freq_scale, ctx->freq_base,
-                ctx->ext_factor, ctx->attn_factor, corr_dims, ctx->freq_factors, stream);
+                (const half*)ctx.src0_d, (half*)ctx.dst_d,
+                ctx.ne00, ctx.ne01, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
+                ctx.pos, ctx.freq_scale, ctx.freq_base,
+                ctx.ext_factor, ctx.attn_factor, corr_dims, ctx.freq_factors, stream);
         }
         else {
             GGML_ABORT("fatal error");
         }
-    } else if (ctx->is_mrope && !ctx->is_vision) {
-        if (ctx->src0_type == GGML_TYPE_F32) {
+    } else if (ctx.is_mrope && !ctx.is_vision) {
+        if (ctx.src0_type == GGML_TYPE_F32) {
             rope_multi_cuda<forward>(
-                (const float*)ctx->src0_d, (float*)ctx->dst_d,
-                ctx->ne00, ctx->ne01, ctx->ne02, ctx->s01, ctx->s02, ctx->n_dims, ctx->nr,
-                ctx->pos, ctx->freq_scale, ctx->freq_base,
-                ctx->ext_factor, ctx->attn_factor, corr_dims, ctx->freq_factors, ctx->sections, stream);
+                (const float*)ctx.src0_d, (float*)ctx.dst_d,
+                ctx.ne00, ctx.ne01, ctx.ne02, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
+                ctx.pos, ctx.freq_scale, ctx.freq_base,
+                ctx.ext_factor, ctx.attn_factor, corr_dims, ctx.freq_factors, ctx.sections, ctx.is_imrope, stream);
         }
-        else if (ctx->src0_type == GGML_TYPE_F16) {
+        else if (ctx.src0_type == GGML_TYPE_F16) {
             rope_multi_cuda<forward>(
-                (const half*)ctx->src0_d, (half*)ctx->dst_d,
-                ctx->ne00, ctx->ne01, ctx->ne02, ctx->s01, ctx->s02, ctx->n_dims, ctx->nr,
-                ctx->pos, ctx->freq_scale, ctx->freq_base,
-                ctx->ext_factor, ctx->attn_factor, corr_dims, ctx->freq_factors, ctx->sections, stream);
+                (const half*)ctx.src0_d, (half*)ctx.dst_d,
+                ctx.ne00, ctx.ne01, ctx.ne02, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
+                ctx.pos, ctx.freq_scale, ctx.freq_base,
+                ctx.ext_factor, ctx.attn_factor, corr_dims, ctx.freq_factors, ctx.sections, ctx.is_imrope, stream);
         }
         else {
             GGML_ABORT("fatal error");
         }
-    } else if (ctx->is_vision) {
-        if (ctx->src0_type == GGML_TYPE_F32) {
+    } else if (ctx.is_vision) {
+        if (ctx.src0_type == GGML_TYPE_F32) {
             rope_vision_cuda<forward>(
-                (const float*)ctx->src0_d, (float*)ctx->dst_d,
-                ctx->ne00, ctx->ne01, ctx->ne02, ctx->s01, ctx->s02, ctx->n_dims, ctx->nr,
-                ctx->pos, ctx->freq_scale, ctx->freq_base,
-                ctx->ext_factor, ctx->attn_factor, corr_dims, ctx->freq_factors, ctx->sections, stream);
+                (const float*)ctx.src0_d, (float*)ctx.dst_d,
+                ctx.ne00, ctx.ne01, ctx.ne02, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
+                ctx.pos, ctx.freq_scale, ctx.freq_base,
+                ctx.ext_factor, ctx.attn_factor, corr_dims, ctx.freq_factors, ctx.sections, stream);
         }
-        else if (ctx->src0_type == GGML_TYPE_F16) {
+        else if (ctx.src0_type == GGML_TYPE_F16) {
             rope_vision_cuda<forward>(
-                (const half*)ctx->src0_d, (half*)ctx->dst_d,
-                ctx->ne00, ctx->ne01, ctx->ne02, ctx->s01, ctx->s02, ctx->n_dims, ctx->nr,
-                ctx->pos, ctx->freq_scale, ctx->freq_base,
-                ctx->ext_factor, ctx->attn_factor, corr_dims, ctx->freq_factors, ctx->sections, stream);
+                (const half*)ctx.src0_d, (half*)ctx.dst_d,
+                ctx.ne00, ctx.ne01, ctx.ne02, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
+                ctx.pos, ctx.freq_scale, ctx.freq_base,
+                ctx.ext_factor, ctx.attn_factor, corr_dims, ctx.freq_factors, ctx.sections, stream);
         }
         else {
             GGML_ABORT("fatal error");
         }
     } else {
-        if (ctx->src0_type == GGML_TYPE_F32) {
+        if (ctx.src0_type == GGML_TYPE_F32) {
             rope_norm_cuda<forward>(
-                (const float*)ctx->src0_d, (float*)ctx->dst_d,
-                ctx->ne00, ctx->ne01, ctx->s01, ctx->s02, ctx->n_dims, ctx->nr,
-                ctx->pos, ctx->freq_scale, ctx->freq_base, ctx->ext_factor,
-                ctx->attn_factor, corr_dims, ctx->freq_factors, stream);
+                (const float*)ctx.src0_d, (float*)ctx.dst_d,
+                ctx.ne00, ctx.ne01, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
+                ctx.pos, ctx.freq_scale, ctx.freq_base, ctx.ext_factor,
+                ctx.attn_factor, corr_dims, ctx.freq_factors, stream);
         }
-        else if (ctx->src0_type == GGML_TYPE_F16) {
+        else if (ctx.src0_type == GGML_TYPE_F16) {
             rope_norm_cuda<forward>(
-                (const half*)ctx->src0_d, (half*)ctx->dst_d,
-                ctx->ne00, ctx->ne01, ctx->s01, ctx->s02, ctx->n_dims, ctx->nr,
-                ctx->pos, ctx->freq_scale, ctx->freq_base, ctx->ext_factor,
-                ctx->attn_factor, corr_dims, ctx->freq_factors, stream);
+                (const half*)ctx.src0_d, (half*)ctx.dst_d,
+                ctx.ne00, ctx.ne01, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
+                ctx.pos, ctx.freq_scale, ctx.freq_base, ctx.ext_factor,
+                ctx.attn_factor, corr_dims, ctx.freq_factors, stream);
         }
         else {
             GGML_ABORT("fatal error");
@@ -417,9 +433,9 @@ void rope_cuda(const rope_context* ctx, cudaStream_t stream)
     }
 }
 
-void rope_cuda(const rope_context* ctx, cudaStream_t stream)
+void rope_cuda(const rope_context &ctx, cudaStream_t stream)
 {
-	if (ctx->forward) {
+	if (ctx.forward) {
         rope_cuda<true>(ctx, stream);
 	}
 	else {

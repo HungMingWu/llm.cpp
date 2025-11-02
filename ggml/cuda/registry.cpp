@@ -1,5 +1,6 @@
 module;
 #include <bit>
+#include "cuda_config.h"
 #define WARP_SIZE 32
 
 module ggml;
@@ -166,6 +167,13 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
             op->src[0]->type == GGML_TYPE_F32 &&
             (op->src[1]->type == GGML_TYPE_I64 || op->src[1]->type == GGML_TYPE_I32);
     } break;
+    case GGML_OP_SET:
+    {
+        const ggml_type t = op->type;
+        return (t == GGML_TYPE_F32 || t == GGML_TYPE_I32) &&
+            t == op->src[0]->type &&
+            t == op->src[1]->type;
+    } break;
     case GGML_OP_CPY:
     {
         ggml_type src0_type = op->src[0]->type;
@@ -321,8 +329,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_SUM:
         return ggml_is_contiguous_rows(op->src[0]);
     case GGML_OP_ARGSORT:
-        // TODO: Support arbitrary column width
-        return op->src[0]->ne[0] <= 1024;
+        return enable_cuda_cub_v ? true : op->src[0]->ne[0] <= 1024;
     case GGML_OP_SUM_ROWS:
     case GGML_OP_MEAN:
     case GGML_OP_GROUP_NORM:

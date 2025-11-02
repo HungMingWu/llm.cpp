@@ -1684,29 +1684,11 @@ static void ggml_compute_forward_set(
 	const size_t nb0 = ggml_element_size(src0);
 	GGML_ASSERT(src1->nb[0] == sizeof(T));
 
-	auto dst_data = make_strided_mdspan(static_cast<T*>(dst->data), dst->ne, dst->nb);
+	std::array<size_t, 4> dst_nb = { ggml_element_size(dst), nb1, nb2, nb3 };
+	auto dst_data = make_strided_mdspan(
+		static_cast<T*>(static_cast<void*>((static_cast<char *>(dst->data) + offset))), 
+		dst->ne, dst_nb);
 	auto src1_data = make_strided_mdspan(static_cast<const T*>(src1->data), src1->ne, src1->nb);
-	int offset3 = 0, offset2 = 0, offset1 = 0, offset0 = 0;
-	while (offset >= dst->nb[3]) {
-		offset -= dst->nb[3];
-		offset3++;
-	}
-	while (offset >= dst->nb[2]) {
-		offset -= dst->nb[2];
-		offset2++;
-	}
-	while (offset >= dst->nb[1]) {
-		offset -= dst->nb[1];
-		offset1++;
-	}
-	while (offset >= dst->nb[0]) {
-		offset -= dst->nb[0];
-		offset0++;
-	}
-	GGML_ASSERT(offset3 + src1->ne[3] <= dst->ne[3]);
-	GGML_ASSERT(offset2 + src1->ne[2] <= dst->ne[2]);
-	GGML_ASSERT(offset1 + src1->ne[1] <= dst->ne[1]);
-	GGML_ASSERT(offset0 + src1->ne[0] <= dst->ne[0]);
 
 	for (int64_t i3 = 0; i3 < src1_data.extent(0); i3++) {
 		for (int64_t i2 = 0; i2 < src1_data.extent(1); i2++) {
@@ -1715,7 +1697,7 @@ static void ggml_compute_forward_set(
 					// src0 and dst are viewed with shape of src1 and offset
 					// => same indice
 					for (int64_t i0 = 0; i0 < src1_data.extent(3); i0++)
-						dst_data[i3 + offset3, i2 + offset2, i1 + offset1, i0 + offset0] = src1_data[i3, i2, i1, i0];
+						dst_data[i3, i2, i1, i0] = src1_data[i3, i2, i1, i0];
 				}
 			});
 			scope.spawn(std::move(sender));
@@ -2749,13 +2731,8 @@ static void ggml_compute_forward_mul_mat_id(
 			chunk_size = 64;
 		}
 
-#if defined(__aarch64__)
-		// disable for ARM
-		const bool disable_chunking = true;
-#else
 		// disable for NUMA
 		const bool disable_chunking = ggml_is_numa();
-#endif // defined(__aarch64__)
 
 		int64_t nchunk0 = (nr0 + chunk_size - 1) / chunk_size;
 		int64_t nchunk1 = (nr1 + chunk_size - 1) / chunk_size;
@@ -3322,7 +3299,7 @@ static void ggml_rope_cache_init(
 }
 
 static void ggml_mrope_cache_init(
-	float theta_base_t, float theta_base_h, float theta_base_w, float theta_base_e, int sections[4], bool indep_sects,
+	float theta_base_t, float theta_base_h, float theta_base_w, float theta_base_e, int sections[4], bool is_imrope, bool indep_sects,
 	float freq_scale, const float* freq_factors, float corr_dims[2], int64_t ne0, float ext_factor, float mscale,
 	float* cache, float sin_sign, float theta_scale) {
 	// ref: https://github.com/jquesnelle/yarn/blob/master/scaled_rope/LlamaYaRNScaledRotaryEmbedding.py
@@ -3357,14 +3334,30 @@ static void ggml_mrope_cache_init(
 		}
 
 		float theta = theta_t;
-		if (sector >= sections[0] && sector < sec_w) {
-			theta = theta_h;
+		if (is_imrope) { // qwen3vl apply interleaved mrope
+			if (sector % 3 == 1 && sector < 3 * sections[1]) {
+				theta = theta_h;
+			}
+			else if (sector % 3 == 2 && sector < 3 * sections[2]) {
+				theta = theta_w;
+			}
+			else if (sector % 3 == 0 && sector < 3 * sections[0]) {
+				theta = theta_t;
+			}
+			else {
+				theta = theta_e;
+			}
 		}
-		else if (sector >= sec_w && sector < sec_w + sections[2]) {
-			theta = theta_w;
-		}
-		else if (sector >= sec_w + sections[2]) {
-			theta = theta_e;
+		else {
+			if (sector >= sections[0] && sector < sec_w) {
+				theta = theta_h;
+			}
+			else if (sector >= sec_w && sector < sec_w + sections[2]) {
+				theta = theta_w;
+			}
+			else if (sector >= sec_w + sections[2]) {
+				theta = theta_e;
+			}
 		}
 
 		rope_yarn(
@@ -3418,7 +3411,8 @@ static void ggml_compute_forward_rope(
 	ggml_rope_yarn_corr_dims(n_dims, n_ctx_orig, freq_base, beta_fast, beta_slow, corr_dims);
 
 	const bool is_neox = mode & GGML_ROPE_TYPE_NEOX;
-	const bool is_mrope = mode & GGML_ROPE_TYPE_MROPE;
+	const bool is_mrope = mode & GGML_ROPE_TYPE_MROPE;  // ggml_rope_multi, multimodal rotary position embedding
+	const bool is_imrope = mode == GGML_ROPE_TYPE_IMROPE; // qwen3vl apply interleaved mrope
 	const bool is_vision = mode == GGML_ROPE_TYPE_VISION;
 
 	if (is_mrope) {
@@ -3463,7 +3457,7 @@ static void ggml_compute_forward_rope(
 						const int64_t p_w = pos[i2 + dst->ne[2] * 2];
 						const int64_t p_e = pos[i2 + dst->ne[2] * 3];
 						ggml_mrope_cache_init(
-							p_t, p_h, p_w, p_e, sections, is_vision,
+							p_t, p_h, p_w, p_e, sections, is_imrope, is_vision,
 							freq_scale, freq_factors, corr_dims, dst->ne[0], ext_factor, attn_factor, &cache[0], sin_sign, theta_scale);
 					}
 

@@ -105,6 +105,10 @@ export
 		return t0->ne == t1->ne;
 	}
 
+	bool ggml_are_same_stride(const struct ggml_tensor* t0, const struct ggml_tensor* t1) {
+		return t0->nb == t1->nb;
+	}
+
 	size_t ggml_element_size(const ggml_tensor* tensor) {
 		return ggml_type_size(tensor->type);
 	}

@@ -9,8 +9,16 @@ enum ggml_op_pool : int;
 enum ggml_type : int;
 enum ggml_sort_order : int;
 enum ggml_scale_mode : int;
+enum ggml_glu_op : int;
 
 #define MMQ_DP4A_MAX_BATCH_SIZE 64 // Max. batch size to use for dp4a MMQ kernels when FP16 tensor cores are available.
+
+struct ggml_cuda_mm_fusion_args_device {
+    const void* x_bias = nullptr;
+    const void* gate = nullptr;
+    const void* gate_bias = nullptr;
+    ggml_glu_op glu_op;
+};
 
 struct block_q8_1_mmq {
     // The y float data is converted to a data layout that can simply be copied to shared memory as a contiguous block.
@@ -79,6 +87,7 @@ struct mat_vec_q_switch_context {
     const void* vx;
     const void* vy;
     const int32_t* ids;
+    ggml_cuda_mm_fusion_args_device fusion;
     float* dst;
     const int64_t ncols_x;
     const int64_t nrows_x;
@@ -99,7 +108,7 @@ struct mat_vec_q_switch_context {
     const int64_t stride_sample_dst;
 };
 
-void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context* ctx, cudaStream_t stream);
+void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t stream);
 
 struct mmq_args {
     const char* x; ggml_type type_x; const int* y; const int32_t* ids_dst; const int32_t* expert_bounds; float* dst;
@@ -278,9 +287,9 @@ struct dup_context {
     // rename later
     const int64_t ne10, ne11, ne12, ne13;
     const size_t nb10, nb11, nb12, nb13;
-    const bool src_is_contiguous, dst_is_contiguous;
+    const bool contiguous;
 };
-void dup_cuda(const dup_context* ctx, cudaStream_t stream);
+void dup_cuda(const dup_context &ctx, cudaStream_t stream);
 
 // scale
 void scale_f32_cuda(const float* x, float* dst, const float scale,
@@ -439,6 +448,7 @@ struct rope_context {
     const bool forward;
     const bool is_neox;
     const bool is_mrope;
+    const bool is_imrope;
     const bool is_vision;
     const ggml_type src0_type;
     const void* src0_d;
@@ -459,7 +469,7 @@ struct rope_context {
     mrope_sections sections;
 };
 
-void rope_cuda(const rope_context* ctx, cudaStream_t stream);
+void rope_cuda(const rope_context &ctx, cudaStream_t stream);
 
 // concat
 struct concat_context {
@@ -477,8 +487,12 @@ struct concat_context {
 };
 void concat_cuda(const concat_context* ctx, cudaStream_t stream);
 
-// argsort
-void argsort_f32_i32_cuda(
+// argsort*.cu
+void argsort_f32_i32_cuda(ggml_cuda_pool& pool,
+    const float* x, int* dst,
+    const int ncols, const int nrows,
+    ggml_sort_order order, cudaStream_t stream);
+void argsort_f32_i32_cuda_bitonic(
     const float* x, int* dst,
     const int ncols, const int nrows,
     ggml_sort_order order, cudaStream_t stream);
@@ -705,9 +719,6 @@ struct set_rows_context {
 
 void set_rows_cuda(const set_rows_context &context, cudaStream_t stream);
 
-// softcap.cu
-void softcap_f32_cuda(const float* x, float* dst, const float scale, const float softcap, const int k, cudaStream_t stream);
-
 // roll.cu
 void roll_f32_cuda(const float* __restrict__ src,
     float* __restrict__ dst,
@@ -783,12 +794,14 @@ struct mul_mat_f_context {
 void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream);
 
 // mmvf.cu
+
 bool ggml_cuda_should_use_mmvf(enum ggml_type type, int cc, const int64_t* src0_ne, int64_t ne11);
 struct mul_mat_vec_f_context {
     ggml_type src0_type;
     const void* src0_d;
     const float* src1_d;
     const int32_t* ids_d;
+    ggml_cuda_mm_fusion_args_device fusion_local;
     float* dst_d;
     int64_t ne00, ne01, ne02, ne03;
     int64_t ne3;
@@ -822,7 +835,3 @@ struct conv2d_context {
 };
 
 void conv2d_cuda(const conv2d_context& ctx, cudaStream_t stream);
-
-// topk-moe.cu
-void launch_topk_moe_cuda(bool with_norm, const float* logits_d, float* weights_d, int32_t* ids_d,
-    const int n_rows, const int n_experts, const int n_expert_used, cudaStream_t stream);

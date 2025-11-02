@@ -8,6 +8,7 @@ message(STATUS "CUDART_VERSION: ${CUDART_VERSION}")
 
 if (NOT DEFINED GGML_USE_HIP AND NOT DEFINED GGML_USE_MUSA AND CUDART_VERSION GREATER_EQUAL 11010)
     set(CUDA_USE_CUB TRUE)
+    target_compile_definitions(libggml PRIVATE GGML_CUDA_USE_CUB)
 else()
     set(CUDA_USE_CUB FALSE)
 endif()
@@ -27,12 +28,18 @@ target_sources(libggml
     TYPE CXX_MODULES
     FILES
       op.cppm
+      fused.cppm
   PRIVATE
       backend.cpp
       buffer.cpp
       buffer_type.cpp
       common.cpp
+      fused.cpp
       registry.cpp
+      fused/moe-expert-reduce.cu
+      fused/softcap.cu
+      fused/topk-moe.cu
+      common.cuh
       op/acc.cu
       op/add-id.cu
       op/arange.cu
@@ -40,7 +47,6 @@ target_sources(libggml
       op/argsort.cu
       op/binbcast.cu
       op/clamp.cu
-      op/common.cuh
       op/compute_batched_ptrs.cu
       op/concat.cu
       op/conv-transpose-1d.cu
@@ -60,11 +66,12 @@ target_sources(libggml
       op/gla.cu
       op/im2col.cu
       op/mean_common.cu
-      op/mmf.cu
       op/mmid.cu
+      op/mmf.cu
       op/mmq.cu
       op/mmvf.cu
       op/mmvq.cu
+      op/moe-expert-reduce.cu
       op/norm.cu
       op/opt-step-adamw.cu
       op/opt-step-sgd.cu
@@ -76,12 +83,10 @@ target_sources(libggml
       op/rope.cu
       op/scale.cu
       op/set-rows.cu
-      op/softcap.cu
       op/softmax.cu
       op/ssm-conv.cu
       op/ssm-scan.cu
       op/sumrows.cu
-      op/topk-moe.cu
       op/tsembd.cu
       op/unary.cu
       op/upscale.cu
@@ -91,12 +96,14 @@ target_sources(libggml
 if (CUDA_USE_CUB)
 target_sources(libggml
 PRIVATE
+      op/argsort_cub.cu
       op/mean_cub.cu
       op/sum_cub.cu
 )
 else()
 target_sources(libggml
 PRIVATE
+      op/argsort_fallback.cu
       op/mean_fallback.cu
       op/sum_fallback.cu
 )
@@ -105,6 +112,7 @@ endif()
 target_include_directories(libggml
   PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}/
+    ./
 )
 
 target_link_libraries(libggml PRIVATE CUDA::cudart_static CUDA::cuda_driver CUDA::cublas)

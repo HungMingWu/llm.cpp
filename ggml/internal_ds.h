@@ -75,3 +75,14 @@ enum ggml_scale_mode : int {
 enum ggml_scale_flag : int {
     GGML_SCALE_FLAG_ALIGN_CORNERS = (1 << 8)
 };
+
+enum ggml_glu_op : int {
+    GGML_GLU_OP_REGLU,
+    GGML_GLU_OP_GEGLU,
+    GGML_GLU_OP_SWIGLU,
+    GGML_GLU_OP_SWIGLU_OAI,
+    GGML_GLU_OP_GEGLU_ERF,
+    GGML_GLU_OP_GEGLU_QUICK,
+
+    GGML_GLU_OP_COUNT,
+};

@@ -4,11 +4,19 @@
 #define GGML_ASSERT(...)
 #define GGML_ABORT(...)
 
-template <ggml_sort_order order>
+// Bitonic sort implementation
+template<typename T>
+static inline __device__ void ggml_cuda_swap(T& a, T& b) {
+    T tmp = a;
+    a = b;
+    b = tmp;
+}
+
+template<ggml_sort_order order>
 static __global__ void k_argsort_f32_i32(const float* x, int* dst, const int ncols, int ncols_pad) {
     // bitonic sort
     int col = threadIdx.x;
-    int row = blockIdx.y;
+    int row = blockIdx.x;
 
     if (col >= ncols_pad) {
         return;
@@ -32,7 +40,7 @@ static __global__ void k_argsort_f32_i32(const float* x, int* dst, const int nco
                             x_row[dst_row[col]] > x_row[dst_row[ixj]] :
                     x_row[dst_row[col]] < x_row[dst_row[ixj]]))
                         ) {
-                        std::swap(dst_row[col], dst_row[ixj]);
+                        ggml_cuda_swap(dst_row[col], dst_row[ixj]);
                     }
                 }
                 else {
@@ -41,7 +49,7 @@ static __global__ void k_argsort_f32_i32(const float* x, int* dst, const int nco
                             x_row[dst_row[col]] < x_row[dst_row[ixj]] :
                             x_row[dst_row[col]] > x_row[dst_row[ixj]]))
                         ) {
-                        std::swap(dst_row[col], dst_row[ixj]);
+                        ggml_cuda_swap(dst_row[col], dst_row[ixj]);
                     }
                 }
             }
@@ -63,26 +71,29 @@ static int next_power_of_2(int x) {
     return n;
 }
 
-void argsort_f32_i32_cuda(
-    const float* x, int* dst,
-    const int ncols, const int nrows,
-    ggml_sort_order order, cudaStream_t stream)
-{
+void argsort_f32_i32_cuda_bitonic(const float* x,
+    int* dst,
+    const int       ncols,
+    const int       nrows,
+    ggml_sort_order order,
+    cudaStream_t    stream) {
     // bitonic sort requires ncols to be power of 2
     const int ncols_pad = next_power_of_2(ncols);
 
     const dim3 block_dims(ncols_pad, 1, 1);
-    const dim3 block_nums(1, nrows, 1);
+    const dim3 block_nums(nrows, 1, 1);
     const size_t shared_mem = ncols_pad * sizeof(int);
 
     // FIXME: this limit could be raised by ~2-4x on Ampere or newer
     GGML_ASSERT(shared_mem <= ggml_cuda_info().devices[ggml_cuda_get_device()].smpb);
 
     if (order == GGML_SORT_ORDER_ASC) {
-        k_argsort_f32_i32<GGML_SORT_ORDER_ASC> << <block_nums, block_dims, shared_mem, stream >> > (x, dst, ncols, ncols_pad);
+        k_argsort_f32_i32<GGML_SORT_ORDER_ASC>
+            << <block_nums, block_dims, shared_mem, stream >> > (x, dst, ncols, ncols_pad);
     }
     else if (order == GGML_SORT_ORDER_DESC) {
-        k_argsort_f32_i32<GGML_SORT_ORDER_DESC> << <block_nums, block_dims, shared_mem, stream >> > (x, dst, ncols, ncols_pad);
+        k_argsort_f32_i32<GGML_SORT_ORDER_DESC>
+            << <block_nums, block_dims, shared_mem, stream >> > (x, dst, ncols, ncols_pad);
     }
     else {
         GGML_ABORT("fatal error");

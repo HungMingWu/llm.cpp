@@ -18,11 +18,15 @@ void set_rows_cuda_quant(const set_rows_context& ctx, cudaStream_t stream) {
     auto src0_data = make_strided_mdspan(static_cast<const src_t*>(ctx.src0_d), ctx.src0_ne, ctx.src0_nb);
     auto src1_data = make_strided_mdspan<3>(static_cast<const idx_t*>(ctx.src1_d), ctx.src1_ne, ctx.src1_nb);
     auto dst_data = make_strided_mdspan(static_cast<block_type*>(ctx.dst_d), ctx.dst_ne, ctx.dst_nb);
+
+    const uint3 ne11_fd = init_fastdiv_values(ctx.src1_ne[1]);
+    const uint3 ne12_fd = init_fastdiv_values(ctx.src1_ne[2]);
+
     launch_functor(stream, std::make_tuple(ctx.src0_ne[3], ctx.src0_ne[2], ctx.src0_ne[1], ctx.src0_ne[0] / qk),
         [=] __device__(int64_t i03, int64_t i02, int64_t i01, int64_t i00) {
             i00 *= qk;
-            const int64_t i12 = i03 % ctx.src1_ne[2];
-            const int64_t i11 = i02 % ctx.src1_ne[1];
+            const int64_t i12 = fastmodulo(i03, ne12_fd);
+            const int64_t i11 = fastmodulo(i02, ne11_fd);
             const int64_t i10 = i01;
 
             const int64_t dst_row = src1_data(i12, i11, i10);
@@ -37,10 +41,13 @@ void set_rows_cuda(const set_rows_context& ctx, cudaStream_t stream) {
     auto src1_data = make_strided_mdspan<3>(static_cast<const idx_t*>(ctx.src1_d), ctx.src1_ne, ctx.src1_nb);
     auto dst_data = make_strided_mdspan(static_cast<dst_t*>(ctx.dst_d), ctx.dst_ne, ctx.dst_nb);
 
+    const uint3 ne11_fd = init_fastdiv_values(ctx.src1_ne[1]);
+    const uint3 ne12_fd = init_fastdiv_values(ctx.src1_ne[2]);
+
     launch_functor(stream, std::make_tuple(ctx.src0_ne[3], ctx.src0_ne[2], ctx.src0_ne[1], ctx.src0_ne[0]),
         [=] __device__(int64_t i03, int64_t i02, int64_t i01, int64_t i00) {
-            const int64_t i12 = i03 % ctx.src1_ne[2];
-            const int64_t i11 = i02 % ctx.src1_ne[1];
+            const int64_t i12 = fastmodulo(i03, ne12_fd);
+            const int64_t i11 = fastmodulo(i02, ne11_fd);
             const int64_t i10 = i01;
 
             const int64_t dst_row = src1_data(i12, i11, i10);
