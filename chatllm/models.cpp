@@ -38,6 +38,7 @@ namespace chatllm
     void set_dbg_ctx(ForwardContext* c)
     {
         dbg_ctx = c;
+        clear_inspected_tensors();
     }
 
     void unset_dbg_ctx(ForwardContext* c)

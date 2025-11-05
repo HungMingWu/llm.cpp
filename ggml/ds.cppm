@@ -380,6 +380,7 @@ export {
         ggml_tensor* create(ggml_type type, std::initializer_list<int64_t> ne);
         ggml_tensor* create(ggml_type type, std::initializer_list<int64_t> ne, ggml_tensor* view_src, size_t view_offset);
 		ggml_tensor* find(std::string_view name);
+        void clear() { tensors.clear(); }
     };
 
     enum ggml_unary_op {
@@ -601,6 +602,7 @@ export {
         void add_node(ggml_tensor*);
         size_t getGraphSize() const { return std::max(nodes.size(), leafs.size()); }
         std::span<ggml_tensor*> getNodes() { return nodes; }
+        void clear();
         void reset();
         ggml_tensor* get_tensor(std::string_view name);
         int32_t get_use_count(int node_idx) const;

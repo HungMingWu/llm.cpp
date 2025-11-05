@@ -761,6 +761,15 @@ void ggml_cgraph::build_forward_expand(ggml_tensor* tensor)
     }
 }
 
+void ggml_cgraph::clear()
+{
+    nodes.clear();
+    leafs.clear();
+    grads.clear();
+    grad_accs.clear();
+    use_counts.clear();
+}
+
 void ggml_cgraph::reset()
 {
     for (auto &node : nodes) {

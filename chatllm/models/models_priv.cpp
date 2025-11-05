@@ -828,6 +828,11 @@ namespace chatllm
         return layers[index];
     }
 
+    int HeterogeneousModel::get_layer_num(void) const
+    {
+        return (int)layers.size();
+    }
+
     void HeterogeneousModel::set_final_steps(std::unique_ptr<ModelFinalSteps> final_steps)
     {
         this->final_steps = std::move(final_steps);

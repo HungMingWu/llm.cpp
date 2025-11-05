@@ -944,6 +944,10 @@ namespace chatllm
     void ComputeContext::reset(void)
     {
         backend_context->reset();
+        if (get_ctx())
+            get_ctx()->clear();
+        if (get_cgraph())
+            get_cgraph()->clear();
     }
 
     void ComputeContext::set_backend_context(BackendContext* backend_context)

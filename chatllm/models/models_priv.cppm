@@ -191,6 +191,10 @@ namespace chatllm
 
         MODEL_TYPE_BAILING_MOE2 = 0x2E00,
 
+        MODEL_TYPE_MEGREZ_MOE = 0x2F00,
+
+        MODEL_TYPE_OURO = 0x3000,
+
         MODEL_TYPE_BCE_Embedding = 0x10000100,
         MODEL_TYPE_BCE_ReRanker = 0x10000101,
         MODEL_TYPE_BGE_M3 = 0x10000102,
@@ -207,6 +211,7 @@ namespace chatllm
 
         MODEL_TYPE_LLAMA4 = MODEL_TYPE_TAG_ChatImageIn + 0x0000001,
         MODEL_TYPE_GEMMA3Vis = MODEL_TYPE_TAG_ChatImageIn + 0x0000011,
+        MODEL_TYPE_DOTS_OCR = MODEL_TYPE_TAG_ChatImageIn + 0x0000020,
 
         MODEL_TYPE_QWEN2_AUDIO = MODEL_TYPE_TAG_ChatAudioIn + 0x0000001,
 
@@ -224,6 +229,7 @@ namespace chatllm
         int batch_input_size;
         ggml::type cache_type;
         std::map<std::string, std::string> model_gpu_layers;
+        std::map<std::string, std::string> additional;
         RuntimeConfig(bool moe_on_cpu, int n_threads, int batch_input_size, ggml::type cache_type) :
             moe_on_cpu(moe_on_cpu), n_threads(n_threads), batch_input_size(batch_input_size), cache_type(cache_type)
         {
@@ -274,6 +280,7 @@ namespace chatllm
 
         RuntimeConfig rt_config(args.moe_on_cpu, args.n_threads, args.batch_size, (ggml::type)args.cache_type);
         rt_config.model_gpu_layers = args.model_n_gpu_layers;
+        rt_config.additional = args.additional;
 
         // load model
         ConditionalGeneration* model = new ConditionalGeneration(config, rt_config);
@@ -562,6 +569,7 @@ namespace chatllm
         int64_t get_param_num(bool effective_only) const override;
 
         Block* get_layer(int index);
+        int    get_layer_num(void) const;
 
         void set_final_steps(std::unique_ptr<ModelFinalSteps> final_steps);
         ModelFinalSteps* get_final_steps();
@@ -571,8 +579,6 @@ namespace chatllm
         int save_session(ModelSessionMemory& session) const override;
         int load_session(ModelSessionMemory& session) override;
         void load(const std::string& path, TensorLoader* loader, const std::vector<int>& layer_ids) override;
-
-        ggml::tensor get_last_hiddle_state(void);
 
         void reserve_batch_size(int size) override;
     private:
