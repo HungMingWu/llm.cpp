@@ -139,11 +139,10 @@ buffer_address ggml_dyn_tallocr::alloc(size_t size, const ggml_tensor* tensor) {
 			}
 		}
 	}
-
 	if (best_fit_block == -1) {
 		// no suitable block found, try the last block (this may grow a chunks size)
 		int64_t best_reuse = INT64_MIN;
-		for (auto chunk : chunks) {
+		for (auto [index, chunk] : chunks | std::views::enumerate) {
 			if (chunk.n_free_blocks > 0) {
 				free_block* block = &chunk.free_blocks[chunk.n_free_blocks - 1];
 				max_avail = std::max(max_avail, block->size);
@@ -155,6 +154,7 @@ buffer_address ggml_dyn_tallocr::alloc(size_t size, const ggml_tensor* tensor) {
 				bool better_fit = reuse_factor >= 0 && reuse_factor < best_reuse;
 				if (block->size >= size && (better_reuse || better_fit)) {
 					best_fit_chunk = &chunk;
+					best_fit_chunk_index = index;
 					best_fit_block = chunk.n_free_blocks - 1;
 					best_reuse = reuse_factor;
 				}
