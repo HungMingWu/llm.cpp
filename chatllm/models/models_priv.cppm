@@ -206,6 +206,7 @@ namespace chatllm
         MODEL_TYPE_OUTE_TTS_QWEN3 = 0x10000108,
         MODEL_TYPE_QWEN3_Embedding = 0x10000109,
         MODEL_TYPE_QWEN3_ReRanker = 0x1000010A,
+        MODEL_TYPE_MAYA1 = 0x1000010B,
 
         MODEL_TYPE_LLAMA_MULTI = 0x20000001,
 
@@ -396,6 +397,7 @@ namespace chatllm
         case MODEL_TYPE_ORPHEUS_TTS:
         case MODEL_TYPE_OUTE_TTS_LLAMA:
         case MODEL_TYPE_OUTE_TTS_QWEN3:
+        case MODEL_TYPE_MAYA1:
             return ModelPurpose::TTS;
         default:
             return ModelPurpose::Chat;
@@ -417,7 +419,6 @@ namespace chatllm
         generate_result generate(std::span<const int> input_ids, const GenerationConfig& gen_config,
             const bool continuous,
             ModelPerfInfo* performance,
-            int gen_max_tokens,
             BaseStreamer* streamer = nullptr) override;
 
         std::vector<float> text_embedding(const GenerationConfig& gen_config, const std::vector<int>& input_ids) override;

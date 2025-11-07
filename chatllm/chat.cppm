@@ -767,6 +767,7 @@ export namespace chatllm
     {
         int max_length;
         int max_context_length;
+        int max_new_tokens;
         bool do_sample;
         bool reversed_role;
         int top_k;
@@ -868,7 +869,6 @@ export namespace chatllm
         virtual generate_result generate(std::span<const int> input_ids, const GenerationConfig& gen_config,
             const bool continuous,
             ModelPerfInfo* performance,
-            int gen_max_tokens,
             BaseStreamer* streamer = nullptr) = 0;
 
         virtual bool generate_next_token(const std::vector<int>& input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) { return true; };
@@ -948,10 +948,9 @@ export namespace chatllm
         generate_result generate(std::span<const int> input_ids, const GenerationConfig& gen_config,
             const bool continuous,
             ModelPerfInfo* performance,
-            int gen_max_tokens,
             BaseStreamer* streamer = nullptr) override
         {
-            return model->generate(input_ids, gen_config, continuous, performance, gen_max_tokens, streamer);
+            return model->generate(input_ids, gen_config, continuous, performance, streamer);
         }
 
         bool generate_next_token(const std::vector<int>& input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) override
@@ -1077,7 +1076,6 @@ export namespace chatllm
             generate(std::span<const int> input_ids, const GenerationConfig& gen_config,
             const bool continuous,
             ModelPerfInfo* performance,
-            int gen_max_tokens,
             BaseStreamer* streamer = nullptr) override
         {
             return {};
@@ -1333,7 +1331,6 @@ export namespace chatllm
         BaseTokenizer* tokenizer;
         AbstractModel* model;
         ModelPerfInfo performance;
-        int gen_max_tokens;
 
     protected:
         bool initializing;

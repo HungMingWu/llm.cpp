@@ -1658,8 +1658,7 @@ namespace chatllm
     }
 
     Pipeline::Pipeline(const std::string& path, const ModelObject::extra_args& args)
-        : gen_max_tokens(-1),
-        initializing(true),
+        : initializing(true),
         extending(ExtendingMethod::Restart),
         modelobj(path, args)
     {
@@ -1681,7 +1680,7 @@ namespace chatllm
         std::vector<int> input_ids = tokenizer->encode_history(history, gen_config.max_context_length, continuous, true, gen_config.reversed_role);
         add_ai_prefix(input_ids, gen_config, streamer);
 
-        AbstractModel::generate_result result = model->generate(input_ids, gen_config, continuous, &performance, gen_max_tokens, streamer);
+        AbstractModel::generate_result result = model->generate(input_ids, gen_config, continuous, &performance, streamer);
         if (!result.completed)
         {
             if (continuous)
@@ -1689,7 +1688,7 @@ namespace chatllm
                 streamer->putln("\nRUN OUT OF CONTEXT. Let me forget something and try again ...\n");
                 input_ids = tokenizer->encode_history(history, gen_config.max_context_length, false, true, gen_config.reversed_role);
                 add_ai_prefix(input_ids, gen_config, streamer);
-                result = model->generate(input_ids, gen_config, false, &performance, gen_max_tokens, streamer);
+                result = model->generate(input_ids, gen_config, false, &performance, streamer);
             }
             else
                 streamer->putln("\nRUN OUT OF CONTEXT. I have to stop now.\n");
@@ -1713,7 +1712,7 @@ namespace chatllm
         std::vector<int> input_ids = tokenizer->encode_history(history, gen_config.max_context_length, continuous, true, gen_config.reversed_role);
         add_ai_prefix(input_ids, gen_config, streamer);
 
-        AbstractModel::generate_result result = model->generate(input_ids, gen_config, continuous, &performance, gen_max_tokens, streamer);
+        AbstractModel::generate_result result = model->generate(input_ids, gen_config, continuous, &performance, streamer);
         if (!result.completed)
         {
             streamer->putln("\nRUN OUT OF CONTEXT. I have to stop now.\n");
@@ -1737,7 +1736,7 @@ namespace chatllm
         std::vector<int> input_ids = tokenizer->encode_history(history, gen_config.max_context_length, continuous, true, gen_config.reversed_role);
         add_ai_prefix(input_ids, gen_config, streamer);
 
-        AbstractModel::generate_result result = model->generate(input_ids, gen_config, continuous, &performance, gen_max_tokens, streamer);
+        AbstractModel::generate_result result = model->generate(input_ids, gen_config, continuous, &performance, streamer);
         std::vector<int> output_ids = std::move(result).ids;
 
         while (!result.completed)
@@ -1749,7 +1748,7 @@ namespace chatllm
             else
                 input_ids.clear();
 
-            result = model->generate(input_ids, gen_config, true, &performance, gen_max_tokens, streamer);
+            result = model->generate(input_ids, gen_config, true, &performance,  streamer);
             output_ids.insert(output_ids.end(), result.ids.begin(), result.ids.end());
         }
 
@@ -1761,7 +1760,9 @@ namespace chatllm
     {
         std::vector<int> input_ids = tokenizer->encode_sys_prompt();
 
-        model->generate(input_ids, gen_config, false, &performance, 1, nullptr);
+        GenerationConfig copy(gen_config);
+        copy.max_new_tokens = 1;
+        model->generate(input_ids, copy, false, &performance, nullptr);
 
         // just in case that chatting is continued
         tokenizer->set_skip_sys_prompt(true);
@@ -1835,14 +1836,14 @@ namespace chatllm
 
         history[history.size() - 1].content.push_back(external);
 
-        AbstractModel::generate_result result = model->generate(input_ids, gen_config, continuous, &performance, gen_max_tokens, streamer);
+        AbstractModel::generate_result result = model->generate(input_ids, gen_config, continuous, &performance, streamer);
         if (!result.completed)
         {
             if (continuous)
             {
                 streamer->putln("\nRUN OUT OF CONTEXT. Let me forget something and try again ...\n");
                 input_ids = tokenizer->encode_history(history, gen_config.max_context_length, false, false);
-                result = model->generate(input_ids, gen_config, false, &performance, gen_max_tokens, streamer);
+                result = model->generate(input_ids, gen_config, false, &performance, streamer);
             }
             else
                 streamer->putln("\nRUN OUT OF CONTEXT. I have to stop now.\n");
@@ -2095,7 +2096,7 @@ namespace chatllm
         history.push_back(prompt, MsgRole::User);
 
         std::vector<int> input_ids = tokenizer->encode_history(history, gen_config.max_context_length, false);
-        AbstractModel::generate_result result = rewrite_model->generate(input_ids, gen_config, false, &performance, -1, nullptr);
+        AbstractModel::generate_result result = rewrite_model->generate(input_ids, gen_config, false, &performance, nullptr);
 
         if (!result.completed) return "";
 

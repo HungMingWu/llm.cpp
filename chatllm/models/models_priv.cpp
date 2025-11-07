@@ -381,7 +381,6 @@ namespace chatllm
     AbstractModel::generate_result BaseModelForConditionalGeneration::generate(std::span<const int> input_ids, const GenerationConfig& gen_config,
         const bool continuous,
         ModelPerfInfo* performance,
-        int gen_max_tokens,
         BaseStreamer* streamer)
     {
         CHATLLM_CHECK(gen_config.max_length <= config_.max_length)
@@ -412,6 +411,7 @@ namespace chatllm
         transformer->set_ctx((int)input_ids.size());
         int next_output_idx = 0;
 
+        int gen_max_tokens = gen_config.max_new_tokens;
         if (gen_max_tokens > 0)
             gen_max_tokens = n_past + (int)curr_input_ids.size() + gen_max_tokens;
 
