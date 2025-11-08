@@ -12,7 +12,6 @@ module;
 #include "op/convert.cuh"
 #include "op/cuda_func.h"
 #include "cuda_config.h"
-#include "vendor_constant.h"
 
 #define GGML_ABORT(...)
 #define GGML_ASSERT(...) assert(__VA_ARGS__)

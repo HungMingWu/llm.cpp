@@ -4,7 +4,6 @@ module;
 #include <vector>
 #include "common.h"
 #include "op/cuda_func.h"
-#include "vendor_constant.h"
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
 module ggml:cuda.op;

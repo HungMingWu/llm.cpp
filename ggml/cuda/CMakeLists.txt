@@ -17,7 +17,6 @@ else()
     set(CUDA_USE_CUB FALSE)
 endif()
 
-configure_file (${CMAKE_CURRENT_LIST_DIR}/cuda_config.h.in ${CMAKE_CURRENT_BINARY_DIR}/cuda_config.h)
 target_sources(libggml
   PUBLIC
     FILE_SET primary_cuda_interface

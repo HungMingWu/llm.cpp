@@ -4,7 +4,6 @@
 #include <vector>
 #include "common.h"
 #include "cuda_config.h"
-#include "vendor_constant.h"
 
 #define GGML_ASSERT(...)
 #define GGML_ABORT(...)

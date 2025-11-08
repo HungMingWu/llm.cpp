@@ -1,8 +1,6 @@
 #pragma once
 #include "config.h"
-
-#cmakedefine GGML_CUDA_FORCE_CUBLAS @GGML_CUDA_FORCE_CUBLAS@
-#cmakedefine GGML_CUDA_FORCE_MMQ @GGML_CUDA_FORCE_MMQ@
+#include "vendors/constant.h"
 
 static constexpr bool use_cuda_graph_v = ggml_cuda_use_graphs_v | ggml_hip_graphs_v;
 
@@ -23,3 +21,9 @@ constexpr bool enable_cuda_cub_v = true;
 #else
 constexpr bool enable_cuda_cub_v = false;
 #endif
+
+#if !(defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)) && __CUDA_ARCH__ >= GGML_CUDA_CC_TURING
+static constexpr bool new_mma_available_v = true;
+#else
+static constexpr bool new_mma_available_v = false;
+#endif 

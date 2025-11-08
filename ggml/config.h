@@ -1,8 +1,5 @@
 #pragma once
 
-#cmakedefine GGML_CUDA_USE_GRAPHS @GGML_CUDA_USE_GRAPHS@
-#cmakedefine GGML_HIP_GRAPHS @GGML_HIP_GRAPHS@
-
 #ifdef GGML_CUDA_USE_GRAPHS
 static constexpr bool ggml_cuda_use_graphs_v = true;
 #else

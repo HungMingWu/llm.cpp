@@ -16,7 +16,6 @@ add_subdirectory(rpc)
 add_subdirectory(stdexec)
 find_package(CUDAToolkit)
 
-configure_file (${CMAKE_CURRENT_LIST_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 if (GGML_CUDA AND CUDAToolkit_FOUND)
     message(STATUS "CUDA Toolkit found, build CUDA Backend")
     if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)

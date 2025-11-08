@@ -2,17 +2,9 @@
 #include <array>
 #include <stdlib.h>
 #include "vendors/cuda.h"
-#include "vendor_constant.h"
+#include "cuda_config.h"
 
 #define GGML_ABORT(...)
-
-#define GGML_CUDA_CC_PASCAL       600
-#define GGML_CUDA_CC_DP4A         610 // minimum compute capability for __dp4a, an intrinsic for byte-wise dot products
-#define GGML_CUDA_CC_VOLTA        700
-#define GGML_CUDA_CC_TURING       750
-#define GGML_CUDA_CC_AMPERE       800
-#define GGML_CUDA_CC_ADA_LOVELACE 890
-#define GGML_CUDA_CC_OFFSET_AMD   0x1000000
 
 // AMD
 // GCN/CDNA, wave size is 64

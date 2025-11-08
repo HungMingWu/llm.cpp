@@ -4,7 +4,6 @@
 #include "vecdotq.cuh"
 #include "cuda_func.h"
 #include "unary.cuh"
-#include "../vendor_constant.h"
 
 #define GGML_ASSERT(...)
 #define GGML_ABORT(...)
