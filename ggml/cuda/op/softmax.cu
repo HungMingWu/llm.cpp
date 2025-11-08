@@ -1,30 +1,12 @@
+#include <utility>
 #include "cuda_func.h"
 #include "common.cuh"
 #include "convert.cuh"
 #include "helper.h"
-#include <utility>
-#include <cooperative_groups/reduce.h>
+#include "reduce.cuh"
 
 static constexpr size_t CUDA_SOFT_MAX_BLOCK_SIZE = 1024;
 #define GGML_PAD1(x, n) (((x) + (n) - 1) & ~((n) - 1))
-
-template <template<typename> class Op, typename block_t, typename tile_t, typename T>
-__device__ __forceinline__ auto reduceWithBlock(block_t block, tile_t tile, T initial_val, T val, float* buf_iw)
-{
-    const int tid = block.thread_rank();
-    const int tile_id = tid / tile.size();
-    const int lane_id = tile.thread_rank();
-    val = cooperative_groups::reduce(tile, val, Op<T>());
-    if (tile_id == 0) {
-        buf_iw[lane_id] = initial_val;
-    }
-    block.sync();
-    if (lane_id == 0) {
-        buf_iw[tile_id] = val;
-    }
-    block.sync();
-    return cooperative_groups::reduce(tile, buf_iw[lane_id], Op<T>());
-}
 
 template <bool use_shared, typename src_t, typename mask_t, typename dst_t>
 static __global__ void soft_max_f32(
