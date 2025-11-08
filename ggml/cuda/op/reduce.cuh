@@ -9,6 +9,7 @@ __device__ __forceinline__ auto reduceWithBlock(block_t block, tile_t tile, T in
     const int lane_id = tile.thread_rank();
     val = cooperative_groups::reduce(tile, val, Op<T>());
     if (block.size() > tile.size()) {
+        assert(block.size() <= 1024 && block.size() % 32 == 0);
         if (tile_id == 0) {
             buffer[lane_id] = initial_val;
         }
@@ -21,3 +22,11 @@ __device__ __forceinline__ auto reduceWithBlock(block_t block, tile_t tile, T in
     }
     return val;
 }
+
+template <>
+struct cooperative_groups::plus<float2>
+{
+    __device__ float2 operator()(float2 a, float2 b) {
+        return make_float2(a.x + b.x, a.y + b.y);
+    }
+};
