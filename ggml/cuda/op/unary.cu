@@ -86,16 +86,16 @@ static void unary_cuda(const T* x, T* dst, const int k, cudaStream_t stream) {
 }
 
 template <float (*op)(float)>
-void op_unary(const unary_context* ctx) {
-    GGML_ASSERT(ctx->src0_type == GGML_TYPE_F32 || ctx->src0_type == GGML_TYPE_F16);
-    GGML_ASSERT(ctx->dst_type == GGML_TYPE_F32 || ctx->dst_type == GGML_TYPE_F16);
-    GGML_ASSERT(ctx->src0_type == ctx->dst_type);
+void op_unary(const unary_context &ctx) {
+    GGML_ASSERT(ctx.src0_type == GGML_TYPE_F32 || ctx.src0_type == GGML_TYPE_F16);
+    GGML_ASSERT(ctx.dst_type == GGML_TYPE_F32 || ctx.dst_type == GGML_TYPE_F16);
+    GGML_ASSERT(ctx.src0_type == ctx.dst_type);
 
-    if (ctx->src0_type == GGML_TYPE_F16) {
-        unary_cuda<op>((const half*)ctx->src0_d, (half*)ctx->dst_d, ctx->nelements, ctx->stream);
+    if (ctx.src0_type == GGML_TYPE_F16) {
+        unary_cuda<op>((const half*)ctx.src0_d, (half*)ctx.dst_d, ctx.nelements, ctx.stream);
     }
     else {
-        unary_cuda<op>((const float*)ctx->src0_d, (float*)ctx->dst_d, ctx->nelements, ctx->stream);
+        unary_cuda<op>((const float*)ctx.src0_d, (float*)ctx.dst_d, ctx.nelements, ctx.stream);
     }
 }
 
@@ -112,78 +112,98 @@ static __global__ void silu_back_f32(
     dst[i] = grad[i] * s * (1.0f + xfi * (1.0f - s));
 }
 
-void neg_cuda(const unary_context* ctx)
+void neg_cuda(const unary_context &ctx)
 {
     op_unary<neg>(ctx);
 }
 
-void step_cuda(const unary_context* ctx)
+void step_cuda(const unary_context &ctx)
 {
     op_unary<step>(ctx);
 }
 
-void gelu_cuda(const unary_context* ctx)
+void gelu_cuda(const unary_context &ctx)
 {
     op_unary<gelu>(ctx);
 }
 
-void gelu_erf_cuda(const unary_context* ctx)
+void gelu_erf_cuda(const unary_context &ctx)
 {
     op_unary<gelu_erf>(ctx);
 }
 
-void silu_cuda(const unary_context* ctx)
+void silu_cuda(const unary_context &ctx)
 {
     op_unary<silu>(ctx);
 }
 
-void gelu_quick_cuda(const unary_context* ctx)
+void gelu_quick_cuda(const unary_context &ctx)
 {
     op_unary<gelu_quick>(ctx);
 }
 
-void tanh_cuda(const unary_context* ctx)
+void tanh_cuda(const unary_context &ctx)
 {
     op_unary<tanhf>(ctx);
 }
 
-void relu_cuda(const unary_context* ctx) {
+void relu_cuda(const unary_context &ctx) {
     op_unary<relu>(ctx);
 }
 
-void sigmoid_cuda(const unary_context* ctx)
+void sigmoid_cuda(const unary_context &ctx)
 {
     op_unary<sigmoid>(ctx);
 }
 
-void hardsigmoid_cuda(const unary_context* ctx)
+void hardsigmoid_cuda(const unary_context &ctx)
 {
     op_unary<hardsigmoid>(ctx);
 }
 
-void hardswish_cuda(const unary_context* ctx)
+void hardswish_cuda(const unary_context &ctx)
 {
     op_unary<hardswish>(ctx);
 }
 
-void exp_cuda(const unary_context* ctx)
+void exp_cuda(const unary_context &ctx)
 {
     op_unary<expf>(ctx);
 }
 
-void abs_cuda(const unary_context* ctx)
+void abs_cuda(const unary_context &ctx)
 {
     op_unary<fabsf>(ctx);
 }
 
-void sgn_cuda(const unary_context* ctx)
+void sgn_cuda(const unary_context &ctx)
 {
     op_unary<sgn>(ctx);
 }
 
-void elu_cuda(const unary_context* ctx)
+void elu_cuda(const unary_context &ctx)
 {
     op_unary<elu>(ctx);
+}
+
+void floor_cuda(const unary_context &ctx)
+{
+    op_unary<floorf>(ctx);
+}
+
+void ceil_cuda(const unary_context &ctx)
+{
+    op_unary<ceilf>(ctx);
+}
+
+void round_cuda(const unary_context &ctx)
+{
+    op_unary<round>(ctx);
+}
+
+void trunc_cuda(const unary_context &ctx)
+{
+    op_unary<trunc>(ctx);
 }
 
 void silu_back_f32_cuda(const float* grad, const float* x, float* dst, const int k, cudaStream_t stream) {
@@ -193,23 +213,23 @@ void silu_back_f32_cuda(const float* grad, const float* x, float* dst, const int
     silu_back_f32 << <num_blocks, CUDA_SILU_BACK_BLOCK_SIZE, 0, stream >> > (grad, x, dst, k);
 }
 
-void sqr_cuda(const unary_context* ctx) {
+void sqr_cuda(const unary_context &ctx) {
     op_unary<sqr>(ctx);
 }
 
-void sqrt_cuda(const unary_context* ctx) {
+void sqrt_cuda(const unary_context &ctx) {
     op_unary<sqrtf>(ctx);
 }
 
-void sin_cuda(const unary_context* ctx) {
+void sin_cuda(const unary_context &ctx) {
     op_unary<sinf>(ctx);
 }
 
-void cos_cuda(const unary_context* ctx) {
+void cos_cuda(const unary_context &ctx) {
     op_unary<cosf>(ctx);
 }
 
-void log_cuda(const unary_context* ctx)
+void log_cuda(const unary_context &ctx)
 {
     op_unary<logf>(ctx);
 }

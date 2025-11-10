@@ -152,29 +152,33 @@ struct unary_context {
     const int64_t nelements;
 };
 
-void abs_cuda(const unary_context* ctx);
-void sgn_cuda(const unary_context* ctx);
-void elu_cuda(const unary_context* ctx);
+void abs_cuda(const unary_context &ctx);
+void sgn_cuda(const unary_context &ctx);
+void elu_cuda(const unary_context &ctx);
 void xielu_cuda(ggml_type src0_type, const void* src0_d, void* dst_d, int64_t src0_elements,
     const float alpha_n, const float alpha_p, const float beta, const float eps, cudaStream_t stream);
-void neg_cuda(const unary_context* ctx);
-void gelu_cuda(const unary_context* ctx);
-void gelu_erf_cuda(const unary_context* ctx);
-void silu_cuda(const unary_context* ctx);
-void gelu_quick_cuda(const unary_context* ctx);
-void tanh_cuda(const unary_context* ctx);
-void relu_cuda(const unary_context* ctx);
-void sigmoid_cuda(const unary_context* ctx);
-void hardsigmoid_cuda(const unary_context* ctx);
-void hardswish_cuda(const unary_context* ctx);
-void exp_cuda(const unary_context* ctx);
-void step_cuda(const unary_context* ctx);
+void neg_cuda(const unary_context &ctx);
+void gelu_cuda(const unary_context &ctx);
+void gelu_erf_cuda(const unary_context &ctx);
+void silu_cuda(const unary_context &ctx);
+void gelu_quick_cuda(const unary_context &ctx);
+void tanh_cuda(const unary_context &ctx);
+void relu_cuda(const unary_context &ctx);
+void sigmoid_cuda(const unary_context &ctx);
+void hardsigmoid_cuda(const unary_context &ctx);
+void hardswish_cuda(const unary_context &ctx);
+void exp_cuda(const unary_context &ctx);
+void step_cuda(const unary_context &ctx);
 void silu_back_f32_cuda(const float* grad, const float* x, float* dst, const int k, cudaStream_t stream);
-void sqr_cuda(const unary_context* ctx);
-void sqrt_cuda(const unary_context* ctx);
-void sin_cuda(const unary_context* ctx);
-void cos_cuda(const unary_context* ctx);
-void log_cuda(const unary_context* ctx);
+void sqr_cuda(const unary_context &ctx);
+void sqrt_cuda(const unary_context &ctx);
+void sin_cuda(const unary_context &ctx);
+void cos_cuda(const unary_context &ctx);
+void log_cuda(const unary_context &ctx);
+void floor_cuda(const unary_context &ctx);
+void ceil_cuda(const unary_context &ctx);
+void round_cuda(const unary_context &ctx);
+void trunc_cuda(const unary_context &ctx);
 
 struct gated_context {
     cudaStream_t stream;
@@ -288,6 +292,7 @@ struct dup_context {
     const int64_t ne10, ne11, ne12, ne13;
     const size_t nb10, nb11, nb12, nb13;
     const bool contiguous;
+    const bool can_be_transposed;
 };
 void dup_cuda(const dup_context &ctx, cudaStream_t stream);
 
@@ -763,8 +768,6 @@ struct mmf_ids_data {
     int sis1 = 0;
 };
 
-bool ggml_cuda_should_use_mmf(enum ggml_type type, 
-    size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t src1_ncols, bool mul_mat_id);
 struct mul_mat_f_context {
     ggml_type src0_type;
 	const void* src0_d;
@@ -794,7 +797,6 @@ void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream);
 
 // mmvf.cu
 
-bool ggml_cuda_should_use_mmvf(enum ggml_type type, int cc, const int64_t* src0_ne, int64_t ne11);
 struct mul_mat_vec_f_context {
     ggml_type src0_type;
     const void* src0_d;

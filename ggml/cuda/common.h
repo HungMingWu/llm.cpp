@@ -207,8 +207,9 @@ static constexpr bool fast_fp16_available(const int cc) {
         (GGML_CUDA_CC_IS_NVIDIA(cc) && fp16_available(cc) && ggml_cuda_highest_compiled_arch(cc) != 610);
 }
 
-// Volta technically had FP16 tensor cores but they work very differently compared to Turing and later.
+bool volta_mma_available(const int cc);
 bool turing_mma_available(const int cc);
+bool ampere_mma_available(const int cc);
 
 constexpr int get_mmq_y_host(const int cc) {
     return cc >= GGML_CUDA_CC_OFFSET_AMD ? (cc == GGML_CUDA_CC_RDNA1 ? 64 : 128) : (cc >= GGML_CUDA_CC_VOLTA ? 128 : 64);
@@ -245,7 +246,6 @@ static constexpr bool int8_mma_available(const int cc) {
 enum ggml_type :int;
 
 bool bf16_mma_hardware_available(const int cc);
-bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11);
 bool ggml_cuda_should_use_mmv(enum ggml_type type, int cc, const int64_t* src0_ne, int64_t ne11);
 
 // To be used for feature selection of external libraries, e.g. cuBLAS.
@@ -254,8 +254,6 @@ bool fast_fp16_hardware_available(const int cc);
 void CUDA_SET_SHARED_MEMORY_LIMIT(const void* kernel, size_t nbytes);
 
 bool amd_mfma_available(const int cc);
-
-bool ampere_mma_available(const int cc);
 
 bool fp32_mma_hardware_available(const int cc);
 
@@ -284,3 +282,8 @@ struct ggml_cuda_unroll<1> {
 #if defined(GGML_USE_HIP) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL
 #define FP16_AVAILABLE
 #endif // defined(GGML_USE_HIP) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL
+
+// The Volta instructions are in principle available on Turing or newer but they are effectively unusable:
+#if !defined(GGML_USE_HIP) && __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+#define VOLTA_MMA_AVAILABLE
+#endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA

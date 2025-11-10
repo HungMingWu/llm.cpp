@@ -10,6 +10,7 @@ module;
 
 module ggml;
 import :cuda.fused;
+import :cuda.utils;
 
 static bin_bcast_context create_bcast_context(ggml_tensor* dst)
 {
@@ -461,13 +462,6 @@ namespace fused
         return false;
     }
 
-    bool should_use_mmf(enum ggml_type type,
-        size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t src1_ncols, bool mul_mat_id)
-    {
-        if (ggml_is_quantized(type)) return false;
-        return ggml_cuda_should_use_mmf(type, type_size, cc, warp_size, scr0_ne, src1_ncols, mul_mat_id);
-    }
-
     void add(cudaStream_t stream, ggml_tensor* dst, int n_fuse)
     {
         bin_bcast_context ctx = create_bcast_context(dst);
@@ -679,80 +673,7 @@ namespace fused
         topk_moe_cuda(ctx, stream);
     }
 
-    bool ggml_cuda_should_use_moe_expert_reduce(const ggml_cgraph* cgraph, int start_index, int end_index) {
-        const ggml_tensor* mul = cgraph->nodes[start_index];
-
-        if (mul->op != GGML_OP_MUL || !ggml_is_contiguous(mul->src[0]) || !ggml_is_contiguous(mul->src[1])) {
-            return false;
-        }
-
-        int    current_node = start_index + 1;
-        size_t current_offset = 0;
-
-        std::vector<const ggml_tensor*> view_nodes;
-        //check if all are views of the expert in increasing order
-        while (current_node < end_index && cgraph->nodes[current_node]->op == GGML_OP_VIEW) {
-            const ggml_tensor* node = cgraph->nodes[current_node];
-            if (node->view_src != mul) {
-                return false;
-            }
-            if (node->view_offs < current_offset) {
-                return false;
-            }
-            current_offset = node->view_offs;
-            current_node++;
-            view_nodes.push_back(node);
-        }
-
-        //check if all the adds are in increasing order
-        const ggml_tensor* prev_add_src = view_nodes.empty() ? nullptr : view_nodes[0];
-        int                 num_adds = 0;
-        int                 num_views = view_nodes.size();
-        while (current_node < end_index&& cgraph->nodes[current_node]->op == GGML_OP_ADD) {
-            const ggml_tensor* add_node = cgraph->nodes[current_node];
-
-            bool is_first_op_ok = num_views > num_adds ? add_node->src[0] == prev_add_src : false;
-            bool is_second_op_ok = num_views > num_adds ? add_node->src[1] == view_nodes[num_adds + 1] : false;
-
-            if (!is_first_op_ok || !is_second_op_ok) {
-                return false;
-            }
-            prev_add_src = add_node;
-
-            num_adds++;
-            current_node++;
-        }
-
-        if (num_views != num_adds + 1) {
-            return false;
-        }
-
-        return true;
-    }
-
-    void moe_expert_reduce(cudaStream_t stream,
-        const ggml_tensor* experts,
-        const ggml_tensor* weights,
-        ggml_tensor* dst)
-    {
-        const int n_rows = experts->ne[2];
-        const int n_expert_used = experts->ne[1];
-        const int n_cols = experts->ne[0];
-
-        GGML_ASSERT(experts->type == GGML_TYPE_F32);
-        GGML_ASSERT(weights->type == GGML_TYPE_F32);
-        GGML_ASSERT(ggml_is_contiguous(experts));
-        GGML_ASSERT(ggml_is_contiguous(weights));
-        GGML_ASSERT(dst->type == GGML_TYPE_F32);
-
-        const float* experts_d = (const float*)experts->data;
-        const float* weights_d = (const float*)weights->data;
-        float* dst_d = (float*)dst->data;
-
-        moe_expert_reduce(experts_d, weights_d, dst_d, n_expert_used, n_cols, n_rows, stream);
-    }
-
-    bool ggml_cuda_should_fuse_mul_mat_vec_f(const ggml_tensor* tensor) {
+    bool should_mul_mat_vec_f(const ggml_tensor* tensor) {
         ggml_tensor* src0 = tensor->src[0];
         ggml_tensor* src1 = tensor->src[1];
         const ggml_tensor* dst = tensor;
@@ -764,7 +685,15 @@ namespace fused
             src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32;
 
         const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
-        use_mul_mat_vec_f = use_mul_mat_vec_f && ggml_cuda_should_use_mmvf(src0->type, cc, src0->ne.data(), is_mul_mat_id ? src1->ne[2] : src1->ne[1]);
+        use_mul_mat_vec_f = use_mul_mat_vec_f && utils::should_use_mmvf(src0->type, cc, src0->ne, src0->nb, is_mul_mat_id ? src1->ne[2] : src1->ne[1]);
+
+        const bool split = (dynamic_cast<cuda_split_backend_buffer_type*>(src0->buffer->get_type()) != nullptr) ||
+            (dynamic_cast<cuda_split_backend_buffer_type*>(src1->buffer->get_type()) != nullptr);
+
+        //TODO: add support for fusion for split buffers
+        if (split) {
+            return false;
+        }
 
         //we only support fusion for ncols_dst = 1
         if (tensor->op == GGML_OP_MUL_MAT && dst->ne[1] != 1) {
@@ -779,7 +708,7 @@ namespace fused
         return use_mul_mat_vec_f;
     }
 
-    bool ggml_cuda_should_fuse_mul_mat_vec_q(const ggml_tensor* tensor) {
+    bool should_mul_mat_vec_q(const ggml_tensor* tensor) {
         ggml_tensor* src0 = tensor->src[0];
         ggml_tensor* src1 = tensor->src[1];
         const ggml_tensor* dst = tensor;
@@ -802,6 +731,14 @@ namespace fused
         }
 
         if (tensor->op == GGML_OP_MUL_MAT_ID && dst->ne[2] != 1) {
+            return false;
+        }
+
+        const bool split = (dynamic_cast<cuda_split_backend_buffer_type*>(src0->buffer->get_type()) != nullptr) ||
+            (dynamic_cast<cuda_split_backend_buffer_type*>(src1->buffer->get_type()) != nullptr);
+
+        //TODO: add support for fusion for split buffers
+        if (split) {
             return false;
         }
 

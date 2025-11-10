@@ -1,16 +1,6 @@
 #pragma once
 #include "../vendors/cuda.h"
 
-// moe-expert-reduce.cu
-void moe_expert_reduce(
-    const float* experts,
-    const float* weights,
-    float* dst,
-    const int                   n_expert_used,
-    const int                   n_cols,
-    const int                   n_rows,
-    cudaStream_t stream);
-
 // softcap.cu
 void softcap_f32_cuda(const float* x, float* dst, const float scale, const float softcap, const int k, cudaStream_t stream);
 

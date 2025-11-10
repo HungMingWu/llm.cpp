@@ -12,6 +12,7 @@ import :func;
 import :tensor;
 import :cuda.buffer;
 import :cuda.fused;
+import :cuda.utils;
 
 // WMMA flash attention requires FP16 matrix instructions to be available for ggml code.
 static bool ggml_cuda_should_use_wmma_fattn(const int cc) {
@@ -68,7 +69,8 @@ static dup_context create(const ggml_tensor* src0, ggml_tensor* dst)
        .nb11 = dst->nb[1],
        .nb12 = dst->nb[2],
        .nb13 = dst->nb[3],
-       .contiguous = ggml_is_contiguous(src0) && ggml_is_contiguous(dst)
+       .contiguous = ggml_is_contiguous(src0) && ggml_is_contiguous(dst),
+       .can_be_transposed = src0->nb[1] == (int64_t)ggml_element_size(src0) && src0->ne[3] == 1
     };
 }
 
@@ -541,35 +543,35 @@ namespace op
         unary_context ctx = create(src0, dst, stream);
         switch (ggml_get_unary_op(dst)) {
         case GGML_UNARY_OP_ABS:
-            return abs_cuda(&ctx);
+            return abs_cuda(ctx);
         case GGML_UNARY_OP_SGN:
-            return sgn_cuda(&ctx);
+            return sgn_cuda(ctx);
         case GGML_UNARY_OP_NEG:
-            return neg_cuda(&ctx);
+            return neg_cuda(ctx);
         case GGML_UNARY_OP_STEP:
-            return step_cuda(&ctx);
+            return step_cuda(ctx);
         case GGML_UNARY_OP_GELU:
-            return gelu_cuda(&ctx);
+            return gelu_cuda(ctx);
         case GGML_UNARY_OP_SILU:
-            return silu_cuda(&ctx);
+            return silu_cuda(ctx);
         case GGML_UNARY_OP_GELU_ERF:
-            return gelu_erf_cuda(&ctx);
+            return gelu_erf_cuda(ctx);
         case GGML_UNARY_OP_GELU_QUICK:
-            return gelu_quick_cuda(&ctx);
+            return gelu_quick_cuda(ctx);
         case GGML_UNARY_OP_TANH:
-            return tanh_cuda(&ctx);
+            return tanh_cuda(ctx);
         case GGML_UNARY_OP_RELU:
-            return relu_cuda(&ctx);
+            return relu_cuda(ctx);
         case GGML_UNARY_OP_SIGMOID:
-            return sigmoid_cuda(&ctx);
+            return sigmoid_cuda(ctx);
         case GGML_UNARY_OP_HARDSIGMOID:
-            return hardsigmoid_cuda(&ctx);
+            return hardsigmoid_cuda(ctx);
         case GGML_UNARY_OP_HARDSWISH:
-            return hardswish_cuda(&ctx);
+            return hardswish_cuda(ctx);
         case GGML_UNARY_OP_EXP:
-            return exp_cuda(&ctx);
+            return exp_cuda(ctx);
         case GGML_UNARY_OP_ELU:
-            return elu_cuda(&ctx);
+            return elu_cuda(ctx);
         case GGML_UNARY_OP_XIELU: {
             const void* src0_d = src0->data;
             void* dst_d = dst->data;
@@ -583,6 +585,18 @@ namespace op
 			xielu_cuda(src0->type, src0_d, dst_d, src0->nelements(), alpha_n, alpha_p, beta, eps, stream);
             break;
         }
+        case GGML_UNARY_OP_FLOOR:
+            floor_cuda(ctx);
+            break;
+        case GGML_UNARY_OP_CEIL:
+            ceil_cuda(ctx);
+            break;
+        case GGML_UNARY_OP_ROUND:
+            round_cuda(ctx);
+            break;
+        case GGML_UNARY_OP_TRUNC:
+            trunc_cuda(ctx);
+            break;
         default:
             assert(false);
         }
@@ -1160,12 +1174,12 @@ namespace op
                 return;
             }
 
-            if (ggml_cuda_should_use_mmq(src0->type, cc, src1->ne[2])) {
+            if (utils::should_use_mmq(src0->type, cc, src1->ne[2])) {
                 mul_mat_q(pool, stream, ids, dst);
                 return;
             }
 
-            if (fused::should_use_mmf(src0->type, ggml_type_size(src0->type), cc, WARP_SIZE, src0->ne.data(), src1->ne[2],/*mul_mat_id=*/true)) {
+            if (utils::should_use_mmf(src0->type, cc, WARP_SIZE, src0->ne, src0->nb, src1->ne[2],/*mul_mat_id=*/true)) {
                 mul_mat_f(pool, stream, ids, dst);
                 return;
             }
@@ -1381,28 +1395,28 @@ namespace op
         const ggml_tensor* src0 = dst->src[0];
         GGML_ASSERT(ggml_is_contiguous(src0));
         unary_context ctx = create(src0, dst, stream);
-        sqr_cuda(&ctx);
+        sqr_cuda(ctx);
     }
 
     void sqrt(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         GGML_ASSERT(ggml_is_contiguous(src0));
         unary_context ctx = create(src0, dst, stream);
-        sqrt_cuda(&ctx);
+        sqrt_cuda(ctx);
     }
 
     void sin(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         GGML_ASSERT(ggml_is_contiguous(src0));
         unary_context ctx = create(src0, dst, stream);
-        sin_cuda(&ctx);
+        sin_cuda(ctx);
     }
 
     void cos(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         GGML_ASSERT(ggml_is_contiguous(src0));
         unary_context ctx = create(src0, dst, stream);
-        cos_cuda(&ctx);
+        cos_cuda(ctx);
     }
 
     void clamp(cudaStream_t stream, ggml_tensor* dst) {
@@ -1425,7 +1439,7 @@ namespace op
         const ggml_tensor* src0 = dst->src[0];
         GGML_ASSERT(ggml_is_contiguous(src0));
         unary_context ctx = create(src0, dst, stream);
-        log_cuda(&ctx);
+        log_cuda(ctx);
     }
 
     void diag_mask_inf(cudaStream_t stream, ggml_tensor* dst) {
@@ -1888,6 +1902,7 @@ namespace op
         switch (K->ne[0]) {
         case  40:
         case  64:
+        case  72:
         case  80:
         case  96:
         case 128:
@@ -1940,7 +1955,7 @@ namespace op
         const bool can_use_vector_kernel = Q->ne[0] <= 256 && Q->ne[0] % 64 == 0 && K->ne[1] % FATTN_KQ_STRIDE == 0;
 
         // If Turing tensor cores available, use them:
-        if (turing_mma_available(cc) && K->ne[1] % FATTN_KQ_STRIDE == 0 && Q->ne[0] != 40) {
+        if (turing_mma_available(cc) && K->ne[1] % FATTN_KQ_STRIDE == 0 && Q->ne[0] != 40 && Q->ne[0] != 72) {
             if (can_use_vector_kernel) {
                 if (!ggml_is_quantized(K->type) && !ggml_is_quantized(V->type)) {
                     if (cc >= GGML_CUDA_CC_ADA_LOVELACE && Q->ne[1] == 1 && Q->ne[3] == 1 && !(gqa_ratio > 4 && K->ne[1] >= 8192)) {
@@ -1968,7 +1983,7 @@ namespace op
         }
 
         // Use the WMMA kernel if possible:
-        if (ggml_cuda_should_use_wmma_fattn(cc) && K->ne[1] % FATTN_KQ_STRIDE == 0 && Q->ne[0] != 40 && Q->ne[0] != 576) {
+        if (ggml_cuda_should_use_wmma_fattn(cc) && K->ne[1] % FATTN_KQ_STRIDE == 0 && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[0] != 576) {
             if (can_use_vector_kernel && Q->ne[1] <= 2) {
                 return BEST_FATTN_KERNEL_VEC;
             }

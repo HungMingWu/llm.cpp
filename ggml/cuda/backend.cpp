@@ -747,18 +747,18 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
 
             const int cc = ggml_cuda_info().devices[id].cc;
             const int warp_size = ggml_cuda_info().devices[id].warp_size;
-            use_mul_mat_q = use_mul_mat_q && ggml_cuda_should_use_mmq(src0->type, cc, src1->ne[1]);
-            use_mul_mat_f = use_mul_mat_f && fused::should_use_mmf(src0->type, ggml_type_size(src0->type), cc, warp_size, src0->ne.data(), src1->ne[1], /*mul_mat_id=*/false);
-            use_mul_mat_vec_f = use_mul_mat_vec_f && ggml_cuda_should_use_mmvf(src0->type, cc, src0->ne.data(), src1->ne[1]);
+            use_mul_mat_q = use_mul_mat_q && utils::should_use_mmq(src0->type, cc, src1->ne[1]);
+            use_mul_mat_f = use_mul_mat_f && utils::should_use_mmf(src0->type, cc, warp_size, src0->ne, src0->nb, src1->ne[1], /*mul_mat_id=*/false);
+            use_mul_mat_vec_f = use_mul_mat_vec_f && utils::should_use_mmvf(src0->type, cc, src0->ne, src0->nb, src1->ne[1]);
             any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16 || !fast_fp16_hardware_available(cc);
         }
     }
     else {
         const int cc = ggml_cuda_info().devices[device].cc;
         const int warp_size = ggml_cuda_info().devices[device].warp_size;
-        use_mul_mat_q = use_mul_mat_q && ggml_cuda_should_use_mmq(src0->type, cc, src1->ne[1]);
-        use_mul_mat_f = use_mul_mat_f && fused::should_use_mmf(src0->type, ggml_type_size(src0->type), cc, warp_size, src0->ne.data(), src1->ne[1], /*mul_mat_id=*/false);
-        use_mul_mat_vec_f = use_mul_mat_vec_f && ggml_cuda_should_use_mmvf(src0->type, cc, src0->ne.data(), src1->ne[1]);
+        use_mul_mat_q = use_mul_mat_q && utils::should_use_mmq(src0->type, cc, src1->ne[1]);
+        use_mul_mat_f = use_mul_mat_f && utils::should_use_mmf(src0->type, cc, warp_size, src0->ne, src0->nb, src1->ne[1], /*mul_mat_id=*/false);
+        use_mul_mat_vec_f = use_mul_mat_vec_f && utils::should_use_mmvf(src0->type, cc, src0->ne, src0->nb, src1->ne[1]);
         any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16 || !fast_fp16_hardware_available(cc);
     }
 
@@ -1328,31 +1328,6 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
                         continue;
                     }
 
-                    if (node->op == GGML_OP_MUL) {
-                        int current_node = i + 1;
-                        int num_views = 0;
-                        int num_adds = 0;
-                        while (current_node < cgraph->nodes.size() && cgraph->nodes[current_node]->op == GGML_OP_VIEW) {
-                            num_views++;
-                            current_node++;
-                        }
-
-                        while (current_node < cgraph->nodes.size() && cgraph->nodes[current_node]->op == GGML_OP_ADD &&
-                            num_adds < num_views - 1) {
-                            num_adds++;
-                            current_node++;
-                        }
-
-                        if (num_adds == num_views - 1 && num_views > 0) {
-                            ggml_tensor* dst_node = cgraph->nodes[current_node - 1];
-                            if (fused::ggml_cuda_should_use_moe_expert_reduce(cgraph, i, current_node)) {
-                                fused::moe_expert_reduce(stream(), node->src[0], node->src[1], dst_node);
-                                i += num_views + num_adds;
-                                continue;
-                            }
-                        }
-                    }
-
                     if (node->op == GGML_OP_ADD) {
                         int n_fuse = 0;
                         ggml_op ops[8];
@@ -1424,7 +1399,7 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
                                 GGML_ASSERT(op_bias == GGML_OP_ADD_ID);
                                 GGML_ASSERT(bias_node->src[0] == mul_node);
                                 return bias_node->src[1];
-                                };
+                            };
 
                             ggml_tensor* up_bias_tensor = get_bias_tensor(up_bias_n, up_n, bias_op);
                             ggml_tensor* gate_bias_tensor = get_bias_tensor(gate_bias_n, gate_n, bias_op);
@@ -1433,11 +1408,18 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
                                 continue;
                             }
 
+                            // we don't support repeating adds
+                            if (bias_op == GGML_OP_ADD &&
+                                (!ggml_are_same_shape(gate_bias_n->src[0], gate_bias_n->src[1]) ||
+                                    !ggml_are_same_shape(up_bias_n->src[0], up_bias_n->src[1]))) {
+                                continue;
+                            }
+
                             const ggml_tensor* src0 = up_n->src[0];
                             const ggml_tensor* src1 = up_n->src[1];
                             const ggml_tensor* ids = up_n->src[2];
 
-                            if (fused::ggml_cuda_should_fuse_mul_mat_vec_f(up_n)) {
+                            if (fused::should_mul_mat_vec_f(up_n)) {
                                 op::ggml_cuda_mm_fusion_args_host fusion_data{};
                                 fusion_data.gate = gate_n->src[0];
                                 fusion_data.x_bias = up_bias_tensor;
@@ -1450,7 +1432,7 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
                                 break;
                             }
 
-                            if (fused::ggml_cuda_should_fuse_mul_mat_vec_q(up_n)) {
+                            if (fused::should_mul_mat_vec_q(up_n)) {
                                 op::ggml_cuda_mm_fusion_args_host fusion_data{};
                                 fusion_data.gate = gate_n->src[0];
                                 fusion_data.x_bias = up_bias_tensor;
@@ -1478,7 +1460,7 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
                             const ggml_tensor* src1 = up->src[1];
                             const ggml_tensor* ids = up->src[2];
 
-                            if (fused::ggml_cuda_should_fuse_mul_mat_vec_f(up)) {
+                            if (fused::should_mul_mat_vec_f(up)) {
                                 op::ggml_cuda_mm_fusion_args_host fusion_data{};
                                 fusion_data.gate = gate->src[0];
                                 fusion_data.glu_op = ggml_get_glu_op(glu);
@@ -1489,7 +1471,7 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
                                 break;
                             }
 
-                            if (fused::ggml_cuda_should_fuse_mul_mat_vec_q(up)) {
+                            if (fused::should_mul_mat_vec_q(up)) {
                                 op::ggml_cuda_mm_fusion_args_host fusion_data{};
                                 fusion_data.gate = gate->src[0];
                                 fusion_data.glu_op = ggml_get_glu_op(glu);
@@ -1547,17 +1529,21 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
                             continue;
                         }
 
+                        if (bias_op == GGML_OP_ADD && !ggml_are_same_shape(bias_node->src[0], bias_node->src[1])) {
+                            continue;
+                        }
+
                         op::ggml_cuda_mm_fusion_args_host fusion_data{};
                         fusion_data.x_bias = bias_tensor;
 
-                        if (fused::ggml_cuda_should_fuse_mul_mat_vec_f(mm_node)) {
+                        if (fused::should_mul_mat_vec_f(mm_node)) {
                             op::mul_mat_vec_f(stream(), src0, src1, ids, bias_node, &fusion_data);
                             fused_mul_mat_vec = true;
                             fused_node_count = 2;
                             break;
                         }
 
-                        if (fused::ggml_cuda_should_fuse_mul_mat_vec_q(mm_node)) {
+                        if (fused::should_mul_mat_vec_q(mm_node)) {
                             op::mul_mat_vec_q(pool(), stream(), src0, src1, ids, bias_node, &fusion_data);
                             fused_mul_mat_vec = true;
                             fused_node_count = 2;

@@ -68,6 +68,7 @@ enum ggml_sort_order : int {
 enum ggml_scale_mode : int {
     GGML_SCALE_MODE_NEAREST = 0,
     GGML_SCALE_MODE_BILINEAR = 1,
+    GGML_SCALE_MODE_BICUBIC = 2,
 
     GGML_SCALE_MODE_COUNT
 };

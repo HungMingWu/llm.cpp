@@ -7,42 +7,6 @@
 
 #define GGML_ABORT(...)
 
-bool ggml_cuda_should_use_mmf(enum ggml_type type, 
-    size_t type_size, int cc, int warp_size, const int64_t* src0_ne, int64_t src1_ncols, bool mul_mat_id) {
-
-    if (src0_ne[0] % (warp_size * (4 / type_size)) != 0) {
-        return false;
-    }
-    if (src0_ne[1] % MMF_ROWS_PER_BLOCK != 0) {
-        return false;
-    }
-
-    if (mul_mat_id) {
-        if (src0_ne[1] <= 1024 && src1_ncols > 512) {
-            return false;
-        }
-        else if (src0_ne[1] > 1024 && src1_ncols > 128) {
-            return false;
-        }
-    }
-    else {
-        if (src1_ncols > 16) {
-            return false;
-        }
-    }
-
-    switch (type) {
-    case GGML_TYPE_F32:
-        return ampere_mma_available(cc);
-    case GGML_TYPE_F16:
-        return turing_mma_available(cc);
-    case GGML_TYPE_BF16:
-        return ampere_mma_available(cc);
-    default:
-        return false;
-    }
-}
-
 void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream)
 {
     switch (ctx->src0_type) {

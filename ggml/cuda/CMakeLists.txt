@@ -32,6 +32,7 @@ target_sources(libggml
     FILES
       op.cppm
       fused.cppm
+      utils.cppm
   PRIVATE
       backend.cpp
       buffer.cpp
@@ -39,7 +40,7 @@ target_sources(libggml
       common.cpp
       fused.cpp
       registry.cpp
-      fused/moe-expert-reduce.cu
+      utils.cpp
       fused/softcap.cu
       fused/topk-moe.cu
       common.cuh

@@ -6,12 +6,9 @@ module ggml:cuda.fused;
 import :ds;
 
 namespace fused
-{
-	bool should_use_mmf(enum ggml_type type,
-		size_t type_size, int cc, int warp_size, const int64_t* scr0_ne, int64_t src1_ncols, bool mul_mat_id);
-	bool ggml_cuda_should_use_moe_expert_reduce(const ggml_cgraph* cgraph, int start_index, int end_index);
-	bool ggml_cuda_should_fuse_mul_mat_vec_f(const ggml_tensor* tensor);
-	bool ggml_cuda_should_fuse_mul_mat_vec_q(const ggml_tensor* tensor);
+{;
+	bool should_mul_mat_vec_f(const ggml_tensor* tensor);
+	bool should_mul_mat_vec_q(const ggml_tensor* tensor);
 
 	std::initializer_list<enum ggml_op> ggml_cuda_topk_moe_ops(bool with_norm, bool delayed_softmax = false);
 
