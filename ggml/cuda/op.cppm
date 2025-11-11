@@ -2625,20 +2625,24 @@ namespace op
     }
 
     void roll(cudaStream_t stream, ggml_tensor* dst) {
-        int s0 = dst->op_params[0];
-        int s1 = dst->op_params[1];
-        int s2 = dst->op_params[2];
-        int s3 = dst->op_params[3];
-
         const ggml_tensor* src0 = dst->src[0];
-        const float* src0_d = (const float*)dst->src[0]->data;
-        float* dst_d = (float*)dst->data;
 
         GGML_ASSERT(dst->src[0]->type == GGML_TYPE_F32);
         GGML_ASSERT(ggml_are_same_shape(dst->src[0], dst));
 
-        roll_f32_cuda(
-            src0_d, dst_d, src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3], s0, s1, s2, s3, stream);
+        roll_context ctx{
+            .src0_d = (const float*)src0->data,
+            .dst_d = (float*)dst->data,
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
+            .s0 = dst->op_params[0],
+            .s1 = dst->op_params[1],
+            .s2 = dst->op_params[2],
+            .s3 = dst->op_params[3]
+        };
+        roll_f32_cuda(ctx, stream);
     }
 
     void add_id(cudaStream_t stream, ggml_tensor* dst) {

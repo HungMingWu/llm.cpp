@@ -727,17 +727,17 @@ struct set_rows_context {
 void set_rows_cuda(const set_rows_context &context, cudaStream_t stream);
 
 // roll.cu
-void roll_f32_cuda(const float* __restrict__ src,
-    float* __restrict__ dst,
-    const int64_t ne00,
-    const int64_t ne01,
-    const int64_t ne02,
-    const int64_t ne03,
-    const int     s0,
-    const int     s1,
-    const int     s2,
-    const int     s3,
-    cudaStream_t stream);
+struct roll_context {
+    const float* src0_d;
+    float* dst_d;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
+    const int s0, s1, s2, s3;
+};
+
+void roll_f32_cuda(const roll_context& ctx, cudaStream_t stream);
 
 // add_id.cu
 struct add_id_context {
