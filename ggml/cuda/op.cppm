@@ -1827,13 +1827,17 @@ namespace op
         // sanity: padded length matches
         GGML_ASSERT(ne0 == ne00 + p0 + p1);
 
-        pad_reflect_1d_cuda(
-            src0->data, dst->data,
-            ne0, ne00, ne01, ne02, ne03,
-            src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3],
-            dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3],
-            p0, p1, stream
-        );
+        pad_reflect_1d_context ctx{
+            .src0_d = static_cast<const float*>(src0->data),
+            .dst_d = static_cast<float*>(dst->data),
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
+            .p0 = p0,
+            .p1 = p1
+        };
+        pad_reflect_1d_cuda(ctx, stream);
     }
 
     void timestep_embedding(cudaStream_t stream, ggml_tensor* dst) {

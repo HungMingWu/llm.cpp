@@ -541,13 +541,16 @@ struct pad_context {
 void pad_f32_cuda(const pad_context& ctx, cudaStream_t stream);
 
 // pad_reflect_1d.cu
-void pad_reflect_1d_cuda(
-    const void* src0, void* dst,
-    const int64_t ne0,
-    const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
-    const int64_t nb00, const int64_t nb01, const int64_t nb02, const int64_t nb03,
-    const int64_t nb0, const int64_t nb1, const int64_t nb2, const int64_t nb3,
-    const int p0, const int p1, cudaStream_t stream);
+struct pad_reflect_1d_context {
+    const float* src0_d;
+    float* dst_d;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
+    const int p0, p1;
+};
+void pad_reflect_1d_cuda(const pad_reflect_1d_context& ctx, cudaStream_t stream);
 
 // tsembd
 void timestep_embedding_f32_cuda(const float* x, float* dst, const int ne00, const int nb1,
