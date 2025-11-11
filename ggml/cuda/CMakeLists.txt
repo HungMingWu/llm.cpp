@@ -75,7 +75,6 @@ target_sources(libggml
       op/mmq.cu
       op/mmvf.cu
       op/mmvq.cu
-      op/moe-expert-reduce.cu
       op/norm.cu
       op/opt-step-adamw.cu
       op/opt-step-sgd.cu
