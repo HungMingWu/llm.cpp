@@ -687,13 +687,35 @@ struct ssm_conv_context {
 void ssm_conv_f32_cuda(const ssm_conv_context &ctx, cudaStream_t stream);
 
 // ssm-scan
-void ssm_scan_f32_cuda(const float* src0, const float* src1, const float* src2, const float* src3,
-    const float* src4, const float* src5, const int32_t* src6, float* dst,
-    const int src0_nb2, const int src0_nb3, const int src1_nb2, const int src1_nb3, const int src2_nb1,
-    const int src2_nb2, const int src3_nb1, const int src4_nb2, const int src4_nb3, const int src5_nb2,
-    const int src5_nb3, const int64_t s_off, const int64_t d_state, const int64_t head_dim,
-    const int64_t n_head, const int64_t n_group, const int64_t n_tok, const int64_t n_seq,
-    cudaStream_t stream);
+struct ssm_scan_context {
+    const float* src0_d;
+    const float* src1_d;
+    const float* src2_d;
+    const float* src3_d;
+    const float* src4_d;
+    const float* src5_d;
+    const int32_t* src6_d;
+    void* dst_d;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t src1_ne[4];
+    size_t src1_nb[4];
+    int64_t src2_ne[4];
+    size_t src2_nb[4];
+    int64_t src3_ne[4];
+    size_t src3_nb[4];
+    int64_t src4_ne[4];
+    size_t src4_nb[4];
+    int64_t src5_ne[4];
+    size_t src5_nb[4];
+    int64_t src6_ne[4];
+    size_t src6_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
+    const int64_t s_off, d_state, head_dim, n_head, n_group, n_tok, n_seq;
+};
+
+void ssm_scan_f32_cuda(const ssm_scan_context& ctx, cudaStream_t stream);
 
 // conv2d-dw.cu
 struct conv2d_dw_context {

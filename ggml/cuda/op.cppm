@@ -2007,16 +2007,12 @@ namespace op
         const ggml_tensor* src5 = dst->src[5];  // C
         const ggml_tensor* src6 = dst->src[6];  // ids
 
-        const int64_t nc = src0->ne[0];  // d_state
-        const int64_t nr = src0->ne[1];  // head_dim or 1
-        const int64_t nh = src1->ne[1];  // n_head
-        const int64_t ng = src4->ne[1];  // n_group
-        const int64_t n_t = src1->ne[2];  // number of tokens per sequence
-        const int64_t n_s = src1->ne[3];  // number of sequences in the batch
+        const int64_t d_state = src0->ne[0];
+        const int64_t head_dim = src0->ne[1];
+        const int64_t n_head = src1->ne[1];
+        const int64_t n_seq = src1->ne[3];
 
-        const int64_t s_off = src1->nelements() * sizeof(float);
-
-        GGML_ASSERT(src1->nelements() + nc * nr * nh * n_s == dst->nelements());
+        GGML_ASSERT(src1->nelements() + d_state * head_dim * n_head * n_seq == dst->nelements());
         GGML_ASSERT(src0->nb[0] == sizeof(float));
         GGML_ASSERT(src1->nb[0] == sizeof(float));
         GGML_ASSERT(src2->nb[0] == sizeof(float));
@@ -2025,23 +2021,43 @@ namespace op
         GGML_ASSERT(src5->nb[0] == sizeof(float));
         GGML_ASSERT(src6->nb[0] == sizeof(int32_t));
 
-        const float* src0_d = (const float*)src0->data;
-        const float* src1_d = (const float*)src1->data;
-        const float* src2_d = (const float*)src2->data;
-        const float* src3_d = (const float*)src3->data;
-        const float* src4_d = (const float*)src4->data;
-        const float* src5_d = (const float*)src5->data;
-        const int32_t* src6_d = (const int32_t*)src6->data;
-        float* dst_d = (float*)dst->data;
-
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(src6->type == GGML_TYPE_I32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
-
-        ssm_scan_f32_cuda(src0_d, src1_d, src2_d, src3_d, src4_d, src5_d, src6_d, dst_d,
-            src0->nb[2], src0->nb[3], src1->nb[2], src1->nb[3], src2->nb[1], src2->nb[2],
-            src3->nb[1], src4->nb[2], src4->nb[3], src5->nb[2], src5->nb[3],
-            s_off, nc, nr, nh, ng, n_t, n_s, stream);
+        ssm_scan_context ctx{
+            .src0_d = (const float*)src0->data,
+            .src1_d = (const float*)src1->data,
+            .src2_d = (const float*)src2->data,
+            .src3_d = (const float*)src3->data,
+            .src4_d = (const float*)src4->data,
+            .src5_d = (const float*)src5->data,
+            .src6_d = (const int32_t*)src6->data,
+            .dst_d = dst->data,
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .src1_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
+            .src2_ne = { src2->ne[0], src2->ne[1], src2->ne[2], src2->ne[3] },
+            .src2_nb = { src2->nb[0], src2->nb[1], src2->nb[2], src2->nb[3] },
+            .src3_ne = { src3->ne[0], src3->ne[1], src3->ne[2], src3->ne[3] },
+            .src3_nb = { src3->nb[0], src3->nb[1], src3->nb[2], src3->nb[3] },
+            .src4_ne = { src4->ne[0], src4->ne[1], src4->ne[2], src4->ne[3] },
+            .src4_nb = { src4->nb[0], src4->nb[1], src4->nb[2], src4->nb[3] },
+            .src5_ne = { src5->ne[0], src5->ne[1], src5->ne[2], src5->ne[3] },
+            .src5_nb = { src5->nb[0], src5->nb[1], src5->nb[2], src5->nb[3] },
+            .src6_ne = { src6->ne[0], src6->ne[1], src6->ne[2], src6->ne[3] },
+            .src6_nb = { src6->nb[0], src6->nb[1], src6->nb[2], src6->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
+            .s_off = static_cast<int64_t>(src1->nelements() * sizeof(float)),
+            .d_state = d_state,
+            .head_dim = src0->ne[1],
+            .n_head = n_head,
+            .n_group = src4->ne[1],
+            .n_tok = src1->ne[2], // number of tokens per sequence
+            .n_seq = n_seq       // number of sequences in the batch
+        };
+        ssm_scan_f32_cuda(ctx, stream);
     }
 
     void conv2d(cudaStream_t stream, ggml_tensor* dst) {
