@@ -2281,24 +2281,29 @@ namespace op
         const ggml_tensor* src0 = dst->src[0];  // conv_x
         const ggml_tensor* src1 = dst->src[1];  // conv1d.weight
 
-        const int64_t nc = src1->ne[0];                // d_conv
-        const int64_t nr = src0->ne[1];                // d_inner
-        const int64_t n_t = dst->ne[1];                 // tokens per sequence
-        const int64_t n_s = dst->ne[2];                 // number of sequences in the batch
-
-        GGML_ASSERT(dst->ne[0] == nr);
+        GGML_ASSERT(dst->ne[0] == src0->ne[1]);
         GGML_ASSERT(src0->nb[0] == sizeof(float));
         GGML_ASSERT(src1->nb[0] == sizeof(float));
         GGML_ASSERT(src0->nb[1] == src0->ne[0] * sizeof(float));
 
-        const float* src0_d = (const float*)src0->data;
-        const float* src1_d = (const float*)src1->data;
-        float* dst_d = (float*)dst->data;
-
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
-        ssm_conv_f32_cuda(src0_d, src1_d, src0->nb[0], src0->nb[1], src0->nb[2], src1->nb[1], dst_d, dst->nb[0], dst->nb[1],
-            dst->nb[2], nc, nr, n_t, n_s, stream);
+        ssm_conv_context ctx{
+            .src0_d = (const float*)src0->data,
+            .src1_d = (const float*)src1->data,
+            .dst_d = (float*)dst->data,
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .src1_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
+            .nc = src1->ne[0],                // d_conv
+            .nr = src0->ne[1],                // d_inner
+            .n_t = dst->ne[1],                // tokens per sequence
+            .n_s = dst->ne[2]                 // number of sequences in the batch
+        };
+        ssm_conv_f32_cuda(ctx, stream);
     }
 
     void ssm_scan(cudaStream_t stream, ggml_tensor* dst) {

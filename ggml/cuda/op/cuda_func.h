@@ -658,10 +658,19 @@ void opt_step_adamw_f32_cuda(
     float* g_v, const float* pars, const int64_t k, cudaStream_t stream);
 
 // ssm-conv
-void ssm_conv_f32_cuda(const float* src0, const float* src1, const int src0_nb0, const int src0_nb1,
-    const int src0_nb2, const int src1_nb1, float* dst, const int dst_nb0, const int dst_nb1,
-    const int dst_nb2, const int64_t nc, const int64_t nr, const int64_t n_t,
-    const int64_t n_s, cudaStream_t stream);
+struct ssm_conv_context {
+    const float* src0_d;
+    const float* src1_d;
+    float* dst_d;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t src1_ne[4];
+    size_t src1_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
+    const int64_t nc, nr, n_t, n_s;
+};
+void ssm_conv_f32_cuda(const ssm_conv_context &ctx, cudaStream_t stream);
 
 // ssm-scan
 void ssm_scan_f32_cuda(const float* src0, const float* src1, const float* src2, const float* src3,
