@@ -87,11 +87,11 @@ static void unary_cuda(const T* x, T* dst, const int k, cudaStream_t stream) {
 
 template <float (*op)(float)>
 void op_unary(const unary_context &ctx) {
-    GGML_ASSERT(ctx.src0_type == GGML_TYPE_F32 || ctx.src0_type == GGML_TYPE_F16);
-    GGML_ASSERT(ctx.dst_type == GGML_TYPE_F32 || ctx.dst_type == GGML_TYPE_F16);
+    GGML_ASSERT(ctx.src0_type == internal::GGML_TYPE_F32 || ctx.src0_type == internal::GGML_TYPE_F16);
+    GGML_ASSERT(ctx.dst_type == internal::GGML_TYPE_F32 || ctx.dst_type == internal::GGML_TYPE_F16);
     GGML_ASSERT(ctx.src0_type == ctx.dst_type);
 
-    if (ctx.src0_type == GGML_TYPE_F16) {
+    if (ctx.src0_type == internal::GGML_TYPE_F16) {
         unary_cuda<op>((const half*)ctx.src0_d, (half*)ctx.dst_d, ctx.nelements, ctx.stream);
     }
     else {
@@ -299,7 +299,7 @@ void ggml_cuda_op_unary_gated(const gated_context* ctx) {
 
     const int32_t swapped = ctx->swapped;
 
-    if (ctx->src0_type == GGML_TYPE_F16) {
+    if (ctx->src0_type == internal::GGML_TYPE_F16) {
         half* src0_p = (half*)ctx->src0_d;
         half* src1_p = (half*)ctx->src1_d;
 
@@ -399,10 +399,10 @@ static void xielu_cuda(const T* x, T* dst, const int k, float alpha_n, float alp
     xielu_kernel << <num_blocks, CUDA_XIELU_BLOCK_SIZE, 0, stream >> > (x, dst, k, alpha_n, alpha_p, beta, eps);
 }
 
-void xielu_cuda(ggml_type src0_type, const void* src0_d, void* dst_d, int64_t src0_elements,
+void xielu_cuda(internal::ggml_type src0_type, const void* src0_d, void* dst_d, int64_t src0_elements,
     const float alpha_n, const float alpha_p, const float beta, const float eps, cudaStream_t stream)
 {
-    if (src0_type == GGML_TYPE_F16) {
+    if (src0_type == internal::GGML_TYPE_F16) {
         xielu_cuda((const half*)src0_d, (half*)dst_d, src0_elements, alpha_n, alpha_p, beta, eps, stream);
     }
     else {

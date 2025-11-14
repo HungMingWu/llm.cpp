@@ -8,6 +8,10 @@ module;
 #define GGML_ASSERT(...)
 #define GGML_ABORT(...)
 
+namespace internal {
+    enum ggml_type : int;
+}
+
 export module ggml:cuda.backend;
 import :ds;
 import :tensor;
@@ -103,7 +107,7 @@ export
     class ggml_backend_cuda;
     using quantize_cuda_t = void (*)(
         const float* x, const int32_t* ids, void* vy,
-        ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
+        internal::ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
         int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, cudaStream_t stream);
     using ggml_cuda_op_mul_mat_t = void(*)(
         ggml_backend_cuda& ctx,

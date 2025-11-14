@@ -359,14 +359,14 @@ void rope_cuda(const rope_context &ctx, cudaStream_t stream)
         ctx.freq_base, ctx.beta_fast, ctx.beta_slow, corr_dims.v);
 
     if (ctx.is_neox) {
-        if (ctx.src0_type == GGML_TYPE_F32) {
+        if (ctx.src0_type == internal::GGML_TYPE_F32) {
             rope_neox_cuda<forward>(
                 (const float*)ctx.src0_d, (float*)ctx.dst_d,
                 ctx.ne00, ctx.ne01, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
                 ctx.pos, ctx.freq_scale, ctx.freq_base,
                 ctx.ext_factor, ctx.attn_factor, corr_dims, ctx.freq_factors, stream);
         }
-        else if (ctx.src0_type == GGML_TYPE_F16) {
+        else if (ctx.src0_type == internal::GGML_TYPE_F16) {
             rope_neox_cuda<forward>(
                 (const half*)ctx.src0_d, (half*)ctx.dst_d,
                 ctx.ne00, ctx.ne01, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
@@ -377,14 +377,14 @@ void rope_cuda(const rope_context &ctx, cudaStream_t stream)
             GGML_ABORT("fatal error");
         }
     } else if (ctx.is_mrope && !ctx.is_vision) {
-        if (ctx.src0_type == GGML_TYPE_F32) {
+        if (ctx.src0_type == internal::GGML_TYPE_F32) {
             rope_multi_cuda<forward>(
                 (const float*)ctx.src0_d, (float*)ctx.dst_d,
                 ctx.ne00, ctx.ne01, ctx.ne02, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
                 ctx.pos, ctx.freq_scale, ctx.freq_base,
                 ctx.ext_factor, ctx.attn_factor, corr_dims, ctx.freq_factors, ctx.sections, ctx.is_imrope, stream);
         }
-        else if (ctx.src0_type == GGML_TYPE_F16) {
+        else if (ctx.src0_type == internal::GGML_TYPE_F16) {
             rope_multi_cuda<forward>(
                 (const half*)ctx.src0_d, (half*)ctx.dst_d,
                 ctx.ne00, ctx.ne01, ctx.ne02, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
@@ -395,14 +395,14 @@ void rope_cuda(const rope_context &ctx, cudaStream_t stream)
             GGML_ABORT("fatal error");
         }
     } else if (ctx.is_vision) {
-        if (ctx.src0_type == GGML_TYPE_F32) {
+        if (ctx.src0_type == internal::GGML_TYPE_F32) {
             rope_vision_cuda<forward>(
                 (const float*)ctx.src0_d, (float*)ctx.dst_d,
                 ctx.ne00, ctx.ne01, ctx.ne02, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
                 ctx.pos, ctx.freq_scale, ctx.freq_base,
                 ctx.ext_factor, ctx.attn_factor, corr_dims, ctx.freq_factors, ctx.sections, stream);
         }
-        else if (ctx.src0_type == GGML_TYPE_F16) {
+        else if (ctx.src0_type == internal::GGML_TYPE_F16) {
             rope_vision_cuda<forward>(
                 (const half*)ctx.src0_d, (half*)ctx.dst_d,
                 ctx.ne00, ctx.ne01, ctx.ne02, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
@@ -413,14 +413,14 @@ void rope_cuda(const rope_context &ctx, cudaStream_t stream)
             GGML_ABORT("fatal error");
         }
     } else {
-        if (ctx.src0_type == GGML_TYPE_F32) {
+        if (ctx.src0_type == internal::GGML_TYPE_F32) {
             rope_norm_cuda<forward>(
                 (const float*)ctx.src0_d, (float*)ctx.dst_d,
                 ctx.ne00, ctx.ne01, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,
                 ctx.pos, ctx.freq_scale, ctx.freq_base, ctx.ext_factor,
                 ctx.attn_factor, corr_dims, ctx.freq_factors, stream);
         }
-        else if (ctx.src0_type == GGML_TYPE_F16) {
+        else if (ctx.src0_type == internal::GGML_TYPE_F16) {
             rope_norm_cuda<forward>(
                 (const half*)ctx.src0_d, (half*)ctx.dst_d,
                 ctx.ne00, ctx.ne01, ctx.s01, ctx.s02, ctx.n_dims, ctx.nr,

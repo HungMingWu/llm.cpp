@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <float.h>
 #include "common.cuh"
+#include "cuda_func.h"
 
 #define CUDA_POOL2D_BLOCK_SIZE 256
 
@@ -9,7 +10,7 @@ static  __global__ void pool2d_nchw_kernel(
     const int ih, const int iw, const int oh, const int ow,
     const int kh, const int kw, const int sh, const int sw,
     const int ph, const int pw, const int parallel_elements,
-    const Ti* src, To* dst, const enum ggml_op_pool op) {
+    const Ti* src, To* dst, const internal::ggml_op_pool op) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= parallel_elements) {
         return;
@@ -32,8 +33,8 @@ static  __global__ void pool2d_nchw_kernel(
     To res = 0;
 
     switch (op) {
-    case GGML_OP_POOL_AVG: res = 0; break;
-    case GGML_OP_POOL_MAX: res = -FLT_MAX; break;
+    case internal::GGML_OP_POOL_AVG: res = 0; break;
+    case internal::GGML_OP_POOL_MAX: res = -FLT_MAX; break;
     default: assert(false);
     }
 
@@ -45,8 +46,8 @@ static  __global__ void pool2d_nchw_kernel(
             Ti cur = i_ptr[i * iw + j];
 #endif
             switch (op) {
-            case GGML_OP_POOL_AVG: res += cur * scale; break;
-            case GGML_OP_POOL_MAX: res = max(res, (To)cur); break;
+            case internal::GGML_OP_POOL_AVG: res += cur * scale; break;
+            case internal::GGML_OP_POOL_MAX: res = max(res, (To)cur); break;
             default: assert(false);
             }
         }
@@ -58,7 +59,7 @@ void pool2d_nchw_kernel_f32_f32_cuda(
     const int ih, const int iw, const int oh, const int ow,
     const int kh, const int kw, const int sh, const int sw,
     const int ph, const int pw, const int parallel_elements,
-    const float* src, float* dst, enum ggml_op_pool op,
+    const float* src, float* dst, internal::ggml_op_pool op,
     cudaStream_t stream) {
 
     const int num_blocks = (parallel_elements + CUDA_POOL2D_BLOCK_SIZE - 1) / CUDA_POOL2D_BLOCK_SIZE;

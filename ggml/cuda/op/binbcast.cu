@@ -148,28 +148,28 @@ static __global__ void k_bin_bcast(const src0_t* src0,
 
 template<class op>
 static void ggml_cuda_op_bin_bcast(const bin_bcast_context* ctx, cudaStream_t stream) {
-    GGML_ASSERT(src1->type == GGML_TYPE_F32 || src1->type == GGML_TYPE_F16);
-    if (ctx->src0_type == GGML_TYPE_F32 && ctx->dst_type == GGML_TYPE_F32) {
+    GGML_ASSERT(src1->type == internal::GGML_TYPE_F32 || src1->type == internal::GGML_TYPE_F16);
+    if (ctx->src0_type == internal::GGML_TYPE_F32 && ctx->dst_type == internal::GGML_TYPE_F32) {
         op().template operator() < float, float, float > (ctx, stream);
     }
-    else if (ctx->src0_type == GGML_TYPE_F16 && ctx->src1_type == GGML_TYPE_F16 && ctx->dst_type == GGML_TYPE_F16) {
+    else if (ctx->src0_type == internal::GGML_TYPE_F16 && ctx->src1_type == internal::GGML_TYPE_F16 && ctx->dst_type == internal::GGML_TYPE_F16) {
         op().template operator() < half, half, half > (ctx, stream);
     }
-    else if (ctx->src0_type == GGML_TYPE_F16 && ctx->src1_type == GGML_TYPE_F32 && ctx->dst_type == GGML_TYPE_F16) {
+    else if (ctx->src0_type == internal::GGML_TYPE_F16 && ctx->src1_type == internal::GGML_TYPE_F32 && ctx->dst_type == internal::GGML_TYPE_F16) {
         op().template operator() < half, float, half > (ctx, stream);
     }
-    else if (ctx->src0_type == GGML_TYPE_F16 && ctx->dst_type == GGML_TYPE_F32) {
+    else if (ctx->src0_type == internal::GGML_TYPE_F16 && ctx->dst_type == internal::GGML_TYPE_F32) {
         op().template operator() < half, float, float > (ctx, stream);
     }
-    else if (ctx->src0_type == GGML_TYPE_BF16 && ctx->src1_type == GGML_TYPE_BF16) {
+    else if (ctx->src0_type == internal::GGML_TYPE_BF16 && ctx->src1_type == internal::GGML_TYPE_BF16) {
         op().template operator() < nv_bfloat16, nv_bfloat16, nv_bfloat16 > (ctx, stream);
     }
-    else if (ctx->src0_type == GGML_TYPE_BF16 && ctx->src1_type == GGML_TYPE_F32) {
+    else if (ctx->src0_type == internal::GGML_TYPE_BF16 && ctx->src1_type == internal::GGML_TYPE_F32) {
         op().template operator() < nv_bfloat16, float, nv_bfloat16 > (ctx, stream);
     }
     else {
         //fprintf(stderr, "%s: unsupported types: dst: %s, src0: %s, src1: %s\n", __func__,
-            //ggml_type_name(dst->type), ggml_type_name(src0->type), ggml_type_name(src1->type));
+            //internal::GGML_TYPE_name(dst->type), internal::GGML_TYPE_name(src0->type), internal::GGML_TYPE_name(src1->type));
         GGML_ABORT("fatal error");
     }
 }
@@ -379,23 +379,23 @@ void div_cuda(const bin_bcast_context* ctx, cudaStream_t stream)
 
 template <float (*op)(const float, const float), int n_fuse>
 static void ggml_cuda_op_fused_binbcast_impl(const bin_bcast_context* ctx, cudaStream_t stream) {
-    if (ctx->src0_type == GGML_TYPE_F32 && ctx->dst_type == GGML_TYPE_F32) {
+    if (ctx->src0_type == internal::GGML_TYPE_F32 && ctx->dst_type == internal::GGML_TYPE_F32) {
         launch_bin_bcast_pack<op, float, float, float>(ctx, stream, std::make_index_sequence<n_fuse>{});
     }
-    else if (ctx->src0_type == GGML_TYPE_F16 && ctx->src1_type == GGML_TYPE_F16 && ctx->dst_type == GGML_TYPE_F16) {
+    else if (ctx->src0_type == internal::GGML_TYPE_F16 && ctx->src1_type == internal::GGML_TYPE_F16 && ctx->dst_type == internal::GGML_TYPE_F16) {
         launch_bin_bcast_pack<op, half, half, half>(ctx, stream, std::make_index_sequence<n_fuse>{});
     }
-    else if (ctx->src0_type == GGML_TYPE_F16 && ctx->src1_type == GGML_TYPE_F32 && ctx->dst_type == GGML_TYPE_F16) {
+    else if (ctx->src0_type == internal::GGML_TYPE_F16 && ctx->src1_type == internal::GGML_TYPE_F32 && ctx->dst_type == internal::GGML_TYPE_F16) {
         launch_bin_bcast_pack<op, half, float, half>(ctx, stream, std::make_index_sequence<n_fuse>{});
     }
-    else if (ctx->src0_type == GGML_TYPE_F16 && ctx->dst_type == GGML_TYPE_F32) {
+    else if (ctx->src0_type == internal::GGML_TYPE_F16 && ctx->dst_type == internal::GGML_TYPE_F32) {
         launch_bin_bcast_pack<op, half, float, float>(ctx, stream, std::make_index_sequence<n_fuse>{});
     }
     else {
 #if 0
         fprintf(stderr,
             "%s: unsupported types for fusion: dst: %s, src0: %s, src1: %s\n",
-            __func__, ggml_type_name(ctx->dst_type), ggml_type_name(ctx->src0_type), ggml_type_name(ctx->src1_type));
+            __func__, internal::GGML_TYPE_name(ctx->dst_type), internal::GGML_TYPE_name(ctx->src0_type), internal::GGML_TYPE_name(ctx->src1_type));
         GGML_ABORT("fatal error");
 #endif
     }
@@ -449,7 +449,7 @@ void repeat_back_cuda(const repeat_back_context* ctx, cudaStream_t stream)
     const size_t s02 = ctx->nb02 / ctx->src0_ts;
     const size_t s03 = ctx->nb03 / ctx->src0_ts;
     switch (ctx->dst_type) {
-    case GGML_TYPE_F32: {
+    case internal::GGML_TYPE_F32: {
         const float* src0_d = (const float*)ctx->src0_d;
         float* dst_d = (float*)ctx->dst_d;
         repeat_back_cuda(src0_d, dst_d,

@@ -36,7 +36,7 @@ void conv_transpose_1d_f32_cuda(const conv_transpose_1d_context& ctx, cudaStream
 
 void conv_transpose_1d_f32_cuda(const conv_transpose_1d_context& ctx, cudaStream_t stream) {
 
-    if (ctx.src0_type == GGML_TYPE_F16) {
+    if (ctx.src0_type == internal::GGML_TYPE_F16) {
         conv_transpose_1d_f32_cuda<half>(ctx, stream);
     }
     else {

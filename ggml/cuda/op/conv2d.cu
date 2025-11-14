@@ -1,5 +1,4 @@
 #include "cuda_func.h"
-#include "internal_ds.h"
 #include "convert.cuh"
 #include "helper.h"
 #include "launch.cuh"
@@ -45,7 +44,7 @@ void conv2d_cuda(const conv2d_context& ctx, cudaStream_t stream) {
 
 void conv2d_cuda(const conv2d_context& ctx, cudaStream_t stream)
 {
-    if (ctx.kernel_type == GGML_TYPE_F16) {
+    if (ctx.kernel_type == internal::GGML_TYPE_F16) {
         conv2d_cuda<half>(ctx, stream);
     }
     else {

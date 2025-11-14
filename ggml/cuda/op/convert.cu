@@ -1,4 +1,4 @@
-#include "internal_ds.h"
+#include "cuda_func.h"
 #include "table.h"
 #include "common.cuh"
 #include "convert.cuh"
@@ -507,52 +507,52 @@ static void dequantize_block_q8_0_f16_cuda(const void* __restrict__ vx, half* __
     }
 }
 
-void to_fp32_cuda(ggml_type type, const void* x, float* y, int64_t k, cudaStream_t stream)
+void to_fp32_cuda(internal::ggml_type type, const void* x, float* y, int64_t k, cudaStream_t stream)
 {
     switch (type) {
-    case GGML_TYPE_Q4_0:
+    case internal::GGML_TYPE_Q4_0:
         return dequantize_row_cuda<block_q4_0>(x, y, k, stream);
-    case GGML_TYPE_Q4_1:
+    case internal::GGML_TYPE_Q4_1:
         return dequantize_row_cuda<block_q4_1>(x, y, k, stream);
-    case GGML_TYPE_Q5_0:
+    case internal::GGML_TYPE_Q5_0:
         return dequantize_block_cont_cuda<block_q5_0, QR5_0>(x, y, k, stream);
-    case GGML_TYPE_Q5_1:
+    case internal::GGML_TYPE_Q5_1:
         return dequantize_block_cont_cuda<block_q5_1, QR5_1>(x, y, k, stream);
-    case GGML_TYPE_Q8_0:
+    case internal::GGML_TYPE_Q8_0:
         return dequantize_block_cont_cuda<block_q8_0, QR8_0>(x, y, k, stream);
-    case GGML_TYPE_Q2_K:
+    case internal::GGML_TYPE_Q2_K:
         return dequantize_row_cuda<block_q2_K>(x, y, k, stream);
-    case GGML_TYPE_Q3_K:
+    case internal::GGML_TYPE_Q3_K:
         return dequantize_row_cuda<block_q3_K>(x, y, k, stream);
-    case GGML_TYPE_Q4_K:
+    case internal::GGML_TYPE_Q4_K:
         return dequantize_row_cuda<block_q4_K>(x, y, k, stream);
-    case GGML_TYPE_Q5_K:
+    case internal::GGML_TYPE_Q5_K:
         return dequantize_row_cuda<block_q5_K>(x, y, k, stream);
-    case GGML_TYPE_Q6_K:
+    case internal::GGML_TYPE_Q6_K:
         return dequantize_row_cuda<block_q6_K>(x, y, k, stream);
-    case GGML_TYPE_IQ2_XXS:
+    case internal::GGML_TYPE_IQ2_XXS:
         return dequantize_row_cuda<block_iq2_xxs>(x, y, k, stream);
-    case GGML_TYPE_IQ2_XS:
+    case internal::GGML_TYPE_IQ2_XS:
         return dequantize_row_cuda<block_iq2_xs>(x, y, k, stream);
-    case GGML_TYPE_IQ2_S:
+    case internal::GGML_TYPE_IQ2_S:
         return dequantize_row_cuda<block_iq2_s>(x, y, k, stream);
-    case GGML_TYPE_IQ3_XXS:
+    case internal::GGML_TYPE_IQ3_XXS:
         return dequantize_row_cuda<block_iq3_xxs>(x, y, k, stream);
-    case GGML_TYPE_IQ1_S:
+    case internal::GGML_TYPE_IQ1_S:
         return dequantize_row_cuda<block_iq1_s>(x, y, k, stream);
-    case GGML_TYPE_IQ1_M:
+    case internal::GGML_TYPE_IQ1_M:
         return dequantize_row_cuda<block_iq1_m>(x, y, k, stream);
-    case GGML_TYPE_IQ4_NL:
+    case internal::GGML_TYPE_IQ4_NL:
         return dequantize_row_cuda<block_iq4_nl>(x, y, k, stream);
-    case GGML_TYPE_IQ4_XS:
+    case internal::GGML_TYPE_IQ4_XS:
         return dequantize_row_cuda<block_iq4_xs>(x, y, k, stream);
-    case GGML_TYPE_IQ3_S:
+    case internal::GGML_TYPE_IQ3_S:
         return dequantize_row_cuda<block_iq3_s>(x, y, k, stream);
-    case GGML_TYPE_MXFP4:
+    case internal::GGML_TYPE_MXFP4:
         return dequantize_row_cuda<block_mxfp4>(x, y, k, stream);
-    case GGML_TYPE_F16:
+    case internal::GGML_TYPE_F16:
         return convert_unary_cont_cuda<half>(x, y, k, stream);
-    case GGML_TYPE_BF16:
+    case internal::GGML_TYPE_BF16:
         return convert_unary_cont_cuda<nv_bfloat16>(x, y, k, stream);
     default:
         assert(false);
@@ -614,134 +614,134 @@ static __global__ void dequantize_block(const block_q4_1* vx, dst_t* yy, int nb3
     }
 }
 
-void to_fp16_cuda(ggml_type type, const void* x, half* y, int64_t k, cudaStream_t stream)
+void to_fp16_cuda(internal::ggml_type type, const void* x, half* y, int64_t k, cudaStream_t stream)
 {
     switch (type) {
-    case GGML_TYPE_Q4_0:
+    case internal::GGML_TYPE_Q4_0:
         return dequantize_row_cuda<block_q4_0>(x, y, k, stream);
-    case GGML_TYPE_Q4_1:
+    case internal::GGML_TYPE_Q4_1:
         return dequantize_row_cuda<block_q4_1>(x, y, k, stream);
-    case GGML_TYPE_Q5_0:
+    case internal::GGML_TYPE_Q5_0:
         return dequantize_block_cont_cuda<block_q5_0, QR5_0>(x, y, k, stream);
-    case GGML_TYPE_Q5_1:
+    case internal::GGML_TYPE_Q5_1:
         return dequantize_block_cont_cuda<block_q5_1, QR5_1>(x, y, k, stream);
-    case GGML_TYPE_Q8_0:
+    case internal::GGML_TYPE_Q8_0:
         if (ggml_cuda_info().devices[ggml_cuda_get_device()].cc >= GGML_CUDA_CC_PASCAL) {
             return dequantize_block_q8_0_f16_cuda(x, y, k, stream);
         }
         return dequantize_block_cont_cuda<block_q8_0, QR8_0>(x, y, k, stream);
-    case GGML_TYPE_Q2_K:
+    case internal::GGML_TYPE_Q2_K:
         return dequantize_row_cuda<block_q2_K>(x, y, k, stream);
-    case GGML_TYPE_Q3_K:
+    case internal::GGML_TYPE_Q3_K:
         return dequantize_row_cuda<block_q3_K>(x, y, k, stream);
-    case GGML_TYPE_Q4_K:
+    case internal::GGML_TYPE_Q4_K:
         return dequantize_row_cuda<block_q4_K>(x, y, k, stream);
-    case GGML_TYPE_Q5_K:
+    case internal::GGML_TYPE_Q5_K:
         return dequantize_row_cuda<block_q5_K>(x, y, k, stream);
-    case GGML_TYPE_Q6_K:
+    case internal::GGML_TYPE_Q6_K:
         return dequantize_row_cuda<block_q6_K>(x, y, k, stream);
-    case GGML_TYPE_IQ2_XXS:
+    case internal::GGML_TYPE_IQ2_XXS:
         return dequantize_row_cuda<block_iq2_xxs>(x, y, k, stream);
-    case GGML_TYPE_IQ2_XS:
+    case internal::GGML_TYPE_IQ2_XS:
         return dequantize_row_cuda<block_iq2_xs>(x, y, k, stream);
-    case GGML_TYPE_IQ2_S:
+    case internal::GGML_TYPE_IQ2_S:
         return dequantize_row_cuda<block_iq2_s>(x, y, k, stream);
-    case GGML_TYPE_IQ3_XXS:
+    case internal::GGML_TYPE_IQ3_XXS:
         return dequantize_row_cuda<block_iq3_xxs>(x, y, k, stream);
-    case GGML_TYPE_IQ1_S:
+    case internal::GGML_TYPE_IQ1_S:
         return dequantize_row_cuda<block_iq1_s>(x, y, k, stream);
-    case GGML_TYPE_IQ1_M:
+    case internal::GGML_TYPE_IQ1_M:
         return dequantize_row_cuda<block_iq1_m>(x, y, k, stream);;
-    case GGML_TYPE_IQ4_NL:
+    case internal::GGML_TYPE_IQ4_NL:
         return dequantize_row_cuda<block_iq4_nl>(x, y, k, stream);
-    case GGML_TYPE_IQ4_XS:
+    case internal::GGML_TYPE_IQ4_XS:
         return dequantize_row_cuda<block_iq4_xs>(x, y, k, stream);
-    case GGML_TYPE_IQ3_S:
+    case internal::GGML_TYPE_IQ3_S:
         return dequantize_row_cuda<block_iq3_s>(x, y, k, stream);
-    case GGML_TYPE_MXFP4:
+    case internal::GGML_TYPE_MXFP4:
         return dequantize_row_cuda<block_mxfp4>(x, y, k, stream);
-    case GGML_TYPE_F32:
+    case internal::GGML_TYPE_F32:
         return convert_unary_cont_cuda<float>(x, y, k, stream);
     default:
         return GGML_ABORT("Fatal error");
     }
 }
 
-void to_bf16_cuda(ggml_type type, const void* x, nv_bfloat16* y, int64_t k, cudaStream_t stream)
+void to_bf16_cuda(internal::ggml_type type, const void* x, nv_bfloat16* y, int64_t k, cudaStream_t stream)
 {
     switch (type) {
-    case GGML_TYPE_F32:
+    case internal::GGML_TYPE_F32:
         return convert_unary_cont_cuda<float>(x, y, k, stream);
-    case GGML_TYPE_F16:
+    case internal::GGML_TYPE_F16:
         return convert_unary_cont_cuda<half>(x, y, k, stream);
     default:
         return GGML_ABORT("Fatal error");
     }
 }
 
-void convert_to_nc_cuda(ggml_type type, const void* x, half* y,
+void convert_to_nc_cuda(internal::ggml_type type, const void* x, half* y,
     int64_t ne00, int64_t ne01, int64_t ne02, int64_t ne03,
     int64_t s01, int64_t s02, int64_t s03, cudaStream_t stream) {
     switch (type) {
-    case GGML_TYPE_F32:
+    case internal::GGML_TYPE_F32:
         return convert_unary_cuda<float>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q4_0:
+    case internal::GGML_TYPE_Q4_0:
         return dequantize_block_cuda<block_q4_0, QR4_0>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q4_1:
+    case internal::GGML_TYPE_Q4_1:
         return dequantize_block_cuda<block_q4_1, QR4_1>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q5_0:
+    case internal::GGML_TYPE_Q5_0:
         return dequantize_block_cuda<block_q5_0, QR5_0>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q5_1:
+    case internal::GGML_TYPE_Q5_1:
         return dequantize_block_cuda<block_q5_1, QR5_1>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q8_0:
+    case internal::GGML_TYPE_Q8_0:
         return dequantize_block_cuda<block_q8_0, QR8_0>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_BF16:
+    case internal::GGML_TYPE_BF16:
         return convert_unary_cuda<nv_bfloat16>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
     default:
         return GGML_ABORT("Fatal error");
     }
 }
 
-void convert_to_nc_cuda(ggml_type type, const void* x, nv_bfloat16* y,
+void convert_to_nc_cuda(internal::ggml_type type, const void* x, nv_bfloat16* y,
     int64_t ne00, int64_t ne01, int64_t ne02, int64_t ne03,
     int64_t s01, int64_t s02, int64_t s03, cudaStream_t stream) {
     switch (type) {
-    case GGML_TYPE_F32:
+    case internal::GGML_TYPE_F32:
         return convert_unary_cuda<float, nv_bfloat16>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q4_0:
+    case internal::GGML_TYPE_Q4_0:
         return dequantize_block_cuda<block_q4_0, QR4_0>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q4_1:
+    case internal::GGML_TYPE_Q4_1:
         return dequantize_block_cuda<block_q4_1, QR4_1>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q5_0:
+    case internal::GGML_TYPE_Q5_0:
         return dequantize_block_cuda<block_q5_0, QR5_0>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q5_1:
+    case internal::GGML_TYPE_Q5_1:
         return dequantize_block_cuda<block_q5_1, QR5_1>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q8_0:
+    case internal::GGML_TYPE_Q8_0:
         return dequantize_block_cuda<block_q8_0, QR8_0>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_F16:
+    case internal::GGML_TYPE_F16:
         return convert_unary_cuda<half, nv_bfloat16>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
     default:
         return GGML_ABORT("Fatal error");
     }
 }
 
-void convert_to_nc_cuda(ggml_type type, const void* x, float* y,
+void convert_to_nc_cuda(internal::ggml_type type, const void* x, float* y,
     int64_t ne00, int64_t ne01, int64_t ne02, int64_t ne03,
     int64_t s01, int64_t s02, int64_t s03, cudaStream_t stream) {
     switch (type) {
-    case GGML_TYPE_F16:
+    case internal::GGML_TYPE_F16:
         return convert_unary_cuda<half, float>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q4_0:
+    case internal::GGML_TYPE_Q4_0:
         return dequantize_block_cuda<block_q4_0, QR4_0>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q4_1:
+    case internal::GGML_TYPE_Q4_1:
         return dequantize_block_cuda<block_q4_1, QR4_1>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q5_0:
+    case internal::GGML_TYPE_Q5_0:
         return dequantize_block_cuda<block_q5_0, QR5_0>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q5_1:
+    case internal::GGML_TYPE_Q5_1:
         return dequantize_block_cuda<block_q5_1, QR5_1>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_Q8_0:
+    case internal::GGML_TYPE_Q8_0:
         return dequantize_block_cuda<block_q8_0, QR8_0>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
-    case GGML_TYPE_BF16:
+    case internal::GGML_TYPE_BF16:
         return convert_unary_cuda<nv_bfloat16, float>(x, y, ne00, ne01, ne02, ne03, s01, s02, s03, stream);
     default:
         return GGML_ABORT("Fatal error");

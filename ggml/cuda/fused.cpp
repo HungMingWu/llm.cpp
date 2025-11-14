@@ -18,9 +18,9 @@ static bin_bcast_context create_bcast_context(ggml_tensor* dst)
     const ggml_tensor* src1 = dst->src[1];
     bin_bcast_context ctx{
         .dst_d = dst->data,
-        .src0_type = src0->type,
-        .src1_type = src1->type,
-        .dst_type = dst->type,
+        .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+        .src1_type = std::bit_cast<internal::ggml_type>(src1->type),
+        .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
         .ne00 = src0->ne[0],
         .ne01 = src0->ne[1],
         .ne02 = src0->ne[2],

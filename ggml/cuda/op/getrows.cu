@@ -1,6 +1,5 @@
 #define GGML_ASSERT(...)
 #include <bit>
-#include "internal_ds.h"
 #include "cuda_func.h"
 #include "block.h"
 #include "common.cuh"
@@ -79,36 +78,36 @@ template <typename dst_t>
 static void ggml_cuda_get_rows_switch_src0_type(const get_row_context &ctx, cudaStream_t stream)
 {
     switch (ctx.src0_type) {
-    case GGML_TYPE_F16:
+    case internal::GGML_TYPE_F16:
         get_rows_cuda_float<half, dst_t>(ctx, stream);
         break;
-    case GGML_TYPE_F32:
+    case internal::GGML_TYPE_F32:
         get_rows_cuda_float<float, dst_t>(ctx, stream);
         break;
-    case GGML_TYPE_I32:
+    case internal::GGML_TYPE_I32:
         get_rows_cuda_float<int32_t, dst_t>(ctx, stream);
         break;
-    case GGML_TYPE_BF16:
+    case internal::GGML_TYPE_BF16:
         get_rows_cuda_float<nv_bfloat16, dst_t>(ctx, stream);
         break;
-    case GGML_TYPE_Q4_0:
+    case internal::GGML_TYPE_Q4_0:
         get_rows_cuda<block_q4_0, QR4_0, dst_t>(ctx, stream);
         break;
-    case GGML_TYPE_Q4_1:
+    case internal::GGML_TYPE_Q4_1:
         get_rows_cuda<block_q4_1, QR4_1, dst_t>(ctx, stream);
         break;
-    case GGML_TYPE_Q5_0:
+    case internal::GGML_TYPE_Q5_0:
         get_rows_cuda<block_q5_0, QR5_0, dst_t>(ctx, stream);
         break;
-    case GGML_TYPE_Q5_1:
+    case internal::GGML_TYPE_Q5_1:
         get_rows_cuda<block_q5_1, QR5_1, dst_t>(ctx, stream);
         break;
-    case GGML_TYPE_Q8_0:
+    case internal::GGML_TYPE_Q8_0:
         get_rows_cuda<block_q8_0, QR8_0, dst_t>(ctx, stream);
         break;
     default:
         // TODO: k-quants
-        GGML_ABORT("%s: unsupported type: %s\n", __func__, ggml_type_name(src0->type));
+        GGML_ABORT("%s: unsupported type: %s\n", __func__, internal::GGML_TYPE_name(src0->type));
         break;
     }
 }
@@ -116,20 +115,20 @@ static void ggml_cuda_get_rows_switch_src0_type(const get_row_context &ctx, cuda
 void get_rows_cuda(const get_row_context &ctx, cudaStream_t stream)
 {
     switch (ctx.dst_type) {
-    case GGML_TYPE_F32:
+    case internal::GGML_TYPE_F32:
         ggml_cuda_get_rows_switch_src0_type<float>(ctx, stream);
         break;
-    case GGML_TYPE_I32:
+    case internal::GGML_TYPE_I32:
         ggml_cuda_get_rows_switch_src0_type<int32_t>(ctx, stream);
         break;
-    case GGML_TYPE_F16:
+    case internal::GGML_TYPE_F16:
         ggml_cuda_get_rows_switch_src0_type<half>(ctx, stream);
         break;
-    case GGML_TYPE_BF16:
+    case internal::GGML_TYPE_BF16:
         ggml_cuda_get_rows_switch_src0_type<nv_bfloat16>(ctx, stream);
         break;
     default:
-        GGML_ABORT("%s: unsupported dst type: %s\n", __func__, ggml_type_name(dst_type));
+        GGML_ABORT("%s: unsupported dst type: %s\n", __func__, internal::GGML_TYPE_name(dst_type));
         break;
     }
 }

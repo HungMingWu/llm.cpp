@@ -1,5 +1,4 @@
 #include "cuda_func.h"
-#include "internal_ds.h"
 #include "common.cuh"
 #include "fattn-common.cuh"
 
@@ -523,10 +522,10 @@ void ggml_cuda_flash_attn_ext_wmma_f16_case(const flash_attn_ext_context& ctx) {
 }
 
 void ggml_cuda_flash_attn_ext_wmma_f16(const flash_attn_ext_context& ctx) {
-    const ggml_prec prec = ctx.precision;
+    const internal::ggml_prec prec = ctx.precision;
     const int warp_size = ggml_cuda_info().devices[ctx.device].warp_size;
 
-    if (prec != GGML_PREC_DEFAULT) {
+    if (prec != internal::GGML_PREC_DEFAULT) {
         if (ctx.Q.ne1 <= 32 || ctx.Q.ne0 > 128) {
             constexpr int cols_per_block = 16;
             switch (ctx.Q.ne0) {

@@ -243,10 +243,7 @@ static constexpr bool int8_mma_available(const int cc) {
     return cc < GGML_CUDA_CC_OFFSET_AMD && cc >= GGML_CUDA_CC_TURING;
 }
 
-enum ggml_type :int;
-
 bool bf16_mma_hardware_available(const int cc);
-bool ggml_cuda_should_use_mmv(enum ggml_type type, int cc, const int64_t* src0_ne, int64_t ne11);
 
 // To be used for feature selection of external libraries, e.g. cuBLAS.
 bool fast_fp16_hardware_available(const int cc);

@@ -39,7 +39,7 @@ void conv_2d_transpose_cuda(conv2d_transpose_context &ctx, cudaStream_t stream)
 
 void conv_2d_transpose_cuda(conv2d_transpose_context& ctx, cudaStream_t stream)
 {
-    if (ctx.kernel_type == GGML_TYPE_F16) {
+    if (ctx.kernel_type == internal::GGML_TYPE_F16) {
         conv_2d_transpose_cuda<half>(ctx, stream);
     }
     else {

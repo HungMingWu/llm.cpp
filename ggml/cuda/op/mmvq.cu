@@ -1,5 +1,4 @@
 #include "../common.h"
-#include "internal_ds.h"
 #include "common.cuh"
 #include "vecdotq.cuh"
 #include "cuda_func.h"
@@ -100,7 +99,7 @@ static std::pair<dim3, dim3> calc_launch_params(
 }
 
 // tell the compiler to use as many registers as it wants, see nwarps definition below
-template <ggml_type type, typename src_t, int ncols_dst, bool has_fusion>
+template <internal::ggml_type type, typename src_t, int ncols_dst, bool has_fusion>
 __launch_bounds__(calc_nwarps(ncols_dst, get_device_table_id())* ggml_cuda_get_physical_warp_size(), 1)
 static __global__ void mul_mat_vec_q(
     const void* __restrict__ vx, const void* __restrict__ vy, const int32_t* __restrict__ ids, const ggml_cuda_mm_fusion_args_device fusion, float* __restrict__ dst,
@@ -136,7 +135,7 @@ static __global__ void mul_mat_vec_q(
     [[maybe_unused]] const void* vgate = nullptr;
     [[maybe_unused]] const float* x_bias = nullptr;
     [[maybe_unused]] const float* gate_bias = nullptr;
-    [[maybe_unused]] ggml_glu_op active_glu;
+    [[maybe_unused]] internal::ggml_glu_op active_glu;
 
     if constexpr (has_fusion) {
         use_gate = fusion.gate != nullptr;
@@ -270,13 +269,13 @@ static __global__ void mul_mat_vec_q(
                         gate_value += gate_biases[j];
                     }
                     switch (active_glu) {
-                    case GGML_GLU_OP_SWIGLU:
+                    case internal::GGML_GLU_OP_SWIGLU:
                         result *= silu(gate_value);
                         break;
-                    case GGML_GLU_OP_GEGLU:
+                    case internal::GGML_GLU_OP_GEGLU:
                         result *= gelu(gate_value);
                         break;
-                    case GGML_GLU_OP_SWIGLU_OAI: {
+                    case internal::GGML_GLU_OP_SWIGLU_OAI: {
                         result = swiglu_oai(gate_value, result);
                         break;
                     }
@@ -292,7 +291,7 @@ static __global__ void mul_mat_vec_q(
 
 }
 
-template<ggml_type type, typename src_t, int c_ncols_dst>
+template <internal::ggml_type type, typename src_t, int c_ncols_dst>
 static void mul_mat_vec_q_switch_fusion(
     const void* vx, const void* vy, const int32_t* ids, const ggml_cuda_mm_fusion_args_device fusion, float* dst,
     const uint32_t ncols_x, const uint3 nchannels_y, const uint32_t stride_row_x, const uint32_t stride_col_y,
@@ -321,7 +320,7 @@ static void mul_mat_vec_q_switch_fusion(
 }
 
 
-template <ggml_type type, typename src_t>
+template <internal::ggml_type type, typename src_t>
 static void mul_mat_vec_q_switch_ncols_dst(
     const void* vx, const void* vy, const int32_t* ids, const ggml_cuda_mm_fusion_args_device fusion, float* dst,
     const int ncols_x, const int nrows_x, const int ncols_dst,
@@ -419,8 +418,8 @@ static void mul_mat_vec_q_switch_ncols_dst(
 void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t stream)
 {
     switch (ctx.type_x) {
-    case GGML_TYPE_Q4_0:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_Q4_0, block_q4_0>
+    case internal::GGML_TYPE_Q4_0:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_Q4_0, block_q4_0>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
              ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
              ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -430,8 +429,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
              ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_Q4_1:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_Q4_1, block_q4_1>
+    case internal::GGML_TYPE_Q4_1:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_Q4_1, block_q4_1>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -441,8 +440,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_Q5_0:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_Q5_0, block_q5_0>
+    case internal::GGML_TYPE_Q5_0:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_Q5_0, block_q5_0>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -452,8 +451,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_Q5_1:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_Q5_1, block_q5_1>
+    case internal::GGML_TYPE_Q5_1:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_Q5_1, block_q5_1>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -463,8 +462,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_Q8_0:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_Q8_0, block_q8_0>
+    case internal::GGML_TYPE_Q8_0:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_Q8_0, block_q8_0>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -474,8 +473,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_MXFP4:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_MXFP4, block_mxfp4>
+    case internal::GGML_TYPE_MXFP4:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_MXFP4, block_mxfp4>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -485,8 +484,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_Q2_K:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_Q2_K, block_q2_K>
+    case internal::GGML_TYPE_Q2_K:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_Q2_K, block_q2_K>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -496,8 +495,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_Q3_K:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_Q3_K, block_q3_K>
+    case internal::GGML_TYPE_Q3_K:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_Q3_K, block_q3_K>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -507,8 +506,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_Q4_K:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_Q4_K, block_q4_K>
+    case internal::GGML_TYPE_Q4_K:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_Q4_K, block_q4_K>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -518,8 +517,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_Q5_K:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_Q5_K, block_q5_K>
+    case internal::GGML_TYPE_Q5_K:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_Q5_K, block_q5_K>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -529,8 +528,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_Q6_K:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_Q6_K, block_q6_K>
+    case internal::GGML_TYPE_Q6_K:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_Q6_K, block_q6_K>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -540,8 +539,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_IQ2_XXS:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_IQ2_XXS, block_iq2_xxs>
+    case internal::GGML_TYPE_IQ2_XXS:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_IQ2_XXS, block_iq2_xxs>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -551,8 +550,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_IQ2_XS:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_IQ2_XS, block_iq2_xs>
+    case internal::GGML_TYPE_IQ2_XS:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_IQ2_XS, block_iq2_xs>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -562,8 +561,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_IQ2_S:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_IQ2_S, block_iq2_s>
+    case internal::GGML_TYPE_IQ2_S:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_IQ2_S, block_iq2_s>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -573,8 +572,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_IQ3_XXS:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_IQ3_XXS, block_iq3_xxs>
+    case internal::GGML_TYPE_IQ3_XXS:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_IQ3_XXS, block_iq3_xxs>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -584,8 +583,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_IQ1_S:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_IQ1_S, block_iq1_s>
+    case internal::GGML_TYPE_IQ1_S:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_IQ1_S, block_iq1_s>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -595,8 +594,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_IQ1_M:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_IQ1_M, block_iq1_m>
+    case internal::GGML_TYPE_IQ1_M:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_IQ1_M, block_iq1_m>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -606,8 +605,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_IQ4_NL:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_IQ4_NL, block_iq4_nl>
+    case internal::GGML_TYPE_IQ4_NL:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_IQ4_NL, block_iq4_nl>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -617,8 +616,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_IQ4_XS:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_IQ4_XS, block_iq4_xs>
+    case internal::GGML_TYPE_IQ4_XS:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_IQ4_XS, block_iq4_xs>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
@@ -628,8 +627,8 @@ void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t
                 ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst,
                 stream);
         break;
-    case GGML_TYPE_IQ3_S:
-        mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_IQ3_S, block_iq3_s>
+    case internal::GGML_TYPE_IQ3_S:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_IQ3_S, block_iq3_s>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
                 ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
                 ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,

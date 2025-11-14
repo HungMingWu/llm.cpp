@@ -1,5 +1,5 @@
 #include <bit>
-#include "internal_ds.h"
+#include "cuda_func.h"
 #include "common.cuh"
 #include "block.h"
 #include "ds.h"
@@ -8,37 +8,37 @@
 #define CUDA_QUANTIZE_BLOCK_SIZE     256
 #define CUDA_QUANTIZE_BLOCK_SIZE_MMQ 128
 
-static mmq_q8_1_ds_layout mmq_get_q8_1_ds_layout(const ggml_type type_x) {
+static mmq_q8_1_ds_layout mmq_get_q8_1_ds_layout(const internal::ggml_type type_x) {
     switch (type_x) {
-    case GGML_TYPE_Q4_0:
-    case GGML_TYPE_Q4_1:
+    case internal::GGML_TYPE_Q4_0:
+    case internal::GGML_TYPE_Q4_1:
         return MMQ_Q8_1_DS_LAYOUT_DS4;
-    case GGML_TYPE_Q5_0:
+    case internal::GGML_TYPE_Q5_0:
         return MMQ_Q8_1_DS_LAYOUT_D4;
-    case GGML_TYPE_Q5_1:
+    case internal::GGML_TYPE_Q5_1:
         return MMQ_Q8_1_DS_LAYOUT_DS4;
-    case GGML_TYPE_Q8_0:
+    case internal::GGML_TYPE_Q8_0:
         return MMQ_Q8_1_DS_LAYOUT_D4;
-    case GGML_TYPE_MXFP4:
+    case internal::GGML_TYPE_MXFP4:
         return MMQ_Q8_1_DS_LAYOUT_D4;
-    case GGML_TYPE_Q2_K:
+    case internal::GGML_TYPE_Q2_K:
         return MMQ_Q8_1_DS_LAYOUT_D2S6;
-    case GGML_TYPE_Q3_K:
+    case internal::GGML_TYPE_Q3_K:
         return MMQ_Q8_1_DS_LAYOUT_D4;
-    case GGML_TYPE_Q4_K:
-    case GGML_TYPE_Q5_K:
+    case internal::GGML_TYPE_Q4_K:
+    case internal::GGML_TYPE_Q5_K:
         return MMQ_Q8_1_DS_LAYOUT_DS4;
-    case GGML_TYPE_Q6_K:
-    case GGML_TYPE_IQ2_XXS:
-    case GGML_TYPE_IQ2_XS:
-    case GGML_TYPE_IQ2_S:
-    case GGML_TYPE_IQ3_XXS:
-    case GGML_TYPE_IQ3_S:
+    case internal::GGML_TYPE_Q6_K:
+    case internal::GGML_TYPE_IQ2_XXS:
+    case internal::GGML_TYPE_IQ2_XS:
+    case internal::GGML_TYPE_IQ2_S:
+    case internal::GGML_TYPE_IQ3_XXS:
+    case internal::GGML_TYPE_IQ3_S:
         return MMQ_Q8_1_DS_LAYOUT_D4;
-    case GGML_TYPE_IQ1_S:
+    case internal::GGML_TYPE_IQ1_S:
         return MMQ_Q8_1_DS_LAYOUT_DS4;
-    case GGML_TYPE_IQ4_XS:
-    case GGML_TYPE_IQ4_NL:
+    case internal::GGML_TYPE_IQ4_XS:
+    case internal::GGML_TYPE_IQ4_NL:
         return MMQ_Q8_1_DS_LAYOUT_D4;
     default:
         GGML_ABORT("fatal error");
@@ -193,7 +193,7 @@ static __global__ void quantize_mmq_q8_1(
 }
 
 void quantize_row_q8_1_cuda(
-    const float* x, const int32_t* ids, void* vy, const ggml_type /*type_src0*/,
+    const float* x, const int32_t* ids, void* vy, const internal::ggml_type /*type_src0*/,
     const int64_t ne00, const int64_t s01, const int64_t s02, const int64_t s03,
     const int64_t ne0, const int64_t ne1, const int64_t ne2, const int64_t ne3, cudaStream_t stream) {
     GGML_ASSERT(!ids);
@@ -208,7 +208,7 @@ void quantize_row_q8_1_cuda(
 }
 
 void quantize_mmq_q8_1_cuda(
-    const float* x, const int32_t* ids, void* vy, const ggml_type type_src0,
+    const float* x, const int32_t* ids, void* vy, const internal::ggml_type type_src0,
     const int64_t ne00, const int64_t s01, const int64_t s02, const int64_t s03,
     const int64_t ne0, const int64_t ne1, const int64_t ne2, const int64_t ne3, cudaStream_t stream) {
     GGML_ASSERT(ne00 % 4 == 0);

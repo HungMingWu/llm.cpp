@@ -14,12 +14,6 @@ using namespace ggml_cuda_mma;
 
 using vec_dot_mmq_t = void (*)(const int* __restrict__ x, const int* __restrict__ y, float* __restrict__ sum, const int k00);
 
-enum mmq_q8_1_ds_layout {
-    MMQ_Q8_1_DS_LAYOUT_D4,
-    MMQ_Q8_1_DS_LAYOUT_DS4,
-    MMQ_Q8_1_DS_LAYOUT_D2S6,
-};
-
 #define MMQ_MMA_TILE_X_K_Q8_0 (2*WARP_SIZE + 2*WARP_SIZE/QI8_0                 + 4)
 #define MMQ_MMA_TILE_X_K_Q8_1 (2*WARP_SIZE + 2*WARP_SIZE/QI8_0                 + 4)
 #define MMQ_MMA_TILE_X_K_Q2_K (2*WARP_SIZE + WARP_SIZE                         + 4)
@@ -32,25 +26,25 @@ static_assert(MMQ_MMA_TILE_X_K_Q2_K % 8 == 4, "Wrong padding.");
 static_assert(MMQ_MMA_TILE_X_K_Q3_K % 8 == 4, "Wrong padding.");
 static_assert(MMQ_MMA_TILE_X_K_Q6_K % 8 == 4, "Wrong padding.");
 
-static constexpr __host__ __device__ int mmq_get_mma_tile_x_k(ggml_type type) {
-    return type == GGML_TYPE_Q4_0 ? MMQ_MMA_TILE_X_K_Q8_0 :
-        type == GGML_TYPE_Q4_1 ? MMQ_MMA_TILE_X_K_Q8_1 :
-        type == GGML_TYPE_Q5_0 ? MMQ_MMA_TILE_X_K_Q8_0 :
-        type == GGML_TYPE_Q5_1 ? MMQ_MMA_TILE_X_K_Q8_1 :
-        type == GGML_TYPE_Q8_0 ? MMQ_MMA_TILE_X_K_Q8_0 :
-        type == GGML_TYPE_Q2_K ? MMQ_MMA_TILE_X_K_Q2_K :
-        type == GGML_TYPE_Q3_K ? MMQ_MMA_TILE_X_K_Q3_K :
-        type == GGML_TYPE_Q4_K ? MMQ_MMA_TILE_X_K_Q8_1 :
-        type == GGML_TYPE_Q5_K ? MMQ_MMA_TILE_X_K_Q8_1 :
-        type == GGML_TYPE_Q6_K ? MMQ_MMA_TILE_X_K_Q6_K :
-        type == GGML_TYPE_IQ2_XXS ? MMQ_MMA_TILE_X_K_Q8_0 :
-        type == GGML_TYPE_IQ2_XS ? MMQ_MMA_TILE_X_K_Q3_K :
-        type == GGML_TYPE_IQ2_S ? MMQ_MMA_TILE_X_K_Q3_K :
-        type == GGML_TYPE_IQ3_XXS ? MMQ_MMA_TILE_X_K_Q8_0 :
-        type == GGML_TYPE_IQ3_S ? MMQ_MMA_TILE_X_K_Q8_0 :
-        type == GGML_TYPE_IQ1_S ? MMQ_MMA_TILE_X_K_Q8_0 :
-        type == GGML_TYPE_IQ4_XS ? MMQ_MMA_TILE_X_K_Q8_0 :
-        type == GGML_TYPE_IQ4_NL ? MMQ_MMA_TILE_X_K_Q8_0 :
+static constexpr __host__ __device__ int mmq_get_mma_tile_x_k(internal::ggml_type type) {
+    return type == internal::GGML_TYPE_Q4_0 ? MMQ_MMA_TILE_X_K_Q8_0 :
+        type == internal::GGML_TYPE_Q4_1 ? MMQ_MMA_TILE_X_K_Q8_1 :
+        type == internal::GGML_TYPE_Q5_0 ? MMQ_MMA_TILE_X_K_Q8_0 :
+        type == internal::GGML_TYPE_Q5_1 ? MMQ_MMA_TILE_X_K_Q8_1 :
+        type == internal::GGML_TYPE_Q8_0 ? MMQ_MMA_TILE_X_K_Q8_0 :
+        type == internal::GGML_TYPE_Q2_K ? MMQ_MMA_TILE_X_K_Q2_K :
+        type == internal::GGML_TYPE_Q3_K ? MMQ_MMA_TILE_X_K_Q3_K :
+        type == internal::GGML_TYPE_Q4_K ? MMQ_MMA_TILE_X_K_Q8_1 :
+        type == internal::GGML_TYPE_Q5_K ? MMQ_MMA_TILE_X_K_Q8_1 :
+        type == internal::GGML_TYPE_Q6_K ? MMQ_MMA_TILE_X_K_Q6_K :
+        type == internal::GGML_TYPE_IQ2_XXS ? MMQ_MMA_TILE_X_K_Q8_0 :
+        type == internal::GGML_TYPE_IQ2_XS ? MMQ_MMA_TILE_X_K_Q3_K :
+        type == internal::GGML_TYPE_IQ2_S ? MMQ_MMA_TILE_X_K_Q3_K :
+        type == internal::GGML_TYPE_IQ3_XXS ? MMQ_MMA_TILE_X_K_Q8_0 :
+        type == internal::GGML_TYPE_IQ3_S ? MMQ_MMA_TILE_X_K_Q8_0 :
+        type == internal::GGML_TYPE_IQ1_S ? MMQ_MMA_TILE_X_K_Q8_0 :
+        type == internal::GGML_TYPE_IQ4_XS ? MMQ_MMA_TILE_X_K_Q8_0 :
+        type == internal::GGML_TYPE_IQ4_NL ? MMQ_MMA_TILE_X_K_Q8_0 :
         0;
 }
 
@@ -80,26 +74,26 @@ struct tile_x_sizes {
 #define MMQ_DP4A_TXS_Q5_K    tile_x_sizes{mmq_y*MMQ_TILE_NE_K*2 + mmq_y, mmq_y*MMQ_TILE_NE_K/QI5_K   + mmq_y/QI5_K,     mmq_y*MMQ_TILE_NE_K/8 + mmq_y/8}
 #define MMQ_DP4A_TXS_Q6_K    tile_x_sizes{mmq_y*MMQ_TILE_NE_K*2 + mmq_y, mmq_y*MMQ_TILE_NE_K/QI6_K   + mmq_y/QI6_K,     mmq_y*MMQ_TILE_NE_K/8 + mmq_y/8}
 
-static constexpr __host__ __device__ tile_x_sizes mmq_get_dp4a_tile_x_sizes(ggml_type type, int mmq_y) {
-    return type == GGML_TYPE_Q4_0 ? MMQ_DP4A_TXS_Q4_0 :
-        type == GGML_TYPE_Q4_1 ? MMQ_DP4A_TXS_Q4_1 :
-        type == GGML_TYPE_Q5_0 ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_Q5_1 ? MMQ_DP4A_TXS_Q8_1 :
-        type == GGML_TYPE_Q8_0 ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_MXFP4 ? MMQ_DP4A_TXS_Q8_1 :
-        type == GGML_TYPE_Q2_K ? MMQ_DP4A_TXS_Q2_K :
-        type == GGML_TYPE_Q3_K ? MMQ_DP4A_TXS_Q3_K :
-        type == GGML_TYPE_Q4_K ? MMQ_DP4A_TXS_Q4_K :
-        type == GGML_TYPE_Q5_K ? MMQ_DP4A_TXS_Q5_K :
-        type == GGML_TYPE_Q6_K ? MMQ_DP4A_TXS_Q6_K :
-        type == GGML_TYPE_IQ2_XXS ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_IQ2_XS ? MMQ_DP4A_TXS_Q8_0_16 :
-        type == GGML_TYPE_IQ2_S ? MMQ_DP4A_TXS_Q8_0_16 :
-        type == GGML_TYPE_IQ3_XXS ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_IQ3_S ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_IQ1_S ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_IQ4_XS ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_IQ4_NL ? MMQ_DP4A_TXS_Q8_0 :
+static constexpr __host__ __device__ tile_x_sizes mmq_get_dp4a_tile_x_sizes(internal::ggml_type type, int mmq_y) {
+    return type == internal::GGML_TYPE_Q4_0 ? MMQ_DP4A_TXS_Q4_0 :
+        type == internal::GGML_TYPE_Q4_1 ? MMQ_DP4A_TXS_Q4_1 :
+        type == internal::GGML_TYPE_Q5_0 ? MMQ_DP4A_TXS_Q8_0 :
+        type == internal::GGML_TYPE_Q5_1 ? MMQ_DP4A_TXS_Q8_1 :
+        type == internal::GGML_TYPE_Q8_0 ? MMQ_DP4A_TXS_Q8_0 :
+        type == internal::GGML_TYPE_MXFP4 ? MMQ_DP4A_TXS_Q8_1 :
+        type == internal::GGML_TYPE_Q2_K ? MMQ_DP4A_TXS_Q2_K :
+        type == internal::GGML_TYPE_Q3_K ? MMQ_DP4A_TXS_Q3_K :
+        type == internal::GGML_TYPE_Q4_K ? MMQ_DP4A_TXS_Q4_K :
+        type == internal::GGML_TYPE_Q5_K ? MMQ_DP4A_TXS_Q5_K :
+        type == internal::GGML_TYPE_Q6_K ? MMQ_DP4A_TXS_Q6_K :
+        type == internal::GGML_TYPE_IQ2_XXS ? MMQ_DP4A_TXS_Q8_0 :
+        type == internal::GGML_TYPE_IQ2_XS ? MMQ_DP4A_TXS_Q8_0_16 :
+        type == internal::GGML_TYPE_IQ2_S ? MMQ_DP4A_TXS_Q8_0_16 :
+        type == internal::GGML_TYPE_IQ3_XXS ? MMQ_DP4A_TXS_Q8_0 :
+        type == internal::GGML_TYPE_IQ3_S ? MMQ_DP4A_TXS_Q8_0 :
+        type == internal::GGML_TYPE_IQ1_S ? MMQ_DP4A_TXS_Q8_0 :
+        type == internal::GGML_TYPE_IQ4_XS ? MMQ_DP4A_TXS_Q8_0 :
+        type == internal::GGML_TYPE_IQ4_NL ? MMQ_DP4A_TXS_Q8_0 :
         tile_x_sizes{ 0, 0, 0 };
 }
 
@@ -190,7 +184,7 @@ static constexpr __device__ int get_mmq_y_device() {
 }
 
 #define GGML_PAD3(x, n) (((x) + (n) - 1) & ~((n) - 1))
-template<ggml_type type>
+template<internal::ggml_type type>
 static size_t mmq_get_nbytes_shared(const int mmq_x, const int mmq_y, const int cc, const int warp_size, const int nwarps) {
     const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(type, mmq_y);
     const int mmq_tile_x_k = mmq_get_mma_tile_x_k(type);
@@ -345,7 +339,7 @@ static __device__ __forceinline__ void vec_dot_q4_0_q8_1_dp4a(
     constexpr int nwarps = mmq_get_nwarps_device();
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_0, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q4_0, mmq_y);
     const int* x_qs = (const int*)x;
     const float* x_df = (const float*)x_qs + txs.qs;
     const int* y_qs = (const int*)y + 4;
@@ -387,7 +381,7 @@ static __device__ __forceinline__ void vec_dot_q8_0_q8_1_dp4a(
     constexpr int nwarps = mmq_get_nwarps_device();
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q8_0, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q8_0, mmq_y);
     const int* x_qs = (const int*)x;
     const float* x_df = (const float*)x_qs + txs.qs;
     const int* y_qs = (const int*)y + 4;
@@ -554,7 +548,7 @@ static __device__ __forceinline__ void vec_dot_q2_K_q8_1_dp4a(
     constexpr int nwarps = mmq_get_nwarps_device();
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q2_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q2_K, mmq_y);
     const int* x_qs = (const int*)x;
     const half2* x_dm = (const half2*)x_qs + txs.qs;
     const int* y_qs = (const int*)y + 4;
@@ -654,7 +648,7 @@ static __device__ __forceinline__ void vec_dot_q5_K_q8_1_dp4a(
     constexpr int nwarps = mmq_get_nwarps_device();
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q5_K, mmq_y);
     const int* x_qs = (const int*)x;
     const half2* x_dm = (const half2*)x_qs + txs.qs;
     const int* x_sc = (const int*)x_dm + txs.dm;
@@ -817,7 +811,7 @@ static __device__ __forceinline__ void vec_dot_q4_1_q8_1_dp4a(
     constexpr int nwarps = mmq_get_nwarps_device();
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_1, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q4_1, mmq_y);
     const int* x_qs = (const int*)x;
     const half2* x_dm = (const half2*)x_qs + txs.qs;
     const int* y_qs = (const int*)y + 4;
@@ -859,7 +853,7 @@ static __device__ __forceinline__ void vec_dot_q8_1_q8_1_dp4a(
     constexpr int nwarps = mmq_get_nwarps_device();
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_1, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q5_1, mmq_y);
     const int* x_qs = (const int*)x;
     const half2* x_dm = (const half2*)x_qs + txs.qs;
     const int* y_qs = (const int*)y + 4;
@@ -891,7 +885,7 @@ static __device__ __forceinline__ void vec_dot_q3_K_q8_1_dp4a(
     constexpr int nwarps = mmq_get_nwarps_device();
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q3_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q3_K, mmq_y);
     const int* x_qs = (const int*)x;
     const float* x_df = (const float*)x_qs + txs.qs;
     const int* x_sc = (const int*)x_df + txs.dm;
@@ -1087,7 +1081,7 @@ static __device__ __forceinline__ void vec_dot_q4_K_q8_1_dp4a(
     constexpr int nwarps = mmq_get_nwarps_device();
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q4_K, mmq_y);
     const int* x_qs = (const int*)x;
     const half2* x_dm = (const half2*)x_qs + txs.qs;
     const int* x_sc = (const int*)x_dm + txs.dm;
@@ -1122,7 +1116,7 @@ static __device__ __forceinline__ void vec_dot_q6_K_q8_1_dp4a(
     constexpr int nwarps = mmq_get_nwarps_device();
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q6_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q6_K, mmq_y);
     const int* x_qs = (const int*)x;
     const float* x_df = (const float*)x_qs + txs.qs;
     const int* x_sc = (const int*)x_df + txs.dm;
@@ -1345,137 +1339,137 @@ static __device__ __forceinline__ void vec_dot_q2_K_q8_1_mma(
 #endif // AMD_MFMA_AVAILABLE
 }
 
-template <int mmq_x, int mmq_y, bool need_check, ggml_type type>
+template <int mmq_x, int mmq_y, bool need_check, internal::ggml_type type>
 struct mmq_type_traits;
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q4_0> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_Q4_0> {
     static constexpr int              vdr = VDR_Q4_0_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_DS4>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q4_0_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q4_1> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_Q4_1> {
     static constexpr int              vdr = VDR_Q4_1_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_1_q8_1_mma<mmq_x, mmq_y>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q4_1_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q5_0> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_Q5_0> {
     static constexpr int              vdr = VDR_Q5_0_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_0_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q5_1> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_Q5_1> {
     static constexpr int              vdr = VDR_Q5_1_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_1_q8_1_mma<mmq_x, mmq_y>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_1_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q8_0> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_Q8_0> {
     static constexpr int              vdr = VDR_Q8_0_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_0_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_MXFP4> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_MXFP4> {
     static constexpr int              vdr = VDR_MXFP4_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_0_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q2_K> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_Q2_K> {
     static constexpr int              vdr = VDR_Q2_K_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q2_K_q8_1_mma<mmq_x, mmq_y>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q2_K_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q3_K> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_Q3_K> {
     static constexpr int              vdr = VDR_Q3_K_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_0_16_q8_1_mma<mmq_x, mmq_y>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q3_K_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q4_K> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_Q4_K> {
     static constexpr int              vdr = VDR_Q4_K_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_1_q8_1_mma<mmq_x, mmq_y>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q4_K_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q5_K> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_Q5_K> {
     static constexpr int              vdr = VDR_Q5_K_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_1_q8_1_mma<mmq_x, mmq_y>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q5_K_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q6_K> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_Q6_K> {
     static constexpr int              vdr = VDR_Q6_K_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q6_K_q8_1_mma<mmq_x, mmq_y>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q6_K_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ2_XXS> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_IQ2_XXS> {
     static constexpr int              vdr = VDR_IQ2_XXS_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_0_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ2_XS> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_IQ2_XS> {
     static constexpr int              vdr = VDR_IQ2_XS_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_0_16_q8_1_mma<mmq_x, mmq_y>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_0_16_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ2_S> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_IQ2_S> {
     static constexpr int              vdr = VDR_IQ2_S_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_0_16_q8_1_mma<mmq_x, mmq_y>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_0_16_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ3_XXS> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_IQ3_XXS> {
     static constexpr int              vdr = VDR_IQ3_XXS_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_0_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ3_S> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_IQ3_S> {
     static constexpr int              vdr = VDR_IQ3_S_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_0_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ1_S> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_IQ1_S> {
     static constexpr int              vdr = VDR_IQ1_S_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_1_q8_1_mma<mmq_x, mmq_y>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_1_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ4_NL> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_IQ4_NL> {
     static constexpr int              vdr = VDR_IQ4_NL_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_0_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
-struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_IQ4_XS> {
+struct mmq_type_traits<mmq_x, mmq_y, need_check, internal::GGML_TYPE_IQ4_XS> {
     static constexpr int              vdr = VDR_IQ4_XS_Q8_1_MMQ;
     static constexpr vec_dot_mmq_t    vec_dot_mma = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
     static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_0_q8_1_dp4a<mmq_x, mmq_y>;
@@ -1491,7 +1485,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + 2 * MMQ_TILE_NE_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_0, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q4_0, mmq_y);
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -1553,7 +1547,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     half2* x_dm = (half2*)(x_qs + 2 * MMQ_TILE_NE_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_1, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q4_1, mmq_y);
     int* x_qs = (int*)x_tile;
     half2* x_dm = (half2*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -1615,7 +1609,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + MMQ_TILE_NE_K * 2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_0, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q5_0, mmq_y);
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -1694,7 +1688,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + MMQ_TILE_NE_K * 2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ4_NL, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_IQ4_NL, mmq_y);
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -1760,7 +1754,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     half2* x_dm = (half2*)(x_qs + 2 * MMQ_TILE_NE_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_1, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q5_1, mmq_y);
     int* x_qs = (int*)x_tile;
     half2* x_dm = (half2*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -1837,7 +1831,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_tile + 2 * MMQ_TILE_NE_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q8_0, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q8_0, mmq_y);
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -1899,7 +1893,7 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + MMQ_TILE_NE_K * 2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_MXFP4, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_MXFP4, mmq_y);
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -1965,7 +1959,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + MMQ_TILE_NE_K * 2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ4_XS, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_IQ4_XS, mmq_y);
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -2031,7 +2025,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + MMQ_TILE_NE_K * 2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ3_S, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_IQ3_S, mmq_y);
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -2098,7 +2092,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     half2* x_dm = (half2*)(x_qs + 2 * MMQ_TILE_NE_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q2_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q2_K, mmq_y);
     int* x_qs = (int*)x_tile;
     half2* x_dm = (half2*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -2158,7 +2152,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + MMQ_TILE_NE_K * 2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q3_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q3_K, mmq_y);
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + txs.qs);
     int* x_sc = (int*)(x_df + txs.dm);
@@ -2278,7 +2272,7 @@ static __device__ __forceinline__ void mmq_write_back_dp4a(
     }
 }
 
-template<ggml_type type, int mmq_x, int mmq_y, bool need_check>
+template <internal::ggml_type type, int mmq_x, int mmq_y, bool need_check>
 static __device__ __forceinline__ void mmq_write_back_mma(
     const float* __restrict__ sum, const int* __restrict__ ids_dst, float* __restrict__ dst,
     const int stride, const int i_max, const int j_max) {
@@ -2325,7 +2319,7 @@ static __device__ __forceinline__ void mmq_write_back_mma(
     }
 }
 
-template <ggml_type type, typename src_t, int mmq_x, bool need_check, bool fixup>
+template <internal::ggml_type type, typename src_t, int mmq_x, bool need_check, bool fixup>
 static __device__ __forceinline__ void mul_mat_q_process_tile(
     const char* __restrict__ x, const int offset_x, const int* __restrict__ y,
     const int* __restrict__ ids_dst, float* __restrict__ dst, float* __restrict__ tmp_fixup,
@@ -2424,7 +2418,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     half2* x_dm = (half2*)(x_qs + 2 * MMQ_TILE_NE_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q4_K, mmq_y);
     int* x_qs = (int*)x_tile;
     half2* x_dm = (half2*)(x_qs + txs.qs);
     int* x_sc = (int*)(x_dm + txs.dm);
@@ -2534,7 +2528,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     half2* x_dm = (half2*)(x_qs + MMQ_TILE_NE_K * 2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q5_K, mmq_y);
     int* x_qs = (int*)x_tile;
     half2* x_dm = (half2*)(x_qs + txs.qs);
     int* x_sc = (int*)(x_dm + txs.dm);
@@ -2657,7 +2651,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + MMQ_TILE_NE_K * 2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ3_XXS, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_IQ3_XXS, mmq_y);
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -2718,7 +2712,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + MMQ_TILE_NE_K * 2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ2_XXS, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_IQ2_XXS, mmq_y);
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -2782,7 +2776,7 @@ static __device__ __forceinline__ void load_tiles(
     float* x_df = (float*)(x_qs + MMQ_TILE_NE_K * 2);
     int* x_sc = (int*)(x_df + MMQ_TILE_NE_K / QI6_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q6_K, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_Q6_K, mmq_y);
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + txs.qs);
     int* x_sc = (int*)(x_df + txs.dm);
@@ -2929,7 +2923,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + MMQ_TILE_NE_K * 2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ2_S, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_IQ2_S, mmq_y);
     int* x_qs = (int*)x_tile;
     float* x_df = (float*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -2998,7 +2992,7 @@ static __device__ __forceinline__ void load_tiles(
     int* x_qs = (int*)x_tile;
     half2* x_ds = (half2*)(x_qs + MMQ_TILE_NE_K * 2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ3_S, mmq_y);
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_IQ3_S, mmq_y);
     int* x_qs = (int*)x_tile;
     half2* x_ds = (half2*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
@@ -3052,7 +3046,7 @@ static __device__ __forceinline__ void load_tiles(
 
 // The mul_mat_q kernel implements "stream-k" work partitioning as described in https://arxiv.org/abs/2301.03598
 
-template <ggml_type type, typename src_t, int mmq_x, bool need_check>
+template <internal::ggml_type type, typename src_t, int mmq_x, bool need_check>
 #if defined(GGML_USE_HIP)
 #if defined(RDNA4) || defined(RDNA3) || defined(RDNA2) || defined(CDNA) || defined(GCN)
 __launch_bounds__(ggml_cuda_get_physical_warp_size()* mmq_get_nwarps_device(), 2)
@@ -3303,7 +3297,7 @@ static __global__ void mul_mat_q(
             tile_x_max_i, tile_y_max_j, kb0_start, kb0_stop);
 }
 
-template <ggml_type type, typename src_t, int mmq_x, bool need_check>
+template <internal::ggml_type type, typename src_t, int mmq_x, bool need_check>
 static __global__ void mul_mat_q_stream_k_fixup(
     const int32_t* ids_dst, const int32_t* expert_bounds, float* __restrict__ dst, const float* __restrict__ tmp_last_tile,
     const int ncols_x, const int nrows_x, const int ncols_dst, const int stride_col_dst,
@@ -3455,7 +3449,7 @@ static __global__ void mul_mat_q_stream_k_fixup(
     }
 }
 
-template <ggml_type type, typename src_t, int mmq_x>
+template <internal::ggml_type type, typename src_t, int mmq_x>
 static void launch_mul_mat_q(ggml_cuda_pool& pool, const mmq_args& args, cudaStream_t stream) {
     const int id = ggml_cuda_get_device();
     const int cc = ggml_cuda_info().devices[id].cc;
@@ -3549,7 +3543,7 @@ static void launch_mul_mat_q(ggml_cuda_pool& pool, const mmq_args& args, cudaStr
     }
 }
 
-template <ggml_type type, typename src_t>
+template <internal::ggml_type type, typename src_t>
 void mul_mat_q_case(ggml_cuda_pool& pool, const mmq_args& args, cudaStream_t stream) {
     const int    id = ggml_cuda_get_device();
     const int    cc = ggml_cuda_info().devices[id].cc;

@@ -238,7 +238,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
     if (ctx.src_type == ctx.dst_type && ctx.contiguous) {
         GGML_ASSERT(ctx.src_length == ctx.dst_length);
 #if defined(GGML_USE_MUSA) && defined(GGML_MUSA_MUDNN_COPY)
-        if (src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16) {
+        if (src0->type == internal::GGML_TYPE_F32 || src0->type == internal::GGML_TYPE_F16) {
             CUDA_CHECK(mudnnMemcpyAsync(ctx, src1, src0));
         }
         else
@@ -247,7 +247,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
             CUDA_CHECK(cudaMemcpyAsync(ctx.dst_d, ctx.src_d, ctx.src_length, cudaMemcpyDeviceToDevice, stream));
         }
     }
-    else if (ctx.src_type == GGML_TYPE_F32 && ctx.dst_type == GGML_TYPE_F32) {
+    else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_F32) {
         if (ctx.can_be_transposed) {
             ggml_cpy_cuda<float, float, true>(ctx, stream);
         }
@@ -255,7 +255,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
             ggml_cpy_cuda<float, float, false>(ctx, stream);
         }
     }
-    else if (ctx.src_type == GGML_TYPE_F32 && ctx.dst_type == GGML_TYPE_BF16) {
+    else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_BF16) {
         if (ctx.contiguous) {
             ggml_cpy_flt_contiguous_cuda<float, nv_bfloat16>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
         }
@@ -263,7 +263,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
             ggml_cpy_cuda<float, nv_bfloat16>(ctx, stream);
         }
     }
-    else if (ctx.src_type == GGML_TYPE_F32 && ctx.dst_type == GGML_TYPE_F16) {
+    else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_F16) {
         if (ctx.contiguous) {
             ggml_cpy_flt_contiguous_cuda<float, half>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
         }
@@ -271,40 +271,40 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
             ggml_cpy_cuda<float, half>(ctx, stream);
         }
     }
-    else if (ctx.src_type == GGML_TYPE_F32 && ctx.dst_type == GGML_TYPE_Q8_0) {
+    else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_Q8_0) {
         ggml_cpy_cuda<float, block_q8_0>(ctx, stream);
     }
-    else if (ctx.src_type == GGML_TYPE_Q8_0 && ctx.dst_type == GGML_TYPE_F32) {
+    else if (ctx.src_type == internal::GGML_TYPE_Q8_0 && ctx.dst_type == internal::GGML_TYPE_F32) {
         ggml_cpy_cuda<block_q8_0, float>(ctx, stream);
     }
-    else if (ctx.src_type == GGML_TYPE_F32 && ctx.dst_type == GGML_TYPE_Q4_0) {
+    else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_Q4_0) {
         ggml_cpy_cuda<float, block_q4_0>(ctx, stream);
     }
-    else if (ctx.src_type == GGML_TYPE_Q4_0 && ctx.dst_type == GGML_TYPE_F32) {
+    else if (ctx.src_type == internal::GGML_TYPE_Q4_0 && ctx.dst_type == internal::GGML_TYPE_F32) {
         ggml_cpy_cuda<block_q4_0, float>(ctx, stream);
     }
-    else if (ctx.src_type == GGML_TYPE_F32 && ctx.dst_type == GGML_TYPE_Q4_1) {
+    else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_Q4_1) {
         ggml_cpy_cuda<float, block_q4_1>(ctx, stream);
     }
-    else if (ctx.src_type == GGML_TYPE_Q4_1 && ctx.dst_type == GGML_TYPE_F32) {
+    else if (ctx.src_type == internal::GGML_TYPE_Q4_1 && ctx.dst_type == internal::GGML_TYPE_F32) {
         ggml_cpy_cuda<block_q4_1, float>(ctx, stream);
     }
-    else if (ctx.src_type == GGML_TYPE_F32 && ctx.dst_type == GGML_TYPE_Q5_0) {
+    else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_Q5_0) {
         ggml_cpy_cuda<float, block_q5_0>(ctx, stream);
     }
-    else if (ctx.src_type == GGML_TYPE_Q5_0 && ctx.dst_type == GGML_TYPE_F32) {
+    else if (ctx.src_type == internal::GGML_TYPE_Q5_0 && ctx.dst_type == internal::GGML_TYPE_F32) {
         ggml_cpy_cuda<block_q5_0, float>(ctx, stream);
     }
-    else if (ctx.src_type == GGML_TYPE_F32 && ctx.dst_type == GGML_TYPE_IQ4_NL) {
+    else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_IQ4_NL) {
         ggml_cpy_cuda<float, block_iq4_nl>(ctx, stream);
     }
-    else if (ctx.src_type == GGML_TYPE_F32 && ctx.dst_type == GGML_TYPE_Q5_1) {
+    else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_Q5_1) {
         ggml_cpy_cuda<float, block_q5_1>(ctx, stream);
     }
-    else if (ctx.src_type == GGML_TYPE_Q5_1 && ctx.dst_type == GGML_TYPE_F32) {
+    else if (ctx.src_type == internal::GGML_TYPE_Q5_1 && ctx.dst_type == internal::GGML_TYPE_F32) {
         ggml_cpy_cuda<block_q5_1, float>(ctx, stream);
     }
-    else if (ctx.src_type == GGML_TYPE_F16 && ctx.dst_type == GGML_TYPE_F16) {
+    else if (ctx.src_type == internal::GGML_TYPE_F16 && ctx.dst_type == internal::GGML_TYPE_F16) {
         if (ctx.can_be_transposed) {
             ggml_cpy_cuda<half, half, true>(ctx, stream);
         }
@@ -312,7 +312,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
             ggml_cpy_cuda<half, half, false>(ctx, stream);
         }
     }
-    else if (ctx.src_type == GGML_TYPE_F16 && ctx.dst_type == GGML_TYPE_BF16) {
+    else if (ctx.src_type == internal::GGML_TYPE_F16 && ctx.dst_type == internal::GGML_TYPE_BF16) {
         if (ctx.contiguous) {
             ggml_cpy_flt_contiguous_cuda<half, nv_bfloat16>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
         }
@@ -320,7 +320,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
             ggml_cpy_cuda<half, nv_bfloat16>(ctx, stream);
         }
     }
-    else if (ctx.src_type == GGML_TYPE_F16 && ctx.dst_type == GGML_TYPE_F32) {
+    else if (ctx.src_type == internal::GGML_TYPE_F16 && ctx.dst_type == internal::GGML_TYPE_F32) {
         if (ctx.contiguous) {
             ggml_cpy_flt_contiguous_cuda<half, float>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
         }
@@ -328,7 +328,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
             ggml_cpy_cuda<half, float>(ctx, stream);
         }
     }
-    else if (ctx.src_type == GGML_TYPE_BF16 && ctx.dst_type == GGML_TYPE_BF16) {
+    else if (ctx.src_type == internal::GGML_TYPE_BF16 && ctx.dst_type == internal::GGML_TYPE_BF16) {
         if (ctx.can_be_transposed) {
             ggml_cpy_cuda<nv_bfloat16, nv_bfloat16, true>(ctx, stream);
         }
@@ -336,7 +336,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
             ggml_cpy_cuda<nv_bfloat16, nv_bfloat16, false>(ctx, stream);
         }
     }
-    else if (ctx.src_type == GGML_TYPE_BF16 && ctx.dst_type == GGML_TYPE_F16) {
+    else if (ctx.src_type == internal::GGML_TYPE_BF16 && ctx.dst_type == internal::GGML_TYPE_F16) {
         if (ctx.contiguous) {
             ggml_cpy_flt_contiguous_cuda<nv_bfloat16, half>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
         }
@@ -344,7 +344,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
             ggml_cpy_cuda<nv_bfloat16, half>(ctx, stream);
         }
     }
-    else if (ctx.src_type == GGML_TYPE_BF16 && ctx.dst_type == GGML_TYPE_F32) {
+    else if (ctx.src_type == internal::GGML_TYPE_BF16 && ctx.dst_type == internal::GGML_TYPE_F32) {
         if (ctx.contiguous) {
             ggml_cpy_flt_contiguous_cuda<nv_bfloat16, float>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
         }
@@ -352,7 +352,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
             ggml_cpy_cuda<nv_bfloat16, float>(ctx, stream);
         }
     }
-    else if (ctx.src_type == GGML_TYPE_F32 && ctx.dst_type == GGML_TYPE_I32) {
+    else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_I32) {
         if (ctx.contiguous) {
             ggml_cpy_flt_contiguous_cuda<float, int32_t>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
         }
@@ -360,7 +360,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
             ggml_cpy_cuda<float, int32_t>(ctx, stream);
         }
     }
-    else if (ctx.src_type == GGML_TYPE_I32 && ctx.dst_type == GGML_TYPE_F32) {
+    else if (ctx.src_type == internal::GGML_TYPE_I32 && ctx.dst_type == internal::GGML_TYPE_F32) {
         if (ctx.contiguous) {
             ggml_cpy_flt_contiguous_cuda<int32_t, float>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
         }
@@ -371,6 +371,6 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
     else {
         assert(false);
         //GGML_ABORT("%s: unsupported type combination (%s to %s)\n", __func__,
-          //  ggml_type_name(src0->type), ggml_type_name(src1->type));
+          //  internal::GGML_TYPE_name(src0->type), internal::GGML_TYPE_name(src1->type));
     }
 }

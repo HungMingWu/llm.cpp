@@ -1,6 +1,6 @@
 #include <cub/cub.cuh>
 #include "cuda_func.h"
-#include "internal_ds.h"
+using namespace internal;
 using namespace cub;
 
 static __global__ void init_indices(int* indices, const int ncols, const int nrows) {

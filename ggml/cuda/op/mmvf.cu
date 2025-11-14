@@ -30,7 +30,7 @@ static __global__ void mul_mat_vec_f(
     [[maybe_unused]] bool use_gate = false;
     [[maybe_unused]] bool use_bias = false;
     [[maybe_unused]] bool use_gate_bias = false;
-    [[maybe_unused]] ggml_glu_op glu_op = ggml_glu_op::GGML_GLU_OP_SWIGLU;
+    [[maybe_unused]] internal::ggml_glu_op glu_op = internal::ggml_glu_op::GGML_GLU_OP_SWIGLU;
     [[maybe_unused]] const T* gate_x = nullptr;
     [[maybe_unused]] const float* x_bias = nullptr;
     [[maybe_unused]] const float* gate_bias = nullptr;
@@ -333,13 +333,13 @@ static __global__ void mul_mat_vec_f(
                 gate_value += gate_bias[tid * stride_col_dst + row];
             }
             switch (glu_op) {
-            case GGML_GLU_OP_SWIGLU:
+            case internal::GGML_GLU_OP_SWIGLU:
                 value *= silu(gate_value);
                 break;
-            case GGML_GLU_OP_GEGLU:
+            case internal::GGML_GLU_OP_GEGLU:
                 value *= gelu(gate_value);
                 break;
-            case GGML_GLU_OP_SWIGLU_OAI: {
+            case internal::GGML_GLU_OP_SWIGLU_OAI: {
                 value = swiglu_oai(gate_value, value);
                 break;
             }
@@ -547,10 +547,10 @@ static void mul_mat_vec_f_cuda(
     const int64_t nchannels_x, const int64_t nchannels_y, const int64_t nchannels_dst,
     const int64_t stride_channel_x, const int64_t stride_channel_y, const int64_t stride_channel_dst, const int64_t nsamples_x,
     const int64_t nsamples_dst, const int64_t stride_sample_x, const int64_t stride_sample_y, const int64_t stride_sample_dst,
-    enum ggml_prec prec, cudaStream_t stream) {
+    internal::ggml_prec prec, cudaStream_t stream) {
 
     if constexpr (std::is_same_v<T, half>) {
-        if (prec == GGML_PREC_DEFAULT) {
+        if (prec == internal::GGML_PREC_DEFAULT) {
             mul_mat_vec_f_cuda_switch_ncols_dst<T, half>
                 (x, y, ids, fusion, dst, ncols, nrows, ncols_dst, stride_row, stride_col_y, stride_col_dst,
                     nchannels_x, nchannels_y, nchannels_dst, stride_channel_x, stride_channel_y,
@@ -567,7 +567,7 @@ static void mul_mat_vec_f_cuda(
 void mul_mat_vec_f_cuda(const mul_mat_vec_f_context* ctx, cudaStream_t stream)
 {
     switch (ctx->src0_type) {
-    case GGML_TYPE_F32: {
+    case internal::GGML_TYPE_F32: {
         const float* src0_d = (const float*)ctx->src0_d;
         mul_mat_vec_f_cuda(src0_d, ctx->src1_d, ctx->ids_d, ctx->fusion_local, ctx->dst_d, ctx->ne00, ctx->ne01,
             ctx->ncols_dst, ctx->s01, ctx->s11, ctx->s1,
@@ -575,7 +575,7 @@ void mul_mat_vec_f_cuda(const mul_mat_vec_f_context* ctx, cudaStream_t stream)
             ctx->stride_channel_y, ctx->stride_channel_dst,
             ctx->ne03, ctx->ne3, ctx->s03, ctx->s13, ctx->s3, ctx->prec, stream);
     } break;
-    case GGML_TYPE_F16: {
+    case internal::GGML_TYPE_F16: {
         const half* src0_d = (const half*)ctx->src0_d;
         mul_mat_vec_f_cuda(src0_d, ctx->src1_d, ctx->ids_d, ctx->fusion_local, ctx->dst_d, ctx->ne00, ctx->ne01,
             ctx->ncols_dst, ctx->s01, ctx->s11, ctx->s1,
@@ -583,7 +583,7 @@ void mul_mat_vec_f_cuda(const mul_mat_vec_f_context* ctx, cudaStream_t stream)
             ctx->stride_channel_y, ctx->stride_channel_dst,
             ctx->ne03, ctx->ne3, ctx->s03, ctx->s13, ctx->s3, ctx->prec, stream);
     } break;
-    case GGML_TYPE_BF16: {
+    case internal::GGML_TYPE_BF16: {
         const nv_bfloat16* src0_d = (const nv_bfloat16*)ctx->src0_d;
         mul_mat_vec_f_cuda(src0_d, ctx->src1_d, ctx->ids_d, ctx->fusion_local, ctx->dst_d, ctx->ne00, ctx->ne01,
             ctx->ncols_dst, ctx->s01, ctx->s11, ctx->s1,
@@ -592,6 +592,6 @@ void mul_mat_vec_f_cuda(const mul_mat_vec_f_context* ctx, cudaStream_t stream)
             ctx->ne03, ctx->ne3, ctx->s03, ctx->s13, ctx->s3, ctx->prec, stream);
     } break;
     default:
-        GGML_ABORT("unsupported type: %s", ggml_type_name(src0->type));
+        GGML_ABORT("unsupported type: %s", internal::GGML_TYPE_name(src0->type));
     }
 }

@@ -16,7 +16,7 @@ static constexpr __device__ int ggml_cuda_fattn_vec_get_nthreads_device() {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wpass-failed"
 #endif // __clang__
-template<int D, int ncols, ggml_type type_K, ggml_type type_V, bool use_logit_softcap> // D == head size
+template<int D, int ncols, internal::ggml_type type_K, internal::ggml_type type_V, bool use_logit_softcap> // D == head size
 __launch_bounds__(ggml_cuda_fattn_vec_get_nthreads_device(), 1)
 static __global__ void flash_attn_ext_vec(
     [[maybe_unused]] const char* __restrict__ Q,
@@ -66,17 +66,17 @@ static __global__ void flash_attn_ext_vec(
 #endif // GGML_USE_HIP
 
     constexpr int nthreads = ggml_cuda_fattn_vec_get_nthreads_device();
-    constexpr int nthreads_KQ = type_K == GGML_TYPE_F16 ? 128 / cpy_nb : nthreads_KQ_q;
-    constexpr int nthreads_V = type_V == GGML_TYPE_F16 ? 128 / cpy_nb : nthreads_V_q;
+    constexpr int nthreads_KQ = type_K == internal::GGML_TYPE_F16 ? 128 / cpy_nb : nthreads_KQ_q;
+    constexpr int nthreads_V = type_V == internal::GGML_TYPE_F16 ? 128 / cpy_nb : nthreads_V_q;
 
     static_assert(WARP_SIZE % nthreads_KQ == 0, "bad nthreads_K");
     static_assert(WARP_SIZE % nthreads_V == 0, "bad nthreads_V");
 
-    constexpr int V_rows_per_thread = type_V == GGML_TYPE_F16 ? 2 * cpy_ne : 4;
+    constexpr int V_rows_per_thread = type_V == internal::GGML_TYPE_F16 ? 2 * cpy_ne : 4;
     constexpr int V_cols_per_iter = WARP_SIZE / nthreads_V;
 
     constexpr vec_dot_KQ_t vec_dot_KQ = get_vec_dot_KQ<type_K, D, nthreads_KQ>();
-    constexpr bool Q_q8_1 = type_K != GGML_TYPE_F16;
+    constexpr bool Q_q8_1 = type_K != internal::GGML_TYPE_F16;
 #ifdef FAST_FP16_AVAILABLE
     constexpr dequantize_V_t dequantize_V = get_dequantize_V<type_V, half, V_rows_per_thread>();
 #else
@@ -502,20 +502,20 @@ static __global__ void flash_attn_ext_vec(
 #pragma clang diagnostic pop
 #endif // __clang__
 
-template <int D, int cols_per_block, ggml_type type_K, ggml_type type_V, bool use_logit_softcap>
+template <int D, int cols_per_block, internal::ggml_type type_K, internal::ggml_type type_V, bool use_logit_softcap>
 void ggml_cuda_flash_attn_ext_vec_case_impl(const flash_attn_ext_context& ctx) {
     const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
 
     const int nthreads = ggml_cuda_fattn_vec_get_nthreads_host(cc);
     const int nwarps = nthreads / WARP_SIZE;
     fattn_kernel_t fattn_kernel = flash_attn_ext_vec<D, cols_per_block, type_K, type_V, use_logit_softcap>;
-    const bool need_f16_K = type_K == GGML_TYPE_F16;
-    const bool need_f16_V = type_V == GGML_TYPE_F16;
+    const bool need_f16_K = type_K == internal::GGML_TYPE_F16;
+    const bool need_f16_V = type_V == internal::GGML_TYPE_F16;
     constexpr size_t nbytes_shared = 0;
     launch_fattn<D, cols_per_block, 1>(ctx, fattn_kernel, nwarps, nbytes_shared, D, need_f16_K, need_f16_V, false);
 }
 
-template <int D, ggml_type type_K, ggml_type type_V>
+template <int D, internal::ggml_type type_K, internal::ggml_type type_V>
 void ggml_cuda_flash_attn_ext_vec_case(const flash_attn_ext_context& ctx) {
     if (ctx.Q.ne1 == 1) {
         constexpr int cols_per_block = 1;

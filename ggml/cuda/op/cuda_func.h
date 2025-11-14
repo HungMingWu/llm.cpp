@@ -1,47 +1,11 @@
 #pragma once
+#include <stdint.h>
 #include "../common.h"
 #include "../cuda_pool.h"
 #include "block.h"
-#include <stdint.h>
-
-enum ggml_prec : int;
-enum ggml_op_pool : int;
-enum ggml_type : int;
-enum ggml_sort_order : int;
-enum ggml_scale_mode : int;
-enum ggml_glu_op : int;
+#include "ds.h"
 
 #define MMQ_DP4A_MAX_BATCH_SIZE 64 // Max. batch size to use for dp4a MMQ kernels when FP16 tensor cores are available.
-
-struct ggml_cuda_mm_fusion_args_device {
-    const void* x_bias = nullptr;
-    const void* gate = nullptr;
-    const void* gate_bias = nullptr;
-    ggml_glu_op glu_op;
-};
-
-struct block_q8_1_mmq {
-    // The y float data is converted to a data layout that can simply be copied to shared memory as a contiguous block.
-    // The y float data is first grouped as blocks of 128 values.
-    // These blocks are then treated as individual data values and transposed.
-    //
-    // To avoid shared memory bank conflicts each block is padded with 16 bytes.
-    // This padding is also used to store block scales/partial sums.
-    // The scales multiplied with the quantized data are equal to the unquantized values.
-    // The partial sums are obtained by summing up a subgroup of the contained values (prior to quantization)
-    //     and are only needed for performance reasons.
-    //
-    // The exact data stored depends on the x data type.
-    union {
-        float d4[4];    // 1 32 bit scale per 32 values, stored as d0,d1,d2,d3
-        half2 ds4[4];   // 1 16 bit scale + 1 16 bit partial sum per 32 values, stored as d0,s0,d1,s1,d2,s2,d3,s3
-        half  d2s6[8];  // 1 16 bit scale per 64 values + 1 16 bit partial sum per 16 values for the first 96 values,
-        //     stored as d0,d1,s1,s2,s3,s4,s5
-    };
-    int8_t qs[4 * QK8_1]; // 128 values quantized to 8 bit each
-};
-static_assert(sizeof(block_q8_1_mmq) == 4 * QK8_1 + 4 * sizeof(half2), "Unexpected block_q8_1_mmq size");
-static_assert(sizeof(block_q8_1_mmq) == 4 * sizeof(block_q8_1), "Unexpected block_q8_1_mmq size");
 
 static int get_mmq_x_max_host(const int cc) {
     return (amd_mfma_available(cc) || turing_mma_available(cc)) ? 128 :
@@ -57,7 +21,7 @@ void arange_f32_cuda(float* dst, size_t dst_size, const float start, const float
 
 // conv-transpose-1d.h
 struct conv_transpose_1d_context {
-    ggml_type src0_type;
+    internal::ggml_type src0_type;
     int64_t src0_ne[4];
     int64_t src1_ne[4];
     int64_t dst_ne[4];
@@ -72,18 +36,18 @@ void conv_transpose_1d_f32_cuda(const conv_transpose_1d_context& ctx, cudaStream
 // From quantize.cu
 void quantize_row_q8_1_cuda(
     const float* x, const int32_t* ids, void* vy,
-    ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
+    internal::ggml_type  type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
     int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, cudaStream_t stream);
 
 void quantize_mmq_q8_1_cuda(
     const float* x, const int32_t* ids, void* vy,
-    ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
+    internal::ggml_type  type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
     int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, cudaStream_t stream);
 
 // From mmvq.cu
 
 struct mat_vec_q_switch_context {
-    ggml_type type_x;
+    internal::ggml_type  type_x;
     const void* vx;
     const void* vy;
     const int32_t* ids;
@@ -111,7 +75,7 @@ struct mat_vec_q_switch_context {
 void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t stream);
 
 struct mmq_args {
-    const char* x; ggml_type type_x; const int* y; const int32_t* ids_dst; const int32_t* expert_bounds; float* dst;
+    const char* x; internal::ggml_type type_x; const int* y; const int32_t* ids_dst; const int32_t* expert_bounds; float* dst;
     int64_t ncols_x; int64_t nrows_x; int64_t ncols_dst; int64_t stride_row_x; int64_t ncols_y; int64_t nrows_dst;
     int64_t nchannels_x; int64_t nchannels_y; int64_t stride_channel_x; int64_t stride_channel_y; int64_t stride_channel_dst;
     int64_t nsamples_x; int64_t nsamples_y; int64_t stride_sample_x; int64_t stride_sample_y; int64_t stride_sample_dst;
@@ -129,15 +93,15 @@ void pool2d_nchw_kernel_f32_f32_cuda(
     const int ih, const int iw, const int oh, const int ow,
     const int kh, const int kw, const int sh, const int sw,
     const int ph, const int pw, const int parallel_elements,
-    const float* src, float* dst, enum ggml_op_pool op,
+    const float* src, float* dst, internal::ggml_op_pool op,
     cudaStream_t stream);
 
-void im2col_cuda(ggml_type dst_type, const float* x, void* dst,
+void im2col_cuda(internal::ggml_type  dst_type, const float* x, void* dst,
     int64_t IW, int64_t IH, int64_t OW, int64_t OH, int64_t KW, int64_t KH, int64_t IC,
     int64_t N,
     int s0, int s1, int p0, int p1, int d0, int d1, cudaStream_t stream);
 
-void im2col_3d_cuda(ggml_type dst_type, const float* src1_d, void* dst_d,
+void im2col_3d_cuda(internal::ggml_type  dst_type, const float* src1_d, void* dst_d,
     int64_t N, int64_t IC, int64_t ID, int64_t IH, int64_t IW, int64_t OC,
     int64_t KD, int64_t KH, int64_t KW, int64_t OD, int64_t OH, int64_t OW,
     size_t stride_q, size_t stride_z, size_t stride_y, size_t stride_x,
@@ -146,7 +110,7 @@ void im2col_3d_cuda(ggml_type dst_type, const float* src1_d, void* dst_d,
 // unary
 struct unary_context {
     cudaStream_t stream;
-    const ggml_type src0_type, dst_type;
+    const internal::ggml_type src0_type, dst_type;
     const void* src0_d;
     void* dst_d;
     const int64_t nelements;
@@ -155,7 +119,7 @@ struct unary_context {
 void abs_cuda(const unary_context &ctx);
 void sgn_cuda(const unary_context &ctx);
 void elu_cuda(const unary_context &ctx);
-void xielu_cuda(ggml_type src0_type, const void* src0_d, void* dst_d, int64_t src0_elements,
+void xielu_cuda(internal::ggml_type rc0_type, const void* src0_d, void* dst_d, int64_t src0_elements,
     const float alpha_n, const float alpha_p, const float beta, const float eps, cudaStream_t stream);
 void neg_cuda(const unary_context &ctx);
 void gelu_cuda(const unary_context &ctx);
@@ -182,7 +146,7 @@ void trunc_cuda(const unary_context &ctx);
 
 struct gated_context {
     cudaStream_t stream;
-    ggml_type src0_type;
+    internal::ggml_type src0_type;
     const int32_t swapped;
     void* src0_d;
     void* src1_d;
@@ -203,10 +167,10 @@ void leaky_relu_cuda(bool, const void*, void*, const int, const float, cudaStrea
 // get_row
 struct get_row_context {
     const void* src0_d;
-    ggml_type src0_type;
+    internal::ggml_type src0_type;
     const int32_t* src1_d;
     void* dst_d;
-    ggml_type dst_type;
+    internal::ggml_type dst_type;
     int64_t src0_ne[4];
     size_t src0_nb[4];
     int64_t src1_ne[4];
@@ -249,7 +213,7 @@ void count_equal_cuda(const count_equal_context* ctx, cudaStream_t stream);
 // binbcast.cu
 struct bin_bcast_context {
     void* dst_d;
-    const ggml_type src0_type, src1_type, dst_type;
+    const internal::ggml_type src0_type, src1_type, dst_type;
     const int64_t ne00, ne01, ne02, ne03;
     const size_t nb00, nb01, nb02, nb03;
     const int64_t ne10, ne11, ne12, ne13;
@@ -263,7 +227,7 @@ struct bin_bcast_context {
 void repeat_cuda(const bin_bcast_context* ctx, cudaStream_t stream);
 
 struct repeat_back_context {
-    const ggml_type dst_type;
+    const internal::ggml_type dst_type;
     const void* src0_d;
     void* dst_d;
     const size_t src0_ts;
@@ -283,7 +247,7 @@ void fused_add_cuda(const bin_bcast_context* ctx, int n_fuse, cudaStream_t strea
 struct dup_context {
     const void* src_d;
     void* dst_d;
-    const ggml_type src_type, dst_type;
+    const internal::ggml_type src_type, dst_type;
     const int64_t ne;
     const size_t src_length, dst_length;
     const int64_t ne00, ne01, ne02, ne03;
@@ -388,7 +352,7 @@ void k_compute_batched_ptrs_cuda(
 // clamp
 struct clamp_context {
     cudaStream_t stream;
-    const ggml_type src0_type, dst_type;
+    const internal::ggml_type src0_type, dst_type;
     const void* src0_d;
     void* dst_d;
     const int64_t nelements;
@@ -454,7 +418,7 @@ struct rope_context {
     const bool is_mrope;
     const bool is_imrope;
     const bool is_vision;
-    const ggml_type src0_type;
+    const internal::ggml_type src0_type;
     const void* src0_d;
     void* dst_d;
     const int64_t ne00, ne01, ne02;
@@ -495,11 +459,11 @@ void concat_cuda(const concat_context* ctx, cudaStream_t stream);
 void argsort_f32_i32_cuda(ggml_cuda_pool& pool,
     const float* x, int* dst,
     const int ncols, const int nrows,
-    ggml_sort_order order, cudaStream_t stream);
+    internal::ggml_sort_order order, cudaStream_t stream);
 void argsort_f32_i32_cuda_bitonic(
     const float* x, int* dst,
     const int ncols, const int nrows,
-    ggml_sort_order order, cudaStream_t stream);
+    internal::ggml_sort_order order, cudaStream_t stream);
 
 // sum
 void sum_f32_cuda(ggml_cuda_pool& pool, const float* x, float* dst, const int64_t ne, cudaStream_t stream);
@@ -565,10 +529,10 @@ struct flash_attn_ext_context {
     const float scale;
     const float max_bias;
     const float logit_softcap;
-    const ggml_prec precision;
+    const internal::ggml_prec precision;
 
     struct {
-        const ggml_type type;
+        const internal::ggml_type type;
         const void* data;
         const int64_t ne0, ne1, ne2, ne3;
         const size_t nb0, nb1, nb2, nb3;
@@ -576,7 +540,7 @@ struct flash_attn_ext_context {
     } Q;
 
     struct {
-        const ggml_type type;
+        const internal::ggml_type type;
         const size_t block_size, type_size;
         const void* data;
         const int64_t elements;
@@ -589,7 +553,7 @@ struct flash_attn_ext_context {
 
     struct {
         const bool exist;
-        const ggml_type type;
+        const internal::ggml_type type;
         const size_t block_size, type_size;
         const void* data;
         const int64_t elements;
@@ -602,7 +566,7 @@ struct flash_attn_ext_context {
 
     struct {
         const bool exist;
-        const ggml_type type;
+        const internal::ggml_type type;
         const void* data;
         const int64_t ne0, ne1, ne2, ne3;
         const size_t nb0, nb1, nb2, nb3;
@@ -613,7 +577,7 @@ struct flash_attn_ext_context {
     } sinks;
 
     struct {
-        const ggml_type type;
+        const internal::ggml_type type;
         const void* data;
         const int64_t elements;
         const int64_t nrows;
@@ -699,7 +663,7 @@ void conv2d_dw_cuda(const conv2d_dw_context &ctx, cudaStream_t stream);
 
 // conv2d-transpose.cu
 struct conv2d_transpose_context {
-    ggml_type kernel_type;
+    internal::ggml_type kernel_type;
     const int64_t WIn, HIn;
     const int64_t WOut, HOut;
     const int64_t CIn, COut;
@@ -720,8 +684,8 @@ void mean_cuda(ggml_cuda_pool& pool, const float* src0_d, float* dst_d, const in
 
 //set-rows.cu
 struct set_rows_context {
-    ggml_type src1_type;
-    ggml_type dst_type;
+    internal::ggml_type src1_type;
+    internal::ggml_type dst_type;
     const void* src0_d;
     const void* src1_d;
     void* dst_d;
@@ -781,7 +745,7 @@ struct mmf_ids_data {
 };
 
 struct mul_mat_f_context {
-    ggml_type src0_type;
+    internal::ggml_type src0_type;
 	const void* src0_d;
     const float* src1_d;
     const int32_t* ids_d;
@@ -810,7 +774,7 @@ void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream);
 // mmvf.cu
 
 struct mul_mat_vec_f_context {
-    ggml_type src0_type;
+    internal::ggml_type src0_type;
     const void* src0_d;
     const float* src1_d;
     const int32_t* ids_d;
@@ -828,14 +792,14 @@ struct mul_mat_vec_f_context {
     const int64_t s01, s02, s03;
     const int64_t s11, s13;
     const int64_t s1, s3;
-    const enum ggml_prec prec;
+    const enum internal::ggml_prec prec;
 };
 
 void mul_mat_vec_f_cuda(const mul_mat_vec_f_context* ctx, cudaStream_t stream);
 
 // conv2d.cu
 struct conv2d_context {
-    ggml_type kernel_type;
+    internal::ggml_type kernel_type;
     const int64_t N, CIn, IH, IW;
     const int64_t COut, OH, OW;
     const int64_t KH, KW;

@@ -9,7 +9,7 @@ import :cuda.utils;
 
 namespace utils
 {
-    bool should_use_mmf(enum ggml_type type, int cc, int warp_size, std::span<const int64_t> src0_ne,
+    bool should_use_mmf(ggml_type type, int cc, int warp_size, std::span<const int64_t> src0_ne,
         std::span<const size_t> src0_nb, int64_t src1_ncols, bool mul_mat_id)
     {
         if (ggml_is_quantized(type)) return false;
@@ -60,7 +60,7 @@ namespace utils
         }
     }
 
-    bool should_use_mmq(enum ggml_type type, int cc, int64_t ne11) {
+    bool should_use_mmq(ggml_type type, int cc, int64_t ne11) {
         if constexpr (force_enable_cuda_blas_v) {
             return false;
         }
@@ -133,7 +133,7 @@ namespace utils
         return (!GGML_CUDA_CC_IS_RDNA4(cc) && !GGML_CUDA_CC_IS_RDNA3(cc) && !GGML_CUDA_CC_IS_CDNA(cc)) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;
     }
 
-    bool should_use_mmvf(enum ggml_type type, int cc, std::span<const int64_t> src0_ne, std::span<const size_t> src0_nb, int64_t ne11) {
+    bool should_use_mmvf(ggml_type type, int cc, std::span<const int64_t> src0_ne, std::span<const size_t> src0_nb, int64_t ne11) {
         if (src0_ne[0] % 2 != 0) {
             return false;
         }
@@ -218,4 +218,69 @@ namespace utils
         }
     }
 
+    bool should_use_mmv(ggml_type type, int cc, std::span<const int64_t> src0_ne, int64_t ne11) {
+        if (src0_ne[0] % 2 != 0) {
+            return false;
+        }
+        switch (type) {
+        case GGML_TYPE_F32:
+            if (GGML_CUDA_CC_IS_NVIDIA(cc)) {
+                if (cc >= GGML_CUDA_CC_ADA_LOVELACE) {
+                    return ne11 <= 8;
+                }
+                if (cc >= GGML_CUDA_CC_TURING) {
+                    return ne11 <= 4;
+                }
+                return ne11 <= 3;
+            }
+            else if (GGML_CUDA_CC_IS_AMD(cc)) {
+                if (fp32_mma_hardware_available(cc)) {
+                    return ne11 <= 3;
+                }
+                return ne11 <= 8;
+            }
+            return ne11 <= 8;
+        case GGML_TYPE_F16:
+            if (GGML_CUDA_CC_IS_NVIDIA(cc)) {
+                const bool src0_small = (src0_ne[1] <= 512 || src0_ne[2] * src0_ne[3] == 1);
+                if (cc >= GGML_CUDA_CC_ADA_LOVELACE) {
+                    return src0_small && ne11 <= 4;
+                }
+                if (fp16_mma_hardware_available(cc)) {
+                    return src0_small && ne11 <= 3;
+                }
+                return ne11 <= 8;
+            }
+            else if (GGML_CUDA_CC_IS_AMD(cc)) {
+                if (fp16_mma_hardware_available(cc)) {
+                    if (GGML_CUDA_CC_IS_RDNA3(cc) || GGML_CUDA_CC_IS_RDNA4(cc)) {
+                        return ne11 <= 5;
+                    }
+                    return ne11 <= 2;
+                }
+                return ne11 <= 8;
+            }
+            return ne11 <= 8;
+        case GGML_TYPE_BF16:
+            if (GGML_CUDA_CC_IS_NVIDIA(cc)) {
+                const bool src0_small = (src0_ne[1] <= 512 || src0_ne[2] * src0_ne[3] == 1);
+                if (cc >= GGML_CUDA_CC_ADA_LOVELACE) {
+                    return src0_small && ne11 <= 4;
+                }
+                if (bf16_mma_hardware_available(cc)) {
+                    return src0_small && ne11 <= 3;
+                }
+                return ne11 <= 8;
+            }
+            else if (GGML_CUDA_CC_IS_AMD(cc)) {
+                if (bf16_mma_hardware_available(cc)) {
+                    return ne11 <= 3;
+                }
+                return ne11 <= 8;
+            }
+            return ne11 <= 8;
+        default:
+            return false;
+        }
+    }
 }

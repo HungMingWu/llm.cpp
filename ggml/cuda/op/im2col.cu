@@ -2,6 +2,7 @@
 #include "convert.cuh"
 #include "helper.h"
 #include "launch.cuh"
+#include "cuda_func.h"
 
 // im2col: [N, IC, IH, IW] => [N, OH, OW, IC, KH, KW]
 template <typename dst_t>
@@ -27,12 +28,12 @@ void im2col_cuda(const float* x, dst_t* dst,
     );
 }
 
-void im2col_cuda(ggml_type dst_type, const float* x, void* dst,
+void im2col_cuda(internal::ggml_type dst_type, const float* x, void* dst,
     int64_t IW, int64_t IH, int64_t OW, int64_t OH, int64_t KW, int64_t KH, int64_t IC,
     int64_t N,
     int s0, int s1, int p0, int p1, int d0, int d1, cudaStream_t stream)
 {
-    if (dst_type == GGML_TYPE_F16) {
+    if (dst_type == internal::GGML_TYPE_F16) {
         im2col_cuda(x, (half*)dst, IW, IH, OW, OH, KW, KH, IC, N, s0, s1, p0, p1, d0, d1, stream);
     }
     else {
@@ -68,13 +69,13 @@ void im2col_3d_cuda(const float* src, T* dst,
     );
 }
 
-void im2col_3d_cuda(ggml_type dst_type, const float* src1_d, void* dst_d,
+void im2col_3d_cuda(internal::ggml_type dst_type, const float* src1_d, void* dst_d,
     int64_t N, int64_t IC, int64_t ID, int64_t IH, int64_t IW, int64_t OC,
     int64_t KD, int64_t KH, int64_t KW, int64_t OD, int64_t OH, int64_t OW,
     size_t stride_q, size_t stride_z, size_t stride_y, size_t stride_x,
     int s0, int s1, int s2, int p0, int p1, int p2, int d0, int d1, int d2, cudaStream_t stream)
 {
-    if (dst_type == GGML_TYPE_F16) {
+    if (dst_type == internal::GGML_TYPE_F16) {
         im2col_3d_cuda(src1_d, (half*)dst_d, N, IC, ID, IH, IW, OC, KD, KH, KW, OD, OH, OW,
 			stride_q, stride_z, stride_y, stride_x,
             s0, s1, s2, p0, p1, p2, d0, d1, d2, stream);

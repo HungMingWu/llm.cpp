@@ -1,5 +1,5 @@
 #include <algorithm>
-#include "internal_ds.h"
+#include "cuda_func.h"
 #include "common.cuh"
 #define GGML_ASSERT(...)
 #define GGML_ABORT(...)
@@ -12,7 +12,7 @@ static inline __device__ void ggml_cuda_swap(T& a, T& b) {
     b = tmp;
 }
 
-template<ggml_sort_order order>
+template <internal::ggml_sort_order order>
 static __global__ void k_argsort_f32_i32(const float* x, int* dst, const int ncols, int ncols_pad) {
     // bitonic sort
     int col = threadIdx.x;
@@ -36,7 +36,7 @@ static __global__ void k_argsort_f32_i32(const float* x, int* dst, const int nco
             if (ixj > col) {
                 if ((col & k) == 0) {
                     if (dst_row[col] >= ncols ||
-                        (dst_row[ixj] < ncols && (order == GGML_SORT_ORDER_ASC ?
+                        (dst_row[ixj] < ncols && (order == internal::GGML_SORT_ORDER_ASC ?
                             x_row[dst_row[col]] > x_row[dst_row[ixj]] :
                     x_row[dst_row[col]] < x_row[dst_row[ixj]]))
                         ) {
@@ -45,7 +45,7 @@ static __global__ void k_argsort_f32_i32(const float* x, int* dst, const int nco
                 }
                 else {
                     if (dst_row[ixj] >= ncols ||
-                        (dst_row[col] < ncols && (order == GGML_SORT_ORDER_ASC ?
+                        (dst_row[col] < ncols && (order == internal::GGML_SORT_ORDER_ASC ?
                             x_row[dst_row[col]] < x_row[dst_row[ixj]] :
                             x_row[dst_row[col]] > x_row[dst_row[ixj]]))
                         ) {
@@ -75,7 +75,7 @@ void argsort_f32_i32_cuda_bitonic(const float* x,
     int* dst,
     const int       ncols,
     const int       nrows,
-    ggml_sort_order order,
+    internal::ggml_sort_order order,
     cudaStream_t    stream) {
     // bitonic sort requires ncols to be power of 2
     const int ncols_pad = next_power_of_2(ncols);
@@ -87,12 +87,12 @@ void argsort_f32_i32_cuda_bitonic(const float* x,
     // FIXME: this limit could be raised by ~2-4x on Ampere or newer
     GGML_ASSERT(shared_mem <= ggml_cuda_info().devices[ggml_cuda_get_device()].smpb);
 
-    if (order == GGML_SORT_ORDER_ASC) {
-        k_argsort_f32_i32<GGML_SORT_ORDER_ASC>
+    if (order == internal::GGML_SORT_ORDER_ASC) {
+        k_argsort_f32_i32<internal::GGML_SORT_ORDER_ASC>
             << <block_nums, block_dims, shared_mem, stream >> > (x, dst, ncols, ncols_pad);
     }
-    else if (order == GGML_SORT_ORDER_DESC) {
-        k_argsort_f32_i32<GGML_SORT_ORDER_DESC>
+    else if (order == internal::GGML_SORT_ORDER_DESC) {
+        k_argsort_f32_i32<internal::GGML_SORT_ORDER_DESC>
             << <block_nums, block_dims, shared_mem, stream >> > (x, dst, ncols, ncols_pad);
     }
     else {

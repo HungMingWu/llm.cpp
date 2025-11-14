@@ -48,8 +48,8 @@ static dup_context create(const ggml_tensor* src0, ggml_tensor* dst)
    return dup_context {
        .src_d = src0->data,
        .dst_d = dst->data,
-       .src_type = src0->type,
-       .dst_type = dst->type,
+       .src_type = std::bit_cast<internal::ggml_type>(src0->type),
+       .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
        .ne = src0->nelements(),
        .src_length = src0->nbytes(),
        .dst_length = dst->nbytes(),
@@ -78,8 +78,8 @@ static unary_context create(const ggml_tensor* src0, ggml_tensor* dst, cudaStrea
 {
     return {
         .stream = stream,
-        .src0_type = src0->type,
-        .dst_type = dst->type,
+        .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+        .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
         .src0_d = src0->data,
         .dst_d = dst->data,
         .nelements = src0->nelements()
@@ -92,9 +92,9 @@ static bin_bcast_context create_bcast_context(ggml_tensor* dst)
 	const ggml_tensor* src1 = dst->src[1];
     bin_bcast_context ctx {
         .dst_d = dst->data,
-        .src0_type = src0->type,
-        .src1_type = src1->type,
-        .dst_type = dst->type,
+        .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+        .src1_type = std::bit_cast<internal::ggml_type>(src1->type),
+        .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
         .ne00 = src0->ne[0],
         .ne01 = src0->ne[1],
         .ne02 = src0->ne[2],
@@ -164,16 +164,16 @@ namespace op
         GGML_ASSERT(ggml_is_contiguous(src1));
 
         conv_transpose_1d_context ctx {
-            .src0_type = src0->type,
-			.src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
-			.src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
-			.dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
-			.src0_d = src0->data,
-			.src1_d = (const float*)src1->data,
-			.dst_d = (float*)dst->data,
+            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .src0_d = src0->data,
+            .src1_d = (const float*)src1->data,
+            .dst_d = (float*)dst->data,
             .stride = std::bit_cast<int>(dst->op_params[0]),
-			.padding = std::bit_cast<int>(dst->op_params[1]),
-			.dilation = std::bit_cast<int>(dst->op_params[2])
+            .padding = std::bit_cast<int>(dst->op_params[1]),
+            .dilation = std::bit_cast<int>(dst->op_params[2])
         };
 
         conv_transpose_1d_f32_cuda(ctx, stream);
@@ -230,7 +230,7 @@ namespace op
                 GGML_ASSERT(!ids || fusion->gate_bias->ne[1] == src0->ne[2]);
                 fusion_local.gate_bias = fusion->gate_bias->data;
             }
-            fusion_local.glu_op = fusion->glu_op;
+            fusion_local.glu_op = std::bit_cast<internal::ggml_glu_op>(fusion->glu_op);
         }
 
         const int64_t s01 = src0->nb[1] / ts_src0;
@@ -253,7 +253,7 @@ namespace op
         GGML_ASSERT(!ids || ncols_dst == 1);
 
         mul_mat_vec_f_context ctx{
-            .src0_type = src0->type,
+            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
             .src0_d = src0->data,
             .src1_d = (const float*)src1->data,
             .ids_d = ids ? (const int32_t*)ids->data : nullptr,
@@ -279,7 +279,7 @@ namespace op
             .s13 = s13,
             .s1 = s1,
             .s3 = s3,
-            .prec = fast_fp16_available(cc) ? ggml_prec(dst->op_params[0]) : GGML_PREC_F32
+            .prec = std::bit_cast<internal::ggml_prec>(fast_fp16_available(cc) ? dst->op_params[0] : GGML_PREC_F32)
         };
         mul_mat_vec_f_cuda(&ctx, stream);
     }
@@ -370,8 +370,8 @@ namespace op
         }
 
         mul_mat_f_context ctx{
-			.src0_type = src0->type,
-			.src0_d = src0->data,
+            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .src0_d = src0->data,
             .src1_d = (const float*)src1->data,
             .ids_d = ids_d,
             .dst_d = (float*)dst->data,
@@ -416,7 +416,7 @@ namespace op
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
         const int32_t* opts = (const int32_t*)dst->op_params;
-        enum ggml_op_pool op = static_cast<ggml_op_pool>(opts[0]);
+        auto op = std::bit_cast<internal::ggml_op_pool>(opts[0]);
         const int k0 = opts[1];
         const int k1 = opts[2];
         const int s0 = opts[3];
@@ -468,7 +468,7 @@ namespace op
 
         const int64_t N = src1->ne[is_2D ? 3 : 2];
 
-        im2col_cuda(dst->type, src1_d, dst_d, IW, IH, OW, OH, KW, KH, IC, N, s0, s1, p0, p1, d0, d1, stream);
+        im2col_cuda(std::bit_cast<internal::ggml_type>(dst->type), src1_d, dst_d, IW, IH, OW, OH, KW, KH, IC, N, s0, s1, p0, p1, d0, d1, stream);
     }
 
     void im2col_3d(cudaStream_t stream, ggml_tensor* dst)
@@ -511,7 +511,7 @@ namespace op
         const int64_t stride_z = src1->nb[2];
         const int64_t stride_q = src1->nb[3];
 
-        im2col_3d_cuda(dst->type, src1_d, dst_d, N, IC, ID, IH, IW, OC, KD, KH, KW, OD, OH, OW,
+        im2col_3d_cuda(std::bit_cast<internal::ggml_type>(dst->type), src1_d, dst_d, N, IC, ID, IH, IW, OC, KD, KH, KW, OD, OH, OW,
             stride_q, stride_z, stride_y, stride_x,
             s0, s1, s2, p0, p1, p2, d0, d1, d2, stream);
     }
@@ -582,7 +582,7 @@ namespace op
             const float alpha_p = std::bit_cast<float>(dst->op_params[2]);
             const float beta = std::bit_cast<float>(dst->op_params[3]);
             const float eps = std::bit_cast<float>(dst->op_params[4]);
-			xielu_cuda(src0->type, src0_d, dst_d, src0->nelements(), alpha_n, alpha_p, beta, eps, stream);
+			xielu_cuda(std::bit_cast<internal::ggml_type>(src0->type), src0_d, dst_d, src0->nelements(), alpha_n, alpha_p, beta, eps, stream);
             break;
         }
         case GGML_UNARY_OP_FLOOR:
@@ -615,10 +615,10 @@ namespace op
 
         get_row_context ctx{
             .src0_d = src0->data,
-            .src0_type = src0->type,
+            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
             .src1_d = (const int32_t*)src1->data,
             .dst_d = dst->data,
-            .dst_type = dst->type,
+            .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
             .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
             .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
             .src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
@@ -701,9 +701,9 @@ namespace op
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         bin_bcast_context context{
             .dst_d = dst->data,
-            .src0_type = dst->type,
-            .src1_type = src0->type,
-            .dst_type = dst->type,
+            .src0_type = std::bit_cast<internal::ggml_type>(dst->type),
+            .src1_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
             .ne00 = dst->ne[0],
             .ne01 = dst->ne[1],
             .ne02 = dst->ne[2],
@@ -958,7 +958,7 @@ namespace op
                 GGML_ASSERT(!ids || fusion->gate_bias->ne[1] == src0->ne[2]);
                 fusion_local.gate_bias = fusion->gate_bias->data;
             }
-            fusion_local.glu_op = fusion->glu_op;
+            fusion_local.glu_op = std::bit_cast<internal::ggml_glu_op>(fusion->glu_op);
         }
 
         // If src0 is a temporary compute buffer, clear any potential padding.
@@ -979,7 +979,7 @@ namespace op
             const int64_t s11 = src1->nb[1] / ts_src1;
             const int64_t s12 = src1->nb[2] / ts_src1;
             const int64_t s13 = src1->nb[3] / ts_src1;
-            quantize_row_q8_1_cuda(src1_d, nullptr, src1_q8_1.get(), src0->type,
+            quantize_row_q8_1_cuda(src1_d, nullptr, src1_q8_1.get(), std::bit_cast<internal::ggml_type>(src0->type),
                 src1->ne[0], s11, s12, s13, ne10_padded, src1->ne[1], src1->ne[2], src1->ne[3], stream);
         }
 
@@ -997,7 +997,7 @@ namespace op
         // For MUL_MAT_ID the memory layout is different than for MUL_MAT:
 
         mat_vec_q_switch_context ctx{
-            .type_x = src0->type,
+            .type_x = std::bit_cast<internal::ggml_type>(src0->type),
             .vx = src0->data,
             .vy = src1_q8_1.get(),
             .ids = ids_d,
@@ -1081,7 +1081,7 @@ namespace op
                 const int64_t s11 = src1->nb[1] / ts_src1;
                 const int64_t s12 = src1->nb[2] / ts_src1;
                 const int64_t s13 = src1->nb[3] / ts_src1;
-                quantize_mmq_q8_1_cuda(src1_d, nullptr, src1_q8_1.get(), src0->type,
+                quantize_mmq_q8_1_cuda(src1_d, nullptr, src1_q8_1.get(), std::bit_cast<internal::ggml_type>(src0->type),
                     src1->ne[0], s11, s12, s13, ne10_padded, src1->ne[1], src1->ne[2], src1->ne[3], stream);
                 CUDA_CHECK(cudaGetLastError());
             }
@@ -1090,7 +1090,7 @@ namespace op
             const int64_t s13 = src1->ne[2] * s12;
 
             const mmq_args args = {
-                src0_d, src0->type, (const int*)src1_q8_1.ptr, nullptr, nullptr, dst_d,
+                src0_d, std::bit_cast<internal::ggml_type>(src0->type), (const int*)src1_q8_1.ptr, nullptr, nullptr, dst_d,
                 src0->ne[0], src0->ne[1], dst->ne[1], s01, src1->ne[1], s1,
                 src0->ne[2], src1->ne[2], s02, s12, s2,
                 src0->ne[3], src1->ne[3], s03, s13, s3,
@@ -1133,7 +1133,7 @@ namespace op
             const int64_t s11 = src1->nb[1] / ts_src1;
             const int64_t s12 = src1->nb[2] / ts_src1;
             const int64_t s13 = src1->nb[2] / ts_src1;
-            quantize_mmq_q8_1_cuda(src1_d, ids_src1.get(), src1_q8_1.get(), src0->type,
+            quantize_mmq_q8_1_cuda(src1_d, ids_src1.get(), src1_q8_1.get(), std::bit_cast<internal::ggml_type>(src0->type),
                 src1->ne[0], s11, s12, s13, ne10_padded, ne11_flat, ne12_flat, ne13_flat, stream);
             CUDA_CHECK(cudaGetLastError());
         }
@@ -1143,7 +1143,7 @@ namespace op
 
         // Note that ne02 is used instead of ne12 because the number of y channels determines the z dimension of the CUDA grid.
         const mmq_args args = {
-            src0_d, src0->type, (const int*)src1_q8_1.get(), ids_dst.get(), expert_bounds.get(), dst_d,
+            src0_d, std::bit_cast<internal::ggml_type>(src0->type), (const int*)src1_q8_1.get(), ids_dst.get(), expert_bounds.get(), dst_d,
             src0->ne[0], src0->ne[1], ne_get_rows, s01, ne_get_rows, s1,
             src0->ne[2], src0->ne[2], s02, s12, s2,
             src0->ne[3], src1->ne[3], s03, s13, s3,
@@ -1238,10 +1238,10 @@ namespace op
 
         get_row_context ctx1{
             .src0_d = src1->data,
-            .src0_type = src1->type,
+            .src0_type = std::bit_cast<internal::ggml_type>(src1->type),
             .src1_d = ids_to_sorted,
             .dst_d = src1_sorted.ptr,
-            .dst_type = type_src1_sorted,
+            .dst_type = std::bit_cast<internal::ggml_type>(type_src1_sorted),
             .src0_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
             .src0_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
             .src1_ne = { ne_get_rows, 1, 1, 1 },
@@ -1311,10 +1311,10 @@ namespace op
 		// maybe need to regular src1 and dst's dimensions
         get_row_context ctx2{
             .src0_d = dst_sorted.ptr,
-            .src0_type = type_dst_sorted,
+            .src0_type = std::bit_cast<internal::ggml_type>(type_dst_sorted),
             .src1_d = ids_from_sorted,
             .dst_d = dst->data,
-            .dst_type = dst->type,
+            .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
             .src0_ne = { dst->ne[0], ne_get_rows, 1, 1 },
             .src0_nb = { ts_dst_sorted,
                          dst->ne[0] * ts_dst_sorted,
@@ -1424,8 +1424,8 @@ namespace op
 
         clamp_context ctx{
             .stream = stream,
-			.src0_type = src0->type,
-            .dst_type = dst->type,
+            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
             .src0_d = src0->data,
             .dst_d = dst->data,
             .nelements = src0->nelements(),
@@ -1580,7 +1580,7 @@ namespace op
             .is_mrope = static_cast<bool>(mode & GGML_ROPE_TYPE_MROPE),
             .is_imrope = static_cast<bool>(mode == GGML_ROPE_TYPE_IMROPE),
             .is_vision = static_cast<bool>(mode == GGML_ROPE_TYPE_VISION),
-            .src0_type = src0->type,
+            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
             .src0_d = src0->data,
             .dst_d = dst->data,
             .ne00 = src0->ne[0],
@@ -1671,7 +1671,7 @@ namespace op
         const int64_t ncols = src0->ne[0];
         const int64_t nrows = ggml_nrows(src0);
 
-        ggml_sort_order order = std::bit_cast<ggml_sort_order>(dst->op_params[0]);
+        auto order = std::bit_cast<internal::ggml_sort_order>(dst->op_params[0]);
 
         argsort_f32_i32_cuda(pool, src0_d, (int*)dst_d, ncols, nrows, order, stream);
     }
@@ -2032,9 +2032,9 @@ namespace op
             .scale = std::bit_cast<float>(dst->op_params[0]),
             .max_bias = std::bit_cast<float>(dst->op_params[1]),
             .logit_softcap = std::bit_cast<float>(dst->op_params[2]),
-            .precision = std::bit_cast<ggml_prec>(dst->op_params[3]),
+            .precision = std::bit_cast<internal::ggml_prec>(dst->op_params[3]),
             .Q = {
-                .type = Q->type,
+                .type = std::bit_cast<internal::ggml_type>(Q->type),
                 .data = Q->data,
                 .ne0 = Q->ne[0],
                 .ne1 = Q->ne[1],
@@ -2047,7 +2047,7 @@ namespace op
                 .element_size = ggml_element_size(Q)
             },
             .K = {
-				.type = K->type,
+                .type = std::bit_cast<internal::ggml_type>(K->type),
                 .block_size = ggml_blck_size(K->type),
                 .type_size = ggml_type_size(K->type),
                 .data = K->data,
@@ -2067,7 +2067,7 @@ namespace op
             },
             .V = {
                 .exist = V != nullptr,
-                .type = V ? V->type : GGML_TYPE_F32,
+                .type = std::bit_cast<internal::ggml_type>(V ? V->type : GGML_TYPE_F32),
                 .block_size = V ? ggml_blck_size(V->type) : 0,
                 .type_size = V ? ggml_type_size(V->type) : 0,
                 .data = V ? V->data : nullptr,
@@ -2086,8 +2086,8 @@ namespace op
                 .element_size = V ? ggml_element_size(V) : 0
             },
             .mask = {
-				.exist = mask != nullptr,
-                .type = mask ? mask->type : GGML_TYPE_F32,
+                .exist = mask != nullptr,
+                .type = std::bit_cast<internal::ggml_type>(mask ? mask->type : GGML_TYPE_F32),
                 .data = mask ? mask->data : nullptr,
                 .ne0 = (mask) ? mask->ne[0] : 0,
                 .ne1 = (mask) ? mask->ne[1] : 0,
@@ -2102,7 +2102,7 @@ namespace op
                 .data = sinks ? sinks->data : nullptr
             },
             .KQV = {
-                .type = dst->type,
+                .type = std::bit_cast<internal::ggml_type>(dst->type),
                 .data = dst->data,
                 .elements = dst->nelements(),
                 .nrows = ggml_nrows(dst),
@@ -2235,7 +2235,7 @@ namespace op
         GGML_ASSERT(dst->ne[2] * dst->ne[3] <= (1 << 15));
 
         repeat_back_context ctx{
-            .dst_type = dst->type,
+            .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
             .src0_d = src0->data,
             .dst_d = dst->data,
             .src0_ts = ggml_type_size(src0->type),
@@ -2363,7 +2363,7 @@ namespace op
         GGML_ASSERT(input->ne[2] == kernel->ne[2]);    
 
         conv2d_context ctx{
-            .kernel_type = kernel->type,
+            .kernel_type = std::bit_cast<internal::ggml_type>(kernel->type),
             .N = input->ne[3],   // n_batches
             .CIn = input->ne[2],   // input_channels
             .IH = input->ne[1],   // input_h
@@ -2435,7 +2435,7 @@ namespace op
         GGML_ASSERT(ggml_is_contiguous(dst));
 
         conv2d_transpose_context ctx{
-			.kernel_type = kernel->type,
+            .kernel_type = std::bit_cast<internal::ggml_type>(kernel->type),
             .WIn = input->ne[0],
             .HIn = input->ne[1],
             .WOut = dst->ne[0],
@@ -2482,7 +2482,7 @@ namespace op
 
         gated_context ctx{
             .stream = stream,
-            .src0_type = src0->type,
+            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
             .swapped = dst->op_params[1],
 			.src0_d = src0->data,
             .src1_d = src1 ? src1->data : src0->data,
@@ -2574,8 +2574,8 @@ namespace op
         GGML_ASSERT(src1->type == GGML_TYPE_I64 || src1->type == GGML_TYPE_I32);
 
         set_rows_context ctx{
-            .src1_type = src1->type,
-            .dst_type = dst->type,
+            .src1_type = std::bit_cast<internal::ggml_type>(src1->type),
+            .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
             .src0_d = src0->data,
             .src1_d = src1->data,
             .dst_d = dst->data,

@@ -3,7 +3,7 @@
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #include "common.cuh"
 #include "convert.cuh"
-#include "internal_ds.h"
+#include "cuda_func.h"
 #include "vecdotq.cuh"
 
 static constexpr size_t FATTN_KQ_STRIDE_TILE_F32 = 32;
@@ -270,24 +270,24 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_q8_0(
     return sum;
 }
 
-template <ggml_type type_K, int D, int nthreads>
+template <internal::ggml_type type_K, int D, int nthreads>
 constexpr __device__ vec_dot_KQ_t get_vec_dot_KQ() {
-    if constexpr (type_K == GGML_TYPE_F16) {
+    if constexpr (type_K == internal::GGML_TYPE_F16) {
         return vec_dot_fattn_vec_KQ_f16<D, nthreads>;
     }
-    else if constexpr (type_K == GGML_TYPE_Q4_0) {
+    else if constexpr (type_K == internal::GGML_TYPE_Q4_0) {
         return vec_dot_fattn_vec_KQ_q4_0<D, nthreads>;
     }
-    else if constexpr (type_K == GGML_TYPE_Q4_1) {
+    else if constexpr (type_K == internal::GGML_TYPE_Q4_1) {
         return vec_dot_fattn_vec_KQ_q4_1<D, nthreads>;
     }
-    else if constexpr (type_K == GGML_TYPE_Q5_0) {
+    else if constexpr (type_K == internal::GGML_TYPE_Q5_0) {
         return vec_dot_fattn_vec_KQ_q5_0<D, nthreads>;
     }
-    else if constexpr (type_K == GGML_TYPE_Q5_1) {
+    else if constexpr (type_K == internal::GGML_TYPE_Q5_1) {
         return vec_dot_fattn_vec_KQ_q5_1<D, nthreads>;
     }
-    else if constexpr (type_K == GGML_TYPE_Q8_0) {
+    else if constexpr (type_K == internal::GGML_TYPE_Q8_0) {
         return vec_dot_fattn_vec_KQ_q8_0<D, nthreads>;
     }
     else {
@@ -545,24 +545,24 @@ static __device__ __forceinline__ void dequantize_V_q8_0(const void* __restrict_
         }
 }
 
-template <ggml_type type_V, typename T, int ne>
+template <internal::ggml_type type_V, typename T, int ne>
 constexpr __device__ dequantize_V_t get_dequantize_V() {
-    if constexpr (type_V == GGML_TYPE_F16) {
+    if constexpr (type_V == internal::GGML_TYPE_F16) {
         return dequantize_V_f16<T, ne>;
     }
-    else if constexpr (type_V == GGML_TYPE_Q4_0) {
+    else if constexpr (type_V == internal::GGML_TYPE_Q4_0) {
         return dequantize_V_q4_0<T, ne>;
     }
-    else if constexpr (type_V == GGML_TYPE_Q4_1) {
+    else if constexpr (type_V == internal::GGML_TYPE_Q4_1) {
         return dequantize_V_q4_1<T, ne>;
     }
-    else if constexpr (type_V == GGML_TYPE_Q5_0) {
+    else if constexpr (type_V == internal::GGML_TYPE_Q5_0) {
         return dequantize_V_q5_0<T, ne>;
     }
-    else if constexpr (type_V == GGML_TYPE_Q5_1) {
+    else if constexpr (type_V == internal::GGML_TYPE_Q5_1) {
         return dequantize_V_q5_1<T, ne>;
     }
-    else if constexpr (type_V == GGML_TYPE_Q8_0) {
+    else if constexpr (type_V == internal::GGML_TYPE_Q8_0) {
         return dequantize_V_q8_0<T, ne>;
     }
     else {
@@ -823,14 +823,14 @@ void launch_fattn(
     const bool is_mla = DV == 512; // TODO better parameterization
 
     GGML_ASSERT(ctx.V.exist || is_mla);
-    GGML_ASSERT(ctx.Q.type == GGML_TYPE_F32);
-    GGML_ASSERT(ctx.KQV.type == GGML_TYPE_F32);
+    GGML_ASSERT(ctx.Q.type == internal::GGML_TYPE_F32);
+    GGML_ASSERT(ctx.KQV.type == internal::GGML_TYPE_F32);
 
     GGML_ASSERT(ctx.Q.nb0 == ctx.Q.element_size);
     GGML_ASSERT(ctx.K.nb0 == ctx.K.element_size);
     GGML_ASSERT(!ctx.V.exist || ctx.V.nb0 == ctx.V.element_size);
 
-    GGML_ASSERT(!ctx.mask.exist || ctx.mask.type == GGML_TYPE_F16);
+    GGML_ASSERT(!ctx.mask.exist || ctx.mask.type == internal::GGML_TYPE_F16);
     GGML_ASSERT(!ctx.mask.exist || ctx.mask.ne1 >= GGML_PAD1(ctx.Q.ne1, 16) &&
         "the Flash-Attention CUDA kernel requires the mask to be padded to 16 and at least n_queries big");
 
@@ -856,7 +856,7 @@ void launch_fattn(
     size_t nb22 = ctx.V.exist ? ctx.V.nb2 : nb12;
     size_t nb23 = ctx.V.exist ? ctx.V.nb3 : nb13;
 
-    if (need_f16_K && ctx.K.type != GGML_TYPE_F16) {
+    if (need_f16_K && ctx.K.type != internal::GGML_TYPE_F16) {
         const size_t bs = ctx.K.block_size;
         const size_t ts = ctx.K.type_size;
 
@@ -882,7 +882,7 @@ void launch_fattn(
         K_data = (char*)K_f16.ptr;
     }
 
-    if (ctx.V.exist && need_f16_V && ctx.V.type != GGML_TYPE_F16) {
+    if (ctx.V.exist && need_f16_V && ctx.V.type != internal::GGML_TYPE_F16) {
         const size_t bs = ctx.V.block_size;
         const size_t ts = ctx.V.type_size;
 
