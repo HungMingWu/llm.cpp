@@ -27,9 +27,7 @@ static __global__ void launch_kernel(int64_t total_elements, std::tuple<Args...>
 {
     int64_t idx5 = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx5 >= total_elements) return;
-    static constexpr size_t tuple_size = std::tuple_size_v<std::tuple<Args...>>;
     auto index = std::apply([=](auto... args) {
-        std::array<uint3, tuple_size> uint3_arr;
         return detail::calcIndex(idx5, args...);
     }, tuple);
     std::apply(functor, index);
