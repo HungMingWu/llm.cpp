@@ -4,22 +4,18 @@
 #include <stdlib.h>
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <span>
 #include <vector>
+#include "mdspan.hpp"
 
 import ggml;
 import test;
 
-std::atomic<int> g_custom1_count = 0;
-std::atomic<int> g_custom2_count = 0;
-std::atomic<int> g_custom3_count = 0;
-
-void custom1(ggml_tensor* dst, int ith, int nth) {
+task_vector custom1(ggml_tensor* dst) {
     assert(dst->src.size() == 1);
     const ggml_tensor* a = dst->src[0];
     assert(ggml_are_same_shape(dst, a));
-
-    g_custom1_count++;
 
     const float* a_data = ggml_get_data_f32(a);
     float* dst_data = ggml_get_data_f32(dst);
@@ -28,55 +24,52 @@ void custom1(ggml_tensor* dst, int ith, int nth) {
     assert(ggml_is_contiguous(dst));
     assert(ggml_is_contiguous(a));
 
+    task_vector tasks;
     // parallelize by elements
-    const int ne = (int)dst->nelements();
-    const int dr = (ne + nth - 1) / nth;
-    const int ie0 = dr * ith;
-    const int ie1 = std::min(ie0 + dr, ne);
-
-    for (int i = ie0; i < ie1; ++i) {
-        dst_data[i] = a_data[i] * 2;
+    const int64_t ne = dst->nelements();
+    const int64_t boundary = 1 * 1024 * 1024;
+    for (int64_t i0 = 0; i0 < ne; i0 += boundary) {
+        const int64_t i1 = std::min(ne, boundary);
+        tasks.emplace_back([=] {
+            for (int64_t i = i0; i < i1; i++) {
+                dst_data[i] = a_data[i] * 2;
+            }
+        });
     }
+    return tasks;
 }
 
-void custom2(ggml_tensor* dst, int ith, int nth) {
+task_vector custom2(ggml_tensor* dst) {
     assert(dst->src.size() == 2);
     const ggml_tensor* a = dst->src[0];
     const ggml_tensor* b = dst->src[1];
     assert(ggml_are_same_shape(dst, a));
     assert(ggml_are_same_shape(dst, b));
 
-    g_custom2_count++;
-
-    const float* a_data = ggml_get_data_f32(a);
-    const float* b_data = ggml_get_data_f32(b);
-    float* dst_data = ggml_get_data_f32(dst);
-
-    // parallelize by rows
-    const int nr = (int)ggml_nrows(dst);
-    // number of rows per thread
-    const int dr = (nr + nth - 1) / nth;
-    // row range for this thread
-    const int ir0 = dr * ith;
-    const int ir1 = std::min(ir0 + dr, nr);
-
-    // number of columns
-    const int nc = (int)dst->ne[0];
-
     // this assumes that the tensors are contiguous
     assert(ggml_is_contiguous(dst));
     assert(ggml_is_contiguous(a));
     assert(ggml_is_contiguous(b));
+    std::experimental::mdspan dst_data(ggml_get_data_f32(dst), dst->ne[3], dst->ne[2], dst->ne[1], dst->ne[0]);
+    std::experimental::mdspan a_data(ggml_get_data_f32(a), a->ne[3], a->ne[2], a->ne[1], a->ne[0]);
+    std::experimental::mdspan b_data(ggml_get_data_f32(b), b->ne[3], b->ne[2], b->ne[1], b->ne[0]);
 
-    for (int ir = ir0; ir < ir1; ++ir) {
-        for (int ic = 0; ic < nc; ++ic) {
-            const int i = ir * nc + ic;
-            dst_data[i] = a_data[i] + b_data[i];
+    task_vector tasks;
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            tasks.emplace_back([=] {
+                for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                    for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
+                        dst_data[i3, i2, i1, i0] = a_data[i3, i2, i1, i0] + b_data[i3, i2, i1, i0];
+                    }
+                }
+            });
         }
     }
+    return tasks;
 }
 
-void custom3(ggml_tensor* dst, int ith, int nth) {
+task_vector custom3(ggml_tensor* dst) {
     assert(dst->src.size() == 3);
     const ggml_tensor* a = dst->src[0];
     const ggml_tensor* b = dst->src[1];
@@ -85,15 +78,10 @@ void custom3(ggml_tensor* dst, int ith, int nth) {
     assert(ggml_are_same_shape(dst, b));
     assert(ggml_are_same_shape(dst, c));
 
-    g_custom3_count++;
-
     const float* a_data = ggml_get_data_f32(a);
     const float* b_data = ggml_get_data_f32(b);
     const float* c_data = ggml_get_data_f32(c);
     float* dst_data = ggml_get_data_f32(dst);
-
-    // dont parallelize
-    assert(ith == 0);
 
     // number of elements
     const int ne = (int)dst->nelements();
@@ -104,24 +92,21 @@ void custom3(ggml_tensor* dst, int ith, int nth) {
     assert(ggml_is_contiguous(b));
     assert(ggml_is_contiguous(c));
 
-    for (int i = 0; i < ne; ++i) {
-        dst_data[i] = a_data[i] + b_data[i] + c_data[i];
-    }
+    task_vector tasks;
+    tasks.emplace_back([=] {
+        for (int i = 0; i < ne; ++i) {
+            dst_data[i] = a_data[i] + b_data[i] + c_data[i];
+        }
+    });
+    return tasks;
 }
 
-void custom(ggml_tensor* dst, int ith, int nth) {
+task_vector custom(ggml_tensor* dst) {
     const ggml_tensor* src0 = dst->src[0];
     const ggml_tensor* src1 = dst->src[1];
     const ggml_tensor* src2 = dst->src[2];
     const ggml_tensor* src3 = dst->src[3];
     const ggml_tensor* src4 = dst->src[4];
-
-    int32_t* dst_data = (int32_t*)ggml_get_data(dst);
-    const float* src0_data = ggml_get_data_f32(src0);
-    const float* src1_data = ggml_get_data_f32(src1);
-    const float* src2_data = ggml_get_data_f32(src2);
-    const float* src3_data = ggml_get_data_f32(src3);
-    const float* src4_data = ggml_get_data_f32(src4);
 
     // check that the tensors are contiguous
     assert(ggml_is_contiguous(dst));
@@ -138,10 +123,28 @@ void custom(ggml_tensor* dst, int ith, int nth) {
     assert(ggml_are_same_shape(dst, src3));
     assert(ggml_are_same_shape(dst, src4));
 
+    std::experimental::mdspan dst_data((int32_t*)ggml_get_data(dst), dst->ne[3], dst->ne[2], dst->ne[1], dst->ne[0]);
+    std::experimental::mdspan src0_data(ggml_get_data_f32(src0), src0->ne[3], src0->ne[2], src0->ne[1], src0->ne[0]);
+    std::experimental::mdspan src1_data(ggml_get_data_f32(src1), src1->ne[3], src1->ne[2], src1->ne[1], src1->ne[0]);
+    std::experimental::mdspan src2_data(ggml_get_data_f32(src2), src2->ne[3], src2->ne[2], src2->ne[1], src2->ne[0]);
+    std::experimental::mdspan src3_data(ggml_get_data_f32(src3), src3->ne[3], src3->ne[2], src3->ne[1], src3->ne[0]);
+    std::experimental::mdspan src4_data(ggml_get_data_f32(src4), src4->ne[3], src4->ne[2], src4->ne[1], src4->ne[0]);
 
-    for (int i = ith; i < dst->nelements(); i += nth) {
-        dst_data[i] = src0_data[i] + src1_data[i] * src2_data[i] - src3_data[i] * src4_data[i];
+    task_vector tasks;
+    for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+        for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+            tasks.emplace_back([=] {
+                for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                    for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
+                        dst_data[i3, i2, i1, i0] = src0_data[i3, i2, i1, i0] +
+                            src1_data[i3, i2, i1, i0] * src2_data[i3, i2, i1, i0] -
+                            src3_data[i3, i2, i1, i0] * src4_data[i3, i2, i1, i0];
+                    }
+                }
+            });
+        }
     }
+    return tasks;
 }
 
 int main(int argc, const char** argv) {
@@ -165,7 +168,7 @@ int main(int argc, const char** argv) {
         ggml_context ctx;
         ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 10, 2 });
 
-        ggml_tensor* m1 = ggml_map_custom(&ctx, { t }, false, custom1, 2);
+        ggml_tensor* m1 = ggml_map_custom(&ctx, { t }, false, custom1);
 
         ggml_cgraph graph;
         graph.build_forward_expand(m1);
@@ -177,7 +180,6 @@ int main(int argc, const char** argv) {
         for (int i = 0; i < m1->nelements(); ++i) {
             assert(output[i] == buf1_f32[i] * 2);
         }
-        assert(g_custom1_count == 2);
     }
 
     // map_custom2
@@ -203,8 +205,6 @@ int main(int argc, const char** argv) {
         for (int i = 0; i < m2->nelements(); ++i) {
             assert(output[i] == buf1_f32[i] + buf2_f32[i]);
         }
-
-        assert(g_custom2_count == 4);
     }
 
     // map_custom3
@@ -215,7 +215,7 @@ int main(int argc, const char** argv) {
         ggml_tensor* t2 = ctx.create(GGML_TYPE_F32, { 10, 2 });
         ggml_tensor* t3 = ctx.create(GGML_TYPE_F32, { 10, 2 });
 
-        ggml_tensor* m3 = ggml_map_custom(&ctx, { t1, t2, t3 }, false, custom3, 1);
+        ggml_tensor* m3 = ggml_map_custom(&ctx, { t1, t2, t3 }, false, custom3);
 
         ggml_cgraph graph;
         graph.build_forward_expand(m3);
@@ -235,8 +235,6 @@ int main(int argc, const char** argv) {
         for (int i = 0; i < m3->nelements(); ++i) {
             assert(output[i] == buf1_f32[i] + buf2_f32[i] + buf3_f32[i]);
         }
-
-        assert(g_custom3_count == 1);
     }
 
     // custom
@@ -248,7 +246,7 @@ int main(int argc, const char** argv) {
         ggml_tensor* t4 = ctx.create(GGML_TYPE_F32, { 10, 2 });
         ggml_tensor* t5 = ctx.create(GGML_TYPE_F32, { 10, 2 });
 
-        ggml_tensor* m4 = ggml_custom(&ctx, GGML_TYPE_I32, { 10, 2, 1, 1 }, { t1, t2, t3, t4, t5 }, custom);
+        ggml_tensor* m4 = ggml_custom(&ctx, GGML_TYPE_F32, { 10, 2, 1, 1 }, { t1, t2, t3, t4, t5 }, custom);
 
         ggml_cgraph graph;
         graph.build_forward_expand(m4);

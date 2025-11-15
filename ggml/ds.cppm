@@ -375,12 +375,9 @@ export {
         GGML_STATUS_ABORTED = 1,
     };
 
-    using ggml_custom_op_cb = std::function<void(ggml_tensor*, int, int)>;
-
-    struct custom_op_hook {
-        ggml_custom_op_cb func;
-        std::optional<uint32_t> n_tasks;
-    };
+    using task_function = std::function<void(void)>;
+    using task_vector = std::vector<task_function>;
+    using ggml_custom_op_cb = std::function<task_vector(ggml_tensor*)>;
 
     // n-dimensional tensor
     struct ggml_tensor {
@@ -396,7 +393,7 @@ export {
 
         // op params - allocated as int32_t for alignment
         int32_t op_params[GGML_MAX_OP_PARAMS / sizeof(int32_t)]{ 0 };
-        custom_op_hook hook;
+        ggml_custom_op_cb hook;
 
         int32_t flags = 0;
 

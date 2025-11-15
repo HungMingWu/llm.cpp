@@ -179,7 +179,7 @@ namespace chatllm
         }
         else
         {
-            return ggml::custom(ctx, type, { ne0, ne1, ne2, ne3 }, {}, ggml_custom_compute_forward_zeroes, 1);
+            return ggml::custom(ctx, type, { ne0, ne1, ne2, ne3 }, {}, ggml_custom_compute_forward_zeroes);
         }
     }
 
@@ -1032,16 +1032,16 @@ namespace chatllm
         return ggml::map_custom(ctx, { input }, ggml_custom_xielu{ alpha_p, alpha_n, beta, eps });
     }
 
-    ggml::tensor* ggml::map_custom(ComputeContext* ctx, std::initializer_list<ggml::tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks)
+    ggml::tensor* ggml::map_custom(ComputeContext* ctx, std::initializer_list<ggml::tensor*> srcs, ggml_custom_op_cb fun)
     {
-        ggml::tensor* tensor = ggml_map_custom(ctx->get_ctx(), srcs, false, fun, n_tasks);
+        ggml::tensor* tensor = ggml_map_custom(ctx->get_ctx(), srcs, false, fun);
         ctx->cb_op_tensor(tensor);
         return tensor;
     }
 
-    ggml::tensor* ggml::map_custom_inplace(ComputeContext* ctx, std::initializer_list<ggml_tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks)
+    ggml::tensor* ggml::map_custom_inplace(ComputeContext* ctx, std::initializer_list<ggml_tensor*> srcs, ggml_custom_op_cb fun)
     {
-        ggml::tensor* tensor = ggml_map_custom(ctx->get_ctx(), srcs, true, fun, n_tasks);
+        ggml::tensor* tensor = ggml_map_custom(ctx->get_ctx(), srcs, true, fun);
         ctx->cb_op_tensor(tensor);
         return tensor;
     }
@@ -1056,9 +1056,9 @@ namespace chatllm
     }
 
     ggml::tensor* ggml::custom(ComputeContext* ctx, ggml::type type, std::initializer_list<int64_t> ne,
-        std::initializer_list<ggml_tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks)
+        std::initializer_list<ggml_tensor*> srcs, ggml_custom_op_cb fun)
     {
-        ggml::tensor* tensor = ggml_custom(ctx->get_ctx(), type, ne, srcs, fun, n_tasks);
+        ggml::tensor* tensor = ggml_custom(ctx->get_ctx(), type, ne, srcs, fun);
         ctx->cb_op_tensor(tensor);
         return tensor;
     }

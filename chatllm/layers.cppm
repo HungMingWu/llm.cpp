@@ -188,15 +188,15 @@ export namespace chatllm
 
         ggml::tensor* xielu(ComputeContext* ctx, ggml::tensor* input, float alpha_n, float alpha_p, float beta, float eps);
 
-        ggml::tensor* map_custom(ComputeContext* ctx, std::initializer_list<ggml::tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
+        ggml::tensor* map_custom(ComputeContext* ctx, std::initializer_list<ggml::tensor*> srcs, ggml_custom_op_cb fun);
 
         // Note: these `inplace` might not work when GPU is used
-        ggml::tensor* map_custom_inplace(ComputeContext* ctx, std::initializer_list<ggml_tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
+        ggml::tensor* map_custom_inplace(ComputeContext* ctx, std::initializer_list<ggml_tensor*> srcs, ggml_custom_op_cb fun);
 
         // a quick helper since such casts is missing from ggml
         ggml::tensor* cast_int_to_i64(ComputeContext* ctx, ggml::tensor* a);
 
-        ggml::tensor* custom(ComputeContext* ctx, ggml::type type, std::initializer_list<int64_t> ne, std::initializer_list<ggml_tensor*> srcs, ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
+        ggml::tensor* custom(ComputeContext* ctx, ggml::type type, std::initializer_list<int64_t> ne, std::initializer_list<ggml_tensor*> srcs, ggml_custom_op_cb fun);
 
         struct merge_patch_param
         {

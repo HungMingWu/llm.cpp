@@ -5559,11 +5559,10 @@ void ggml_compute_forward_map_custom(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	ggml_tensor* dst) {
-	const int32_t n_threads = dst->hook.n_tasks.value();
-	auto func = dst->hook.func;
-	for (uint32_t i = 0; i < dst->hook.n_tasks.value(); i++) {
-		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
-			func(dst, i, n_threads);
+	task_vector tasks = dst->hook(dst);
+	for (auto& task : tasks) {
+		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=, task = std::move(task)] {
+			task();
 		});
 		scope.spawn(std::move(sender));
 	}
@@ -6148,13 +6147,6 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_CUSTOM:
 	{
-		uint32_t n_threads = pool.available_parallelism();
-		if (!tensor->hook.n_tasks.has_value()) {
-			tensor->hook.n_tasks = n_threads;
-		}
-		else {
-			tensor->hook.n_tasks = std::min(tensor->hook.n_tasks.value(), n_threads);
-		}
 		ggml_compute_forward_map_custom(pool, scope, tensor);
 	}
 	break;

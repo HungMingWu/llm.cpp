@@ -442,14 +442,14 @@ export {
 		ggml_context* ctx,
 		std::initializer_list<ggml_tensor*> srcs,
 		bool inplace,
-		ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
+		ggml_custom_op_cb fun);
 
 	ggml_tensor* ggml_custom(
 		ggml_context* ctx,
 		ggml_type type,
 		std::initializer_list<int64_t> ne,
 		std::initializer_list<ggml_tensor*> srcs,
-		ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks = std::nullopt);
+		ggml_custom_op_cb fun);
 
 	// Move tensor elements by an offset given for each dimension. Elements that
 	// are shifted beyond the last position are wrapped around to the beginning.

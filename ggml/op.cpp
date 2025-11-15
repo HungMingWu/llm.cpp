@@ -2117,14 +2117,12 @@ ggml_tensor* ggml_map_custom(
 	ggml_context* ctx,
 	std::initializer_list<ggml_tensor*> srcs,
 	bool inplace,
-	ggml_custom_op_cb fun,
-	std::optional<uint32_t> n_tasks)
+	ggml_custom_op_cb fun)
 {
 	assert(srcs.size() > 0);
 	ggml_tensor* a = *srcs.begin();
 	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
-	result->hook.func = std::move(fun);
-	result->hook.n_tasks = n_tasks;
+	result->hook = std::move(fun);
 	result->op = GGML_OP_CUSTOM;
 	std::copy(srcs.begin(), srcs.end(), std::back_inserter(result->src));
 
@@ -2136,16 +2134,16 @@ ggml_tensor* ggml_custom(
 	ggml_type type,
 	std::initializer_list<int64_t> ne,
 	std::initializer_list<ggml_tensor*> srcs,
-	ggml_custom_op_cb fun, std::optional<uint32_t> n_tasks)
+	ggml_custom_op_cb fun)
 {
 	assert(srcs.size() > 0);
 	ggml_tensor* result = ctx->create(type, ne);
-	result->hook.func = std::move(fun);
-	result->hook.n_tasks = n_tasks;
+	result->hook = std::move(fun);
 	result->op = GGML_OP_CUSTOM;
 	std::copy(srcs.begin(), srcs.end(), std::back_inserter(result->src));
 	return result;
 }
+
 
 ggml_tensor* ggml_neg(ggml_context* ctx, ggml_tensor* a)
 {
