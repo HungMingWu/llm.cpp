@@ -487,9 +487,20 @@ void upscale_f32_cuda(const upscale_context& ctx, cudaStream_t stream);
 void upscale_f32_bilinear_cuda(const upscale_context& ctx, const float pixel_offset, cudaStream_t stream);
 
 // acc
-void acc_f32_cuda(const float* x, const float* y, float* dst, const int64_t n_elements,
-    const int64_t ne10, const int64_t ne11, const int64_t ne12, const int64_t ne13,
-    const int64_t s1, const int64_t s2, const int64_t s3, const int64_t offset, cudaStream_t stream);
+struct acc_context {
+    const float* src0_d;
+    const float* src1_d;
+    float* dst_d;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t src1_ne[4];
+    size_t src1_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
+    const int32_t offset[4];
+};
+
+void acc_f32_cuda(const acc_context& ctx, cudaStream_t stream);
 
 // pad.cu
 struct pad_context {

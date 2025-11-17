@@ -236,10 +236,8 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,
 		ggml_tensor* b,
-		size_t nb1,
-		size_t nb2,
-		size_t nb3,
-		size_t offset);
+		std::initializer_list<int32_t> offset,
+		bool inplace);
 
 	ggml_tensor* ggml_pad(
 		ggml_context* ctx,

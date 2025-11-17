@@ -3584,66 +3584,35 @@ static void ggml_compute_forward_acc_f32(
 
 	// view src0 and dst with these strides and data offset inbytes during acc
 	// nb0 is implicitly element_size because src0 and dst are contiguous
-	size_t nb1 = ((int32_t*)dst->op_params)[0];
-	size_t nb2 = ((int32_t*)dst->op_params)[1];
-	size_t nb3 = ((int32_t*)dst->op_params)[2];
-	size_t offset = ((int32_t*)dst->op_params)[3];
-	bool   inplace = (bool)((int32_t*)dst->op_params)[4];
-
-	if (!inplace) {
-		// memcpy needs to be synchronized across threads to avoid race conditions.
-		// => do it in INIT phase
-		memcpy(
-			((char*)dst->data),
-			((char*)src0->data),
-			dst->nbytes());
-	}
-
-	// src0 and dst as viewed during acc
-	const size_t nb0 = ggml_element_size(src0);
-
-	const size_t nb00 = nb0;
-	const size_t nb01 = nb1;
-	const size_t nb02 = nb2;
-	const size_t nb03 = nb3;
-
-	GGML_ASSERT(offset + (src1->ne[0] == 0 ? 0 : src1->ne[0] - 1) * nb0 + (src1->ne[1] == 0 ? 0 : src1->ne[1] - 1) * nb1 + (src1->ne[2] == 0 ? 0 : src1->ne[2] - 1) * nb2 + (src1->ne[3] == 0 ? 0 : src1->ne[3] - 1) * nb3 < dst->nbytes());
-	GGML_ASSERT(offset + (src1->ne[0] == 0 ? 0 : src1->ne[0] - 1) * nb00 + (src1->ne[1] == 0 ? 0 : src1->ne[1] - 1) * nb01 + (src1->ne[2] == 0 ? 0 : src1->ne[2] - 1) * nb02 + (src1->ne[3] == 0 ? 0 : src1->ne[3] - 1) * nb03 < src0->nbytes());
+	int32_t offset0 = dst->op_params[0];
+	int32_t offset1 = dst->op_params[1];
+	int32_t offset2 = dst->op_params[2];
+	int32_t offset3 = dst->op_params[3];
 
 	GGML_ASSERT(src1->nb[0] == sizeof(float));
-
-	int offset3 = 0, offset2 = 0, offset1 = 0, offset0 = 0;
-	while (offset >= dst->nb[3]) {
-		offset -= dst->nb[3];
-		offset3++;
-	}
-	while (offset >= dst->nb[2]) {
-		offset -= dst->nb[2];
-		offset2++;
-	}
-	while (offset >= dst->nb[1]) {
-		offset -= dst->nb[1];
-		offset1++;
-	}
-	while (offset >= dst->nb[0]) {
-		offset -= dst->nb[0];
-		offset0++;
-	}
 
 	auto src0_data = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
 	auto src1_data = make_strided_mdspan(static_cast<const float*>(src1->data), src1->ne, src1->nb);
 	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
 
-	for (int64_t i3 = 0; i3 < src1_data.extent(0); i3++) {
-		for (int64_t i2 = 0; i2 < src1_data.extent(1); i2++) {
-			for (int64_t i1 = 0; i1 < src1_data.extent(2); i1++) {
+	for (int64_t i3 = 0; i3 < dst_data.extent(0); i3++) {
+		for (int64_t i2 = 0; i2 < dst_data.extent(1); i2++) {
+			for (int64_t i1 = 0; i1 < dst_data.extent(2); i1++) {
 				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
 					// src0 and dst are viewed with shape of src1 and offset
 					// => same indices
-					for (int64_t i0 = 0; i0 < src1_data.extent(3); i0++)
-						dst_data[i3 + offset3, i2 + offset2, i1 + offset1, i0 + offset0] =
-						src0_data[i3 + offset3, i2 + offset2, i1 + offset1, i0 + offset0] +
-						src1_data[i3, i2, i1, i0];
+					for (int64_t i0 = 0; i0 < dst_data.extent(3); i0++) {
+						dst_data[i3, i2, i1, i0] = src0_data[i3, i2, i1, i0];
+						int64_t src_i3 = i3 - offset3;
+						int64_t src_i2 = i2 - offset2;
+						int64_t src_i1 = i1 - offset1;
+						int64_t src_i0 = i0 - offset0;
+						if (src_i3 >= 0 && src_i3 < src1_data.extent(0) &&
+							src_i2 >= 0 && src_i2 < src1_data.extent(1) &&
+							src_i1 >= 0 && src_i1 < src1_data.extent(2) &&
+							src_i0 >= 0 && src_i0 < src1_data.extent(3))
+							dst_data[i3, i2, i1, i0] += src1_data[src_i3, src_i2, src_i1, src_i0];
+					}
 				});
 				scope.spawn(std::move(sender));
 			}

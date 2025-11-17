@@ -1761,10 +1761,6 @@ namespace op
         const ggml_tensor* src0 = dst->src[0];
         const ggml_tensor* src1 = dst->src[1];
 
-        const float* src0_d = (const float*)src0->data;
-        const float* src1_d = (const float*)src1->data;
-        float* dst_d = (float*)dst->data;
-
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(src1->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
@@ -1773,12 +1769,19 @@ namespace op
         GGML_ASSERT(dst->nb[0] == ggml_element_size(dst));
         GGML_ASSERT(ggml_is_contiguously_allocated(dst));
 
-        const int64_t s1 = dst->op_params[0] / sizeof(float);
-        const int64_t s2 = dst->op_params[1] / sizeof(float);
-        const int64_t s3 = dst->op_params[2] / sizeof(float);
-        const int64_t offset = dst->op_params[3] / sizeof(float);
-
-        acc_f32_cuda(src0_d, src1_d, dst_d, dst->nelements(), src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3], s1, s2, s3, offset, stream);
+        acc_context ctx{
+            .src0_d = (const float*)src0->data,
+            .src1_d = (const float*)src1->data,
+            .dst_d = (float*)dst->data,
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .src1_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
+            .offset = { dst->op_params[0], dst->op_params[1], dst->op_params[2], dst->op_params[3] }
+        };
+        acc_f32_cuda(ctx, stream);
     }
 
     void pad(cudaStream_t stream, ggml_tensor* dst) {

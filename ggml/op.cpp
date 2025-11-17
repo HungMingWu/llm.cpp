@@ -11,6 +11,7 @@ module;
 #include <limits>
 #include <optional>
 #include <type_traits>
+#include "inplace_vector.hpp"
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
@@ -809,42 +810,32 @@ ggml_tensor* ggml_group_norm(
 	return result;
 }
 
-static ggml_tensor* ggml_acc_impl(
+ggml_tensor* ggml_acc(
 	ggml_context* ctx,
 	ggml_tensor* a,
 	ggml_tensor* b,
-	size_t nb1,
-	size_t nb2,
-	size_t nb3,
-	size_t offset,
+	std::initializer_list<int32_t> offset,
 	bool inplace) {
 	GGML_ASSERT(b->nelements() <= a->nelements());
 	GGML_ASSERT(ggml_is_contiguous(a));
 	GGML_ASSERT(a->type == GGML_TYPE_F32);
 	GGML_ASSERT(b->type == GGML_TYPE_F32);
+	GGML_ASSERT(offset.size() == 4);
 
 	ggml_tensor* result = build(inplace, ctx, a, GGML_OP_ACC, a, b);
-
+	cpp26::inplace_vector<int32_t, 4> offsets(offset.begin(), offset.end());
+	GGML_ASSERT(offsets[0] + b->ne[0] <= a->ne[0]);
+	GGML_ASSERT(offsets[1] + b->ne[1] <= a->ne[1]);
+	GGML_ASSERT(offsets[2] + b->ne[2] <= a->ne[2]);
+	GGML_ASSERT(offsets[3] + b->ne[3] <= a->ne[3]);
 	uint32_t params[] = {
-		static_cast<uint32_t>(nb1),
-		static_cast<uint32_t>(nb2),
-		static_cast<uint32_t>(nb3),
-		static_cast<uint32_t>(offset),
-		static_cast<uint32_t>(inplace ? 1 : 0)
+		static_cast<uint32_t>(offsets[0]),
+		static_cast<uint32_t>(offsets[1]),
+		static_cast<uint32_t>(offsets[2]),
+		static_cast<uint32_t>(offsets[3])
 	};
 	ggml_set_op_params(*result, params, sizeof(params));
 	return result;
-}
-
-ggml_tensor* ggml_acc(
-	ggml_context* ctx,
-	ggml_tensor* a,
-	ggml_tensor* b,
-	size_t nb1,
-	size_t nb2,
-	size_t nb3,
-	size_t offset) {
-	return ggml_acc_impl(ctx, a, b, nb1, nb2, nb3, offset, false);
 }
 
 ggml_tensor* ggml_pad(

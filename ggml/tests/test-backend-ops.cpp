@@ -5308,7 +5308,7 @@ struct test_acc : public test_case {
         b->set_flag(GGML_TENSOR_FLAG_PARAM);
         b->set_name("b");
 
-        ggml_tensor* out = ggml_acc(ctx, a, b, a->nb[1], a->nb[2], a->nb[3], b->nb[1]);
+        ggml_tensor* out = ggml_acc(ctx, a, b, { 0, 1, 0, 0 }, false);
         out->set_name("out");
 
         return out;
