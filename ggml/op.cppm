@@ -818,4 +818,53 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,
 		bool inplace);
+
+	ggml_tensor* ggml_cumsum(
+		ggml_context* ctx,
+		ggml_tensor* a);
+
+	ggml_tensor* ggml_expm1(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		bool inplace);
+
+	ggml_tensor* ggml_softplus(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		bool inplace);
+
+	// Convert matrix into a triangular one (upper, strict upper, lower or strict lower) by writing
+	// zeroes everywhere outside the masked area
+	ggml_tensor* ggml_tri(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tri_type type);
+
+	// Fill tensor a with constant c
+	ggml_tensor* ggml_fill(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		float c,
+		bool inplace);
+
+	/* Solves a specific equation of the form Ax=B, where A is a triangular matrix
+     *  without zeroes on the diagonal (i.e. invertible).
+     *  B can have any number of columns, but must have the same number of rows as A
+     *  If A is [n, n] and B is [n, m], then the result will be [n, m] as well
+     *  Has O(n^3) complexity (unlike most matrix ops out there), so use on cases
+     *  where n > 100 sparingly, pre-chunk if necessary.
+     *
+     *  If left = false, solves xA=B instead
+     *  If lower = false, assumes upper triangular instead
+     *  If uni = true, assumes diagonal of A to be all ones (will override actual values)
+     *
+     *  TODO: currently only lower, right, non-unitriangular variant is implemented
+     */
+	ggml_tensor* ggml_solve_tri(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		bool left,
+		bool lower,
+		bool uni);
 }

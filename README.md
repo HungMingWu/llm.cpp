@@ -12,6 +12,7 @@ Based on C++26 Standard
 ### TODO
 - C++26 SIMD (No compiler support yet)
 - C++26 Static refelection (Clang P2296 branch support, but no mainstream compiler support yet)
+- std::span over an initializer list(P2447R6, MSVC doesn't support it yet)
 
 ### Minimum Requirement
 CUDA Version: 10, Compute Capability >= 3

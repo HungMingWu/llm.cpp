@@ -597,6 +597,12 @@ namespace op
         case GGML_UNARY_OP_TRUNC:
             trunc_cuda(ctx);
             break;
+        case GGML_UNARY_OP_EXPM1:
+            expm1_cuda(ctx);
+            break;
+        case GGML_UNARY_OP_SOFTPLUS:
+            softplus_cuda(ctx);
+            break;
         default:
             assert(false);
         }
@@ -1563,7 +1569,7 @@ namespace op
         soft_max_back_f32_cuda(src0_d, src1_d, dst_d, ncols, nrows, scale, stream);
     }
 
-    void rope(cudaStream_t stream, ggml_tensor* dst, bool forward) {
+    void rope(cudaStream_t stream, ggml_tensor* dst, bool forward, const ggml_tensor* set_rows = nullptr) {
         const ggml_tensor* src0 = dst->src[0];
         const ggml_tensor* src1 = dst->src[1];
         const ggml_tensor* src2 = dst->src[2];
@@ -1574,6 +1580,19 @@ namespace op
 
         const int mode = std::bit_cast<int>(dst->op_params[2]);
 
+        void* dst_d = dst->data;
+        const int64_t* row_indices = nullptr;
+        ggml_type dst_type = dst->type;
+        int set_rows_stride = 0;
+
+        if (set_rows != nullptr) {
+            GGML_ASSERT(forward);
+            dst_d = set_rows->data;
+            row_indices = (const int64_t*)set_rows->src[1]->data;
+            dst_type = set_rows->type;
+            set_rows_stride = set_rows->nb[1] / ggml_type_size(set_rows->type);
+        }
+
         rope_context ctx{
             .forward = forward,
             .is_neox = static_cast<bool>(mode & GGML_ROPE_TYPE_NEOX),
@@ -1581,8 +1600,9 @@ namespace op
             .is_imrope = static_cast<bool>(mode == GGML_ROPE_TYPE_IMROPE),
             .is_vision = static_cast<bool>(mode == GGML_ROPE_TYPE_VISION),
             .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .dst_type = std::bit_cast<internal::ggml_type>(dst_type),
             .src0_d = src0->data,
-            .dst_d = dst->data,
+            .dst_d = dst_d,
             .ne00 = src0->ne[0],
             .ne01 = src0->ne[1],
             .ne02 = src0->ne[2],
@@ -1599,7 +1619,9 @@ namespace op
             .attn_factor = std::bit_cast<float>(dst->op_params[8]),
             .beta_fast = std::bit_cast<float>(dst->op_params[9]),
             .beta_slow = std::bit_cast<float>(dst->op_params[10]),
-            .freq_factors = (src2 != nullptr) ? (const float*)src2->data : nullptr
+            .freq_factors = (src2 != nullptr) ? (const float*)src2->data : nullptr,
+            .row_indices = row_indices,
+            .set_rows_stride = set_rows_stride
         };
         memcpy(&ctx.sections.v, (int32_t*)dst->op_params + 11, sizeof(int) * 4);
 
@@ -1714,6 +1736,18 @@ namespace op
         const int mode_flags = dst->op_params[0];
         const ggml_scale_mode mode = (ggml_scale_mode)(mode_flags & 0xFF);
 
+        float sf0 = (float)dst->ne[0] / src0->ne[0];
+        float sf1 = (float)dst->ne[1] / src0->ne[1];
+        const float sf2 = (float)dst->ne[2] / src0->ne[2];
+        const float sf3 = (float)dst->ne[3] / src0->ne[3];
+
+        float pixel_offset = 0.5f;
+        if (mode_flags & GGML_SCALE_FLAG_ALIGN_CORNERS) {
+            sf0 = (dst->ne[0] > 1 && src0->ne[0] > 1) ? (float)(dst->ne[0] - 1) / (src0->ne[0] - 1) : sf0;
+            sf1 = (dst->ne[1] > 1 && src0->ne[1] > 1) ? (float)(dst->ne[1] - 1) / (src0->ne[1] - 1) : sf1;
+            pixel_offset = 0.0f;
+        }
+
         upscale_context ctx{
             .src0_d = (const float*)src0->data,
 			.dst_d = (float*)dst->data,
@@ -1721,22 +1755,18 @@ namespace op
             .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
             .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
             .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
-            .sf0 = (float)dst->ne[0] / src0->ne[0],
-            .sf1 = (float)dst->ne[1] / src0->ne[1],
-            .sf2 = (float)dst->ne[2] / src0->ne[2],
-            .sf3 = (float)dst->ne[3] / src0->ne[3]
+            .sf0 = sf0,
+            .sf1 = sf1,
+            .sf2 = sf2,
+            .sf3 = sf3
         };
+
         if (mode == GGML_SCALE_MODE_NEAREST) {
             upscale_f32_cuda(ctx, stream);
-        }
-        else if (mode == GGML_SCALE_MODE_BILINEAR) {
-            float pixel_offset = 0.5f;
-            if (mode_flags & GGML_SCALE_FLAG_ALIGN_CORNERS) {
-                ctx.sf0 = dst->ne[0] > 1 && src0->ne[0] > 1 ? (float)(dst->ne[0] - 1) / (src0->ne[0] - 1) : ctx.sf0;
-                ctx.sf1 = dst->ne[1] > 1 && src0->ne[1] > 1 ? (float)(dst->ne[1] - 1) / (src0->ne[1] - 1) : ctx.sf1;
-                pixel_offset = 0.0f;
-            }
+        } else if (mode == GGML_SCALE_MODE_BILINEAR) {
             upscale_f32_bilinear_cuda(ctx, pixel_offset, stream);
+        } else if (mode == GGML_SCALE_MODE_BICUBIC) {
+            upscale_f32_bicubic_cuda(ctx, pixel_offset, stream);
         }
     }
 

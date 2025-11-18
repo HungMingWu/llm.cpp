@@ -9,6 +9,19 @@ module;
 module ggml;
 import :cpu.op;
 
+template <enum ggml_sort_order order>
+struct argsort_cmp {
+    std::span<const float> data;
+    bool operator()(int32_t a, int32_t b) const {
+        if constexpr (order == GGML_SORT_ORDER_ASC) {
+            return data[a] < data[b];
+        }
+        else {
+            return data[a] > data[b];
+        }
+    }
+};
+
 static void ggml_compute_forward_argsort_f32(ggml_tensor* dst) {
     const ggml_tensor* src0 = dst->src[0];
 
@@ -20,19 +33,18 @@ static void ggml_compute_forward_argsort_f32(ggml_tensor* dst) {
         std::span<const float> src_span(&src0_data[i, 0], src0_data.extent(1));
         std::span<int32_t> dst_span(&dst_data[i, 0], dst_data.extent(1));
         for (int64_t j = 0; j < dst_span.size(); j++) dst_span[j] = j;
-        if (order == GGML_SORT_ORDER_ASC) {
-            for (int64_t a = 0; a < dst_span.size(); a++)
-                for (int64_t b = a + 1; b < dst_span.size(); b++)
-                    if (src_span[dst_span[a]] > src_span[dst_span[b]]) {
-                        std::swap(dst_span[a], dst_span[b]);
-                    }
-        }
-        else {
-            for (int64_t a = 0; a < dst_span.size(); a++)
-                for (int64_t b = a + 1; b < dst_span.size(); b++)
-                    if (src_span[dst_span[a]] < src_span[dst_span[b]]) {
-                        std::swap(dst_span[a], dst_span[b]);
-                    }
+
+        switch (order) {
+        case GGML_SORT_ORDER_ASC:
+            std::ranges::sort(dst_span, argsort_cmp<GGML_SORT_ORDER_ASC>{src_span});
+            break;
+
+        case GGML_SORT_ORDER_DESC:
+            std::ranges::sort(dst_span, argsort_cmp<GGML_SORT_ORDER_DESC>{src_span});
+            break;
+
+        default:
+            GGML_ABORT("invalid sort order");
         }
     }
 }

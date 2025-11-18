@@ -663,6 +663,16 @@ static void ggml_compute_backward(
                 ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, tensor, grad, false));
             }
         } break;
+        case GGML_UNARY_OP_EXPM1: {
+            if (src0_needs_grads) {
+                ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, grad, ggml_exp(ctx, src0), false));
+            }
+        } break;
+        case GGML_UNARY_OP_SOFTPLUS: {
+            if (src0_needs_grads) {
+                ggml_add_or_set(ctx, cgraph, src0, ggml_mul(ctx, grad, ggml_sigmoid(ctx, src0), false));
+            }
+        } break;
         default: {
             fprintf(stderr, "%s: unsupported unary op for backward pass: %s\n",
                 __func__, ggml_unary_op_name(ggml_get_unary_op(tensor)));

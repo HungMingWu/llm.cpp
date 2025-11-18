@@ -142,6 +142,7 @@ export {
         GGML_OP_COS,
         GGML_OP_SUM,
         GGML_OP_SUM_ROWS,
+        GGML_OP_CUMSUM,
         GGML_OP_MEAN,
         GGML_OP_ARGMAX,
         GGML_OP_COUNT_EQUAL,
@@ -197,6 +198,8 @@ export {
         GGML_OP_TIMESTEP_EMBEDDING,
         GGML_OP_ARGSORT,
         GGML_OP_LEAKY_RELU,
+        GGML_OP_TRI,
+        GGML_OP_FILL,
 
         GGML_OP_FLASH_ATTN_EXT,
         GGML_OP_FLASH_ATTN_BACK,
@@ -209,6 +212,7 @@ export {
         GGML_OP_RWKV_WKV6,
         GGML_OP_GATED_LINEAR_ATTN,
         GGML_OP_RWKV_WKV7,
+        GGML_OP_SOLVE_TRI,
 
         GGML_OP_UNARY,
 
@@ -471,6 +475,8 @@ export {
         GGML_UNARY_OP_HARDSWISH,
         GGML_UNARY_OP_HARDSIGMOID,
         GGML_UNARY_OP_EXP,
+        GGML_UNARY_OP_EXPM1,
+        GGML_UNARY_OP_SOFTPLUS,
         GGML_UNARY_OP_GELU_ERF,
         GGML_UNARY_OP_XIELU,
         GGML_UNARY_OP_FLOOR,
@@ -479,6 +485,13 @@ export {
         GGML_UNARY_OP_TRUNC,
 
         GGML_UNARY_OP_COUNT,
+    };
+
+    enum ggml_tri_type {
+        GGML_TRI_TYPE_UPPER_DIAG = 0,
+        GGML_TRI_TYPE_UPPER = 1,
+        GGML_TRI_TYPE_LOWER_DIAG = 2,
+        GGML_TRI_TYPE_LOWER = 3
     };
 
     // TODO: convert to enum https://github.com/ggml-org/llama.cpp/pull/16187#discussion_r2388538726

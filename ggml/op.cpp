@@ -2416,8 +2416,8 @@ ggml_tensor* ggml_xielu(
 	ggml_tensor* result = ggml_dup_tensor(ctx, a);
 
 	result->op_params[0] = std::bit_cast<int32_t>(GGML_UNARY_OP_XIELU);
-	result->op_params[1] = std::bit_cast<int32_t>(beta + ggml_softplus(alpha_n));
-	result->op_params[2] = std::bit_cast<int32_t>(ggml_softplus(alpha_p));
+	result->op_params[1] = std::bit_cast<int32_t>(beta + ggml_compute_softplus_f32(alpha_n));
+	result->op_params[2] = std::bit_cast<int32_t>(ggml_compute_softplus_f32(alpha_p));
 	result->op_params[3] = std::bit_cast<int32_t>(beta);
 	result->op_params[4] = std::bit_cast<int32_t>(eps);
 
@@ -2457,4 +2457,105 @@ ggml_tensor* ggml_trunc(
 	bool inplace)
 {
 	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_TRUNC, inplace);
+}
+
+ggml_tensor* ggml_cumsum(
+	ggml_context* ctx,
+	ggml_tensor* a)
+{
+	GGML_ASSERT(a->type == GGML_TYPE_F32);
+
+	ggml_tensor* result = ggml_dup_tensor(ctx, a);
+
+	result->op = GGML_OP_CUMSUM;
+	result->src.push_back(a);
+
+	return result;
+}
+
+ggml_tensor* ggml_tri(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tri_type type)
+{
+	GGML_ASSERT(a->type == GGML_TYPE_F32);
+
+	GGML_ASSERT(ggml_is_contiguous(a));
+	GGML_ASSERT(a->ne[0] == a->ne[1]);
+
+	ggml_tensor* result = ggml_dup_tensor(ctx, a);
+
+	result->op_params[0] = std::bit_cast<int32_t>(type);
+
+	result->op = GGML_OP_TRI;
+	result->src.push_back(a);
+
+	return result;
+}
+
+ggml_tensor* ggml_fill(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	float c,
+	bool inplace) {
+	GGML_ASSERT(a->type == GGML_TYPE_F32);
+	GGML_ASSERT(ggml_is_contiguous(a));
+
+	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
+
+	result->op_params[0] = std::bit_cast<int32_t>(c);
+
+	result->op = GGML_OP_FILL;
+	result->src.push_back(a);
+
+	return result;
+}
+
+ggml_tensor* ggml_solve_tri(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	bool left,
+	bool lower,
+	bool uni) {
+	GGML_ASSERT(a->type == GGML_TYPE_F32);
+	GGML_ASSERT(b->type == GGML_TYPE_F32);
+
+	// A must be square and lower diagonal
+	GGML_ASSERT(a->ne[0] == a->ne[1]);
+	// B must have same outer dimension as A
+	GGML_ASSERT(a->ne[1] == b->ne[1]);
+
+	// batch dimensions must be equal
+	GGML_ASSERT(a->ne[2] == b->ne[2]);
+	GGML_ASSERT(a->ne[3] == b->ne[3]);
+
+	GGML_ASSERT(ggml_is_contiguous(a));
+	GGML_ASSERT(ggml_is_contiguous(b));
+
+	GGML_ASSERT(lower && left && !uni); // TODO: support other variants
+
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { b->ne[0], b->ne[1], b->ne[2], b->ne[3] });
+
+	result->op = GGML_OP_SOLVE_TRI;
+	result->src.push_back(a);
+	result->src.push_back(b);
+
+	return result;
+}
+
+ggml_tensor* ggml_expm1(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	bool inplace)
+{
+	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_EXPM1, inplace);
+}
+
+ggml_tensor* ggml_softplus(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	bool inplace)
+{
+	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_SOFTPLUS, inplace);
 }

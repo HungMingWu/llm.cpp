@@ -35,8 +35,8 @@ static void ggml_compute_forward_upscale_f32(ggml_tensor* dst) {
 
     if (mode_flags & GGML_SCALE_FLAG_ALIGN_CORNERS) {
         pixel_offset = 0.0f;
-        sf0 = (float)(dst->ne[0] - 1) / (src0->ne[0] - 1);
-        sf1 = (float)(dst->ne[1] - 1) / (src0->ne[1] - 1);
+        sf0 = (dst->ne[0] > 1 && src0->ne[0] > 1) ? (float)(dst->ne[0] - 1) / (src0->ne[0] - 1) : sf0;
+        sf1 = (dst->ne[1] > 1 && src0->ne[1] > 1) ? (float)(dst->ne[1] - 1) / (src0->ne[1] - 1) : sf1;
     }
 
     if (mode == GGML_SCALE_MODE_NEAREST) {

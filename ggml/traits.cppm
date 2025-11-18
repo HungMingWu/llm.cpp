@@ -426,6 +426,7 @@ static const char* GGML_OP_NAME[GGML_OP_COUNT] = {
     "COS",
     "SUM",
     "SUM_ROWS",
+    "CUMSUM",
     "MEAN",
     "ARGMAX",
     "COUNT_EQUAL",
@@ -481,6 +482,8 @@ static const char* GGML_OP_NAME[GGML_OP_COUNT] = {
     "TIMESTEP_EMBEDDING",
     "ARGSORT",
     "LEAKY_RELU",
+    "TRI",
+    "FILL",
 
     "FLASH_ATTN_EXT",
     "FLASH_ATTN_BACK",
@@ -493,6 +496,7 @@ static const char* GGML_OP_NAME[GGML_OP_COUNT] = {
     "RWKV_WKV6",
     "GATED_LINEAR_ATTN",
     "RWKV_WKV7",
+    "SOLVE_TRI",
 
     "UNARY",
 
@@ -524,6 +528,7 @@ static const char* GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "cos(x)",
     "Σx",
     "Σx_k",
+    "cumsum(x)",
     "Σx/n",
     "argmax(x)",
     "count_equal(x)",
@@ -579,6 +584,8 @@ static const char* GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "timestep_embedding(timesteps, dim, max_period)",
     "argsort(x)",
     "leaky_relu(x)",
+    "tri(x)",
+    "fill(x, c)",
 
     "flash_attn_ext(x)",
     "flash_attn_back(x)",
@@ -591,6 +598,7 @@ static const char* GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "rwkv_wkv6(k, v, r, tf, td, s)",
     "gated_linear_attn(k, v, q, gate, s)",
     "rwkv_wkv7(r, w, k, v, a, b, s)",
+    "A X = B, A triangular, solve X",
 
     "unary(x)",
 
@@ -619,6 +627,8 @@ static const char* GGML_UNARY_OP_NAME[GGML_UNARY_OP_COUNT] = {
     "HARDSWISH",
     "HARDSIGMOID",
     "EXP",
+    "EXPM1",
+    "SOFTPLUS",
     "GELU_ERF",
     "XIELU",
     "FLOOR",

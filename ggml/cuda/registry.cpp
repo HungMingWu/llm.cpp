@@ -52,6 +52,8 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
         case GGML_UNARY_OP_GELU_QUICK:
         case GGML_UNARY_OP_TANH:
         case GGML_UNARY_OP_EXP:
+        case GGML_UNARY_OP_EXPM1:
+        case GGML_UNARY_OP_SOFTPLUS:
         case GGML_UNARY_OP_ELU:
         case GGML_UNARY_OP_FLOOR:
         case GGML_UNARY_OP_CEIL:

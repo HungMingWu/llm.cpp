@@ -143,6 +143,8 @@ void floor_cuda(const unary_context &ctx);
 void ceil_cuda(const unary_context &ctx);
 void round_cuda(const unary_context &ctx);
 void trunc_cuda(const unary_context &ctx);
+void expm1_cuda(const unary_context& ctx);
+void softplus_cuda(const unary_context& ctx);
 
 struct gated_context {
     cudaStream_t stream;
@@ -419,6 +421,7 @@ struct rope_context {
     const bool is_imrope;
     const bool is_vision;
     const internal::ggml_type src0_type;
+    const internal::ggml_type dst_type;
     const void* src0_d;
     void* dst_d;
     const int64_t ne00, ne01, ne02;
@@ -434,6 +437,8 @@ struct rope_context {
     const float beta_fast;
     const float beta_slow;
     const float* freq_factors;
+    const int64_t* row_indices;
+    int set_rows_stride;
     mrope_sections sections;
 };
 
@@ -483,8 +488,8 @@ struct upscale_context {
 };
 
 void upscale_f32_cuda(const upscale_context& ctx, cudaStream_t stream);
-
 void upscale_f32_bilinear_cuda(const upscale_context& ctx, const float pixel_offset, cudaStream_t stream);
+void upscale_f32_bicubic_cuda(const upscale_context& ctx, const float pixel_offset, cudaStream_t stream);
 
 // acc
 struct acc_context {

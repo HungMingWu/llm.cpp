@@ -14,6 +14,19 @@ void ggml_compute_forward(
 	ggml_compute_params* params,
 	ggml_tensor* tensor);
 
+static bool ggml_op_is_empty(enum ggml_op op) {
+	switch (op) {
+	case GGML_OP_NONE:
+	case GGML_OP_RESHAPE:
+	case GGML_OP_TRANSPOSE:
+	case GGML_OP_VIEW:
+	case GGML_OP_PERMUTE:
+		return true;
+	default:
+		return false;
+	}
+}
+
 enum ggml_status ggml_cpu_backend::graph_compute_impl(ggml_cgraph* cgraph)
 {
 	exec::static_thread_pool pool(n_threads);
@@ -24,6 +37,12 @@ enum ggml_status ggml_cpu_backend::graph_compute_impl(ggml_cgraph* cgraph)
 	};
 
 	for (auto& node : cgraph->nodes) {
+
+		if (ggml_op_is_empty(node->op) || ggml_is_empty(node)) {
+			// skip NOPs
+			continue;
+		}
+
 		ggml_compute_forward(pool, scope, &params, node);
 #if 0
 		if (state->ith == 0 && cplan->abort_callback &&

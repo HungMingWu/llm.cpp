@@ -56,6 +56,10 @@ static __host__ __device__ float sqr(float x) {
     return x * x;
 }
 
+static __device__ __forceinline__ float softplus(float x) {
+    return (x > 20.0f) ? x : logf(1.0f + expf(x));
+}
+
 template <float (*Func)(float)>
 static __global__ void transform(const float* x, float* dst, const int k) {
     const int i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -204,6 +208,16 @@ void round_cuda(const unary_context &ctx)
 void trunc_cuda(const unary_context &ctx)
 {
     op_unary<trunc>(ctx);
+}
+
+void expm1_cuda(const unary_context& ctx)
+{
+    op_unary<expm1f>(ctx);
+}
+
+void softplus_cuda(const unary_context& ctx)
+{
+    op_unary<softplus>(ctx);
 }
 
 void silu_back_f32_cuda(const float* grad, const float* x, float* dst, const int k, cudaStream_t stream) {

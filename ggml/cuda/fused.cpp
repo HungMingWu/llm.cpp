@@ -284,6 +284,36 @@ static bool ggml_cuda_should_fuse_mul_mat(const ggml_tensor* ffn_up,
     return true;
 }
 
+static bool ggml_cuda_should_fuse_rope_set_rows(const ggml_tensor* rope,
+    const ggml_tensor* view,
+    const ggml_tensor* set_rows) {
+    // ne3 not tested
+    if (rope->src[0]->ne[3] != 1) {
+        return false;
+    }
+
+    if (set_rows->type != GGML_TYPE_F32 && set_rows->type != GGML_TYPE_F16) {
+        return false;
+    }
+
+    if (set_rows->src[1]->type != GGML_TYPE_I64) {
+        return false;
+    }
+
+    // The view should flatten two dims of rope into one dim
+    if (!ggml_is_contiguous(view) || view->ne[0] != rope->ne[0] * rope->ne[1]) {
+        return false;
+    }
+
+    // Only norm/neox shaders have the fusion code
+    const int mode = ((const int32_t*)rope->op_params)[2];
+    if (mode != GGML_ROPE_TYPE_NORMAL && mode != GGML_ROPE_TYPE_NEOX) {
+        return false;
+    }
+
+    return true;
+}
+
 namespace fused
 {
     std::initializer_list<enum ggml_op> ggml_cuda_topk_moe_ops(bool norm, bool delayed_softmax) {
@@ -388,6 +418,16 @@ namespace fused
             const ggml_tensor* glu = cgraph->nodes[node_idx + 2];
 
             if (ggml_cuda_should_fuse_mul_mat(ffn_up, ffn_gate, glu)) {
+                return true;
+            }
+        }
+
+        if (ops.size() == 3 && ggml_can_fuse_subgraph(cgraph, node_idx, ops, { node_idx + 2 })) {
+            const ggml_tensor* rope = cgraph->nodes[node_idx];
+            const ggml_tensor* view = cgraph->nodes[node_idx + 1];
+            const ggml_tensor* set_rows = cgraph->nodes[node_idx + 2];
+
+            if (ggml_cuda_should_fuse_rope_set_rows(rope, view, set_rows)) {
                 return true;
             }
         }

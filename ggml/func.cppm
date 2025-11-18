@@ -215,7 +215,7 @@ export {
 
 	 bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* ops, int num_ops);
 
-	 float ggml_softplus(float input) {
+	 float ggml_compute_softplus_f32(float input) {
 		 return (input > 20.0f) ? input : logf(1 + expf(input));
 	 };
 

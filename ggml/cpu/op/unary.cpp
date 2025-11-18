@@ -176,6 +176,14 @@ static inline float op_log(float x) {
 	return logf(x);
 }
 
+static inline float op_expm1(float x) {
+	return expf(x) - 1.0f;
+}
+
+static inline float op_softplus(float x) {
+	return (x > 20.0f) ? x : logf(1.0f + expf(x));
+}
+
 void ggml_compute_forward_sqr(ggml_tensor* dst) {
 	unary_op_functor(dst, op_sqr);
 }
@@ -303,6 +311,14 @@ void ggml_compute_forward_unary(
 	case GGML_UNARY_OP_XIELU:
 	{
 		ggml_compute_forward_xielu(dst);
+	} break;
+	case GGML_UNARY_OP_EXPM1:
+	{
+		ggml_compute_forward_unary(dst, op_expm1);
+	} break;
+	case GGML_UNARY_OP_SOFTPLUS:
+	{
+		ggml_compute_forward_unary(dst, op_softplus);
 	} break;
 	default:
 	{

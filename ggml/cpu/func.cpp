@@ -2307,7 +2307,7 @@ static void ggml_compute_forward_ssm_scan_f32(
 					for (int64_t i2 = 0; i2 < nt; ++i2) {
 						// Mamba-2 has a scalar decay factor per head; dA can be outside the state-wise loop
 
-						const float dt_soft_plus = ggml_softplus(dt[i3, i2, h]);
+						const float dt_soft_plus = ggml_compute_softplus_f32(dt[i3, i2, h]);
 						const float dA = expf(dt_soft_plus * A[h, 0]);
 						const int g = h / (nh / ng); // repeat_interleave
 
@@ -2344,7 +2344,7 @@ static void ggml_compute_forward_ssm_scan_f32(
 					for (int64_t i2 = 0; i2 < nt; ++i2) {
 						// Mamba-1 has an element-wise decay factor for the states
 
-						const float dt_soft_plus = ggml_softplus(dt[i3, i2, h]);
+						const float dt_soft_plus = ggml_compute_softplus_f32(dt[i3, i2, h]);
 						const int g = h / (nh / ng); // repeat_interleave
 
 						// dim
@@ -3241,14 +3241,12 @@ static float ggml_rope_yarn_corr_dim(int n_dims, int n_ctx_orig, float n_rot, fl
 	return n_dims * logf(n_ctx_orig / (n_rot * 2 * std::numbers::pi_v<float>)) / (2 * logf(base));
 }
 
-static void ggml_rope_yarn_corr_dims(
-	int n_dims, int n_ctx_orig, float freq_base, float beta_fast, float beta_slow, float dims[2]
-) {
+static std::array<float, 2> ggml_rope_yarn_corr_dims(
+	int n_dims, int n_ctx_orig, float freq_base, float beta_fast, float beta_slow) {
 	// start and end correction dims
 	float start = floorf(ggml_rope_yarn_corr_dim(n_dims, n_ctx_orig, beta_fast, freq_base));
 	float end = ceilf(ggml_rope_yarn_corr_dim(n_dims, n_ctx_orig, beta_slow, freq_base));
-	dims[0] = std::max<float>(0, start);
-	dims[1] = std::min<float>(n_dims - 1, end);
+	return { std::max<float>(0, start), std::min<float>(n_dims - 1, end) };
 }
 
 static float rope_yarn_ramp(const float low, const float high, const int i0) {
@@ -3259,7 +3257,7 @@ static float rope_yarn_ramp(const float low, const float high, const int i0) {
 // YaRN algorithm based on LlamaYaRNScaledRotaryEmbedding.py from https://github.com/jquesnelle/yarn
 // MIT licensed. Copyright (c) 2023 Jeffrey Quesnelle and Bowen Peng.
 static void rope_yarn(
-	float theta_extrap, float freq_scale, float corr_dims[2], int64_t i0, float ext_factor, float mscale,
+	float theta_extrap, float freq_scale, std::span<const float, 2> corr_dims, int64_t i0, float ext_factor, float mscale,
 	float* cos_theta, float* sin_theta) {
 	// Get n-d rotational scaling corrected for extrapolation
 	float theta_interp = freq_scale * theta_extrap;
@@ -3276,7 +3274,7 @@ static void rope_yarn(
 }
 
 static void ggml_rope_cache_init(
-	float theta_base, float freq_scale, const float* freq_factors, float corr_dims[2], int64_t ne0, float ext_factor, float mscale,
+	float theta_base, float freq_scale, const float* freq_factors, std::span<const float, 2> corr_dims, int64_t ne0, float ext_factor, float mscale,
 	float* cache, float sin_sign, float theta_scale) {
 	// ref: https://github.com/jquesnelle/yarn/blob/master/scaled_rope/LlamaYaRNScaledRotaryEmbedding.py
 	float theta = theta_base;
@@ -3292,8 +3290,8 @@ static void ggml_rope_cache_init(
 }
 
 static void ggml_mrope_cache_init(
-	float theta_base_t, float theta_base_h, float theta_base_w, float theta_base_e, int sections[4], bool is_imrope, bool indep_sects,
-	float freq_scale, const float* freq_factors, float corr_dims[2], int64_t ne0, float ext_factor, float mscale,
+	float theta_base_t, float theta_base_h, float theta_base_w, float theta_base_e, std::span<const int, 4> sections, bool is_imrope, bool indep_sects,
+	float freq_scale, const float* freq_factors, std::span<const float, 2> corr_dims, int64_t ne0, float ext_factor, float mscale,
 	float* cache, float sin_sign, float theta_scale) {
 	// ref: https://github.com/jquesnelle/yarn/blob/master/scaled_rope/LlamaYaRNScaledRotaryEmbedding.py
 	float theta_t = theta_base_t;
@@ -3365,34 +3363,60 @@ static void ggml_mrope_cache_init(
 	}
 }
 
-template <typename T, bool forward>
-static void ggml_compute_forward_rope(
+template<typename T>
+static void rotate_pairs(const int64_t n, const int64_t n_offset, std::span<const float> cache, const T* src_data, T* dst_data, const int scale = 2) {
+	for (int64_t i0 = 0; i0 < n; i0 += 2) {
+		const int64_t ic = i0 / scale; // hack for GGML_ROPE_TYPE_NORMAL, where we need ic = i0; for all other cases, ic = i0/2
+
+		const float cos_theta = cache[i0 + 0];
+		const float sin_theta = cache[i0 + 1];
+
+		const T* const src = src_data + ic;
+		T* dst = dst_data + ic;
+
+		const float x0 = toFloat32(src[0]);
+		const float x1 = toFloat32(src[n_offset]);
+
+		dst[0] = fromFloat32<T>(x0 * cos_theta - x1 * sin_theta);
+		dst[n_offset] = fromFloat32<T>(x0 * sin_theta + x1 * cos_theta);
+	}
+}
+
+template <typename T> //float or ggml_fp16_t
+static void ggml_compute_forward_rope_flt(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
-	ggml_tensor* dst) {
+	ggml_tensor* dst,
+	const bool forward) {
 
 	const ggml_tensor* src0 = dst->src[0];
 	const ggml_tensor* src1 = dst->src[1];
 	const ggml_tensor* src2 = dst->src[2];
 
-	int sections[4];
+	GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
+	GGML_ASSERT(src1->type == GGML_TYPE_I32);
 
-	//const int n_past     = std::bit_cast<int>(dst->op_params[0]);
-	const int n_dims = std::bit_cast<int>(dst->op_params[1]);
-	const int mode = std::bit_cast<int>(dst->op_params[2]);
-	//const int n_ctx      = std::bit_cast<int>(dst->op_params[3]);
-	const int n_ctx_orig = std::bit_cast<int>(dst->op_params[4]);
-	const float freq_base = std::bit_cast<float>(dst->op_params[5]);
-	const float freq_scale = std::bit_cast<float> (dst->op_params[6]);
-	const float ext_factor = std::bit_cast<float> (dst->op_params[7]);
-	const float attn_factor = std::bit_cast<float> (dst->op_params[8]);
-	const float beta_fast = std::bit_cast<float> (dst->op_params[9]);
-	const float beta_slow = std::bit_cast<float> (dst->op_params[10]);
+	float freq_base, freq_scale, ext_factor, attn_factor, beta_fast, beta_slow;
+	std::array<int, 4> sections;
+
+	//const int n_past     = ((int32_t *) dst->op_params)[0];
+	const int n_dims = ((int32_t*)dst->op_params)[1];
+	const int mode = ((int32_t*)dst->op_params)[2];
+	//const int n_ctx      = ((int32_t *) dst->op_params)[3];
+	const int n_ctx_orig = ((int32_t*)dst->op_params)[4];
+
+	memcpy(&freq_base, (int32_t*)dst->op_params + 5, sizeof(float));
+	memcpy(&freq_scale, (int32_t*)dst->op_params + 6, sizeof(float));
+	memcpy(&ext_factor, (int32_t*)dst->op_params + 7, sizeof(float));
+	memcpy(&attn_factor, (int32_t*)dst->op_params + 8, sizeof(float));
+	memcpy(&beta_fast, (int32_t*)dst->op_params + 9, sizeof(float));
+	memcpy(&beta_slow, (int32_t*)dst->op_params + 10, sizeof(float));
 	memcpy(&sections, (int32_t*)dst->op_params + 11, sizeof(int) * 4);
 
-	//printf("dst->ne[0]: %d, dst->ne[1]: %d, dst->ne[2]: %d, dst->ne[3]: %d\n", dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3]);
-	//printf("n_past = %d, dst->ne[2] = %d\n", n_past, dst->ne[2]);
+	//printf("dst->ne[0]: %d, ne1: %d, ne2: %d, ne3: %d\n", dst->ne[0], ne1, ne2, ne3);
+	//printf("n_past = %d, ne2 = %d\n", n_past, ne2);
 
+	GGML_ASSERT(dst->nb[0] == src0->nb[0]);
 	GGML_ASSERT(dst->nb[0] == sizeof(T));
 
 	GGML_ASSERT(n_dims <= dst->ne[0]);
@@ -3400,15 +3424,13 @@ static void ggml_compute_forward_rope(
 
 	const float theta_scale = powf(freq_base, -2.0f / n_dims);
 
-	float corr_dims[2];
-	ggml_rope_yarn_corr_dims(n_dims, n_ctx_orig, freq_base, beta_fast, beta_slow, corr_dims);
+	const std::array<float, 2> corr_dims = ggml_rope_yarn_corr_dims(n_dims, n_ctx_orig, freq_base, beta_fast, beta_slow);
 
-	const bool is_neox = mode & GGML_ROPE_TYPE_NEOX;
-	const bool is_mrope = mode & GGML_ROPE_TYPE_MROPE;  // ggml_rope_multi, multimodal rotary position embedding
 	const bool is_imrope = mode == GGML_ROPE_TYPE_IMROPE; // qwen3vl apply interleaved mrope
+	const bool mrope_used = mode & GGML_ROPE_TYPE_MROPE;  // ggml_rope_multi, note: also true for vision (24 & 8 == true) and for imrope
 	const bool is_vision = mode == GGML_ROPE_TYPE_VISION;
 
-	if (is_mrope) {
+	if (mrope_used) {
 		GGML_ASSERT(sections[0] > 0 || sections[1] > 0 || sections[2] > 0);
 	}
 
@@ -3417,7 +3439,7 @@ static void ggml_compute_forward_rope(
 	}
 
 	const float* freq_factors = NULL;
-	if (src2 != NULL) {
+	if (src2 != nullptr) {
 		GGML_ASSERT(src2->type == GGML_TYPE_F32);
 		GGML_ASSERT(src2->ne[0] >= n_dims / 2);
 		freq_factors = (const float*)src2->data;
@@ -3426,7 +3448,7 @@ static void ggml_compute_forward_rope(
 	// backward process uses inverse rotation by cos and sin.
 	// cos and sin build a rotation matrix, where the inverse is the transpose.
 	// this essentially just switches the sign of sin.
-	constexpr float sin_sign = forward ? 1.0f : -1.0f;
+	const float sin_sign = forward ? 1.0f : -1.0f;
 
 	const int32_t* pos = (const int32_t*)src1->data;
 
@@ -3434,13 +3456,12 @@ static void ggml_compute_forward_rope(
 	auto dst_data = make_strided_mdspan(static_cast<T*>(dst->data), dst->ne, dst->nb);
 
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
-	for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
-		for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
-			for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
-				stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=, &corr_dims, &sections] {
+	for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) { // batch
+		for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) { // seq-len
+			for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) { // attn-heads
+				stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
 					std::vector<float> cache(dst->ne[0]);
-
-					if (!is_mrope) {
+					if (!mrope_used) {
 						const int64_t p = pos[i2];
 						ggml_rope_cache_init(p, freq_scale, freq_factors, corr_dims, dst->ne[0], ext_factor, attn_factor, &cache[0], sin_sign, theta_scale);
 					}
@@ -3454,65 +3475,31 @@ static void ggml_compute_forward_rope(
 							freq_scale, freq_factors, corr_dims, dst->ne[0], ext_factor, attn_factor, &cache[0], sin_sign, theta_scale);
 					}
 
-					if (is_neox || is_mrope) {
-						if (is_vision) {
-							for (int64_t i0 = 0; i0 < n_dims; i0 += 2) {
-								const int64_t ic = i0 / 2;
-								
-								const float cos_theta = cache[i0 + 0];
-								const float sin_theta = cache[i0 + 1];
+					const T* src_span = &src0_data[i3, i2, i1, 0];
+					T* dst_spana = &dst_data[i3, i2, i1, 0];
 
-								const float x0 = toFloat32(src0_data[i3, i2, i1, ic + 0]);
-								const float x1 = toFloat32(src0_data[i3, i2, i1, ic + n_dims]);
-
-								dst_data[i3, i2, i1, ic + 0] = fromFloat32<T>(x0 * cos_theta - x1 * sin_theta);
-								dst_data[i3, i2, i1, ic + n_dims] = fromFloat32<T>(x0 * sin_theta + x1 * cos_theta);
-							}
-						}
-						else {
-							for (int64_t i0 = 0; i0 < n_dims; i0 += 2) {
-								const int64_t ic = i0 / 2;
-
-								const float cos_theta = cache[i0 + 0];
-								const float sin_theta = cache[i0 + 1];
-
-								const float x0 = toFloat32(src0_data[i3, i2, i1, ic + 0]);
-								const float x1 = toFloat32(src0_data[i3, i2, i1, ic + n_dims / 2]);
-
-								dst_data[i3, i2, i1, ic + 0] = fromFloat32<T>(x0 * cos_theta - x1 * sin_theta);
-								dst_data[i3, i2, i1, ic + n_dims / 2] = fromFloat32<T>(x0 * sin_theta + x1 * cos_theta);
-							}
-						}
-					}
-					else {
-						for (int64_t i0 = 0; i0 < n_dims; i0 += 2) {
-							const float cos_theta = cache[i0 + 0];
-							const float sin_theta = cache[i0 + 1];
-
-							const float x0 = toFloat32(src0_data[i3, i2, i1, i0]);
-							const float x1 = toFloat32(src0_data[i3, i2, i1, i0 + 1]);
-
-							dst_data[i3, i2, i1, i0] = fromFloat32<T>(x0 * cos_theta - x1 * sin_theta);
-							dst_data[i3, i2, i1, i0 + 1] = fromFloat32<T>(x0 * sin_theta + x1 * cos_theta);
-						}
+					switch (mode) {
+					case GGML_ROPE_TYPE_NORMAL:
+						rotate_pairs<T>(n_dims, 1, cache, src_span, dst_spana, 1);
+						break;
+					case GGML_ROPE_TYPE_NEOX:
+					case GGML_ROPE_TYPE_MROPE:
+					case GGML_ROPE_TYPE_IMROPE:
+						rotate_pairs<T>(n_dims, n_dims / 2, cache, src_span, dst_spana);
+						break;
+					case GGML_ROPE_TYPE_VISION:
+						rotate_pairs<T>(dst->ne[0], n_dims, cache, src_span, dst_spana);
+						break;
+					default:
+						GGML_ABORT("rope type not supported");
 					}
 
-					if (is_vision) {
+					if (!is_vision) {
+						// fill the remain channels with data from src tensor
 						for (int64_t i0 = n_dims; i0 < dst->ne[0]; i0 += 2) {
-							const int64_t ic = i0 / 2;
+							//const T* const src = (T*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1] + i0 * src0->nb[0]);
+							//T* dst_data = (T*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1] + i0 * dst->nb[0]);
 
-							const float cos_theta = cache[i0 + 0];
-							const float sin_theta = cache[i0 + 1];
-
-							const float x0 = toFloat32(src0_data[i3, i2, i1, ic + 0]);
-							const float x1 = toFloat32(src0_data[i3, i2, i1, ic + n_dims]);
-
-							dst_data[i3, i2, i1, ic + 0] = fromFloat32<T>(x0 * cos_theta - x1 * sin_theta);
-							dst_data[i3, i2, i1, ic + n_dims] = fromFloat32<T>(x0 * sin_theta + x1 * cos_theta);
-						}
-					}
-					else {
-						for (int64_t i0 = n_dims; i0 < dst->ne[0]; i0 += 2) {
 							dst_data[i3, i2, i1, i0] = src0_data[i3, i2, i1, i0];
 							dst_data[i3, i2, i1, i0 + 1] = src0_data[i3, i2, i1, i0 + 1];
 						}
@@ -3520,9 +3507,9 @@ static void ggml_compute_forward_rope(
 				});
 				scope.spawn(std::move(sender));
 			}
+
 		}
 	}
-	stdexec::sync_wait(scope.on_empty());
 }
 
 static void ggml_compute_forward_rope(
@@ -3535,11 +3522,11 @@ static void ggml_compute_forward_rope(
 	switch (src0->type) {
 	case GGML_TYPE_F16:
 	{
-		ggml_compute_forward_rope<ggml_fp16_t, true>(pool, scope, dst);
+		ggml_compute_forward_rope_flt<ggml_fp16_t>(pool, scope, dst, true);
 	} break;
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_rope<ggml_fp32_t, true>(pool, scope, dst);
+		ggml_compute_forward_rope_flt<ggml_fp32_t>(pool, scope, dst, true);
 	} break;
 	default:
 	{
@@ -3558,11 +3545,11 @@ static void ggml_compute_forward_rope_back(
 	switch (src0->type) {
 	case GGML_TYPE_F16:
 	{
-		ggml_compute_forward_rope<ggml_fp16_t, false>(pool, scope, dst);
+		ggml_compute_forward_rope_flt<ggml_fp16_t>(pool, scope, dst, false);
 	} break;
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_rope<ggml_fp32_t, false>(pool, scope, dst);
+		ggml_compute_forward_rope_flt<ggml_fp32_t>(pool, scope, dst, false);
 	} break;
 	default:
 	{
@@ -5788,21 +5775,208 @@ void ggml_compute_forward_im2col_back_f32(
 	}
 }
 
+static void ggml_compute_forward_cumsum_f32(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+
+	const ggml_tensor* src0 = dst->src[0];
+
+	GGML_ASSERT(src0->nb[0] == sizeof(float));
+	GGML_ASSERT(dst->nb[0] == sizeof(float));
+
+	GGML_ASSERT(dst->ne[0] == src0->ne[0]);
+	GGML_ASSERT(dst->ne[1] == src0->ne[1]);
+	GGML_ASSERT(dst->ne[2] == src0->ne[2]);
+	GGML_ASSERT(dst->ne[3] == src0->ne[3]);
+
+	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	auto src0_data = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
+
+	for (int64_t i03 = 0; i03 < src0->ne[3]; i03++)
+		for (int64_t i02 = 0; i02 < src0->ne[2]; i02++)
+			for (int64_t i01 = 0; i01 < src0->ne[1]; i01++) {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+					dst_data[i03, i02, i01, 0] = src0_data[i03, i02, i01, 0];
+					for (int64_t i00 = 1; i00 < src0->ne[0]; i00++) {
+						dst_data[i03, i02, i01, i00] = dst_data[i03, i02, i01, i00 - 1] + src0_data[i03, i02, i01, i00];
+					}
+				});
+				scope.spawn(std::move(sender));
+			}
+}
+
+void ggml_compute_forward_cumsum(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+
+	const ggml_tensor* src0 = dst->src[0];
+
+	switch (src0->type) {
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_cumsum_f32(pool, scope, dst);
+	} break;
+	default:
+	{
+		GGML_ABORT("fatal error");
+	}
+	}
+}
+
+static void ggml_compute_forward_tri_f32(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+
+	const ggml_tri_type ttype = (ggml_tri_type)ggml_get_op_params_i32(dst, 0);
+
+	GGML_ASSERT(ggml_is_contiguous(src0));
+
+	bool (*bipred)(int, int);
+
+	switch (ttype) {
+	case GGML_TRI_TYPE_LOWER:      bipred = [](int i, int r) { return i < r; }; break;
+	case GGML_TRI_TYPE_LOWER_DIAG: bipred = [](int i, int r) { return i <= r; }; break;
+	case GGML_TRI_TYPE_UPPER:      bipred = [](int i, int r) { return i > r; }; break;
+	case GGML_TRI_TYPE_UPPER_DIAG: bipred = [](int i, int r) { return i >= r; }; break;
+	default: GGML_ABORT("invalid tri type");
+	}
+
+	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	auto src0_data = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
+
+	for (int64_t i03 = 0; i03 < src0->ne[3]; i03++)
+		for (int64_t i02 = 0; i02 < src0->ne[2]; i02++)
+			for (int64_t i01 = 0; i01 < src0->ne[1]; i01++) {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+					for (int64_t i00 = 0; i00 < src0->ne[0]; i00++)
+						dst_data[i03, i02, i01, i00] = bipred(i00, i01) ? src0_data[i03, i02, i01, i00] : 0.0f;
+				});
+				scope.spawn(std::move(sender));
+			}
+}
+
+void ggml_compute_forward_tri(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+
+	switch (src0->type) {
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_tri_f32(pool, scope, dst);
+	} break;
+	default:
+	{
+		GGML_ABORT("fatal error");
+	}
+	}
+}
+
+static void ggml_compute_forward_fill_f32(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	const float c = std::bit_cast<float>(dst->op_params[0]);
+
+	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	for (int64_t i03 = 0; i03 < dst->ne[3]; i03++)
+		for (int64_t i02 = 0; i02 < dst->ne[2]; i02++)
+			for (int64_t i01 = 0; i01 < dst->ne[1]; i01++) {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+					for (int64_t i00 = 0; i00 < dst->ne[0]; i00++)
+						dst_data[i03, i02, i01, i00] =c;
+				});
+				scope.spawn(std::move(sender));
+			}
+}
+
+void ggml_compute_forward_fill(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	ggml_compute_forward_fill_f32(pool, scope, dst);
+}
+
+static void ggml_compute_forward_solve_tri_f32(const struct ggml_compute_params* params, struct ggml_tensor* dst) {
+	const struct ggml_tensor* src0 = dst->src[0];  // A (lower triangular)
+	const struct ggml_tensor* src1 = dst->src[1];  // B (RHS)
+
+	GGML_ASSERT(src0->type == GGML_TYPE_F32);
+	GGML_ASSERT(src1->type == GGML_TYPE_F32);
+	GGML_ASSERT(dst->type == GGML_TYPE_F32);
+
+	GGML_ASSERT(src0->ne[0] == src0->ne[1]); // A must be square
+	GGML_ASSERT(dst->ne[0] == src1->ne[0]); // solution cols == B cols
+	GGML_ASSERT(dst->ne[1] == src1->ne[1]); // solution rows == B rows
+
+	GGML_ASSERT(src0->ne[2] == src1->ne[2] && src1->ne[2] == dst->ne[2]);
+	GGML_ASSERT(src0->ne[3] == src1->ne[3] && src1->ne[3] == dst->ne[3]);
+
+	const int ith = params->ith;
+	const int nth = params->nth;
+
+	const int64_t k = src1->ne[0];   // number of RHS columns
+	const int64_t n = src1->ne[1];   // A is n¡Ñn
+	const int64_t nr = src0->ne[2] * src0->ne[3] * k; // we're parallelizing on columns here, so seq x token x column will be the unit
+
+	// chunks per thread
+	const int64_t dr = (nr + nth - 1) / nth;
+
+	// chunk range for this thread
+	const int64_t ir0 = dr * ith;
+	const int64_t ir1 = std::min(ir0 + dr, nr);
+
+	const float* A = (const float*)src0->data;  // [n, n, B1, B2]
+	const float* B = (const float*)src1->data;  // [n, k, B1, B2]
+	float* X = (float*)dst->data;   // [n, k, B1, B2]
+
+	for (int64_t ir = ir0; ir < ir1; ++ir) {
+		const int64_t i03 = ir / (src0->ne[2] * k);
+		const int64_t i02 = (ir - i03 * src0->ne[2] * k) / k;
+		const int64_t i01 = (ir - i03 * src0->ne[2] * k - i02 * k);
+
+		const float* A_batch = A + i02 * src0->nb[2] / sizeof(float) + i03 * src0->nb[3] / sizeof(float);
+		const float* B_batch = B + i02 * src1->nb[2] / sizeof(float) + i03 * src1->nb[3] / sizeof(float);
+
+		float* X_batch = X + i02 * dst->nb[2] / sizeof(float) + i03 * dst->nb[3] / sizeof(float);
+
+		for (int64_t i00 = 0; i00 < n; ++i00) {
+			float sum = 0.0f;
+			for (int64_t t = 0; t < i00; ++t) {
+				sum += A_batch[i00 * n + t] * X_batch[i01 * n + t];
+			}
+
+			const float diag = A_batch[i00 * n + i00];
+			GGML_ASSERT(diag != 0.0f && "Zero diagonal in triangular matrix");
+
+			X_batch[i01 * n + i00] = (B_batch[i00 * k + i01] - sum) / diag;
+		}
+	}
+}
+
+void ggml_compute_forward_solve_tri(const struct ggml_compute_params* params, struct ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src1 = dst->src[1];
+
+	if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32) {
+		ggml_compute_forward_solve_tri_f32(params, dst);
+	}
+	else {
+		GGML_ABORT("fatal error");
+	}
+}
+
 void ggml_compute_forward(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	ggml_compute_params* params, 
 	ggml_tensor* tensor) {
 	GGML_ASSERT(params);
-
-	if (is_one_of(tensor->op,
-		GGML_OP_NONE,
-		GGML_OP_VIEW,
-		GGML_OP_RESHAPE,
-		GGML_OP_PERMUTE,
-		GGML_OP_TRANSPOSE) || ggml_is_empty(tensor)) {
-		return;
-	}
 
 	// extra_buffer op?
 	// TODO
@@ -5871,6 +6045,10 @@ void ggml_compute_forward(
 	case GGML_OP_SUM_ROWS:
 	{
 		ggml_compute_forward_sum_rows(tensor);
+	} break;
+	case GGML_OP_CUMSUM:
+	{
+		ggml_compute_forward_cumsum(pool, scope, tensor);
 	} break;
 	case GGML_OP_MEAN:
 	{
@@ -6057,6 +6235,14 @@ void ggml_compute_forward(
 	{
 		ggml_compute_forward_leaky_relu(tensor);
 	} break;
+	case GGML_OP_TRI:
+	{
+		ggml_compute_forward_tri(pool, scope, tensor);
+	} break;
+	case GGML_OP_FILL:
+	{
+		ggml_compute_forward_fill(pool, scope, tensor);
+	} break;
 	case GGML_OP_FLASH_ATTN_EXT:
 	{
 		ggml_compute_forward_flash_attn_ext(pool, scope, tensor);
@@ -6106,13 +6292,17 @@ void ggml_compute_forward(
 	{
 		ggml_compute_forward_rwkv_wkv6(pool, scope, tensor);
 	} break;
+	case GGML_OP_GATED_LINEAR_ATTN:
+	{
+		ggml_compute_forward_gla(pool, scope, tensor);
+	} break;
 	case GGML_OP_RWKV_WKV7:
 	{
 		ggml_compute_forward_rwkv_wkv7(pool, scope, tensor);
 	} break;
-	case GGML_OP_GATED_LINEAR_ATTN:
+	case GGML_OP_SOLVE_TRI:
 	{
-		ggml_compute_forward_gla(pool, scope, tensor);
+		ggml_compute_forward_solve_tri(params, tensor);
 	} break;
 	case GGML_OP_CUSTOM:
 	{
@@ -6139,10 +6329,6 @@ void ggml_compute_forward(
 		ggml_compute_forward_opt_step_sgd(pool, scope, tensor);
 	}
 	break;
-	case GGML_OP_NONE:
-	{
-		// nop
-	} break;
 	case GGML_OP_COUNT:
 	{
 		GGML_ABORT("fatal error");

@@ -1328,6 +1328,15 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
                         continue;
                     }
 
+                    if (fused::ggml_cuda_can_fuse(cgraph, i, { GGML_OP_ROPE, GGML_OP_VIEW, GGML_OP_SET_ROWS }, {})) {
+                        ggml_tensor* rope = cgraph->nodes[i];
+                        ggml_tensor* set_rows = cgraph->nodes[i + 2];
+
+                        op::rope(stream(), rope, true, set_rows);
+                        i += 2;
+                        continue;
+                    }
+
                     if (node->op == GGML_OP_ADD) {
                         int n_fuse = 0;
                         ggml_op ops[8];
