@@ -89,12 +89,19 @@ void ggml_cuda_launch_mm_ids_helper(
     const int32_t* ids, int32_t* ids_src1, int32_t* ids_dst, int32_t* expert_bounds,
     const int n_experts, const int n_tokens, const int n_expert_used, const int nchannels_y, const int si1, const int sis1, cudaStream_t stream);
 
-void pool2d_nchw_kernel_f32_f32_cuda(
-    const int ih, const int iw, const int oh, const int ow,
-    const int kh, const int kw, const int sh, const int sw,
-    const int ph, const int pw, const int parallel_elements,
-    const float* src, float* dst, internal::ggml_op_pool op,
-    cudaStream_t stream);
+// pool2d.cu
+struct pool2d_context {
+    const int64_t IH, IW;
+    const int64_t N, OC, OH, OW;
+    const int64_t KH, KW;
+    const int64_t SH, SW;
+    const int64_t PH, PW;
+    const int64_t parallel_elements;
+    const float* src0_d;
+    float* dst_d;
+    internal::ggml_op_pool op;
+};
+void pool2d_nchw_kernel_cuda(const pool2d_context& ctx, cudaStream_t stream);
 
 void im2col_cuda(internal::ggml_type  dst_type, const float* x, void* dst,
     int64_t IW, int64_t IH, int64_t OW, int64_t OH, int64_t KW, int64_t KH, int64_t IC,

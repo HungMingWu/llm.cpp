@@ -409,32 +409,36 @@ namespace op
     void pool2d(cudaStream_t stream, ggml_tensor* dst)
     {
         const ggml_tensor* src0 = dst->src[0];
-        const float* src0_d = (const float*)src0->data;
-        float* dst_d = (float*)dst->data;
-
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
         const int32_t* opts = (const int32_t*)dst->op_params;
-        auto op = std::bit_cast<internal::ggml_op_pool>(opts[0]);
-        const int k0 = opts[1];
-        const int k1 = opts[2];
-        const int s0 = opts[3];
-        const int s1 = opts[4];
-        const int p0 = opts[5];
-        const int p1 = opts[6];
-
-        const int64_t IH = src0->ne[1];
-        const int64_t IW = src0->ne[0];
 
         const int64_t N = dst->ne[3];
         const int64_t OC = dst->ne[2];
         const int64_t OH = dst->ne[1];
         const int64_t OW = dst->ne[0];
 
-        const int parallel_elements = N * OC * OH * OW;
+        pool2d_context ctx{
+            .IH = src0->ne[1],
+            .IW = src0->ne[0],
+            .N = N,
+            .OC = OC,
+            .OH = OH,
+            .OW = OW,
+            .KH = opts[2],
+            .KW = opts[1],
+            .SH = opts[4],
+            .SW = opts[3],
+            .PH = opts[6],
+            .PW = opts[5],
+            .parallel_elements = N * OC * OH * OW,
+            .src0_d = (const float*)src0->data,
+            .dst_d = (float*)dst->data,
+            .op = std::bit_cast<internal::ggml_op_pool>(opts[0])
+        };
 
-        pool2d_nchw_kernel_f32_f32_cuda(IH, IW, OH, OW, k1, k0, s1, s0, p1, p0, parallel_elements, src0_d, dst_d, op, stream);
+        pool2d_nchw_kernel_cuda(ctx, stream);
     }
 
     void im2col(cudaStream_t stream, ggml_tensor* dst)
