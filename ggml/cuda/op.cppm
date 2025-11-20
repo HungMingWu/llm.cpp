@@ -1879,16 +1879,20 @@ namespace op
 
     void timestep_embedding(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
-        const float* src0_d = (const float*)src0->data;
-        float* dst_d = (float*)dst->data;
 
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-        const int dim = std::bit_cast<int>(dst->op_params[0]);
-        const int max_period = std::bit_cast<int>(dst->op_params[1]);
+        timestep_embeddin_ctx ctx{
+            .src0_d = (const float*)src0->data,
+            .dst_d = (float*)dst->data,
+            .ne00 = src0->ne[0],
+            .nb1 = dst->nb[1],
+            .dim = std::bit_cast<int>(dst->op_params[0]),
+            .max_period = std::bit_cast<int>(dst->op_params[1])
+        };
 
-        timestep_embedding_f32_cuda(src0_d, dst_d, src0->ne[0], dst->nb[1], dim, max_period, stream);
+        timestep_embedding_f32_cuda(ctx, stream);
     }
 
     void leaky_relu(cudaStream_t stream, ggml_tensor* dst) {

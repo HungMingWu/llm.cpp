@@ -540,8 +540,15 @@ struct pad_reflect_1d_context {
 void pad_reflect_1d_cuda(const pad_reflect_1d_context& ctx, cudaStream_t stream);
 
 // tsembd
-void timestep_embedding_f32_cuda(const float* x, float* dst, const int ne00, const int nb1,
-    const int dim, const int max_period, cudaStream_t stream);
+struct timestep_embeddin_ctx {
+    const float* src0_d;
+    float* dst_d;
+    const int64_t ne00;
+    const size_t nb1;
+    const int dim;
+    const int max_period;
+};
+void timestep_embedding_f32_cuda(const timestep_embeddin_ctx& ctx, cudaStream_t stream);
 
 // fattn related
 
