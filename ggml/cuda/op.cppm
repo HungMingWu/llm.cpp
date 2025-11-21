@@ -1649,40 +1649,20 @@ namespace op
 
         concat_context ctx{
             .dim = dst->op_params[0],
-            .src0_is_contiguous = ggml_is_contiguous(src0),
-			.src1_is_contiguous = ggml_is_contiguous(src1),
             .src0_d = (const float*)src0->data,
 			.src1_d = (const float*)src1->data,
 			.dst_d = (float*)dst->data,
-            .ne00 = src0->ne[0],
-			.ne01 = src0->ne[1],
-			.ne02 = src0->ne[2],
-            .ne03 = src0->ne[3],
-            .nb00 = src0->nb[0],
-            .nb01 = src0->nb[1],
-            .nb02 = src0->nb[2],
-            .nb03 = src0->nb[3],
-            .ne10 = src1->ne[0],
-            .ne11 = src1->ne[1],
-            .ne12 = src1->ne[2],
-            .ne13 = src1->ne[3],
-            .nb10 = src1->nb[0],
-            .nb11 = src1->nb[1],
-            .nb12 = src1->nb[2],
-            .nb13 = src1->nb[3],
-            .ne0 = dst->ne[0],
-            .ne1 = dst->ne[1],
-			.ne2 = dst->ne[2],
-            .ne3 = dst->ne[3],
-            .nb0 = dst->nb[0],
-            .nb1 = dst->nb[1],
-            .nb2 = dst->nb[2],
-            .nb3 = dst->nb[3],
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .src1_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
 			.src0_size = src0->nbytes(),
 			.src1_size = src1->nbytes()
         };
 
-		concat_cuda(&ctx, stream);
+		concat_cuda(ctx, stream);
     }
 
     void argsort(ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst) {

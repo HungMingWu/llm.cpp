@@ -454,18 +454,17 @@ void rope_cuda(const rope_context &ctx, cudaStream_t stream);
 // concat
 struct concat_context {
     const int32_t dim;
-    const bool src0_is_contiguous, src1_is_contiguous;
 	const float* src0_d, * src1_d;
     float* dst_d;
-    const int64_t ne00, ne01, ne02, ne03;
-    const size_t nb00, nb01, nb02, nb03;
-    const int64_t ne10, ne11, ne12, ne13;
-    const size_t nb10, nb11, nb12, nb13;
-    const int64_t ne0, ne1, ne2, ne3;
-	const size_t nb0, nb1, nb2, nb3;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t src1_ne[4];
+    size_t src1_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
     const size_t src0_size, src1_size;
 };
-void concat_cuda(const concat_context* ctx, cudaStream_t stream);
+void concat_cuda(const concat_context &ctx, cudaStream_t stream);
 
 // argsort*.cu
 void argsort_f32_i32_cuda(ggml_cuda_pool& pool,
