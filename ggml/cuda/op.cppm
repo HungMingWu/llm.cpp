@@ -678,7 +678,7 @@ namespace op
             .ne00 = src0->ne[0],
             .nrows = ggml_nrows(src0)
         };
-        argmax_cuda(&context, stream);
+        argmax_cuda(context, stream);
     }
 
     void count_equal(cudaStream_t stream, ggml_tensor* dst) {

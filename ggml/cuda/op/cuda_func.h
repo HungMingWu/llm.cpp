@@ -207,7 +207,7 @@ struct argmax_context {
     const int64_t ne00;
     const int64_t nrows;
 };
-void argmax_cuda(const argmax_context* ctx, cudaStream_t stream);
+void argmax_cuda(const argmax_context &ctx, cudaStream_t stream);
 
 // count_equal
 struct count_equal_context {
