@@ -4,6 +4,7 @@ module;
 #include <algorithm>
 #include <bit>
 #include <iostream>
+#include <ranges>
 #include "helper.h"
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
@@ -12,6 +13,7 @@ module ggml;
 import :ds;
 import :tensor;
 import :cpu.ds;
+import :cpu.helper;
 import :cpu.op;
 
 template <typename T>
@@ -29,26 +31,21 @@ static void ggml_compute_forward_concat(ggml_tensor* dst) {
     auto src0_data = make_strided_mdspan(static_cast<const T*>(src0->data), src0->ne, src0->nb);
     auto src1_data = make_strided_mdspan(static_cast<const T*>(src1->data), src1->ne, src1->nb);
     // TODO: smarter multi-theading
-    for (int64_t i3 = 0; i3 < dst_data.extent(0); i3++) {
-        for (int64_t i2 = 0; i2 < dst_data.extent(1); i2++) {
-            for (int64_t i1 = 0; i1 < dst_data.extent(2); i1++) {
-                for (int64_t i0 = 0; i0 < dst_data.extent(3); i0++) {
-                    const T value = [&]() {
-                        if (i0 < src0_data.extent(3) && i1 < src0_data.extent(2) && i2 < src0_data.extent(1) && i3 < src0_data.extent(0))
-                            return src0_data[i3, i2, i1, i0];
-                        else if (dim == 0)
-                            return src1_data[i3, i2, i1, i0 - src0_data.extent(3)];
-                        else if (dim == 1)
-                            return src1_data[i3, i2, i1 - src0_data.extent(2), i0];
-                        else if (dim == 2)
-                            return src1_data[i3, i2 - src0_data.extent(1), i1, i0];
-                        else
-                            return src1_data[i3 - src0_data.extent(0), i2, i1, i0];
-                    }();
-                    dst_data[i3, i2, i1, i0] = value;
-                }
-            }
-        }
+    for (auto [i3, i2, i1, i0] : 
+        make_cartesian_product(dst_data.extent(0), dst_data.extent(1), dst_data.extent(2), dst_data.extent(3))) {
+        const T value = [&]() {
+            if (i0 < src0_data.extent(3) && i1 < src0_data.extent(2) && i2 < src0_data.extent(1) && i3 < src0_data.extent(0))
+                return src0_data[i3, i2, i1, i0];
+            else if (dim == 0)
+                return src1_data[i3, i2, i1, i0 - src0_data.extent(3)];
+            else if (dim == 1)
+                return src1_data[i3, i2, i1 - src0_data.extent(2), i0];
+            else if (dim == 2)
+                return src1_data[i3, i2 - src0_data.extent(1), i1, i0];
+            else
+                return src1_data[i3 - src0_data.extent(0), i2, i1, i0];
+        }();
+        dst_data[i3, i2, i1, i0] = value;
     }
 }
 

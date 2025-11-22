@@ -10,6 +10,7 @@ module;
 module ggml;
 
 import :cpu.op;
+import :cpu.helper;
 
 static float sgn(float x) {
 	return (x > 0.f) ? 1.f : ((x < 0.f) ? -1.f : 0.f);
@@ -71,23 +72,22 @@ static void ggml_compute_forward_unary(ggml_tensor* dst, Func func) {
 	auto dst_data = make_strided_mdspan(static_cast<T*>(dst->data), dst->ne, dst->nb);
 	auto src0_data = make_strided_mdspan(static_cast<const T*>(src0->data), src0->ne, src0->nb);
 
-	for (int64_t i03 = 0; i03 < dst_data.extent(0); i03++)
-		for (int64_t i02 = 0; i02 < dst_data.extent(1); i02++)
-			for (int64_t i01 = 0; i01 < dst_data.extent(2); i01++)
-				for (int64_t i00 = 0; i00 < dst_data.extent(3); i00++) {
-					dst_data[i03, i02, i01, i00] = fromFloat32<T>(func(toFloat32(src0_data[i03, i02, i01, i00])));
-					if (
-						func == &gelu ||
-						func == &gelu_erf ||
-						func == &gelu_quick ||
-						func == &silu
-						) {
+	for (auto [i03, i02, i01, i00] : 
+		make_cartesian_product(dst_data.extent(0), dst_data.extent(1), dst_data.extent(2), dst_data.extent(3)))
+	{
+		dst_data[i03, i02, i01, i00] = fromFloat32<T>(func(toFloat32(src0_data[i03, i02, i01, i00])));
+		if (
+			func == &gelu ||
+			func == &gelu_erf ||
+			func == &gelu_quick ||
+			func == &silu
+		) {
 #ifndef NDEBUG
-						assert(!isnan(toFloat32(dst_data[i03, i02, i01, i00])));
-						assert(!isinf(toFloat32(dst_data[i03, i02, i01, i00])));
+			assert(!isnan(toFloat32(dst_data[i03, i02, i01, i00])));
+			assert(!isinf(toFloat32(dst_data[i03, i02, i01, i00])));
 #endif
-					}
-				}
+		}
+	}
 }
 
 template <typename Func>
@@ -122,11 +122,9 @@ static void apply_unary_op(ggml_tensor* dst, Op op) {
 	auto dst_data = make_strided_mdspan(static_cast<dst_t*>(dst->data), dst->ne, dst->nb);
 	auto src0_data = make_strided_mdspan(static_cast<const src0_t*>(src0->data), src0->ne, src0->nb);
 
-	for (int64_t i03 = 0; i03 < dst_data.extent(0); i03++)
-		for (int64_t i02 = 0; i02 < dst_data.extent(1); i02++)
-			for (int64_t i01 = 0; i01 < dst_data.extent(2); i01++)
-				for (int64_t i00 = 0; i00 < dst_data.extent(3); i00++)
-					dst_data[i03, i02, i01, i00] = fromFloat32<dst_t>(op(toFloat32(src0_data[i03, i02, i01, i00])));
+	for (auto [i03, i02, i01, i00] : 
+		make_cartesian_product(dst_data.extent(0), dst_data.extent(1), dst_data.extent(2), dst_data.extent(3)))
+		dst_data[i03, i02, i01, i00] = fromFloat32<dst_t>(op(toFloat32(src0_data[i03, i02, i01, i00])));
 }
 
 // TODO: Use the 'traits' lookup table (for type conversion fns), instead of a mass of 'if' conditions with long templates

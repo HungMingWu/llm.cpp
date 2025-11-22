@@ -18,6 +18,7 @@ target_sources(libggml
     FILE_SET cpu_op_interface
     TYPE CXX_MODULES
     FILES
+      helper.cppm
       vec_dot.cppm
       op/op.cppm
   PRIVATE

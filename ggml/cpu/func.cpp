@@ -27,6 +27,7 @@ import :tensor;
 import :utility;
 import :cpu.ds;
 import :cpu.from_float;
+import :cpu.helper;
 import :cpu.to_float;
 import :cpu.traits;
 import :cpu.vec_dot;
@@ -2880,17 +2881,13 @@ static void ggml_compute_forward_clamp(
 	auto dst_data = make_strided_mdspan(static_cast<T*>(dst->data), dst->ne, dst->nb);
 	auto src0_data = make_strided_mdspan(static_cast<const T*>(src0->data), src0->ne, src0->nb);
 
-	for (int64_t i = 0; i < src0_data.extent(0); i++) {
-		for (int64_t j = 0; j < src0_data.extent(1); j++) {
-			for (int64_t k = 0; k < src0_data.extent(2); k++) {
-				stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-					for (int64_t l = 0; l < src0_data.extent(3); l++) {
-						dst_data[i, j, k, l] = fromFloat32<T>(std::clamp(toFloat32(src0_data[i, j, k, l]), min, max));
-					}
-				});
-				scope.spawn(std::move(sender));
+	for (auto [i, j, k] : make_cartesian_product(src0_data.extent(0), src0_data.extent(1), src0_data.extent(2))) {
+		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+			for (size_t l = 0; l < src0_data.extent(3); l++) {
+				dst_data[i, j, k, l] = fromFloat32<T>(std::clamp(toFloat32(src0_data[i, j, k, l]), min, max));
 			}
-		}
+		});
+		scope.spawn(std::move(sender));
 	}
 }
 
@@ -3582,28 +3579,24 @@ static void ggml_compute_forward_acc_f32(
 	auto src1_data = make_strided_mdspan(static_cast<const float*>(src1->data), src1->ne, src1->nb);
 	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
 
-	for (int64_t i3 = 0; i3 < dst_data.extent(0); i3++) {
-		for (int64_t i2 = 0; i2 < dst_data.extent(1); i2++) {
-			for (int64_t i1 = 0; i1 < dst_data.extent(2); i1++) {
-				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
-					// src0 and dst are viewed with shape of src1 and offset
-					// => same indices
-					for (int64_t i0 = 0; i0 < dst_data.extent(3); i0++) {
-						dst_data[i3, i2, i1, i0] = src0_data[i3, i2, i1, i0];
-						int64_t src_i3 = i3 - offset3;
-						int64_t src_i2 = i2 - offset2;
-						int64_t src_i1 = i1 - offset1;
-						int64_t src_i0 = i0 - offset0;
-						if (src_i3 >= 0 && src_i3 < src1_data.extent(0) &&
-							src_i2 >= 0 && src_i2 < src1_data.extent(1) &&
-							src_i1 >= 0 && src_i1 < src1_data.extent(2) &&
-							src_i0 >= 0 && src_i0 < src1_data.extent(3))
-							dst_data[i3, i2, i1, i0] += src1_data[src_i3, src_i2, src_i1, src_i0];
-					}
-				});
-				scope.spawn(std::move(sender));
+	for (auto [i3, i2, i1] : make_cartesian_product(dst_data.extent(0), dst_data.extent(1), dst_data.extent(2))) {
+		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+			// src0 and dst are viewed with shape of src1 and offset
+			// => same indices
+			for (size_t i0 = 0; i0 < dst_data.extent(3); i0++) {
+				dst_data[i3, i2, i1, i0] = src0_data[i3, i2, i1, i0];
+				int64_t src_i3 = static_cast<int64_t>(i3) - offset3;
+				int64_t src_i2 = static_cast<int64_t>(i2) - offset2;
+				int64_t src_i1 = static_cast<int64_t>(i1) - offset1;
+				int64_t src_i0 = static_cast<int64_t>(i0) - offset0;
+				if (src_i3 >= 0 && src_i3 < src1_data.extent(0) &&
+					src_i2 >= 0 && src_i2 < src1_data.extent(1) &&
+					src_i1 >= 0 && src_i1 < src1_data.extent(2) &&
+					src_i0 >= 0 && src_i0 < src1_data.extent(3))
+					dst_data[i3, i2, i1, i0] += src1_data[src_i3, src_i2, src_i1, src_i0];
 			}
-		}
+		});
+		scope.spawn(std::move(sender));
 	}
 }
 
@@ -4236,24 +4229,20 @@ static void ggml_compute_forward_opt_step_adamw_f32(
 	auto m = make_strided_mdspan(static_cast<float*>(src0_grad_m->data), src0->ne, src0->nb);
 	auto v = make_strided_mdspan(static_cast<float*>(src0_grad_v->data), src0->ne, src0->nb);
 
-	for (int64_t i03 = 0; i03 < w.extent(0); i03++) {
-		for (int64_t i02 = 0; i02 < w.extent(1); i02++) {
-			for (int64_t i01 = 0; i01 < w.extent(2); i01++) {
-				stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-					for (int i00 = 0; i00 < w.extent(3); ++i00) {
-						m[i03, i02, i01, i00] = m[i03, i02, i01, i00] * beta1 + g[i03, i02, i01, i00] * (1.0f - beta1);
-						v[i03, i02, i01, i00] = v[i03, i02, i01, i00] * beta2 + g[i03, i02, i01, i00] * g[i03, i02, i01, i00] * (1.0f - beta2);
-						const float mh = m[i03, i02, i01, i00] * beta1h;
-						const float vh = sqrtf(v[i03, i02, i01, i00] * beta2h) + eps;
-						// The weight decay is applied independently of the Adam momenta m and v.
-						// This is NOT equivalent to l2 regularization that adds w[i00]*w[i00] to the loss.
-						// See: https://arxiv.org/pdf/1711.05101v3.pdf
-						w[i03, i02, i01, i00] = w[i03, i02, i01, i00] * keep - alpha * mh / vh;
-					}
-				});
-				scope.spawn(std::move(sender));
+	for (auto [i03, i02, i01] : make_cartesian_product(w.extent(0), w.extent(1), w.extent(2))) {
+		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+			for (int i00 = 0; i00 < w.extent(3); ++i00) {
+				m[i03, i02, i01, i00] = m[i03, i02, i01, i00] * beta1 + g[i03, i02, i01, i00] * (1.0f - beta1);
+				v[i03, i02, i01, i00] = v[i03, i02, i01, i00] * beta2 + g[i03, i02, i01, i00] * g[i03, i02, i01, i00] * (1.0f - beta2);
+				const float mh = m[i03, i02, i01, i00] * beta1h;
+				const float vh = sqrtf(v[i03, i02, i01, i00] * beta2h) + eps;
+				// The weight decay is applied independently of the Adam momenta m and v.
+				// This is NOT equivalent to l2 regularization that adds w[i00]*w[i00] to the loss.
+				// See: https://arxiv.org/pdf/1711.05101v3.pdf
+				w[i03, i02, i01, i00] = w[i03, i02, i01, i00] * keep - alpha * mh / vh;
 			}
-		}
+		});
+		scope.spawn(std::move(sender));
 	}
 }
 
