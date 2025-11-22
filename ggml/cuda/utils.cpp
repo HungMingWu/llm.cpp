@@ -1,6 +1,8 @@
 module;
 #include "common.h"
+#include <bit>
 #include <span>
+#include "op/cuda_func.h"
 
 static constexpr int64_t MMF_ROWS_PER_BLOCK = 32;
 
@@ -9,6 +11,25 @@ import :cuda.utils;
 
 namespace utils
 {
+    bin_bcast_context create_bcast_context(const ggml_tensor* src0, const ggml_tensor* src1, ggml_tensor* dst)
+    {
+        bin_bcast_context ctx{
+            .dst_d = dst->data,
+            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .src1_type = std::bit_cast<internal::ggml_type>(src1->type),
+            .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
+			.src0_ne = {src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3]},
+            .src0_nb = {src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3]},
+            .src1_ne = {src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3]},
+            .src1_nb = {src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3]},
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3]},
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3]}
+        };
+        for (size_t i = 0; i < dst->src.size(); i++)
+            ctx.src_data[i] = dst->src[i]->data;
+        return ctx;
+    }
+
     bool should_use_mmf(ggml_type type, int cc, int warp_size, std::span<const int64_t> src0_ne,
         std::span<const size_t> src0_nb, int64_t src1_ncols, bool mul_mat_id)
     {

@@ -86,48 +86,6 @@ static unary_context create(const ggml_tensor* src0, ggml_tensor* dst, cudaStrea
     };
 }
 
-static bin_bcast_context create_bcast_context(ggml_tensor* dst)
-{
-    const ggml_tensor* src0 = dst->src[0];
-	const ggml_tensor* src1 = dst->src[1];
-    bin_bcast_context ctx {
-        .dst_d = dst->data,
-        .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
-        .src1_type = std::bit_cast<internal::ggml_type>(src1->type),
-        .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
-        .ne00 = src0->ne[0],
-        .ne01 = src0->ne[1],
-        .ne02 = src0->ne[2],
-        .ne03 = src0->ne[3],
-        .nb00 = src0->nb[0],
-        .nb01 = src0->nb[1],
-        .nb02 = src0->nb[2],
-        .nb03 = src0->nb[3],
-        .ne10 = src1->ne[0],
-        .ne11 = src1->ne[1],
-        .ne12 = src1->ne[2],
-        .ne13 = src1->ne[3],
-        .nb10 = src1->nb[0],
-        .nb11 = src1->nb[1],
-        .nb12 = src1->nb[2],
-        .nb13 = src1->nb[3],
-        .ne0 = dst->ne[0],
-        .ne1 = dst->ne[1],
-        .ne2 = dst->ne[2],
-        .ne3 = dst->ne[3],
-        .nb0 = dst->nb[0],
-        .nb1 = dst->nb[1],
-        .nb2 = dst->nb[2],
-        .nb3 = dst->nb[3],
-        .src0_is_contiguous = ggml_is_contiguous(src0),
-        .src1_is_contiguous = ggml_is_contiguous(src1),
-        .dst_is_contiguous = ggml_is_contiguous(dst),
-    };
-    for (size_t i = 0; i < dst->src.size(); i++)
-        ctx.src_data[i] = dst->src[i]->data;
-    return ctx;
-}
-
 namespace op
 {
     struct ggml_cuda_mm_fusion_args_host {
@@ -709,61 +667,31 @@ namespace op
     void repeat(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
-        bin_bcast_context context{
-            .dst_d = dst->data,
-            .src0_type = std::bit_cast<internal::ggml_type>(dst->type),
-            .src1_type = std::bit_cast<internal::ggml_type>(src0->type),
-            .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
-            .ne00 = dst->ne[0],
-            .ne01 = dst->ne[1],
-            .ne02 = dst->ne[2],
-            .ne03 = dst->ne[3],
-            .nb00 = dst->nb[0],
-            .nb01 = dst->nb[1],
-            .nb02 = dst->nb[2],
-            .nb03 = dst->nb[3],
-            .ne10 = src0->ne[0],
-            .ne11 = src0->ne[1],
-            .ne12 = src0->ne[2],
-            .ne13 = src0->ne[3],
-            .nb10 = src0->nb[0],
-            .nb11 = src0->nb[1],
-            .nb12 = src0->nb[2],
-            .nb13 = src0->nb[3],
-            .ne0 = dst->ne[0],
-            .ne1 = dst->ne[1],
-            .ne2 = dst->ne[2],
-            .ne3 = dst->ne[3],
-            .nb0 = dst->nb[0],
-            .nb1 = dst->nb[1],
-            .nb2 = dst->nb[2],
-            .nb3 = dst->nb[3],
-            .src0_is_contiguous = ggml_is_contiguous(dst),
-            .src1_is_contiguous = ggml_is_contiguous(src0),
-            .dst_is_contiguous = ggml_is_contiguous(dst),
-            .src_data = { nullptr, src0->data }
-        };
-        repeat_cuda(&context, stream);
+        // special case, need to overwrite src_data
+        bin_bcast_context ctx = utils::create_bcast_context(dst, src0, dst);
+        ctx.src_data[0] = nullptr;
+        ctx.src_data[1] = src0->data;
+        repeat_cuda(ctx, stream);
     }
 
     void add(cudaStream_t stream, ggml_tensor* dst) {
-        bin_bcast_context context = create_bcast_context(dst);
-        add_cuda(&context, stream);
+        bin_bcast_context ctx = utils::create_bcast_context(dst->src[0], dst->src[1], dst);
+        add_cuda(ctx, stream);
     }
 
     void sub(cudaStream_t stream, ggml_tensor* dst) {
-        bin_bcast_context context = create_bcast_context(dst);
-        sub_cuda(&context, stream);
+        bin_bcast_context ctx = utils::create_bcast_context(dst->src[0], dst->src[1], dst);
+        sub_cuda(ctx, stream);
     }
 
     void mul(cudaStream_t stream, ggml_tensor* dst) {
-        bin_bcast_context context = create_bcast_context(dst);
-        mul_cuda(&context, stream);
+        bin_bcast_context ctx = utils::create_bcast_context(dst->src[0], dst->src[1], dst);
+        mul_cuda(ctx, stream);
     }
 
     void div(cudaStream_t stream, ggml_tensor* dst) {
-        bin_bcast_context context = create_bcast_context(dst);
-        div_cuda(&context, stream);
+        bin_bcast_context ctx = utils::create_bcast_context(dst->src[0], dst->src[1], dst);
+        div_cuda(ctx, stream);
     }
 
     void scale(cudaStream_t stream, ggml_tensor* dst) {
@@ -2274,7 +2202,7 @@ namespace op
             .ne3 = dst->ne[3]
         };
 
-        repeat_back_cuda(&ctx, stream);
+        repeat_back_cuda(ctx, stream);
     }
 
     void l2_norm(cudaStream_t stream, ggml_tensor* dst) {

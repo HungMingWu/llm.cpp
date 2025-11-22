@@ -223,17 +223,21 @@ void count_equal_cuda(const count_equal_context* ctx, cudaStream_t stream);
 struct bin_bcast_context {
     void* dst_d;
     const internal::ggml_type src0_type, src1_type, dst_type;
-    const int64_t ne00, ne01, ne02, ne03;
-    const size_t nb00, nb01, nb02, nb03;
-    const int64_t ne10, ne11, ne12, ne13;
-    const size_t nb10, nb11, nb12, nb13;
-    const int64_t ne0, ne1, ne2, ne3;
-    const size_t nb0, nb1, nb2, nb3;
-    const bool src0_is_contiguous, src1_is_contiguous, dst_is_contiguous;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t src1_ne[4];
+    size_t src1_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
     void* src_data[12];
 };
 
-void repeat_cuda(const bin_bcast_context* ctx, cudaStream_t stream);
+void repeat_cuda(const bin_bcast_context &ctx, cudaStream_t stream);
+void add_cuda(const bin_bcast_context& ctx, cudaStream_t stream);
+void sub_cuda(const bin_bcast_context& ctx, cudaStream_t stream);
+void mul_cuda(const bin_bcast_context& ctx, cudaStream_t stream);
+void div_cuda(const bin_bcast_context& ctx, cudaStream_t stream);
+void fused_add_cuda(const bin_bcast_context& ctx, int n_fuse, cudaStream_t stream);
 
 struct repeat_back_context {
     const internal::ggml_type dst_type;
@@ -244,13 +248,7 @@ struct repeat_back_context {
     const size_t nb00, nb01, nb02, nb03;
     const int64_t ne0, ne1, ne2, ne3;
 };
-
-void repeat_back_cuda(const repeat_back_context* ctx, cudaStream_t stream);
-void add_cuda(const bin_bcast_context* ctx, cudaStream_t stream);
-void sub_cuda(const bin_bcast_context* ctx, cudaStream_t stream);
-void mul_cuda(const bin_bcast_context* ctx, cudaStream_t stream);
-void div_cuda(const bin_bcast_context* ctx, cudaStream_t stream);
-void fused_add_cuda(const bin_bcast_context* ctx, int n_fuse, cudaStream_t stream);
+void repeat_back_cuda(const repeat_back_context& ctx, cudaStream_t stream);
 
 // cpy
 struct dup_context {
