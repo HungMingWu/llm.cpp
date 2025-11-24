@@ -2187,19 +2187,10 @@ namespace op
             .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
             .src0_d = src0->data,
             .dst_d = dst->data,
-            .src0_ts = ggml_type_size(src0->type),
-            .ne00 = src0->ne[0],
-            .ne01 = src0->ne[1],
-            .ne02 = src0->ne[2],
-            .ne03 = src0->ne[3],
-            .nb00 = src0->nb[0],
-            .nb01 = src0->nb[1],
-            .nb02 = src0->nb[2],
-            .nb03 = src0->nb[3],
-            .ne0 = dst->ne[0],
-            .ne1 = dst->ne[1],
-            .ne2 = dst->ne[2],
-            .ne3 = dst->ne[3]
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] }
         };
 
         repeat_back_cuda(ctx, stream);

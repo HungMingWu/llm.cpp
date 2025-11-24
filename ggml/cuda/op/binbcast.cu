@@ -138,60 +138,27 @@ static void ggml_cuda_op_fused_binbcast_impl(const bin_bcast_context &ctx, cudaS
 }
 
 template <typename T>
-static __global__ void k_repeat_back(
-    const T* __restrict__ src, T* __restrict__ dst, const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
-    const size_t s00, const size_t s01, const size_t s02, const size_t s03,
-    const int64_t ne0, const int64_t ne1, const int64_t ne2, const int64_t ne3) {
-
-    const int64_t tid0 = int64_t(blockIdx.x) * blockDim.x + threadIdx.x;
-    const int64_t tid1 = int64_t(blockIdx.y) * blockDim.y + threadIdx.y;
-    const int64_t tid23 = int64_t(blockIdx.z) * blockDim.z + threadIdx.z;
-    const int64_t tid2 = tid23 % ne2;
-    const int64_t tid3 = tid23 / ne2;
-
-    if (tid0 >= ne0) {
-        return;
-    }
-
-    T sum = 0;
-    for (int64_t i3 = tid3; i3 < ne03; i3 += ne3) {
-        for (int64_t i2 = tid2; i2 < ne02; i2 += ne2) {
-            for (int64_t i1 = tid1; i1 < ne01; i1 += ne1) {
-                for (int64_t i0 = tid0; i0 < ne00; i0 += ne0) {
-                    sum += src[i3 * s03 + i2 * s02 + i1 * s01 + i0 * s00];
-                }
-            }
+void repeat_back_cuda(const repeat_back_context& ctx, cudaStream_t stream) {
+    auto src0_data = make_strided_mdspan(static_cast<const T*>(ctx.src0_d), ctx.src0_ne, ctx.src0_nb);
+    auto dst_data = make_strided_mdspan(static_cast<T*>(ctx.dst_d), ctx.dst_ne, ctx.dst_nb);
+    launch_functor(stream, std::make_tuple(ctx.dst_ne[3], ctx.dst_ne[2], ctx.dst_ne[1], ctx.dst_ne[0]),
+        [=] __device__(int64_t i3, int64_t i2, int64_t i1, int64_t i0) {
+            T sum = 0;
+            for (int64_t i03 = i3; i03 < src0_data.extent(0); i03 += dst_data.extent(0))
+                for (int64_t i02 = i2; i02 < src0_data.extent(1); i02 += dst_data.extent(1))
+                    for (int64_t i01 = i1; i01 < src0_data.extent(2); i01 += dst_data.extent(2))
+                        for (int64_t i00 = i0; i00 < src0_data.extent(3); i00 += dst_data.extent(3))
+                            sum += src0_data(i03, i02, i01, i00);
+            dst_data(i3, i2, i1, i0) = sum;
         }
-    }
-    dst[tid3 * ne2 * ne1 * ne0 + tid2 * ne1 * ne0 + tid1 * ne0 + tid0] = sum;
-}
-
-template <typename T>
-static void repeat_back_cuda(
-    const T* src, T* dst, const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
-    const size_t s00, const size_t s01, const size_t s02, const size_t s03,
-    const int64_t ne0, const int64_t ne1, const int64_t ne2, const int64_t ne3, cudaStream_t stream) {
-
-    const dim3 block_dims(WARP_SIZE, 1, 1);
-    const dim3 block_nums((ne0 + WARP_SIZE - 1) / WARP_SIZE, ne1, ne2 * ne3);
-    k_repeat_back<T> << <block_nums, block_dims, 0, stream >> >
-        (src, dst, ne00, ne01, ne02, ne03, s00, s01, s02, s03, ne0, ne1, ne2, ne3);
+    );
 }
 
 void repeat_back_cuda(const repeat_back_context &ctx, cudaStream_t stream)
 {
-    const size_t s00 = ctx.nb00 / ctx.src0_ts;
-    const size_t s01 = ctx.nb01 / ctx.src0_ts;
-    const size_t s02 = ctx.nb02 / ctx.src0_ts;
-    const size_t s03 = ctx.nb03 / ctx.src0_ts;
     switch (ctx.dst_type) {
     case internal::GGML_TYPE_F32: {
-        const float* src0_d = (const float*)ctx.src0_d;
-        float* dst_d = (float*)ctx.dst_d;
-        repeat_back_cuda(src0_d, dst_d,
-            ctx.ne00, ctx.ne01, ctx.ne02, ctx.ne03,
-            s00, s01, s02, s03,
-            ctx.ne0, ctx.ne1, ctx.ne2, ctx.ne3, stream);
+        repeat_back_cuda<float>(ctx, stream);
     } break;
     default: {
         GGML_ASSERT(false);

@@ -243,10 +243,10 @@ struct repeat_back_context {
     const internal::ggml_type dst_type;
     const void* src0_d;
     void* dst_d;
-    const size_t src0_ts;
-    const int64_t ne00, ne01, ne02, ne03;
-    const size_t nb00, nb01, nb02, nb03;
-    const int64_t ne0, ne1, ne2, ne3;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
 };
 void repeat_back_cuda(const repeat_back_context& ctx, cudaStream_t stream);
 
