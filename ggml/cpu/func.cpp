@@ -2475,12 +2475,11 @@ static void ggml_compute_forward_gla_f32(
 	ggml_tensor* dst) {
 	const int64_t T = dst->src[1]->ne[2];
 	const int64_t C = dst->ne[0];
-	const int64_t HEADS = dst->src[1]->ne[1];
+	const int64_t HEADS = dst->src[0]->ne[1];
 	const int64_t n_seqs = dst->src[4]->ne[1];
 	const int64_t head_size = C / HEADS;
 	const float scale = std::bit_cast<float>(dst->op_params[0]);
-
-	float* state = ((float*)dst->data) + C * T;
+	const int64_t n_seq_tokens = T / n_seqs;
 
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
@@ -2489,52 +2488,29 @@ static void ggml_compute_forward_gla_f32(
 	std::experimental::mdspan v(static_cast<const float*>(dst->src[1]->data), T, HEADS, head_size);
 	std::experimental::mdspan q(static_cast<const float*>(dst->src[2]->data), T, HEADS, head_size);
 	std::experimental::mdspan g(static_cast<const float*>(dst->src[3]->data), T, HEADS, head_size);
+	std::experimental::mdspan state_cur(static_cast<float*>(dst->data) + C * T, n_seqs, HEADS, head_size, head_size);
 
-	size_t t_stride = HEADS * head_size; // Same to C
-
-	size_t h_stride = C / HEADS;
 	GGML_ASSERT(C % HEADS == 0); // C must be divisible by HEADS
-	size_t h_stride_2d = head_size * head_size;
 
 	memset(dst->data, 0, T * C * sizeof(float));
 
 	for (int64_t h = 0; h < HEADS; h++) {
-		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-			for (int64_t t = 0; t < T; t++) {
-				size_t t_offset = t * t_stride;
-				size_t state_offset = head_size * C * (t / (T / n_seqs));
-				float* state_cur = state + state_offset;
-				std::experimental::mdspan state_cur1(static_cast<float*>(state_cur), HEADS, head_size, head_size);
-				float* state_prev = t % (T / n_seqs) ? state_cur : (float*)dst->src[4]->data + state_offset;
-				std::experimental::mdspan state_prev1(static_cast<float*>(state_prev), HEADS, head_size, head_size);
-
-
-				size_t h_offset = h * h_stride;
-				size_t t_h_offset = t_offset + h_offset;
-				size_t h_2d_offset = h * h_stride_2d;
-
-				for (int64_t i = 0; i < head_size; i++) {
-					size_t h_2d_i_offset = h_2d_offset + i * h_stride;
-
-					float k_val = k[t, h, i];
-					float q_val = q[t, h, i] * scale;
-					float g_val = g[t, h, i];
-
-					for (int64_t j = 0; j < head_size; j++) {
-						size_t t_h_j_offset = t_h_offset + j;
-						size_t h_2d_i_j_offset = h_2d_i_offset + j;
-
-						float v_val = v[t, h, j];
-						float kv_val = v_val * k_val;
-						float prev_state_val = state_prev1[h, i, j];
-						float temp_val = prev_state_val * g_val + kv_val;
-						dst_data[t, h, j] += temp_val * q_val;
-						state_cur1[h, i, j] = temp_val;
+		for (int64_t batch_i = 0; batch_i < n_seqs; batch_i++) {
+			stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+				std::experimental::mdspan state_prev(static_cast<float*>(dst->src[4]->data), n_seqs, HEADS, head_size, head_size);
+				for (int64_t t = batch_i * n_seq_tokens; t < (batch_i + 1) * n_seq_tokens; t++) {
+					for (int64_t i = 0; i < head_size; i++) {
+						for (int64_t j = 0; j < head_size; j++) {
+							float temp_val = state_prev[batch_i, h, i, j] * g[t, h, i] + v[t, h, j] * k[t, h, i];
+							dst_data[t, h, j] += temp_val * q[t, h, i] * scale;
+							state_cur[batch_i, h, i, j] = temp_val;
+						}
 					}
+					state_prev = state_cur;
 				}
-			}
-		});
-		scope.spawn(std::move(sender));
+			});
+			scope.spawn(std::move(sender));
+		}
 	}
 }
 

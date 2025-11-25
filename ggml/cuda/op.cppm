@@ -830,16 +830,16 @@ namespace op
 
     void gated_linear_attn(cudaStream_t stream, ggml_tensor* dst) {
         const int64_t C = dst->ne[0];
-        const int64_t H = dst->src[0]->ne[1];
+        const int64_t HEADS = dst->src[0]->ne[1];
 
         GGML_ASSERT(dst->src[4]->type == GGML_TYPE_F32);
-        GGML_ASSERT(C % H == 0);
-        GGML_ASSERT(C / H == 64 || C / H == 128);
+        GGML_ASSERT(C % HEADS == 0);
+        GGML_ASSERT(C / HEADS == 64 || C / HEADS == 128);
         gla_context ctx{
-            .B = dst->src[4]->ne[1],
+            .n_seqs = dst->src[4]->ne[1],
             .T = dst->src[0]->ne[2],
             .C = dst->ne[0],
-            .H = dst->src[0]->ne[1],
+            .HEADS = dst->src[0]->ne[1],
             .scale = std::bit_cast<float>(dst->op_params[0]),
             .k = (const float*)dst->src[0]->data,
             .v = (const float*)dst->src[1]->data,
@@ -848,7 +848,7 @@ namespace op
             .s = (const float*)dst->src[4]->data,
             .dst = (float*)dst->data
         };
-        gated_linear_attn_cuda(&ctx, stream);
+        gated_linear_attn_cuda(ctx, stream);
     }
 
     void mul_mat_vec_q(ggml_cuda_pool& pool, cudaStream_t stream,

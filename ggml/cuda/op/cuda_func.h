@@ -321,10 +321,10 @@ void rms_norm_mul_f32_cuda(const float* x,
 
 // gla
 struct gla_context {
-    const int64_t B;
+    const int64_t n_seqs;
     const int64_t T;
     const int64_t C;
-    const int64_t H;
+    const int64_t HEADS;
     const float scale;
     const float* k;
     const float* v;
@@ -333,7 +333,7 @@ struct gla_context {
     const float* s;
     float* dst;
 };
-void gated_linear_attn_cuda(const gla_context *ctx, cudaStream_t stream);
+void gated_linear_attn_cuda(const gla_context &ctx, cudaStream_t stream);
 
 // wkv
 void rwkv_wkv_cuda(const int B,
