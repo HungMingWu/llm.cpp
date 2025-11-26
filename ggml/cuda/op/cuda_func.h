@@ -336,14 +336,36 @@ struct gla_context {
 void gated_linear_attn_cuda(const gla_context &ctx, cudaStream_t stream);
 
 // wkv
-void rwkv_wkv_cuda(const int B,
-    const int T, const int C, const int H,
-    const float* k, const float* v, const float* r,
-    const float* tf, const float* td, const float* s, float* dst, cudaStream_t stream);
-void rwkv_wkv7_cuda(const int B,
-    const int T, const int C, const int H,
-    const float* r, const float* w, const float* k,
-    const float* v, const float* a, const float* b, const float* s, float* dst, cudaStream_t stream);
+struct rwkv_wkv6_context {
+    const int64_t n_seqs;
+    const int64_t T;
+    const int64_t C;
+    const int64_t HEADS;
+    const float* k;
+    const float* v;
+    const float* r;
+    const float* tf;
+    const float* td;
+    const float* s;
+    float* dst;
+};
+void rwkv_wkv6_cuda(const rwkv_wkv6_context&ctx, cudaStream_t stream);
+
+struct rwkv_wkv7_context {
+    const int64_t n_seqs;
+    const int64_t T;
+    const int64_t C;
+    const int64_t HEADS;
+    const float* r;
+    const float* w;
+    const float* k;
+    const float* v;
+    const float* a;
+    const float* b;
+    const float* s;
+    float* dst;
+};
+void rwkv_wkv7_cuda(const rwkv_wkv7_context &ctx, cudaStream_t stream);
 
 // compute_batched_ptrs
 void k_compute_batched_ptrs_cuda(

@@ -1,20 +1,6 @@
 #include "cuda_func.h"
 #include "helper.h"
-
-static __forceinline__ __device__ float4 operator+(const float4& lhs, const float4& rhs)
-{
-	return float4(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w);
-}
-
-static __forceinline__ __device__ float4 operator*(const float4& lhs, const float4& rhs)
-{
-	return float4(lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z, lhs.w * rhs.w);
-}
-
-static __forceinline__ __device__ float4 operator*(const float4& v, float scale)
-{
-	return float4(v.x * scale, v.y * scale, v.z * scale, v.w * scale);
-}
+#include "operator.cuh"
 
 template <int head_size>
 static __global__ void gated_linear_attn_f32(const int n_seqs, const int T, const int C, const int HEADS, const float scale,
@@ -49,11 +35,7 @@ static __global__ void gated_linear_attn_f32(const int n_seqs, const int T, cons
             float4& s = (float4&)(state[j]);
 
             s = s * td + k * v(t, head_i, tid);
-
-            y += r.x * s.x;
-            y += r.y * s.y;
-            y += r.z * s.z;
-            y += r.w * s.w;
+            y += dot_product(r, s);
         }
 
         dst_data(t, head_i, tid) = y * scale;
@@ -66,9 +48,9 @@ static __global__ void gated_linear_attn_f32(const int n_seqs, const int T, cons
     }
 }
 
-void gated_linear_attn_cuda(const gla_context &ctx, cudaStream_t stream)
+template <size_t head_size>
+void gated_linear_attn_cuda(const gla_context& ctx, cudaStream_t stream)
 {
-    const size_t head_size = ctx.C / ctx.HEADS;
     std::experimental::mdspan s(ctx.s, ctx.n_seqs, ctx.HEADS, head_size, head_size);
     std::experimental::mdspan k(ctx.k, ctx.T, ctx.HEADS, head_size);
     std::experimental::mdspan r(ctx.r, ctx.T, ctx.HEADS, head_size);
@@ -76,12 +58,18 @@ void gated_linear_attn_cuda(const gla_context &ctx, cudaStream_t stream)
     std::experimental::mdspan td(ctx.td, ctx.T, ctx.HEADS, head_size);
     std::experimental::mdspan dst_data(ctx.dst, ctx.T, ctx.HEADS, head_size);
     std::experimental::mdspan dst_state(ctx.dst + ctx.T * ctx.C, ctx.n_seqs, ctx.HEADS, head_size, head_size);
+    gated_linear_attn_f32<64> << <ctx.n_seqs * ctx.HEADS, head_size, 0, stream >> >
+        (ctx.n_seqs, ctx.T, ctx.C, ctx.HEADS, ctx.scale, k, v, r, td, s, dst_data, dst_state);
+}
+
+void gated_linear_attn_cuda(const gla_context &ctx, cudaStream_t stream)
+{
+    const size_t head_size = ctx.C / ctx.HEADS;
+
     if (ctx.C / ctx.HEADS == 64) {
-        gated_linear_attn_f32<64> << <ctx.n_seqs * ctx.HEADS, ctx.C / ctx.HEADS, 0, stream >> >
-            (ctx.n_seqs, ctx.T, ctx.C, ctx.HEADS, ctx.scale, k, v, r, td, s, dst_data, dst_state);
+		gated_linear_attn_cuda<64>(ctx, stream);
     }
     else {
-        gated_linear_attn_f32<128> << <ctx.n_seqs * ctx.HEADS, ctx.C / ctx.HEADS, 0, stream >> >
-            (ctx.n_seqs, ctx.T, ctx.C, ctx.HEADS, ctx.scale, k, v, r, td, s, dst_data, dst_state);
+        gated_linear_attn_cuda<128>(ctx, stream);
     }
 }

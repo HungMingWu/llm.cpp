@@ -788,44 +788,47 @@ namespace op
     }
 
     void rwkv_wkv6(cudaStream_t stream, ggml_tensor* dst) {
-        const float* k_d = (const float*)dst->src[0]->data;
-        const float* v_d = (const float*)dst->src[1]->data;
-        const float* r_d = (const float*)dst->src[2]->data;
-        const float* tf_d = (const float*)dst->src[3]->data;
-        const float* td_d = (const float*)dst->src[4]->data;
-        const float* s_d = (const float*)dst->src[5]->data;
-
-        const int64_t B = dst->src[5]->ne[1];
-        const int64_t T = dst->src[0]->ne[2];
         const int64_t C = dst->ne[0];
-        const int64_t H = dst->src[0]->ne[1];
-
-        float* dst_d = (float*)dst->data;
+        const int64_t HEADS = dst->src[0]->ne[1];
         GGML_ASSERT(dst->src[5]->type == GGML_TYPE_F32);
-        GGML_ASSERT(C % H == 0);
-        
-        rwkv_wkv_cuda(B, T, C, H, k_d, v_d, r_d, tf_d, td_d, s_d, dst_d, stream);
+        GGML_ASSERT(C % HEADS == 0);
+        rwkv_wkv6_context ctx {
+            .n_seqs = dst->src[5]->ne[1],
+            .T = dst->src[0]->ne[2],
+            .C = C,
+            .HEADS = HEADS,
+            .k = (const float*)dst->src[0]->data,
+            .v = (const float*)dst->src[1]->data,
+            .r = (const float*)dst->src[2]->data,
+            .tf = (const float*)dst->src[3]->data,
+            .td = (const float*)dst->src[4]->data,
+            .s = (const float*)dst->src[5]->data,
+            .dst = (float*)dst->data
+        };
+        rwkv_wkv6_cuda(ctx, stream);
     }
 
     void rwkv_wkv7(cudaStream_t stream, ggml_tensor* dst) {
-        const float* r_d = (const float*)dst->src[0]->data;
-        const float* w_d = (const float*)dst->src[1]->data;
-        const float* k_d = (const float*)dst->src[2]->data;
-        const float* v_d = (const float*)dst->src[3]->data;
-        const float* a_d = (const float*)dst->src[4]->data;
-        const float* b_d = (const float*)dst->src[5]->data;
-        const float* s_d = (const float*)dst->src[6]->data;
-
-        const int64_t B = dst->src[6]->ne[1];
-        const int64_t T = dst->src[0]->ne[2];
         const int64_t C = dst->ne[0];
-        const int64_t H = dst->src[0]->ne[1];
-
-        float* dst_d = (float*)dst->data;
+        const int64_t HEADS = dst->src[0]->ne[1];
 
         GGML_ASSERT(dst->src[6]->type == GGML_TYPE_F32);
-        GGML_ASSERT(C % H == 0);
-        rwkv_wkv7_cuda(B, T, C, H, r_d, w_d, k_d, v_d, a_d, b_d, s_d, dst_d, stream);
+        GGML_ASSERT(C % HEADS == 0);
+        rwkv_wkv7_context ctx {
+            .n_seqs = dst->src[6]->ne[1],
+            .T = dst->src[0]->ne[2],
+            .C = C,
+            .HEADS = HEADS,
+            .r = (const float*)dst->src[0]->data,
+            .w = (const float*)dst->src[1]->data,
+            .k = (const float*)dst->src[2]->data,
+            .v = (const float*)dst->src[3]->data,
+            .a = (const float*)dst->src[4]->data,
+            .b = (const float*)dst->src[5]->data,
+            .s = (const float*)dst->src[6]->data,
+            .dst = (float*)dst->data
+        };
+        rwkv_wkv7_cuda(ctx, stream);
     }
 
     void gated_linear_attn(cudaStream_t stream, ggml_tensor* dst) {
@@ -835,7 +838,7 @@ namespace op
         GGML_ASSERT(dst->src[4]->type == GGML_TYPE_F32);
         GGML_ASSERT(C % HEADS == 0);
         GGML_ASSERT(C / HEADS == 64 || C / HEADS == 128);
-        gla_context ctx{
+        gla_context ctx {
             .n_seqs = dst->src[4]->ne[1],
             .T = dst->src[0]->ne[2],
             .C = dst->ne[0],
