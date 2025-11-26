@@ -1485,23 +1485,22 @@ namespace op
         const ggml_tensor* src0 = dst->src[0]; // grad
         const ggml_tensor* src1 = dst->src[1]; // forward pass output
 
-        const float* src0_d = (const float*)src0->data;
-        const float* src1_d = (const float*)src1->data;
-        float* dst_d = (float*)dst->data;
-
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(src1->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-        const int64_t ncols = src0->ne[0];
-        const int64_t nrows = ggml_nrows(src0);
-
-        float scale = std::bit_cast<float>(dst->op_params[0]);
         float max_bias = std::bit_cast<float>(dst->op_params[1]);
-
         GGML_ASSERT(max_bias == 0.0f);
 
-        soft_max_back_f32_cuda(src0_d, src1_d, dst_d, ncols, nrows, scale, stream);
+        softmax_back_context ctx{
+            .src0_d = (const float*)src0->data,
+            .src1_d = (const float*)src1->data,
+            .dst_d = (float*)dst->data,
+            .ncols = src0->ne[0],
+            .nrows = ggml_nrows(src0),
+            .scale = std::bit_cast<float>(dst->op_params[0])
+        };
+        soft_max_back_f32_cuda(ctx, stream);
     }
 
     void rope(cudaStream_t stream, ggml_tensor* dst, bool forward, const ggml_tensor* set_rows = nullptr) {

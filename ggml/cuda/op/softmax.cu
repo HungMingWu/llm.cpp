@@ -135,32 +135,31 @@ void soft_max_f32_cuda(const softmax_context &ctx, cudaStream_t stream)
 }
 
 static __global__ void soft_max_back_f32(
-    const float* grad, const float* dstf, float* dst, const int ncols, const float scale) {
+    auto grad, auto dstf, auto dst, const int ncols, const float scale) {
     const int tid = threadIdx.x;
-    const int rowx = blockIdx.x;
-
-    grad += int64_t(rowx) * ncols;
-    dstf += int64_t(rowx) * ncols;
-    dst += int64_t(rowx) * ncols;
+    const int row = blockIdx.x;
 
     float dgf_dot = 0.0f; // dot product of dst from forward pass and gradients
 
     for (int col = tid; col < ncols; col += WARP_SIZE) {
-        dgf_dot += dstf[col] * grad[col];
+        dgf_dot += dstf(row, col) * grad(row, col);
     }
 
-    dgf_dot = warp_reduce_sum(dgf_dot);
+    auto block = cooperative_groups::this_thread_block();
+    auto tile = cooperative_groups::tiled_partition<32>(block);
+    dgf_dot = cooperative_groups::reduce(tile, dgf_dot, cooperative_groups::plus<float>{});
 
     for (int col = tid; col < ncols; col += WARP_SIZE) {
-        dst[col] = scale * (grad[col] - dgf_dot) * dstf[col];
+        dst(row, col) = scale * (grad(row, col) - dgf_dot) * dstf(row, col);
     }
 }
 
-void soft_max_back_f32_cuda(
-    const float* grad, const float* dstf, float* dst,
-    const int ncols, const int nrows, const float scale, cudaStream_t stream) {
+void soft_max_back_f32_cuda(const softmax_back_context &ctx, cudaStream_t stream) {
     const dim3 block_dims(WARP_SIZE, 1, 1);
-    const dim3 block_nums(nrows, 1, 1);
+    const dim3 block_nums(ctx.nrows, 1, 1);
 
-    soft_max_back_f32 << <block_nums, block_dims, 0, stream >> > (grad, dstf, dst, ncols, scale);
+    std::experimental::mdspan grad(ctx.src0_d, ctx.nrows, ctx.ncols);
+    std::experimental::mdspan dstf(ctx.src1_d, ctx.nrows, ctx.ncols);
+    std::experimental::mdspan dst(ctx.dst_d, ctx.nrows, ctx.ncols);
+    soft_max_back_f32 << <block_nums, block_dims, 0, stream >> > (grad, dstf, dst, ctx.ncols, ctx.scale);
 }

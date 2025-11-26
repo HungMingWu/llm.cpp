@@ -427,9 +427,16 @@ struct softmax_context {
 };
 
 void soft_max_f32_cuda(const softmax_context &ctx, cudaStream_t stream);
-void soft_max_back_f32_cuda(
-    const float* grad, const float* dstf, float* dst,
-    const int ncols, const int nrows, const float scale, cudaStream_t stream);
+
+struct softmax_back_context {
+    const float* src0_d;
+    const float* src1_d;
+    float* dst_d;
+    const int64_t ncols;
+    const int64_t nrows;
+    const float scale;
+};
+void soft_max_back_f32_cuda(const softmax_back_context &ctx, cudaStream_t stream);
 
 // rope
 
