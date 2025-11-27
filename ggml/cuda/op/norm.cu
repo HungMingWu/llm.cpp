@@ -1,27 +1,23 @@
 #include "common.cuh"
 #include "reduce.cuh"
+#include "cuda_func.h"
+#include "helper.h"
 
 static __global__ void norm_f32(
-    const float* x, float* dst, const int ncols, const int64_t stride_row, const int64_t stride_channel,
-    const int64_t stride_sample, const float eps) {
+    auto x, auto dst, const int ncols, const float eps) {
     __shared__ float2 s_sum[32];
     auto block = cooperative_groups::this_thread_block();
     auto tile = cooperative_groups::tiled_partition<32>(block);
-    const int nrows = gridDim.x;
-    const int nchannels = gridDim.y;
 
     const int row = blockIdx.x;
     const int channel = blockIdx.y;
     const int sample = blockIdx.z;
     const int tid = threadIdx.x;
 
-    x += sample * stride_sample + channel * stride_channel + row * stride_row;
-    dst += ((sample * nchannels + channel) * nrows + row) * ncols;
-
     float2 mean_var = make_float2(0.0f, 0.0f);
 
     for (int col = tid; col < ncols; col += block.size()) {
-        const float xi = x[col];
+        const float xi = x(sample, channel, row, col);
         mean_var.x += xi;
         mean_var.y += xi * xi;
     }
@@ -34,84 +30,44 @@ static __global__ void norm_f32(
     const float inv_std = rsqrtf(var + eps);
 
     for (int col = tid; col < ncols; col += block.size()) {
-        dst[col] = (x[col] - mean) * inv_std;
+        dst(sample, channel, row, col) = (x(sample, channel, row, col) - mean) * inv_std;
     }
 }
 
-void norm_f32_cuda(
-    const float* x, float* dst, const int ncols, const int nrows, const int nchannels, const int nsamples,
-    const int64_t stride_row, const int64_t stride_channel, const int64_t stride_sample, const float eps, cudaStream_t stream)
+void norm_f32_cuda(const norm_context& ctx, cudaStream_t stream)
 {
-    const dim3 blocks_num(nrows, nchannels, nsamples);
+    auto s_data = make_strided_mdspan(ctx.src0_d, ctx.src0_ne, ctx.src0_nb);
+    auto dst_data = make_strided_mdspan(ctx.dst_d, ctx.dst_ne, ctx.dst_nb);
+	auto [ncols, nrows, nchannels, nsamples] = ctx.src0_ne;
+    const dim3 blocks_num(nrows, nchannels,  nsamples);
     if (ncols < 1024) {
         const dim3 block_dims(WARP_SIZE, 1, 1);
-        norm_f32 << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
+        norm_f32 << <blocks_num, block_dims, 0, stream >> > 
+            (s_data, dst_data, ncols, ctx.eps);
     }
     else {
         const dim3 block_dims(1024, 1, 1);
-        norm_f32 << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
+        norm_f32 << <blocks_num, block_dims, 0, stream >> > 
+            (s_data, dst_data, ncols, ctx.eps);
     }
 }
 
-template <bool do_multiply = false, bool do_add = false>
-static __global__ void rms_norm_f32(const float* x,
-    float* dst,
-    const int     ncols,
-    const int64_t stride_row,
-    const int64_t stride_channel,
-    const int64_t stride_sample,
-    const float   eps,
-    const float* mul = nullptr,
-    const int64_t mul_stride_row = 0,
-    const int64_t mul_stride_channel = 0,
-    const int64_t mul_stride_sample = 0,
-    const uint3   mul_ncols_packed = make_uint3(0, 0, 0),
-    const uint3   mul_nrows_packed = make_uint3(0, 0, 0),
-    const uint3   mul_nchannels_packed = make_uint3(0, 0, 0),
-    const uint3   mul_nsamples_packed = make_uint3(0, 0, 0),
-    const float* add = nullptr,
-    const int64_t add_stride_row = 0,
-    const int64_t add_stride_channel = 0,
-    const int64_t add_stride_sample = 0,
-    const uint3   add_ncols_packed = make_uint3(0, 0, 0),
-    const uint3   add_nrows_packed = make_uint3(0, 0, 0),
-    const uint3   add_nchannels_packed = make_uint3(0, 0, 0),
-    const uint3   add_nsamples_packed = make_uint3(0, 0, 0)) {
-    const int nrows = gridDim.x;
-    const int nchannels = gridDim.y;
-
+template <typename dst_t, typename src_t, typename... Ts>
+requires (std::is_same_v<Ts, src_t> && ...)
+static __global__ void rms_norm_f32(dst_t dst, src_t x, const int ncols, const float eps, Ts... args) {
+    static_assert(sizeof...(Ts) < 3, "rms_norm_f32 only supports up to 2 extra arguments");
     const int row = blockIdx.x;
     const int channel = blockIdx.y;
     const int sample = blockIdx.z;
     const int tid = threadIdx.x;
     __shared__ float s_sum[32];
-
-    static_assert(!do_add || do_multiply, "fusing add is not supported without multiplying");
-
-    x += sample * stride_sample + channel * stride_channel + row * stride_row;
-    dst += ((sample * nchannels + channel) * nrows + row) * ncols;
-
-    if constexpr (do_multiply) {
-        const uint32_t mul_row = fastmodulo(row, mul_nrows_packed);
-        const uint32_t mul_channel = fastmodulo(channel, mul_nchannels_packed);
-        const uint32_t mul_sample = fastmodulo(sample, mul_nsamples_packed);
-        mul += mul_sample * mul_stride_sample + mul_channel * mul_stride_channel + mul_row * mul_stride_row;
-    }
-
-    if constexpr (do_add) {
-        const int add_row = fastmodulo(row, add_nrows_packed);
-        const int add_channel = fastmodulo(channel, add_nchannels_packed);
-        const int add_sample = fastmodulo(sample, add_nsamples_packed);
-        add += add_sample * add_stride_sample + add_channel * add_stride_channel + add_row * add_stride_row;
-    }
-
     auto block = cooperative_groups::this_thread_block();
     auto tile = cooperative_groups::tiled_partition<32>(block);
 
     float tmp = 0.0f; // partial sum for thread in warp
 
     for (int col = tid; col < ncols; col += block.size()) {
-        const float xi = x[col];
+        const float xi = x(sample, channel, row, col);
         tmp += xi * xi;
     }
 
@@ -122,55 +78,38 @@ static __global__ void rms_norm_f32(const float* x,
     const float scale = rsqrtf(mean + eps);
 
     for (int col = tid; col < ncols; col += block.size()) {
-        if constexpr (do_multiply && do_add) {
-            const int mul_col = fastmodulo(col, mul_ncols_packed);
-            const int add_col = fastmodulo(col, add_ncols_packed);
-            dst[col] = scale * x[col] * mul[mul_col] + add[add_col];
+        dst(sample, channel, row, col) = scale * x(sample, channel, row, col);
+        if constexpr (sizeof...(Ts) > 0) {
+            auto tuple = std::make_tuple(args...);
+            auto mul_data = std::get<0>(tuple);
+            dst(sample, channel, row, col) *=
+                mul_data(sample % mul_data.extent(0), 
+                    channel % mul_data.extent(1), row % mul_data.extent(2), col % mul_data.extent(3));
+            if constexpr (sizeof...(Ts) > 1) {
+                auto add_data = std::get<1>(tuple);
+                dst(sample, channel, row, col) += 
+                    add_data(sample % add_data.extent(0), channel % add_data.extent(1), row % add_data.extent(2), col % add_data.extent(3));
+            }
         }
-        else if constexpr (do_multiply) {
-            const int mul_col = fastmodulo(col, mul_ncols_packed);
-            dst[col] = scale * x[col] * mul[mul_col];
-        }
-        else {
-            dst[col] = scale * x[col];
-        }
-    }
-}
-
-void rms_norm_f32_cuda(
-    const float* x, float* dst, const int ncols, const int nrows, const int nchannels, const int nsamples,
-    const int64_t stride_row, const int64_t stride_channel, const int64_t stride_sample, const float eps, cudaStream_t stream) {
-    const dim3 blocks_num(nrows, nchannels, nsamples);
-    if (ncols < 1024) {
-        const dim3 block_dims(256, 1, 1);
-        rms_norm_f32<false> << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
-    }
-    else {
-        const dim3 block_dims(1024, 1, 1);
-        rms_norm_f32<false> << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
     }
 }
 
 static __global__ void rms_norm_back_f32(
-    const float* grad, const float* xf, float* dst, const int ncols, const float eps) {
+    auto grad, auto xf, auto dst, const int ncols, const float eps) {
     auto block = cooperative_groups::this_thread_block();
     auto tile = cooperative_groups::tiled_partition<32>(block);
     const int row = blockIdx.x * blockDim.y + threadIdx.y;
     const int tid = threadIdx.x;
 
     __shared__ float2 s_sum[32]; // xx and xg
-    grad += int64_t(row) * ncols;
-    xf += int64_t(row) * ncols;
-    dst += int64_t(row) * ncols;
 
     // x -> xx, sum for squares of x, equivalent to forward pass
     // y -> xg, sum for x * gradient, needed because RMS norm mixes inputs
     float2 sum_var = make_float2(0.0f, 0.0f);
 
     for (int col = tid; col < ncols; col += block.size()) {
-        const float xfi = xf[col];
-        sum_var.x += xfi * xfi;
-        sum_var.y += xfi * grad[col];
+        sum_var.x += xf(row, col) * xf(row, col);
+        sum_var.y += xf(row, col) * grad(row, col);
     }
 
     // sum up partial sums
@@ -183,18 +122,21 @@ static __global__ void rms_norm_back_f32(
     const float scale_x = -scale_grad * sum_var.y / sum_eps;
 
     for (int col = tid; col < ncols; col += block.size()) {
-        dst[col] = scale_grad * grad[col] + scale_x * xf[col];
+        dst(row, col) = scale_grad * grad(row, col) + scale_x * xf(row, col);
     }
 }
 
-void rms_norm_back_f32_cuda(const float* grad, const float* xf, float* dst, const int ncols, const int nrows, const float eps, cudaStream_t stream) {
-    if (ncols < 1024) {
+void rms_norm_back_f32_cuda(const rms_norm_back_context& ctx, cudaStream_t stream) {
+    std::experimental::mdspan grad(ctx.grad_d, ctx.nrows, ctx.ncols);
+    std::experimental::mdspan xf(ctx.xf_d, ctx.nrows, ctx.ncols);
+    std::experimental::mdspan dst(ctx.dst_d, ctx.nrows, ctx.ncols);
+    if (ctx.ncols < 1024) {
         const dim3 block_dims(WARP_SIZE, 1, 1);
-        rms_norm_back_f32 << <nrows, block_dims, 0, stream >> > (grad, xf, dst, ncols, eps);
+        rms_norm_back_f32 << <ctx.nrows, block_dims, 0, stream >> > (grad, xf, dst, ctx.ncols, ctx.eps);
     }
     else {
         const dim3 block_dims(1024, 1, 1);
-        rms_norm_back_f32 << <nrows, block_dims, 0, stream >> > (grad, xf, dst, ncols, eps);
+        rms_norm_back_f32 << <ctx.nrows, block_dims, 0, stream >> > (grad, xf, dst, ctx.ncols, ctx.eps);
     }
 }
 
@@ -247,26 +189,20 @@ void group_norm_f32_cuda(
 }
 
 static __global__ void l2_norm_f32(
-    const float* x, float* dst, const int ncols, const int64_t stride_row, const int64_t stride_channel,
-    const int64_t stride_sample, const float eps) {
+    auto x, auto dst, const int ncols,  const float eps) {
     __shared__ float s_sum[32];
     auto block = cooperative_groups::this_thread_block();
     auto tile = cooperative_groups::tiled_partition<32>(block);
-    const int nrows = gridDim.x;
-    const int nchannels = gridDim.y;
 
     const int row = blockIdx.x;
     const int channel = blockIdx.y;
     const int sample = blockIdx.z;
     const int tid = threadIdx.x;
 
-    x += sample * stride_sample + channel * stride_channel + row * stride_row;
-    dst += ((sample * nchannels + channel) * nrows + row) * ncols;
-
     float tmp = 0.0f; // partial sum for thread in warp
 
     for (int col = tid; col < ncols; col += block.size()) {
-        const float xi = x[col];
+        const float xi = x(sample, channel, row, col);
         tmp += xi * xi;
     }
 
@@ -277,101 +213,77 @@ static __global__ void l2_norm_f32(
     const float scale = rsqrtf(fmaxf(tmp, eps * eps));
 
     for (int col = tid; col < ncols; col += block.size()) {
-        dst[col] = scale * x[col];
+        dst(sample, channel, row, col) = scale * x(sample, channel, row, col);
     }
 }
 
-void l2_norm_f32_cuda(
-    const float* x, float* dst, const int ncols, const int nrows, const int nchannels, const int nsamples,
-    const int64_t stride_row, const int64_t stride_channel,
-    const int64_t stride_sample, const float eps, cudaStream_t stream)
+void l2_norm_f32_cuda(const norm_context& ctx, cudaStream_t stream)
 {
+    auto s_data = make_strided_mdspan(ctx.src0_d, ctx.src0_ne, ctx.src0_nb);
+    auto dst_data = make_strided_mdspan(ctx.dst_d, ctx.dst_ne, ctx.dst_nb);
+    auto [ncols, nrows, nchannels, nsamples] = ctx.src0_ne;
     const dim3 blocks_num(nrows, nchannels, nsamples);
     if (ncols < 1024) {
         const dim3 block_dims(WARP_SIZE, 1, 1);
-        l2_norm_f32 << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
+        l2_norm_f32 << <blocks_num, block_dims, 0, stream >> > (s_data, dst_data, ncols, ctx.eps);
     }
     else {
         const dim3 block_dims(1024, 1, 1);
-        l2_norm_f32 << <blocks_num, block_dims, 0, stream >> > (x, dst, ncols, stride_row, stride_channel, stride_sample, eps);
+        l2_norm_f32 << <blocks_num, block_dims, 0, stream >> > (s_data, dst_data, ncols, ctx.eps);
     }
 }
 
-void rms_norm_mul_f32_cuda(const float* x,
-    const float* mul,
-    const float* add,
+void rms_norm_mul_f32_cuda(
+    cudaStream_t  stream,
+    const float eps,
     float* dst,
-    const int      ncols,
-    const int      nrows,
-    const int      nchannels,
-    const int      nsamples,
-    const int64_t  stride_row,
-    const int64_t  stride_channel,
-    const int64_t  stride_sample,
-    const int64_t  mul_stride_row,
-    const int64_t  mul_stride_channel,
-    const int64_t  mul_stride_sample,
-    const uint32_t mul_ncols,
-    const uint32_t mul_nrows,
-    const uint32_t mul_nchannels,
-    const uint32_t mul_nsamples,
-    const int64_t  add_stride_row,
-    const int64_t  add_stride_channel,
-    const int64_t  add_stride_sample,
-    const uint32_t add_ncols,
-    const uint32_t add_nrows,
-    const uint32_t add_nchannels,
-    const uint32_t add_nsamples,
-    const float    eps,
-    cudaStream_t   stream) {
+    std::array<int64_t, 4> dst_ne,
+    std::array<size_t, 4> dst_nb,
+    const float* x,
+    std::array<int64_t, 4> x_ne,
+    std::array<size_t, 4> x_nb,
+    const float* mul,
+    std::array<int64_t, 4> mul_ne,
+    std::array<size_t, 4> mul_nb,
+    const float* add,
+    std::array<int64_t, 4> add_ne,
+    std::array<size_t, 4> add_nb) {
+    auto [ncols, nrows, nchannels, nsamples] = x_ne;
     const dim3 blocks_num(nrows, nchannels, nsamples);
+
+    auto x_data = make_strided_mdspan(x, x_ne, x_nb);
+    auto dst_data = make_strided_mdspan(dst, dst_ne, dst_nb);
     if (mul == nullptr) {
-        rms_norm_f32_cuda(x, dst, ncols, nrows, nchannels, nsamples, stride_row, stride_channel, stride_sample, eps, stream);
-        return;
-    }
-    if (add == nullptr) {
-        const uint3 mul_ncols_packed = init_fastdiv_values(mul_ncols);
-        const uint3 mul_nrows_packed = init_fastdiv_values(mul_nrows);
-        const uint3 mul_nchannels_packed = init_fastdiv_values(mul_nchannels);
-        const uint3 mul_nsamples_packed = init_fastdiv_values(mul_nsamples);
         if (ncols < 1024) {
             const dim3 block_dims(256, 1, 1);
-            rms_norm_f32<true> << <blocks_num, block_dims, 0, stream >> > (
-                x, dst, ncols, stride_row, stride_channel, stride_sample, eps, mul, mul_stride_row, mul_stride_channel,
-                mul_stride_sample, mul_ncols_packed, mul_nrows_packed, mul_nchannels_packed, mul_nsamples_packed);
+            rms_norm_f32 << <blocks_num, block_dims, 0, stream >> > (dst_data, x_data, ncols, eps);
         }
         else {
             const dim3 block_dims(1024, 1, 1);
-            rms_norm_f32<true> << <blocks_num, block_dims, 0, stream >> > (
-                x, dst, ncols, stride_row, stride_channel, stride_sample, eps, mul, mul_stride_row, mul_stride_channel,
-                mul_stride_sample, mul_ncols_packed, mul_nrows_packed, mul_nchannels_packed, mul_nsamples_packed);
+            rms_norm_f32 << <blocks_num, block_dims, 0, stream >> > (dst_data, x_data, ncols, eps);
+        }
+        return;
+    }
+    auto mul_data = make_strided_mdspan(mul, mul_ne, mul_nb);
+    if (add == nullptr) {
+        if (ncols < 1024) {
+            const dim3 block_dims(256, 1, 1);
+            rms_norm_f32 << <blocks_num, block_dims, 0, stream >> >(dst_data, x_data, ncols, eps, mul_data);
+        }
+        else {
+            const dim3 block_dims(1024, 1, 1);
+            rms_norm_f32 << <blocks_num, block_dims, 0, stream >> > (dst_data, x_data, ncols, eps, mul_data);
         }
     }
     else {
-        const uint3 mul_ncols_packed = init_fastdiv_values(mul_ncols);
-        const uint3 mul_nrows_packed = init_fastdiv_values(mul_nrows);
-        const uint3 mul_nchannels_packed = init_fastdiv_values(mul_nchannels);
-        const uint3 mul_nsamples_packed = init_fastdiv_values(mul_nsamples);
-
-        const uint3 add_ncols_packed = init_fastdiv_values(add_ncols);
-        const uint3 add_nrows_packed = init_fastdiv_values(add_nrows);
-        const uint3 add_nchannels_packed = init_fastdiv_values(add_nchannels);
-        const uint3 add_nsamples_packed = init_fastdiv_values(add_nsamples);
+        auto add_data = make_strided_mdspan(add, add_ne, add_nb);
         if (ncols < 1024) {
             const dim3 block_dims(256, 1, 1);
-            rms_norm_f32<true, true> << <blocks_num, block_dims, 0, stream >> > (
-                x, dst, ncols, stride_row, stride_channel, stride_sample, eps, mul, mul_stride_row, mul_stride_channel,
-                mul_stride_sample, mul_ncols_packed, mul_nrows_packed, mul_nchannels_packed, mul_nsamples_packed, add,
-                add_stride_row, add_stride_channel, add_stride_sample, add_ncols_packed, add_nrows_packed,
-                add_nchannels_packed, add_nsamples_packed);
+            rms_norm_f32 << <blocks_num, block_dims, 0, stream >> > (dst_data, x_data, ncols, eps, mul_data, add_data);
         }
         else {
             const dim3 block_dims(1024, 1, 1);
-            rms_norm_f32<true, true> << <blocks_num, block_dims, 0, stream >> > (
-                x, dst, ncols, stride_row, stride_channel, stride_sample, eps, mul, mul_stride_row, mul_stride_channel,
-                mul_stride_sample, mul_ncols_packed, mul_nrows_packed, mul_nchannels_packed, mul_nsamples_packed, add,
-                add_stride_row, add_stride_channel, add_stride_sample, add_ncols_packed, add_nrows_packed,
-                add_nchannels_packed, add_nsamples_packed);
+            rms_norm_f32 << <blocks_num, block_dims, 0, stream >> > (dst_data, x_data, ncols, eps, mul_data, add_data);
         }
     }
 }

@@ -271,53 +271,48 @@ void dup_cuda(const dup_context &ctx, cudaStream_t stream);
 void scale_f32_cuda(const float* x, float* dst, const float scale,
     const float bias, const size_t nelements, cudaStream_t stream);
 
-// norm
-void norm_f32_cuda(
-    const float* x, float* dst, const int ncols, const int nrows, const int nchannels, const int nsamples,
-    const int64_t stride_row, const int64_t stride_channel, const int64_t stride_sample, const float eps, cudaStream_t stream);
+// norm.cu
+struct norm_context {
+    const float* src0_d;
+    float* dst_d;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
+    const float eps;
+};
 
-void rms_norm_f32_cuda(
-    const float* x, float* dst, const int ncols, const int nrows, const int nchannels, const int nsamples,
-    const int64_t stride_row, const int64_t stride_channel, const int64_t stride_sample, const float eps, cudaStream_t stream);
+void norm_f32_cuda(const norm_context &ctx, cudaStream_t stream);
+void l2_norm_f32_cuda(const norm_context& ctx, cudaStream_t stream);
 
-void rms_norm_back_f32_cuda(const float* grad, const float* xf, float* dst, const int ncols, const int nrows, const float eps, cudaStream_t stream);
+struct rms_norm_back_context {
+    const float* grad_d;
+    const float* xf_d;
+    float* dst_d;
+    const int64_t ncols;
+    const int64_t nrows;
+    const float eps;
+};
+void rms_norm_back_f32_cuda(const rms_norm_back_context &ctx, cudaStream_t stream);
 
 void group_norm_f32_cuda(
     const float* x, float* dst, const int num_groups, const float eps, const int group_size, const int ne_elements, cudaStream_t stream);
 
-void l2_norm_f32_cuda(
-    const float* x, float* dst, const int ncols, const int nrows, const int nchannels, const int nsamples,
-    const int64_t stride_row, const int64_t stride_channel,
-    const int64_t stride_sample, const float eps, cudaStream_t stream);
-
-// norm.cu
-void rms_norm_mul_f32_cuda(const float* x,
-    const float* mul,
-    const float* add,
+void rms_norm_mul_f32_cuda(
+    cudaStream_t stream,
+    const float eps,
     float* dst,
-    const int      ncols,
-    const int      nrows,
-    const int      nchannels,
-    const int      nsamples,
-    const int64_t  stride_row,
-    const int64_t  stride_channel,
-    const int64_t  stride_sample,
-    const int64_t  mul_stride_row,
-    const int64_t  mul_stride_channel,
-    const int64_t  mul_stride_sample,
-    const uint32_t mul_ncols,
-    const uint32_t mul_nrows,
-    const uint32_t mul_nchannels,
-    const uint32_t mul_nsamples,
-    const int64_t  add_stride_row,
-    const int64_t  add_stride_channel,
-    const int64_t  add_stride_sample,
-    const uint32_t add_ncols,
-    const uint32_t add_nrows,
-    const uint32_t add_nchannels,
-    const uint32_t add_nsamples,
-    const float    eps,
-    cudaStream_t   stream);
+    std::array<int64_t, 4> dst_ne,
+    std::array<size_t, 4> dst_nb,
+    const float* x,
+    std::array<int64_t, 4> x_ne,
+    std::array<size_t, 4> x_nb,
+    const float* mul = nullptr,
+    std::array<int64_t, 4> mul_ne = {},
+    std::array<size_t, 4> mul_nb = {},
+    const float* add = nullptr,
+    std::array<int64_t, 4> add_ne = {},
+    std::array<size_t, 4> add_nb = {});
 
 // gla
 struct gla_context {

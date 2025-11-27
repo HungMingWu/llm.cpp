@@ -512,36 +512,13 @@ namespace fused
         GGML_ASSERT(mul_tensor->type == GGML_TYPE_F32);
         GGML_ASSERT(eps >= 0.0f);
 
-        const int64_t ne00 = rms_norm_src->ne[0];
-        const int64_t ne01 = rms_norm_src->ne[1];
-        const int64_t ne02 = rms_norm_src->ne[2];
-        const int64_t ne03 = rms_norm_src->ne[3];
-
-        const size_t ts0 = ggml_type_size(rms_norm_src->type);
-        GGML_ASSERT(rms_norm_src->nb[0] == ts0);
-        const int64_t s01 = rms_norm_src->nb[1] / ts0;
-        const int64_t s02 = rms_norm_src->nb[2] / ts0;
-        const int64_t s03 = rms_norm_src->nb[3] / ts0;
-
-        const size_t ts_mul = ggml_type_size(mul_src->type);
-        GGML_ASSERT(mul_src->nb[0] == ts_mul);
-        const int64_t mul_s01 = mul_src->nb[1] / ts_mul;
-        const int64_t mul_s02 = mul_src->nb[2] / ts_mul;
-        const int64_t mul_s03 = mul_src->nb[3] / ts_mul;
-
         const int mul_ncols = mul_src->ne[0];
         const int mul_nrows = mul_src->ne[1];
         const int mul_nchannels = mul_src->ne[2];
         const int mul_nsamples = mul_src->ne[3];
 
-        rms_norm_mul_f32_cuda(src0_d, mul_d, nullptr, dst_d,
-            ne00, ne01, ne02, ne03,
-            /*s00*/ s01, s02, s03,
-            /*mul_s00*/ mul_s01, mul_s02, mul_s03,
-            mul_ncols, mul_nrows, mul_nchannels, mul_nsamples,
-            /*add_s00*/ 0, 0, 0,
-            0, 0, 0, 0,
-            eps, stream);
+        rms_norm_mul_f32_cuda(stream, eps, dst_d, mul_tensor->ne, mul_tensor->nb,
+            src0_d, rms_norm_src->ne, rms_norm_src->nb, mul_d, mul_src->ne, mul_src->nb);
     }
 
     void rms_norm_add(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* mul_tensor, ggml_tensor* add_tensor) {
@@ -589,47 +566,9 @@ namespace fused
         GGML_ASSERT(add_tensor->type == GGML_TYPE_F32);
         GGML_ASSERT(eps >= 0.0f);
 
-        const int64_t ne00 = rms_norm_src->ne[0];
-        const int64_t ne01 = rms_norm_src->ne[1];
-        const int64_t ne02 = rms_norm_src->ne[2];
-        const int64_t ne03 = rms_norm_src->ne[3];
-
-        const size_t ts0 = ggml_type_size(rms_norm_src->type);
-        GGML_ASSERT(rms_norm_src->nb[0] == ts0);
-        const int64_t s01 = rms_norm_src->nb[1] / ts0;
-        const int64_t s02 = rms_norm_src->nb[2] / ts0;
-        const int64_t s03 = rms_norm_src->nb[3] / ts0;
-
-        const size_t ts_mul = ggml_type_size(mul_src->type);
-        GGML_ASSERT(mul_src->nb[0] == ts_mul);
-        const int64_t mul_s01 = mul_src->nb[1] / ts_mul;
-        const int64_t mul_s02 = mul_src->nb[2] / ts_mul;
-        const int64_t mul_s03 = mul_src->nb[3] / ts_mul;
-
-        const int mul_ncols = mul_src->ne[0];
-        const int mul_nrows = mul_src->ne[1];
-        const int mul_nchannels = mul_src->ne[2];
-        const int mul_nsamples = mul_src->ne[3];
-
-        const size_t ts_add = ggml_type_size(add_src->type);
-        GGML_ASSERT(add_src->nb[0] == ts_add);
-        const int64_t add_s01 = add_src->nb[1] / ts_add;
-        const int64_t add_s02 = add_src->nb[2] / ts_add;
-        const int64_t add_s03 = add_src->nb[3] / ts_add;
-
-        const int add_ncols = add_src->ne[0];
-        const int add_nrows = add_src->ne[1];
-        const int add_nchannels = add_src->ne[2];
-        const int add_nsamples = add_src->ne[3];
-
-        rms_norm_mul_f32_cuda(src0_d, mul_d, add_d, dst_d,
-            ne00, ne01, ne02, ne03,
-            /*s00*/ s01, s02, s03,
-            /*mul_s00*/ mul_s01, mul_s02, mul_s03,
-            mul_ncols, mul_nrows, mul_nchannels, mul_nsamples,
-            /*add_s00*/ add_s01, add_s02, add_s03,
-            add_ncols, add_nrows, add_nchannels, add_nsamples,
-            eps, stream);
+        rms_norm_mul_f32_cuda(stream, eps, dst_d, add_tensor->ne, add_tensor->nb,
+            src0_d, rms_norm_src->ne, rms_norm_src->nb,  mul_d,
+            mul_src->ne, mul_src->nb, add_d, add_src->ne, add_src->nb);
     }
 
     void topk_moe(cudaStream_t stream,

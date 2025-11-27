@@ -710,8 +710,6 @@ namespace op
 
     void norm(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
-        const float* src0_d = (const float*)src0->data;
-        float* dst_d = (float*)dst->data;
 
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
@@ -719,19 +717,20 @@ namespace op
         float eps = std::bit_cast<float>(dst->op_params[0]);
         GGML_ASSERT(eps >= 0.0f);
 
-        const size_t ts0 = ggml_type_size(src0->type);
-        GGML_ASSERT(src0->nb[0] == ts0);
-        const int64_t s01 = src0->nb[1] / ts0;
-        const int64_t s02 = src0->nb[2] / ts0;
-        const int64_t s03 = src0->nb[3] / ts0;
-
-        norm_f32_cuda(src0_d, dst_d, src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3], s01, s02, s03, eps, stream);
+        norm_context ctx {
+			.src0_d = (const float*)src0->data,
+            .dst_d = (float*)dst->data,
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
+            .eps = eps
+        };
+        norm_f32_cuda(ctx, stream);
     }
 
     void rms_norm(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
-        const float* src0_d = (const float*)src0->data;
-        float* dst_d = (float*)dst->data;
 
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
@@ -739,22 +738,13 @@ namespace op
         float eps = std::bit_cast<float>(dst->op_params[0]);
         GGML_ASSERT(eps >= 0.0f);
 
-        const size_t ts0 = ggml_type_size(src0->type);
-        GGML_ASSERT(src0->nb[0] == ts0);
-        const int64_t s01 = src0->nb[1] / ts0;
-        const int64_t s02 = src0->nb[2] / ts0;
-        const int64_t s03 = src0->nb[3] / ts0;
-
-        rms_norm_f32_cuda(src0_d, dst_d, src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3], s01, s02, s03, eps, stream);
+        rms_norm_mul_f32_cuda(stream, eps,
+            (float*)dst->data, dst->ne, dst->nb, (const float*)src0->data, src0->ne, src0->nb);
     }
 
     void rms_norm_back(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* grad = dst->src[0]; // gradients
         const ggml_tensor* src0f = dst->src[1]; // src0 from forward pass
-
-        const float* grad_d = (const float*)grad->data;
-        const float* src0f_d = (const float*)src0f->data;
-        float* dst_d = (float*)dst->data;
 
         GGML_ASSERT(ggml_is_contiguous(grad));
 
@@ -762,13 +752,17 @@ namespace op
         GGML_ASSERT(src0f->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
 
-        const int64_t ne00 = src0f->ne[0];
-        const int64_t nrows = ggml_nrows(src0f);
-
         float eps = std::bit_cast<float>(dst->op_params[0]);
         GGML_ASSERT(eps >= 0.0f);
-
-        rms_norm_back_f32_cuda(grad_d, src0f_d, dst_d, ne00, nrows, eps, stream);
+        rms_norm_back_context ctx{
+            .grad_d = (const float*)grad->data,
+            .xf_d = (const float*)src0f->data,
+            .dst_d = (float*)dst->data,
+            .ncols = src0f->ne[0],
+            .nrows = ggml_nrows(src0f),
+            .eps = eps
+        };
+        rms_norm_back_f32_cuda(ctx, stream);
     }
 
     void silu_back(cudaStream_t stream, ggml_tensor* dst) {
@@ -2200,8 +2194,6 @@ namespace op
 
     void l2_norm(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
-        const float* src0_d = (const float*)src0->data;
-        float* dst_d = (float*)dst->data;
 
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
@@ -2209,14 +2201,16 @@ namespace op
         float eps = std::bit_cast<float>(dst->op_params[0]);
         GGML_ASSERT(eps >= 0.0f);
 
-        const size_t ts0 = ggml_type_size(src0->type);
-        GGML_ASSERT(src0->nb[0] == ts0);
-        const int64_t s01 = src0->nb[1] / ts0;
-        const int64_t s02 = src0->nb[2] / ts0;
-        const int64_t s03 = src0->nb[3] / ts0;
-
-        l2_norm_f32_cuda(src0_d, dst_d, src0->ne[0], src0->ne[1],
-            src0->ne[2], src0->ne[3], s01, s02, s03, eps, stream);
+        norm_context ctx {
+            .src0_d = (const float*)src0->data,
+            .dst_d = (float*)dst->data,
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
+            .eps = eps
+        };
+        l2_norm_f32_cuda(ctx, stream);
     }
 
     void ssm_conv(cudaStream_t stream, ggml_tensor* dst) {
