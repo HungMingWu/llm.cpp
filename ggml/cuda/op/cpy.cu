@@ -5,6 +5,8 @@
 #include "table.h"
 #include "dequantize.cuh"
 #include "cpy-utils.cuh"
+#include "helper.h"
+#include "launch.cuh"
 
 #define GGML_ASSERT(...)
 
@@ -88,33 +90,34 @@ static __global__ void cpy(dup_context ctx) {
 
     // determine indices i03/i13, i02/i12, i01/i11, i00/i10 as a function of index i of flattened tensor
     // then combine those indices with the corresponding byte offsets to get the total offsets
-    const int64_t i03 = i / (ctx.ne00 * ctx.ne01 * ctx.ne02);
-    const int64_t i02 = (i - i03 * ctx.ne00 * ctx.ne01 * ctx.ne02) / (ctx.ne00 * ctx.ne01);
-    const int64_t i01 = (i - i03 * ctx.ne00 * ctx.ne01 * ctx.ne02 - i02 * ctx.ne01 * ctx.ne00) / ctx.ne00;
-    const int64_t i00 = i - i03 * ctx.ne00 * ctx.ne01 * ctx.ne02 - i02 * ctx.ne01 * ctx.ne00 - i01 * ctx.ne00;
-    const int64_t i13 = i / (ctx.ne10 * ctx.ne11 * ctx.ne12);
-    const int64_t i12 = (i - i13  * ctx.ne10 * ctx.ne11 *ctx. ne12) / (ctx.ne10 * ctx.ne11);
-    const int64_t i11 = (i - i13 * ctx.ne10 * ctx.ne11 * ctx.ne12 - i12 * ctx.ne10 * ctx.ne11) / ctx.ne10;
-    const int64_t i10 = i - i13 * ctx.ne10 * ctx.ne11 * ctx.ne12 - i12 * ctx.ne10 * ctx.ne11 - i11 * ctx.ne10;;
-    
+    const int64_t i03 = i / (ctx.src0_ne[0] * ctx.src0_ne[1] * ctx.src0_ne[2]);
+    const int64_t i02 = (i - i03 * ctx.src0_ne[0] * ctx.src0_ne[1] * ctx.src0_ne[2]) / (ctx.src0_ne[0] * ctx.src0_ne[1]);
+    const int64_t i01 = (i - i03 * ctx.src0_ne[0] * ctx.src0_ne[1] * ctx.src0_ne[2] - i02 * ctx.src0_ne[1] * ctx.src0_ne[0]) / ctx.src0_ne[0];
+    const int64_t i00 = i - i03 * ctx.src0_ne[0] * ctx.src0_ne[1] * ctx.src0_ne[2] - i02 * ctx.src0_ne[1] * ctx.src0_ne[0] - i01 * ctx.src0_ne[0];
+    const int64_t i13 = i / (ctx.dst_ne[0] * ctx.dst_ne[1] * ctx.dst_ne[2]);
+    const int64_t i12 = (i - i13 * ctx.dst_ne[0] * ctx.dst_ne[1] * ctx.dst_ne[2]) / (ctx.dst_ne[0] * ctx.dst_ne[1]);
+    const int64_t i11 = (i - i13 * ctx.dst_ne[0] * ctx.dst_ne[1] * ctx.dst_ne[2] - i12 * ctx.dst_ne[0] * ctx.dst_ne[1]) / ctx.dst_ne[0];
+    const int64_t i10 = i - i13 * ctx.dst_ne[0] * ctx.dst_ne[1] * ctx.dst_ne[2] - i12 * ctx.dst_ne[0] * ctx.dst_ne[1] - i11 * ctx.dst_ne[0];;
+
     const int64_t x_offset = [=] {
         if constexpr (block_v<src_t> && std::is_same_v<dst_t, float>) {
-            return (i00 / src_t::block_size) * ctx.nb00 + i01 * ctx.nb01 + i02 * ctx.nb02 + i03 * ctx.nb03;
+            return (i00 / src_t::block_size) * ctx.src0_nb[0] + i01 * ctx.src0_nb[1] + i02 * ctx.src0_nb[2] + i03 * ctx.src0_nb[3];
         }
         else {
-            return i00 * ctx.nb00 + i01 * ctx.nb01 + i02 * ctx.nb02 + i03 * ctx.nb03;
+            return i00 * ctx.src0_nb[0] + i01 * ctx.src0_nb[1] + i02 * ctx.src0_nb[2] + i03 * ctx.src0_nb[3];
         }
     }();
     const int64_t dst_offset = [=] {
         if constexpr (std::is_same_v<src_t, float> && block_v<dst_t>) {
-            return (i10 / dst_t::block_size) * ctx.nb10 + i11 * ctx.nb11 + i12 * ctx.nb12 + i13 * ctx.nb13;
-        } else {
-            return i10 * ctx.nb10 + i11 * ctx.nb11 + i12 * ctx.nb12 + i13 * ctx.nb13;
+            return (i10 / dst_t::block_size) * ctx.dst_nb[0] + i11 * ctx.dst_nb[1] + i12 * ctx.dst_nb[2] + i13 * ctx.dst_nb[3];
+        }
+        else {
+            return i10 * ctx.dst_nb[0] + i11 * ctx.dst_nb[1] + i12 * ctx.dst_nb[2] + i13 * ctx.dst_nb[3];
         }
     }();
     copy_block(
-        (const src_t*)((const char*)ctx.src_d + x_offset), 
-        (dst_t*)((char *)ctx.dst_d + dst_offset));
+        (const src_t*)((const char*)ctx.src0_d + x_offset),
+        (dst_t*)((char*)ctx.dst_d + dst_offset));
 }
 
 template <typename T>
@@ -166,44 +169,20 @@ static __global__ void cpy_flt_transpose(const char* cx, char* cdst, const int n
     }
 }
 
-template<typename src_t, typename dst_t>
-static __global__ void cpy_flt_contiguous(const char* cx, char* cdst, const int64_t ne) {
-    const int64_t i = blockDim.x * blockIdx.x + threadIdx.x;
-
-    if (i >= ne) {
-        return;
-    }
-
-    const src_t* x = (const src_t*)cx;
-    dst_t* dst = (dst_t*)cdst;
-
-    dst[i] = ggml_cuda_cast<dst_t>(x[i]);
-}
-
-template<typename src_t, typename dst_t>
-static void ggml_cpy_flt_contiguous_cuda(
-    const char* cx, char* cdst, const int64_t ne,
-    cudaStream_t stream) {
-
-    const int64_t num_blocks = (ne + CUDA_CPY_BLOCK_SIZE - 1) / CUDA_CPY_BLOCK_SIZE;
-    cpy_flt_contiguous<src_t, dst_t> << <num_blocks, CUDA_CPY_BLOCK_SIZE, 0, stream >> >
-        (cx, cdst, ne);
-}
-
 template <typename src_t, typename dst_t, bool transposed = false>
 static void ggml_cpy_cuda(const dup_context& ctx, cudaStream_t stream) {
     // copy context by value
     if constexpr (transposed) {
         GGML_ASSERT(ctx.ne == ctx.ne00 * ctx.ne01 * ctx.ne02);  // ne[3] is 1 assumed
         int ne00n, ne01n, ne02n;
-        if (ctx.nb00 <= ctx.nb02) { // most likely safe to handle nb00 = nb02 case here
-            ne00n = ctx.ne00;
-            ne01n = ctx.ne01;
-            ne02n = ctx.ne02;
+        if (ctx.src0_nb[0] <= ctx.src0_nb[2]) { // most likely safe to handle nb00 = nb02 case here
+            ne00n = ctx.src0_ne[0];
+            ne01n = ctx.src0_ne[1];
+            ne02n = ctx.src0_ne[2];
         }
-        else if (ctx.nb00 > ctx.nb02) {
-            ne00n = ctx.ne00;
-            ne01n = ctx.ne01 * ctx.ne02;
+        else if (ctx.src0_nb[0] > ctx.src0_nb[2]) {
+            ne00n = ctx.src0_ne[0];
+            ne01n = ctx.src0_ne[1] * ctx.src0_ne[2];
             ne02n = 1;
         }
 
@@ -212,9 +191,9 @@ static void ggml_cpy_cuda(const dup_context& ctx, cudaStream_t stream) {
             (ctx.ne / (ne01n * ne00n) + CUDA_CPY_BLOCK_NM - 1) / CUDA_CPY_BLOCK_NM);
         dim3 dimBlock(CUDA_CPY_TILE_DIM_2D, CUDA_CPY_BLOCK_ROWS, 1);
         cpy_flt_transpose<dst_t> << <dimGrid, dimBlock, 0, stream >> >
-            (static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, ne00n, ne01n, ne02n,
-                ctx.nb00, ctx.nb01, ctx.nb02, ctx.nb03,
-                ctx.ne10, ctx.ne11, ctx.ne12, ctx.nb10, ctx.nb11, ctx.nb12, ctx.nb13);
+            (static_cast<const char*>(ctx.src0_d), static_cast<char*>(ctx.dst_d), ctx.ne, ne00n, ne01n, ne02n,
+                ctx.src0_nb[0], ctx.src0_nb[1], ctx.src0_nb[2], ctx.src0_nb[3],
+                ctx.dst_ne[0], ctx.dst_ne[1], ctx.dst_ne[2], ctx.dst_nb[0], ctx.dst_nb[1], ctx.dst_nb[2], ctx.dst_nb[3]);
     }
     else {
         if constexpr (simplest_case_v<src_t, dst_t>) {
@@ -233,6 +212,18 @@ static void ggml_cpy_cuda(const dup_context& ctx, cudaStream_t stream) {
     }
 }
 
+template <typename src_t, typename dst_t, bool transposed = false>
+void cpy_cuda(const dup_context& ctx, cudaStream_t stream)
+{
+    auto dst_data = make_strided_mdspan(static_cast<dst_t*>(ctx.dst_d), ctx.dst_ne, ctx.dst_nb);
+    auto src0_data = make_strided_mdspan(static_cast<const src_t*>(ctx.src0_d), ctx.src0_ne, ctx.src0_nb);
+    launch_functor(stream, std::make_tuple(ctx.dst_ne[3], ctx.dst_ne[2], ctx.dst_ne[1], ctx.dst_ne[0]),
+        [=] __device__(int64_t i3, int64_t i2, int64_t i1, int64_t i0) {
+            dst_data(i3, i2, i1, i0) = ggml_cuda_cast<dst_t>(src0_data(i3, i2, i1, i0));
+        }
+    );
+}
+
 void dup_cuda(const dup_context& ctx, cudaStream_t stream)
 {
     if (ctx.src_type == ctx.dst_type && ctx.contiguous) {
@@ -244,7 +235,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
         else
 #endif // GGML_USE_MUSA && GGML_MUSA_MUDNN_COPY
         {
-            CUDA_CHECK(cudaMemcpyAsync(ctx.dst_d, ctx.src_d, ctx.src_length, cudaMemcpyDeviceToDevice, stream));
+            CUDA_CHECK(cudaMemcpyAsync(ctx.dst_d, ctx.src0_d, ctx.src_length, cudaMemcpyDeviceToDevice, stream));
         }
     }
     else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_F32) {
@@ -257,7 +248,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
     }
     else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_BF16) {
         if (ctx.contiguous) {
-            ggml_cpy_flt_contiguous_cuda<float, nv_bfloat16>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
+            cpy_cuda<float, nv_bfloat16>(ctx, stream);
         }
         else {
             ggml_cpy_cuda<float, nv_bfloat16>(ctx, stream);
@@ -265,7 +256,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
     }
     else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_F16) {
         if (ctx.contiguous) {
-            ggml_cpy_flt_contiguous_cuda<float, half>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
+            cpy_cuda<float, half>(ctx, stream);
         }
         else {
             ggml_cpy_cuda<float, half>(ctx, stream);
@@ -314,7 +305,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
     }
     else if (ctx.src_type == internal::GGML_TYPE_F16 && ctx.dst_type == internal::GGML_TYPE_BF16) {
         if (ctx.contiguous) {
-            ggml_cpy_flt_contiguous_cuda<half, nv_bfloat16>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
+            cpy_cuda<half, nv_bfloat16>(ctx, stream);
         }
         else {
             ggml_cpy_cuda<half, nv_bfloat16>(ctx, stream);
@@ -322,7 +313,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
     }
     else if (ctx.src_type == internal::GGML_TYPE_F16 && ctx.dst_type == internal::GGML_TYPE_F32) {
         if (ctx.contiguous) {
-            ggml_cpy_flt_contiguous_cuda<half, float>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
+            cpy_cuda<half, float>(ctx, stream);
         }
         else {
             ggml_cpy_cuda<half, float>(ctx, stream);
@@ -338,7 +329,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
     }
     else if (ctx.src_type == internal::GGML_TYPE_BF16 && ctx.dst_type == internal::GGML_TYPE_F16) {
         if (ctx.contiguous) {
-            ggml_cpy_flt_contiguous_cuda<nv_bfloat16, half>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
+            cpy_cuda<nv_bfloat16, half>(ctx, stream);
         }
         else {
             ggml_cpy_cuda<nv_bfloat16, half>(ctx, stream);
@@ -346,7 +337,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
     }
     else if (ctx.src_type == internal::GGML_TYPE_BF16 && ctx.dst_type == internal::GGML_TYPE_F32) {
         if (ctx.contiguous) {
-            ggml_cpy_flt_contiguous_cuda<nv_bfloat16, float>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
+            cpy_cuda<nv_bfloat16, float>(ctx, stream);
         }
         else {
             ggml_cpy_cuda<nv_bfloat16, float>(ctx, stream);
@@ -354,7 +345,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
     }
     else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_I32) {
         if (ctx.contiguous) {
-            ggml_cpy_flt_contiguous_cuda<float, int32_t>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
+            cpy_cuda<float, int32_t>(ctx, stream);
         }
         else {
             ggml_cpy_cuda<float, int32_t>(ctx, stream);
@@ -362,7 +353,7 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
     }
     else if (ctx.src_type == internal::GGML_TYPE_I32 && ctx.dst_type == internal::GGML_TYPE_F32) {
         if (ctx.contiguous) {
-            ggml_cpy_flt_contiguous_cuda<int32_t, float>(static_cast<const char*>(ctx.src_d), static_cast<char*>(ctx.dst_d), ctx.ne, stream);
+            cpy_cuda<int32_t, float>(ctx, stream);
         }
         else {
             ggml_cpy_cuda<int32_t, float>(ctx, stream);
