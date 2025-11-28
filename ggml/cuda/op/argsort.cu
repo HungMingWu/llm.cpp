@@ -1,19 +1,30 @@
 #include <algorithm>
 #include "cuda_func.h"
 #include "common.cuh"
+#include "helper.h"
+
 #define GGML_ASSERT(...)
 #define GGML_ABORT(...)
 
 // Bitonic sort implementation
-template<typename T>
-static inline __device__ void ggml_cuda_swap(T& a, T& b) {
-    T tmp = a;
-    a = b;
-    b = tmp;
-}
 
 template <internal::ggml_sort_order order>
-static __global__ void k_argsort_f32_i32(const float* x, int* dst, const int ncols, int ncols_pad) {
+struct argsort_cmp {
+    std::experimental::mdspan<const float, std::dextents<size_t, 2>> data;
+    int32_t* dst_row;
+    int row;
+    __device__ bool operator()(int32_t a, int32_t b) const {
+        if constexpr (order == internal::GGML_SORT_ORDER_ASC) {
+            return data(row, dst_row[a]) > data(row, dst_row[b]);
+        }
+        else {
+            return data(row, dst_row[a]) < data(row, dst_row[b]);;
+        }
+    }
+};
+
+template <internal::ggml_sort_order order>
+static __global__ void k_argsort_f32_i32(auto x_data, auto dst_data, const int ncols, int ncols_pad) {
     // bitonic sort
     int col = threadIdx.x;
     int row = blockIdx.x;
@@ -22,7 +33,6 @@ static __global__ void k_argsort_f32_i32(const float* x, int* dst, const int nco
         return;
     }
 
-    const float* x_row = x + row * ncols;
     extern __shared__ int dst_row[];
 
     // initialize indices
@@ -30,27 +40,19 @@ static __global__ void k_argsort_f32_i32(const float* x, int* dst, const int nco
 
     __syncthreads();
 
+    argsort_cmp<order> comp{ x_data, dst_row, row };
+
     for (int k = 2; k <= ncols_pad; k *= 2) {
         for (int j = k / 2; j > 0; j /= 2) {
             int ixj = col ^ j;
             if (ixj > col) {
                 if ((col & k) == 0) {
-                    if (dst_row[col] >= ncols ||
-                        (dst_row[ixj] < ncols && (order == internal::GGML_SORT_ORDER_ASC ?
-                            x_row[dst_row[col]] > x_row[dst_row[ixj]] :
-                    x_row[dst_row[col]] < x_row[dst_row[ixj]]))
-                        ) {
-                        ggml_cuda_swap(dst_row[col], dst_row[ixj]);
-                    }
+                    if (dst_row[col] >= ncols || (dst_row[ixj] < ncols && comp(col, ixj)))
+                        std::swap(dst_row[col], dst_row[ixj]);
                 }
                 else {
-                    if (dst_row[ixj] >= ncols ||
-                        (dst_row[col] < ncols && (order == internal::GGML_SORT_ORDER_ASC ?
-                            x_row[dst_row[col]] < x_row[dst_row[ixj]] :
-                            x_row[dst_row[col]] > x_row[dst_row[ixj]]))
-                        ) {
-                        ggml_cuda_swap(dst_row[col], dst_row[ixj]);
-                    }
+                    if (dst_row[ixj] >= ncols || (dst_row[col] < ncols && !comp(col, ixj)))
+                        std::swap(dst_row[col], dst_row[ixj]);
                 }
             }
             __syncthreads();
@@ -59,7 +61,7 @@ static __global__ void k_argsort_f32_i32(const float* x, int* dst, const int nco
 
     // copy the result to dst without the padding
     if (col < ncols) {
-        dst[row * ncols + col] = dst_row[col];
+        dst_data(row, col) = dst_row[col];
     }
 }
 
@@ -87,13 +89,16 @@ void argsort_f32_i32_cuda_bitonic(const float* x,
     // FIXME: this limit could be raised by ~2-4x on Ampere or newer
     GGML_ASSERT(shared_mem <= ggml_cuda_info().devices[ggml_cuda_get_device()].smpb);
 
+    std::experimental::mdspan x_data(x, nrows, ncols);
+    std::experimental::mdspan dst_data(dst, nrows, ncols);
+
     if (order == internal::GGML_SORT_ORDER_ASC) {
         k_argsort_f32_i32<internal::GGML_SORT_ORDER_ASC>
-            << <block_nums, block_dims, shared_mem, stream >> > (x, dst, ncols, ncols_pad);
+            << <block_nums, block_dims, shared_mem, stream >> > (x_data, dst_data, ncols, ncols_pad);
     }
     else if (order == internal::GGML_SORT_ORDER_DESC) {
         k_argsort_f32_i32<internal::GGML_SORT_ORDER_DESC>
-            << <block_nums, block_dims, shared_mem, stream >> > (x, dst, ncols, ncols_pad);
+            << <block_nums, block_dims, shared_mem, stream >> > (x_data, dst_data, ncols, ncols_pad);
     }
     else {
         GGML_ABORT("fatal error");
