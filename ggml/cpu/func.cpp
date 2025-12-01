@@ -750,52 +750,31 @@ static void ggml_compute_forward_dup_bytes(
 	}
 
 	// number of blocks in a row
-	const int64_t nk00 = src0->ne[0] / ggml_blck_size(src0->type);
-	const int64_t nk0 = dst->ne[0] / ggml_blck_size(dst->type);
+	auto src0_ne = src0->ne;
+	auto dst_ne = dst->ne;
+	src0_ne[0] /= ggml_blck_size(src0->type);
+	dst_ne[0] /= ggml_blck_size(dst->type);
 
-	for (int64_t i03 = 0; i03 < src0->ne[3]; i03++) {
-		for (int64_t i02 = 0; i02 < src0->ne[2]; i02++) {
-			stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
-				// dst counters
-				int64_t k10 = i03 * (src0->ne[2] * src0->ne[1] * src0->ne[0]) + i02 * (src0->ne[1] * src0->ne[0]);
-				int64_t i11 = 0;
-				int64_t i12 = 0;
-				int64_t i13 = 0;
-				while (k10 >= nk0) {
-					k10 -= nk0;
-					if (++i11 == dst->ne[1]) {
-						i11 = 0;
-						if (++i12 == dst->ne[2]) {
-							i12 = 0;
-							if (++i13 == dst->ne[3]) {
-								i13 = 0;
-							}
-						}
-					}
-				}
-				for (int64_t i01 = 0; i01 < src0->ne[1]; i01++) {
-					for (int64_t k00 = 0; k00 < nk00; k00++) {
-						const char* src0_ptr = ((char*)src0->data + k00 * src0->nb[0] + i01 * src0->nb[1] + i02 * src0->nb[2] + i03 * src0->nb[3]);
-						char* dst_ptr = ((char*)dst->data + k10 * dst->nb[0] + i11 * dst->nb[1] + i12 * dst->nb[2] + i13 * dst->nb[3]);
+	for (int64_t i3 = 0; i3 < dst_ne[3]; i3++) {
+		for (int64_t i2 = 0; i2 < dst_ne[2]; i2++) {
+			for (int64_t i1 = 0; i1 < dst_ne[1]; i1++) {
+				for (int64_t i0 = 0; i0 < dst_ne[0]; i0++) {
+					stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+						const int64_t i = i3 * dst_ne[2] * dst_ne[1] * dst_ne[0] + i2 * dst_ne[1] * dst_ne[0] + i1 * dst_ne[0] + i0;
+
+						const int64_t i13 = i / (src0_ne[0] * src0_ne[1] * src0_ne[2]);
+						const int64_t i12 = (i - i13 * src0_ne[0] * src0_ne[1] * src0_ne[2]) / (src0_ne[0] * src0_ne[1]);
+						const int64_t i11 = (i - i13 * src0_ne[0] * src0_ne[1] * src0_ne[2] - i12 * src0_ne[0] * src0_ne[1]) / src0_ne[0];
+						const int64_t i10 = i - i13 * src0_ne[0] * src0_ne[1] * src0_ne[2] - i12 * src0_ne[0] * src0_ne[1] - i11 * src0_ne[0];;
+
+						const char* src0_ptr = ((char*)src0->data + i10 * src0->nb[0] + i11 * src0->nb[1] + i12 * src0->nb[2] + i13 * src0->nb[3]);
+						char* dst_ptr = ((char*)dst->data + i0 * dst->nb[0] + i1 * dst->nb[1] + i2 * dst->nb[2] + i3 * dst->nb[3]);
 
 						memcpy(dst_ptr, src0_ptr, type_size);
-
-						if (++k10 == nk0) {
-							k10 = 0;
-							if (++i11 == dst->ne[1]) {
-								i11 = 0;
-								if (++i12 == dst->ne[2]) {
-									i12 = 0;
-									if (++i13 == dst->ne[3]) {
-										i13 = 0;
-									}
-								}
-							}
-						}
-					}
+					});
+					scope.spawn(std::move(sender));
 				}
-			});
-			scope.spawn(std::move(sender));
+			}
 		}
 	}
 }
