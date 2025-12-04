@@ -69,6 +69,27 @@ void to_float(ggml_type type, const void* x, float* y, int64_t n)
 		case GGML_TYPE_Q8_0:
 			dequantize_row(static_cast<const block_q8_0*>(x), y, n);
 			break;
+		case GGML_TYPE_IQ1_M:
+			dequantize_row(static_cast<const block_iq1_m*>(x), y, n);
+			break;
+		case GGML_TYPE_IQ1_S:
+			dequantize_row(static_cast<const block_iq1_s*>(x), y, n);
+			break;
+		case GGML_TYPE_IQ2_XS:
+			dequantize_row(static_cast<const block_iq2_xs*>(x), y, n);
+			break;
+		case GGML_TYPE_IQ2_S:
+			dequantize_row(static_cast<const block_iq2_s*>(x), y, n);
+			break;
+		case GGML_TYPE_IQ2_XXS:
+			dequantize_row(static_cast<const block_iq2_xxs*>(x), y, n);
+			break;
+		case GGML_TYPE_IQ3_S:
+			dequantize_row(static_cast<const block_iq3_s*>(x), y, n);
+			break;
+		case GGML_TYPE_IQ3_XXS:
+			dequantize_row(static_cast<const block_iq3_xxs*>(x), y, n);
+			break;
 		case GGML_TYPE_IQ4_NL:
 			dequantize_row(static_cast<const block_iq4_nl*>(x), y, n);
 			break;
