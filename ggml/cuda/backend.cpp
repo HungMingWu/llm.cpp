@@ -583,7 +583,12 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
         const int64_t ne_src1 = src1->nelements();
         src1_alloc.alloc(ne_src1);
 
-        convert_to_nc_cuda(std::bit_cast<internal::ggml_type>(src1->type), src1->data, src1_alloc.get(), src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3], s11, s12, s13, main_stream);
+        convert_context ctx {
+            .src_type = std::bit_cast<internal::ggml_type>(src1->type),
+            .src_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .src_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
+        };
+        convert_to_nc_cuda(ctx, src1->data, src1_alloc.get(), main_stream);
         src1_ptr = src1_alloc.get();
         s11 = src1->ne[0];
         s12 = src1->ne[1] * s11;
