@@ -254,16 +254,15 @@ void repeat_back_cuda(const repeat_back_context& ctx, cudaStream_t stream);
 struct dup_context {
     const void* src_d;
     void* dst_d;
-    const internal::ggml_type src_type, dst_type;
+    internal::ggml_type src_type, dst_type;
+    size_t src_block_size, dst_block_size, src_type_size;
     const int64_t ne;
-    const size_t src_length, dst_length;
-    const int64_t ne00, ne01, ne02, ne03;
-    const size_t nb00, nb01, nb02, nb03;
-    // rename later
-    const int64_t ne10, ne11, ne12, ne13;
-    const size_t nb10, nb11, nb12, nb13;
+    size_t src_length, dst_length;
+    int64_t src_ne[4];
+    size_t src_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
     const bool contiguous;
-    const bool can_be_transposed;
 };
 void dup_cuda(const dup_context &ctx, cudaStream_t stream);
 

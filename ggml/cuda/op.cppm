@@ -50,27 +50,17 @@ static dup_context create(const ggml_tensor* src0, ggml_tensor* dst)
        .dst_d = dst->data,
        .src_type = std::bit_cast<internal::ggml_type>(src0->type),
        .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
+       .src_block_size = ggml_blck_size(src0->type),
+       .dst_block_size = ggml_blck_size(dst->type),
+       .src_type_size = ggml_type_size(src0->type),
        .ne = src0->nelements(),
        .src_length = src0->nbytes(),
        .dst_length = dst->nbytes(),
-       .ne00 = src0->ne[0],
-       .ne01 = src0->ne[1],
-       .ne02 = src0->ne[2],
-       .ne03 = src0->ne[3],
-       .nb00 = src0->nb[0],
-       .nb01 = src0->nb[1],
-       .nb02 = src0->nb[2],
-       .nb03 = src0->nb[3],
-       .ne10 = dst->ne[0],
-       .ne11 = dst->ne[1],
-       .ne12 = dst->ne[2],
-       .ne13 = dst->ne[3],
-       .nb10 = dst->nb[0],
-       .nb11 = dst->nb[1],
-       .nb12 = dst->nb[2],
-       .nb13 = dst->nb[3],
+       .src_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+       .src_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+       .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+       .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
        .contiguous = ggml_is_contiguous(src0) && ggml_is_contiguous(dst),
-       .can_be_transposed = src0->nb[1] == (int64_t)ggml_element_size(src0) && src0->ne[3] == 1
     };
 }
 
@@ -479,8 +469,10 @@ namespace op
     }
 
     void cpy(cudaStream_t stream, ggml_tensor* dst) {
-        dup_context context = create(dst->src[0], dst->src[1]);
-        dup_cuda(context, stream);
+        ggml_tensor* src0 = dst->src[0];
+        ggml_tensor* src1 = dst->src[1];
+        dup_context ctx = create(src0, src1);
+        dup_cuda(ctx, stream);
     }
 
     void dup(cudaStream_t stream, ggml_tensor* dst)
