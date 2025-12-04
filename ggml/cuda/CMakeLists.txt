@@ -63,6 +63,7 @@ target_sources(libggml
       op/cpy.cu
       op/cross-entropy-loss.cu
       op/diagmask.cu
+      op/dump.cu
       op/fattn-tile.cu
       op/fattn-wmma-f16.cu
       op/fattn.cu

@@ -863,3 +863,6 @@ struct conv2d_context {
 };
 
 void conv2d_cuda(const conv2d_context& ctx, cudaStream_t stream);
+
+// dump.cu, use for dump cuda memory
+void dump_cuda_memory(const void* data, size_t length);
