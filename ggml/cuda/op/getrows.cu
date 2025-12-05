@@ -43,7 +43,7 @@ void get_rows_cuda(const get_row_context &ctx, cudaStream_t stream) {
 
             // dequantize
             float2 v;
-            dequantize(&src0_data(i12, i11, i01, 0), ib, iqs, v);
+            dequantize(&src0_data(i12, i11, i01, ib), iqs, v);
 
             dst_data(i12, i11, i10, iybs + iqs) = ggml_cuda_cast<dst_t>(v.x);
             dst_data(i12, i11, i10, iybs + iqs + y_offset) = ggml_cuda_cast<dst_t>(v.y);

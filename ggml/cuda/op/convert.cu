@@ -429,7 +429,7 @@ static __global__ void dequantize_block(const src_t* __restrict__ x, dst_t* __re
 
     // dequantize
     float2 v;
-    dequantize(x, ib, iqs, v);
+    dequantize(x + ib, iqs, v);
 
     const int64_t iy0 = ((i03 * ne02 + i02) * ne01 + i01) * ne00 + iybs + iqs;
     y[iy0 + 0] = ggml_cuda_cast<dst_t>(v.x);
