@@ -195,6 +195,11 @@ export namespace chatllm
 
         void move_cursor_to_end(void) const;
         void move_cursor_to_end(void);
+        void shrink(int size);
+        int get_cursor(void) const
+        {
+            return cursor;
+        }
 
         void set_mm_tags(const std::string& opening, const std::string& closing);
 
@@ -209,13 +214,13 @@ export namespace chatllm
 
     public:
         std::vector<Message> history;
-        int cursor;
     protected:
         std::string sep;
         bool auto_aggregate;
         int round;
         std::string mm_opening;
         std::string mm_closing;
+        int cursor = 0;
     };
 
     std::string to_string(ggml::tensor* tensor, bool with_data = true);
@@ -1326,6 +1331,8 @@ export namespace chatllm
 
         virtual void restart(void);
         virtual void rewind(int n_past);
+        virtual int  get_cursor(void);
+        virtual int  set_cursor(int pos);
 
         virtual int save_session(const Messages& history, const std::string& file_name);
         virtual int load_session(Messages& history, const std::string& file_name, BaseStreamer* streamer, int* n_past = nullptr);
@@ -1347,6 +1354,7 @@ export namespace chatllm
         bool initializing;
         ExtendingMethod extending;
         ModelObject modelobj;
+        bool ids_selection = false;
 
         void add_ai_prefix(std::vector<int>& input_ids, const GenerationConfig& gen_config, BaseStreamer* streamer);
 
