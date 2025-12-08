@@ -1999,7 +1999,6 @@ namespace op
 				.nb3 = K->nb[3],
                 .bs = ggml_blck_size(K->type),
                 .ts = ggml_type_size(K->type),
-                .contiguously_allocated = ggml_is_contiguously_allocated(K),
                 .element_size = ggml_element_size(K)
             },
             .V = {
@@ -2019,7 +2018,6 @@ namespace op
                 .nb3 = V ? V->nb[3] : 00,
                 .bs = V ? ggml_blck_size(V->type) : 0,
                 .ts = V ? ggml_type_size(V->type) : 0,
-                .contiguously_allocated = V ? ggml_is_contiguously_allocated(V) : false,
                 .element_size = V ? ggml_element_size(V) : 0
             },
             .mask = {

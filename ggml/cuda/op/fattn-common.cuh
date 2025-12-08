@@ -847,11 +847,13 @@ void launch_fattn(
     ggml_cuda_pool_alloc<float2> dst_tmp_meta(pool);
 
     const char* K_data = (const char*)ctx.K.data;
+    size_t nb10 = ctx.K.nb0;
     size_t nb11 = ctx.K.nb1;
     size_t nb12 = ctx.K.nb2;
     size_t nb13 = ctx.K.nb3;
 
     const char* V_data = (const char*)ctx.V.data;
+    size_t nb20 = ctx.V.exist ? ctx.V.nb0 : nb10;
     size_t nb21 = ctx.V.exist ? ctx.V.nb1 : nb11;
     size_t nb22 = ctx.V.exist ? ctx.V.nb2 : nb12;
     size_t nb23 = ctx.V.exist ? ctx.V.nb3 : nb13;
@@ -861,24 +863,17 @@ void launch_fattn(
         const size_t ts = ctx.K.type_size;
 
         K_f16.alloc(ctx.K.elements);
-        if (ctx.K.contiguously_allocated) {
-            to_fp16_cuda(ctx.K.type, K_data, K_f16.ptr, ctx.K.elements, main_stream);
+        GGML_ASSERT(ctx.K.nb0 == ts);
+        convert_context convert_ctx {
+            .src_type = ctx.K.type,
+            .src_ne = { ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3 },
+            .src_nb = { nb10, nb11, nb12, nb13 },
+        };
+        convert_to_cuda(convert_ctx, K_data, K_f16.ptr, main_stream);
 
-            nb11 = nb11 * bs * sizeof(half) / ts;
-            nb12 = nb12 * bs * sizeof(half) / ts;
-            nb13 = nb13 * bs * sizeof(half) / ts;
-        }
-        else {
-            GGML_ASSERT(ctx.K.nb0 == ts);
-            const int64_t s01 = nb11 / ts;
-            const int64_t s02 = nb12 / ts;
-            const int64_t s03 = nb13 / ts;
-            convert_to_nc_cuda(ctx.K.type, K_data, K_f16.ptr, ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3, s01, s02, s03, main_stream);
-
-            nb11 = ctx.K.ne0 * sizeof(half);
-            nb12 = ctx.K.ne1 * nb11;
-            nb13 = ctx.K.ne2 * nb12;
-        }
+        nb11 = ctx.K.ne0 * sizeof(half);
+        nb12 = ctx.K.ne1 * nb11;
+        nb13 = ctx.K.ne2 * nb12;
         K_data = (char*)K_f16.ptr;
     }
 
@@ -887,25 +882,17 @@ void launch_fattn(
         const size_t ts = ctx.V.type_size;
 
         V_f16.alloc(ctx.V.elements);
-        if (ctx.V.contiguously_allocated) {
-            to_fp16_cuda(ctx.V.type, V_data, V_f16.ptr, ctx.K.elements, main_stream);
-            V_data = (char*)V_f16.ptr;
+        GGML_ASSERT(ctx.V.nb0 == ts);
+        convert_context convert_ctx {
+            .src_type = ctx.V.type,
+            .src_ne = { ctx.V.ne0, ctx.V.ne1, ctx.V.ne2, ctx.V.ne3 },
+            .src_nb = { nb20, nb21, nb22, nb23 },
+        };
+        convert_to_cuda(convert_ctx, V_data, V_f16.ptr, main_stream);
 
-            nb21 = nb21 * bs * sizeof(half) / ts;
-            nb22 = nb22 * bs * sizeof(half) / ts;
-            nb23 = nb23 * bs * sizeof(half) / ts;
-        }
-        else {
-            GGML_ASSERT(ctx.V.nb0 == ts);
-            const int64_t s01 = nb21 / ts;
-            const int64_t s02 = nb22 / ts;
-            const int64_t s03 = nb23 / ts;
-            convert_to_nc_cuda(ctx.V.type, V_data, V_f16.ptr, ctx.V.ne0, ctx.V.ne1, ctx.V.ne2, ctx.V.ne3, s01, s02, s03, main_stream);
-
-            nb21 = ctx.V.ne0 * sizeof(half);
-            nb22 = ctx.V.ne1 * nb21;
-            nb23 = ctx.V.ne2 * nb22;
-        }
+        nb21 = ctx.V.ne0 * sizeof(half);
+        nb22 = ctx.V.ne1 * nb21;
+        nb23 = ctx.V.ne2 * nb22;
         V_data = (char*)V_f16.ptr;
     }
 

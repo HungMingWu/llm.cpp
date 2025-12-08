@@ -597,7 +597,6 @@ struct flash_attn_ext_context {
         const int64_t ne0, ne1, ne2, ne3;
         const size_t nb0, nb1, nb2, nb3;
         const size_t bs, ts;
-        bool contiguously_allocated;
         size_t element_size;
     } K;
 
@@ -610,7 +609,6 @@ struct flash_attn_ext_context {
         const int64_t ne0, ne1, ne2, ne3;
         const size_t nb0, nb1, nb2, nb3;
         const size_t bs, ts;
-        bool contiguously_allocated;
         size_t element_size;
     } V;
 

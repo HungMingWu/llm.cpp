@@ -100,9 +100,16 @@ static void ggml_cuda_op_mul_mat_cublas(
     if (supports_bf16 && src0->type == GGML_TYPE_BF16 && ggml_is_contiguous(src0) && row_diff == src0->ne[1]) {
         ggml_cuda_pool_alloc<nv_bfloat16> src1_as_bf16(ctx.pool(id));
         if (src1->type != GGML_TYPE_BF16) {
-            size_t ne = src1_ncols * ne10;
+            int64_t ne = src1_ncols * ne10;
+            size_t type_size = ggml_type_size(src1->type);
             src1_as_bf16.alloc(ne);
-            to_bf16_cuda(std::bit_cast<internal::ggml_type>(src1->type), src1_ddf_i, src1_as_bf16.get(), ne, stream);
+
+            convert_context ctx {
+                .src_type = std::bit_cast<internal::ggml_type>(src1->type),
+                .src_ne = { ne, 1, 1, 1 },
+                .src_nb = { type_size, type_size * ne, type_size * ne, type_size * ne }
+            };
+            convert_to_cuda(ctx, src1_ddf_i, src1_as_bf16.get(), stream);
         }
         const nv_bfloat16* src1_ptr = src1->type == GGML_TYPE_BF16 ? (const nv_bfloat16*)src1_ddf_i : src1_as_bf16.get();
         const nv_bfloat16* src0_ptr = (const nv_bfloat16*)src0_dd_i;
@@ -121,23 +128,42 @@ static void ggml_cuda_op_mul_mat_cublas(
                 CUBLAS_COMPUTE_32F,
                 CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 
-        to_fp32_cuda(std::bit_cast<internal::ggml_type>(GGML_TYPE_BF16), dst_bf16.get(), dst_dd_i, row_diff * src1_ncols, stream);
+        const int64_t ne = row_diff * src1_ncols;
+        const size_t type_size = ggml_type_size(GGML_TYPE_BF16);
+        convert_context ctx{
+            .src_type = std::bit_cast<internal::ggml_type>(GGML_TYPE_BF16),
+            .src_ne = { ne, 1, 1, 1 },
+            .src_nb = { type_size, type_size * ne, type_size * ne, type_size * ne }
+        };
+        convert_to_cuda(ctx, dst_bf16.get(), dst_dd_i, stream);
     }
     else if (fast_fp16_hardware_available(cc) && use_fp16) {
         // convert src0 and src1 to fp16, multiply as fp16, convert dst to fp32
         ggml_cuda_pool_alloc<half> src0_as_f16(ctx.pool(id));
         if (src0->type != GGML_TYPE_F16) {
-            size_t ne = row_diff * ne00;
+            int64_t ne = row_diff * ne00;
+            size_t type_size = ggml_type_size(src0->type);
             src0_as_f16.alloc(ne);
-            to_fp16_cuda(std::bit_cast<internal::ggml_type>(src0->type), src0_dd_i, src0_as_f16.get(), ne, stream);
+            convert_context ctx{
+                .src_type = std::bit_cast<internal::ggml_type>(src0->type),
+                .src_ne = { ne, 1, 1, 1 },
+                .src_nb = { type_size, type_size * ne, type_size * ne, type_size * ne },
+            };
+            convert_to_cuda(ctx, src0_dd_i, src0_as_f16.get(), stream);
         }
         const half* src0_ptr = src0->type == GGML_TYPE_F16 ? (const half*)src0_dd_i : src0_as_f16.get();
 
         ggml_cuda_pool_alloc<half> src1_as_f16(ctx.pool(id));
         if (src1->type != GGML_TYPE_F16) {
-            size_t ne = src1_ncols * ne10;
+            int64_t ne = src1_ncols * ne10;
+            size_t type_size = ggml_type_size(src1->type);
             src1_as_f16.alloc(ne);
-            to_fp16_cuda(std::bit_cast<internal::ggml_type>(src1->type), src1_ddf_i, src1_as_f16.get(), ne, stream);
+            convert_context ctx{
+                .src_type = std::bit_cast<internal::ggml_type>(src1->type),
+                .src_ne = { ne, 1, 1, 1 },
+                .src_nb = { type_size, type_size * ne, type_size * ne, type_size * ne },
+            };
+            convert_to_cuda(ctx, src1_ddf_i, src1_as_f16.get(), stream);
         }
         const half* src1_ptr = src1->type == GGML_TYPE_F16 ? (const half*)src1_ddf_i : src1_as_f16.get();
 
@@ -170,7 +196,14 @@ static void ggml_cuda_op_mul_mat_cublas(
                     CUBLAS_COMPUTE_16F,
                     CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 
-            to_fp32_cuda(std::bit_cast<internal::ggml_type>(GGML_TYPE_F16), dst_f16.get(), dst_dd_i, row_diff * src1_ncols, stream);
+            const int64_t ne = row_diff * src1_ncols;
+            const size_t type_size = ggml_type_size(GGML_TYPE_F16);
+            convert_context ctx{
+                .src_type = std::bit_cast<internal::ggml_type>(GGML_TYPE_F16),
+                .src_ne = { ne, 1, 1, 1 },
+                .src_nb = { type_size, type_size * ne, type_size * ne, type_size * ne }
+            };
+            convert_to_cuda(ctx, dst_f16.get(), dst_dd_i, stream);
         }
     }
     else {
@@ -179,11 +212,25 @@ static void ggml_cuda_op_mul_mat_cublas(
 
         if (src0->type != GGML_TYPE_F32) {
             src0_ddq_as_f32.alloc(row_diff * ne00);
-            to_fp32_cuda(std::bit_cast<internal::ggml_type>(src0->type), src0_dd_i, src0_ddq_as_f32.get(), row_diff * ne00, stream);
+            const int64_t ne = row_diff * ne00;
+            const size_t type_size = ggml_type_size(src0->type);
+            convert_context ctx{
+                .src_type = std::bit_cast<internal::ggml_type>(src0->type),
+                .src_ne = { ne, 1, 1, 1 },
+                .src_nb = { type_size, type_size * ne, type_size * ne, type_size * ne }
+            };
+            convert_to_cuda(ctx, src0_dd_i, src0_ddq_as_f32.get(), stream);
         }
         if (src1->type != GGML_TYPE_F32) {
             src1_ddq_as_f32.alloc(src1_ncols * ne10);
-            to_fp32_cuda(std::bit_cast<internal::ggml_type>(src1->type), src1_ddf_i, src1_ddq_as_f32.get(), src1_ncols * ne10, stream);
+            const int64_t ne = src1_ncols * ne10;
+            const size_t type_size = ggml_type_size(src1->type);
+            convert_context ctx{
+                .src_type = std::bit_cast<internal::ggml_type>(src1->type),
+                .src_ne = { ne, 1, 1, 1 },
+                .src_nb = { type_size, type_size * ne, type_size * ne, type_size * ne }
+            };
+            convert_to_cuda(ctx, src1_ddf_i, src1_ddq_as_f32.get(), stream);
         }
 
         const float* src0_ddf_i = src0->type == GGML_TYPE_F32 ? (const float*)src0_dd_i : src0_ddq_as_f32.get();
@@ -583,7 +630,12 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
         const int64_t ne_src1 = src1->nelements();
         src1_alloc.alloc(ne_src1);
 
-        convert_to_nc_cuda(std::bit_cast<internal::ggml_type>(src1->type), src1->data, src1_alloc.get(), src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3], s11, s12, s13, main_stream);
+        convert_context ctx {
+            .src_type = std::bit_cast<internal::ggml_type>(src1->type),
+            .src_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .src_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
+        };
+        convert_to_cuda(ctx, src1->data, src1_alloc.get(), main_stream);
         src1_ptr = src1_alloc.get();
         s11 = src1->ne[0];
         s12 = src1->ne[1] * s11;
@@ -690,7 +742,14 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
 
     // Convert output back to F32 if needed
     if (dst->op_params[0] == GGML_PREC_DEFAULT && cu_data_type != CUDA_R_32F) {
-        to_fp32_cuda(std::bit_cast<internal::ggml_type>(src0_type), dst_temp.get(), dst_ddf, ne_dst, main_stream);
+        const int64_t ne = ne_dst;
+        const size_t type_size = ggml_type_size(src0_type);
+        convert_context ctx{
+            .src_type = std::bit_cast<internal::ggml_type>(src0_type),
+            .src_ne = { ne, 1, 1, 1 },
+            .src_nb = { type_size, type_size * ne, type_size * ne, type_size * ne }
+        };
+        convert_to_cuda(ctx, dst_temp.get(), dst_ddf, main_stream);
     }
 }
 
