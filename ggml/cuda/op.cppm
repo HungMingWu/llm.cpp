@@ -1503,14 +1503,12 @@ namespace op
         void* dst_d = dst->data;
         const int64_t* row_indices = nullptr;
         ggml_type dst_type = dst->type;
-        int set_rows_stride = 0;
 
         if (set_rows != nullptr) {
             GGML_ASSERT(forward);
             dst_d = set_rows->data;
             row_indices = (const int64_t*)set_rows->src[1]->data;
             dst_type = set_rows->type;
-            set_rows_stride = set_rows->nb[1] / ggml_type_size(set_rows->type);
         }
 
         rope_context ctx{
@@ -1519,18 +1517,19 @@ namespace op
             .is_mrope = static_cast<bool>(mode & GGML_ROPE_TYPE_MROPE),
             .is_imrope = static_cast<bool>(mode == GGML_ROPE_TYPE_IMROPE),
             .is_vision = static_cast<bool>(mode == GGML_ROPE_TYPE_VISION),
-            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .src_type = std::bit_cast<internal::ggml_type>(src0->type),
             .dst_type = std::bit_cast<internal::ggml_type>(dst_type),
-            .src0_d = src0->data,
+            .src_d = src0->data,
             .dst_d = dst_d,
-            .ne00 = src0->ne[0],
-            .ne01 = src0->ne[1],
-            .ne02 = src0->ne[2],
-            .s01 = src0->nb[1] / ggml_type_size(src0->type),
-            .s02 = src0->nb[2] / ggml_type_size(src0->type),
+            .src_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .dst_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .dst_nb = { ggml_type_size(dst_type),
+                        ggml_type_size(dst_type) * src0->ne[0],
+                        ggml_type_size(dst_type) * src0->ne[0] * src0->ne[1],
+                        ggml_type_size(dst_type) * src0->ne[0] * src0->ne[1] * src0->ne[2]},
             .n_dims = std::bit_cast<int>(dst->op_params[1]),
             .n_ctx_orig = std::bit_cast<int>(dst->op_params[4]),
-            .nr = ggml_nrows(src0),
             .pos = (const int32_t*)src1->data,
             // RoPE alteration for extended context
             .freq_base = std::bit_cast<float>(dst->op_params[5]),
@@ -1541,7 +1540,6 @@ namespace op
             .beta_slow = std::bit_cast<float>(dst->op_params[10]),
             .freq_factors = (src2 != nullptr) ? (const float*)src2->data : nullptr,
             .row_indices = row_indices,
-            .set_rows_stride = set_rows_stride
         };
         memcpy(&ctx.sections.v, (int32_t*)dst->op_params + 11, sizeof(int) * 4);
 
@@ -1549,7 +1547,7 @@ namespace op
             GGML_ASSERT(ctx.sections.v[0] > 0 || ctx.sections.v[1] > 0 || ctx.sections.v[2] > 0);
         }
         if (ctx.is_vision) {
-            GGML_ASSERT(ctx.n_dims == ctx.ne00 / 2);
+            GGML_ASSERT(ctx.n_dims == ctx.src_ne[0] / 2);
         }
 
         rope_cuda(ctx, stream);

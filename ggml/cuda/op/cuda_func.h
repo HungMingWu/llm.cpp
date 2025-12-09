@@ -448,15 +448,16 @@ struct rope_context {
     const bool is_mrope;
     const bool is_imrope;
     const bool is_vision;
-    const internal::ggml_type src0_type;
+    const internal::ggml_type src_type;
     const internal::ggml_type dst_type;
-    const void* src0_d;
+    const void* src_d;
     void* dst_d;
-    const int64_t ne00, ne01, ne02;
-    const size_t s01, s02;
+    int64_t src_ne[4];
+    size_t src_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
     const int n_dims;
     const int n_ctx_orig;
-    const int64_t nr;
     const int32_t* pos;
     const float freq_base;
     const float freq_scale;
@@ -466,7 +467,6 @@ struct rope_context {
     const float beta_slow;
     const float* freq_factors;
     const int64_t* row_indices;
-    int set_rows_stride;
     mrope_sections sections;
 };
 
