@@ -64,6 +64,21 @@ static __device__ __forceinline__ float2 warp_reduce_sum(float2 a) {
 }
 
 template<int width = WARP_SIZE>
+static __device__ __forceinline__ half2 warp_reduce_sum(half2 a) {
+    if constexpr (fp16_available_v) {
+#pragma unroll
+        for (int offset = width / 2; offset > 0; offset >>= 1) {
+            a = __hadd2(a, __shfl_xor_sync(0xffffffff, a, offset, width));
+        }
+        return a;
+    }
+    else {
+        NO_DEVICE_CODE;
+        return a;
+    }
+}
+
+template<int width = WARP_SIZE>
 static __device__ __forceinline__ float warp_reduce_max(float x) {
 #pragma unroll
     for (int offset = width / 2; offset > 0; offset >>= 1) {
@@ -101,18 +116,17 @@ static __device__ __forceinline__ int warp_reduce_any(int x) {
 }
 
 static __device__ __forceinline__ half ggml_cuda_hmax(const half a, [[maybe_unused]] const half b) {
-#ifdef FP16_AVAILABLE
-
+    if constexpr (fp16_available_v) {
 #if !defined(GGML_USE_HIP) && CUDART_VERSION < CUDART_HMAX
-    return __float2half(fmaxf(__half2float(a), __half2float(b)));
+        return __float2half(fmaxf(__half2float(a), __half2float(b)));
 #else
-    return __hmax(a, b);
+        return __hmax(a, b);
 #endif // !defined(GGML_USE_HIP) && CUDART_VERSION < CUDART_HMAX
-
-#else
-    NO_DEVICE_CODE;
-    return a;
-#endif // FP16_AVAILABLE
+    }
+    else {
+        NO_DEVICE_CODE;
+        return a;
+    }
 }
 
 static __device__ __forceinline__ half2 ggml_cuda_hmax2([[maybe_unused]] const half2 a, [[maybe_unused]] const half2 b) {

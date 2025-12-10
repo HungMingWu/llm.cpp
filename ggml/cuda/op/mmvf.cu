@@ -166,47 +166,48 @@ static __global__ void mul_mat_vec_f(
             }
         }
         else {
-#ifdef FP16_AVAILABLE
-            half2 sumh2[ncols_dst] = { {0.0f, 0.0f} };
-            half2 sumh2_gate[ncols_dst] = { {0.0f, 0.0f} };
+            if constexpr (fp16_available_v) {
+                half2 sumh2[ncols_dst] = { {0.0f, 0.0f} };
+                half2 sumh2_gate[ncols_dst] = { {0.0f, 0.0f} };
 
-            for (int col2 = tid; col2 < ncols2; col2 += block_size) {
-                const half2 tmpx = x2[col2];
-                half2 tmpx_gate = make_half2(0.0f, 0.0f);
-                if constexpr (has_fusion) {
-                    if (use_gate) {
-                        tmpx_gate = gate_x2[col2];
-                    }
-                }
-#pragma unroll
-                for (int j = 0; j < ncols_dst; ++j) {
-                    const float2 tmpy = y2[j * stride_col_y2 + col2];
-                    sumh2[j] += tmpx * make_half2(tmpy.x, tmpy.y);
-
+                for (int col2 = tid; col2 < ncols2; col2 += block_size) {
+                    const half2 tmpx = x2[col2];
+                    half2 tmpx_gate = make_half2(0.0f, 0.0f);
                     if constexpr (has_fusion) {
                         if (use_gate) {
-                            sumh2_gate[j] += tmpx_gate * make_half2(tmpy.x, tmpy.y);
+                            tmpx_gate = gate_x2[col2];
+                        }
+                    }
+#pragma unroll
+                    for (int j = 0; j < ncols_dst; ++j) {
+                        const float2 tmpy = y2[j * stride_col_y2 + col2];
+                        sumh2[j] += tmpx * make_half2(tmpy.x, tmpy.y);
+
+                        if constexpr (has_fusion) {
+                            if (use_gate) {
+                                sumh2_gate[j] += tmpx_gate * make_half2(tmpy.x, tmpy.y);
+                            }
+                        }
+                    }
+                }
+
+#pragma unroll
+                for (int j = 0; j < ncols_dst; ++j) {
+                    sumf[j] = __low2float(sumh2[j]) + __high2float(sumh2[j]);
+                }
+
+                if constexpr (has_fusion) {
+                    if (use_gate) {
+#pragma unroll
+                        for (int j = 0; j < ncols_dst; ++j) {
+                            sumf_gate[j] = __low2float(sumh2_gate[j]) + __high2float(sumh2_gate[j]);
                         }
                     }
                 }
             }
-
-#pragma unroll
-            for (int j = 0; j < ncols_dst; ++j) {
-                sumf[j] = __low2float(sumh2[j]) + __high2float(sumh2[j]);
+            else {
+                NO_DEVICE_CODE;
             }
-
-            if constexpr (has_fusion) {
-                if (use_gate) {
-#pragma unroll
-                    for (int j = 0; j < ncols_dst; ++j) {
-                        sumf_gate[j] = __low2float(sumh2_gate[j]) + __high2float(sumh2_gate[j]);
-                    }
-                }
-            }
-#else
-            NO_DEVICE_CODE;
-#endif // FP16_AVAILABLE
         }
     }
     else if constexpr (std::is_same_v<T, nv_bfloat16>) {

@@ -27,3 +27,9 @@ static constexpr bool new_mma_available_v = true;
 #else
 static constexpr bool new_mma_available_v = false;
 #endif 
+
+#if defined(GGML_USE_HIP) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL
+static constexpr bool fp16_available_v = true;
+#else
+static constexpr bool fp16_available_v = false;
+#endif // defined(GGML_USE_HIP) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL

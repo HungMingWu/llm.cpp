@@ -336,28 +336,24 @@ static __device__ __forceinline__ void dequantize_V_q4_0(const void* __restrict_
 
     const int8_t* q8 = (const int8_t*)&q;
 
-#ifdef FP16_AVAILABLE
-    if constexpr (std::is_same_v<T, half>) {
+    if constexpr (fp16_available_v && std::is_same_v<T, half>) {
         const half2 d = __half2half2(x[ib].d);
 
 #pragma unroll
         for (int l0 = 0; l0 < ne; l0 += 2) {
             ((half2*)dst)[l0 / 2] = d * make_half2(q8[l0 + 0], q8[l0 + 1]);
         }
-    }
-    else
-#endif // FP16_AVAILABLE
-        if constexpr (std::is_same_v<T, float>) {
-            const float d = __half2float(x[ib].d);
+    } else if constexpr (std::is_same_v<T, float>) {
+        const float d = __half2float(x[ib].d);
 
 #pragma unroll
-            for (int l = 0; l < ne; ++l) {
-                ((float*)dst)[l] = d * q8[l];
-            }
+        for (int l = 0; l < ne; ++l) {
+            ((float*)dst)[l] = d * q8[l];
         }
-        else {
-            static_assert(std::is_same_v<T, void>, "bad type");
-        }
+    }
+    else {
+        static_assert(std::is_same_v<T, void>, "bad type");
+    }
 }
 
 template <typename T, int ne>
@@ -377,9 +373,8 @@ static __device__ __forceinline__ void dequantize_V_q4_1(const void* __restrict_
 
     const int8_t* q8 = (const int8_t*)&q;
 
-#ifdef FP16_AVAILABLE
-    if constexpr (std::is_same_v<T, half>) {
-        const half2 dm = x[ib].dm;
+    if constexpr (fp16_available_v && std::is_same_v<T, half>) {
+        const half2 dm = std::bit_cast<half2>(x[ib].dm);
         const half2 d = __half2half2(__low2half(dm));
         const half2 m = __half2half2(__high2half(dm));
 
@@ -387,20 +382,17 @@ static __device__ __forceinline__ void dequantize_V_q4_1(const void* __restrict_
         for (int l0 = 0; l0 < ne; l0 += 2) {
             ((half2*)dst)[l0 / 2] = d * make_half2(q8[l0 + 0], q8[l0 + 1]) + m;
         }
-    }
-    else
-#endif // FP16_AVAILABLE
-        if constexpr (std::is_same_v<T, float>) {
-            const float2 dm = __half22float2(x[ib].dm);
+    } else if constexpr (std::is_same_v<T, float>) {
+        const float2 dm = __half22float2(x[ib].dm);
 
 #pragma unroll
-            for (int l = 0; l < ne; ++l) {
-                ((float*)dst)[l] = dm.x * q8[l] + dm.y;
-            }
+        for (int l = 0; l < ne; ++l) {
+            ((float*)dst)[l] = dm.x * q8[l] + dm.y;
         }
-        else {
-            static_assert(std::is_same_v<T, void>, "bad type");
-        }
+    }
+    else {
+        static_assert(std::is_same_v<T, void>, "bad type");
+    }
 }
 
 template <typename T, int ne>
@@ -432,8 +424,7 @@ static __device__ __forceinline__ void dequantize_V_q5_0(const void* __restrict_
 
     const int8_t* q8 = (const int8_t*)&q;
 
-#ifdef FP16_AVAILABLE
-    if constexpr (std::is_same_v<T, half>) {
+    if constexpr (fp16_available_v && std::is_same_v<T, half>) {
         const half2 d = __half2half2(x[ib].d);
 
 #pragma unroll
@@ -441,8 +432,7 @@ static __device__ __forceinline__ void dequantize_V_q5_0(const void* __restrict_
             ((half2*)dst)[l0 / 2] = d * make_half2(q8[l0 + 0], q8[l0 + 1]);
         }
     }
-    else
-#endif // FP16_AVAILABLE
+    else {
         if constexpr (std::is_same_v<T, float>) {
             const float d = __half2float(x[ib].d);
 
@@ -454,6 +444,7 @@ static __device__ __forceinline__ void dequantize_V_q5_0(const void* __restrict_
         else {
             static_assert(std::is_same_v<T, void>, "bad type");
         }
+    }
 }
 
 template <typename T, int ne>
@@ -483,9 +474,8 @@ static __device__ __forceinline__ void dequantize_V_q5_1(const void* __restrict_
 
     const int8_t* q8 = (const int8_t*)&q;
 
-#ifdef FP16_AVAILABLE
-    if constexpr (std::is_same_v<T, half>) {
-        const half2 dm = x[ib].dm;
+    if constexpr (fp16_available_v && std::is_same_v<T, half>) {
+        const half2 dm = std::bit_cast<half2>(x[ib].dm);
         const half2 d = __half2half2(__low2half(dm));
         const half2 m = __half2half2(__high2half(dm));
 
@@ -494,8 +484,7 @@ static __device__ __forceinline__ void dequantize_V_q5_1(const void* __restrict_
             ((half2*)dst)[l0 / 2] = d * make_half2(q8[l0 + 0], q8[l0 + 1]) + m;
         }
     }
-    else
-#endif // FP16_AVAILABLE
+    else {
         if constexpr (std::is_same_v<T, float>) {
             const float2 dm = __half22float2(x[ib].dm);
 
@@ -507,6 +496,7 @@ static __device__ __forceinline__ void dequantize_V_q5_1(const void* __restrict_
         else {
             static_assert(std::is_same_v<T, void>, "bad type");
         }
+    }
 }
 
 template <typename T, int ne>
@@ -521,8 +511,7 @@ static __device__ __forceinline__ void dequantize_V_q8_0(const void* __restrict_
     int8_t qs[ne];
     ggml_cuda_memcpy_1<ne, 2>(qs, x[ib].qs + iqs);
 
-#ifdef FP16_AVAILABLE
-    if constexpr (std::is_same<T, half>::value) {
+    if constexpr (fp16_available_v && std::is_same<T, half>::value) {
         const half2 d = __half2half2(x[ib].d);
 
 #pragma unroll
@@ -530,19 +519,17 @@ static __device__ __forceinline__ void dequantize_V_q8_0(const void* __restrict_
             ((half2*)dst)[l0 / 2] = d * make_half2(qs[l0 + 0], qs[l0 + 1]);
         }
     }
-    else
-#endif // FP16_AVAILABLE
-        if constexpr (std::is_same<T, float>::value) {
-            const float d = std::bit_cast<half>(x[ib].d);
+    else if constexpr (std::is_same<T, float>::value) {
+        const float d = std::bit_cast<half>(x[ib].d);
 
 #pragma unroll
-            for (int l = 0; l < ne; ++l) {
-                ((float*)dst)[l] = d * qs[l];
-            }
+        for (int l = 0; l < ne; ++l) {
+            ((float*)dst)[l] = d * qs[l];
         }
-        else {
-            static_assert(std::is_same_v<T, void>, "unsupported type");
-        }
+    }
+    else {
+        static_assert(std::is_same_v<T, void>, "unsupported type");
+    }
 }
 
 template <internal::ggml_type type_V, typename T, int ne>
