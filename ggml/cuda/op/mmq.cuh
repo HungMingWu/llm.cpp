@@ -2127,12 +2127,15 @@ static __device__ __forceinline__ void load_tiles(
         }
 
         const int sc_m = bxi->scales[kqsx];
-#ifdef FAST_FP16_AVAILABLE
-        const half2 x_dm_ik = __hmul2(bxi->dm, make_half2(sc_m & 0x0F, sc_m >> 4));
-#else
-        const float2 bxi_dmf = __half22float2(bxi->dm);
-        const half2 x_dm_ik = make_half2(bxi_dmf.x * (sc_m & 0x0F), bxi_dmf.y * (sc_m >> 4));
-#endif // FAST_FP16_AVAILABLE
+        const half2 x_dm_ik = [=]() {
+            if constexpr (fast_fp16_available_v) {
+                return __hmul2(__tohalf2(bxi->dm), make_half2(sc_m & 0x0F, sc_m >> 4));
+            }
+            else {
+                const float2 bxi_dmf = __half22float2(bxi->dm);
+                return make_half2(bxi_dmf.x * (sc_m & 0x0F), bxi_dmf.y * (sc_m >> 4));
+            }
+        }();
 
 #if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
         x_dm[i * MMQ_MMA_TILE_X_K_Q2_K + kqsx] = x_dm_ik;

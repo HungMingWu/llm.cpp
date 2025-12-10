@@ -15,7 +15,7 @@ Based on C++26 Standard
 - std::span over an initializer list(P2447R6, MSVC doesn't support it yet)
 
 ### Minimum Requirement
-CUDA Version: 10, Compute Capability >= 3
+CUDA Version: 12.3, Compute Capability >= 5
 
 ### How to build
 

@@ -81,11 +81,12 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_f16(
         ggml_cuda_memcpy_1<sizeof(tmp)>(tmp, K_h2 + k_KQ_0 + (threadIdx.x % nthreads) * cpy_ne);
 #pragma unroll
         for (int k_KQ_1 = 0; k_KQ_1 < cpy_ne; ++k_KQ_1) {
-#ifdef FAST_FP16_AVAILABLE
-            ggml_cuda_mad(sum, tmp[k_KQ_1], ((const half2*)Q_v)[k_KQ_0 / nthreads + k_KQ_1]);
-#else
-            ggml_cuda_mad(sum, __half22float2(tmp[k_KQ_1]), ((const float2*)Q_v)[k_KQ_0 / nthreads + k_KQ_1]);
-#endif // FP16_AVAILABLE
+            if constexpr (fast_fp16_available_v) {
+                ggml_cuda_mad(sum, tmp[k_KQ_1], ((const half2*)Q_v)[k_KQ_0 / nthreads + k_KQ_1]);
+            }
+            else {
+                ggml_cuda_mad(sum, __half22float2(tmp[k_KQ_1]), ((const float2*)Q_v)[k_KQ_0 / nthreads + k_KQ_1]);
+            }
         }
     }
 
@@ -374,7 +375,7 @@ static __device__ __forceinline__ void dequantize_V_q4_1(const void* __restrict_
     const int8_t* q8 = (const int8_t*)&q;
 
     if constexpr (fp16_available_v && std::is_same_v<T, half>) {
-        const half2 dm = std::bit_cast<half2>(x[ib].dm);
+        const half2 dm = __tohalf2(x[ib].dm);
         const half2 d = __half2half2(__low2half(dm));
         const half2 m = __half2half2(__high2half(dm));
 
@@ -475,7 +476,7 @@ static __device__ __forceinline__ void dequantize_V_q5_1(const void* __restrict_
     const int8_t* q8 = (const int8_t*)&q;
 
     if constexpr (fp16_available_v && std::is_same_v<T, half>) {
-        const half2 dm = std::bit_cast<half2>(x[ib].dm);
+        const half2 dm = __tohalf2(x[ib].dm);
         const half2 d = __half2half2(__low2half(dm));
         const half2 m = __half2half2(__high2half(dm));
 

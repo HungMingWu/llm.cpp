@@ -553,16 +553,17 @@ static constexpr __device__ int ggml_cuda_get_max_cpy_bytes() {
 }
 
 static __device__ __forceinline__ void ggml_cuda_mad(half2& acc, const half2 v, const half2 u) {
-#ifdef FAST_FP16_AVAILABLE
-    acc += v * u;
-#else
-    const float2 tmpv = __half22float2(v);
-    const float2 tmpu = __half22float2(u);
-    float2 tmpacc = __half22float2(acc);
-    tmpacc.x += tmpv.x * tmpu.x;
-    tmpacc.y += tmpv.y * tmpu.y;
-    acc = make_half2(tmpacc.x, tmpacc.y);
-#endif // FAST_FP16_AVAILABLE
+    if constexpr (fast_fp16_available_v) {
+        acc += v * u;
+    }
+    else {
+        const float2 tmpv = __half22float2(v);
+        const float2 tmpu = __half22float2(u);
+        float2 tmpacc = __half22float2(acc);
+        tmpacc.x += tmpv.x * tmpu.x;
+        tmpacc.y += tmpv.y * tmpu.y;
+        acc = make_half2(tmpacc.x, tmpacc.y);
+    }
 }
 
 // Aligned memory transfers of 8/16 bytes can be faster than 2 transfers with 4 bytes, especially on AMD.
@@ -619,14 +620,15 @@ static __device__ __forceinline__ void ggml_cuda_mad(float& acc, const half2 v, 
 #if defined(GGML_USE_HIP) && (defined(RDNA2) || defined(RDNA3) || defined(RDNA4) || defined(__gfx906__) || defined(CDNA))
     asm volatile("v_dot2_f32_f16 %0, %1, %2, %0" : "+v"(acc) : "v"(v), "v"(u));
 #else
-#ifdef FAST_FP16_AVAILABLE
-    const float2 tmp = __half22float2(v * u);
-    acc += tmp.x + tmp.y;
-#else
-    const float2 tmpv = __half22float2(v);
-    const float2 tmpu = __half22float2(u);
-    acc += tmpv.x * tmpu.x;
-    acc += tmpv.y * tmpu.y;
-#endif // FAST_FP16_AVAILABLE
+    if constexpr (fast_fp16_available_v) {
+        const float2 tmp = __half22float2(v * u);
+        acc += tmp.x + tmp.y;
+    }
+    else {
+        const float2 tmpv = __half22float2(v);
+        const float2 tmpu = __half22float2(u);
+        acc += tmpv.x * tmpu.x;
+        acc += tmpv.y * tmpu.y;
+    }
 #endif // defined(GGML_USE_HIP) && (defined(RDNA2)  || defined(RDNA3) || defined(RDNA4) || defined(GCN5) || defined(CDNA))
 }
