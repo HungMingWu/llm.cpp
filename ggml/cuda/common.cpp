@@ -264,6 +264,10 @@ bool amd_mfma_available(const int cc)
 #endif //!defined(GGML_HIP_NO_MMQ_MFMA)
 }
 
+bool amd_wmma_available(const int cc) {
+    return (GGML_CUDA_CC_IS_RDNA4(cc) || GGML_CUDA_CC_IS_RDNA3(cc));
+}
+
 bool volta_mma_available(const int cc) {
     return GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) == GGML_CUDA_CC_VOLTA;
 }

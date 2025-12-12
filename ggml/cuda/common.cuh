@@ -87,6 +87,34 @@ static __device__ __forceinline__ float warp_reduce_max(float x) {
     return x;
 }
 
+template<typename T, int width = WARP_SIZE>
+static __device__ __forceinline__ T warp_prefix_inclusive_sum(T x) {
+    const int lane_id = threadIdx.x % width;
+#pragma unroll
+    for (int offset = 1; offset < width; offset <<= 1) {
+        const T t = __shfl_up_sync(0xffffffff, x, offset, width);
+        if (lane_id >= offset) {
+            x += t;
+        }
+    }
+    return x;
+}
+
+template<int width = WARP_SIZE>
+static __device__ __forceinline__ float2 warp_prefix_inclusive_sum(float2 a) {
+    const int lane_id = threadIdx.x % width;
+#pragma unroll
+    for (int offset = 1; offset < width; offset <<= 1) {
+        const float t_x = __shfl_up_sync(0xffffffff, a.x, offset, width);
+        const float t_y = __shfl_up_sync(0xffffffff, a.y, offset, width);
+        if (lane_id >= offset) {
+            a.x += t_x;
+            a.y += t_y;
+        }
+    }
+    return a;
+}
+
 template<int width = WARP_SIZE>
 static __device__ __forceinline__ int warp_reduce_all(int x) {
     if (width == ggml_cuda_get_physical_warp_size()) {
@@ -98,6 +126,25 @@ static __device__ __forceinline__ int warp_reduce_all(int x) {
             x = __shfl_xor_sync(0xffffffff, x, offset, width) && x;
         }
         return x;
+    }
+}
+
+template<int width = WARP_SIZE>
+static __device__ __forceinline__ half2 warp_prefix_inclusive_sum(half2 a) {
+    if constexpr (fp16_available_v) {
+        const int lane_id = threadIdx.x % width;
+#pragma unroll
+        for (int offset = 1; offset < width; offset <<= 1) {
+            const half2 t = __shfl_up_sync(0xffffffff, a, offset, width);
+            if (lane_id >= offset) {
+                a = __hadd2(a, t);
+            }
+        }
+        return a;
+    } else {
+
+        NO_DEVICE_CODE;
+        return a;
     }
 }
 
@@ -553,6 +600,9 @@ static constexpr __device__ int ggml_cuda_get_max_cpy_bytes() {
 }
 
 static __device__ __forceinline__ void ggml_cuda_mad(half2& acc, const half2 v, const half2 u) {
+#ifdef V_DOT2_F32_F16_AVAILABLE
+    asm volatile("v_dot2_f32_f16 %0, %1, %2, %0" : "+v"(acc) : "v"(v), "v"(u));
+#else
     if constexpr (fast_fp16_available_v) {
         acc += v * u;
     }
@@ -564,6 +614,7 @@ static __device__ __forceinline__ void ggml_cuda_mad(half2& acc, const half2 v, 
         tmpacc.y += tmpv.y * tmpu.y;
         acc = make_half2(tmpacc.x, tmpacc.y);
     }
+#endif // V_DOT2_F32_F16_AVAILABLE
 }
 
 // Aligned memory transfers of 8/16 bytes can be faster than 2 transfers with 4 bytes, especially on AMD.

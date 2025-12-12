@@ -2,6 +2,76 @@
 #include "cuda_func.h"
 #include "launch.cuh"
 
+// Similar to F.interpolate(..., mode="bilinear", align_corners=False, antialias=True)
+// https://github.com/pytorch/pytorch/blob/8871ff29b743948d1225389d5b7068f37b22750b/aten/src/ATen/native/cpu/UpSampleKernel.cpp
+static __global__ void upscale_f32_bilinear_antialias(const float* src0, float* dst,
+    const int nb00, const int nb01, const int nb02, const int nb03,
+    const int ne00_src, const int ne01_src,
+    const int ne10_dst, const int ne11_dst, const int ne12_dst, const int ne13_dst,
+    const float sf0, const float sf1, const float sf2, const float sf3,
+    const float pixel_offset) {
+    const int64_t index = threadIdx.x + blockIdx.x * blockDim.x;
+    const int64_t dst_total_elements = ne10_dst * ne11_dst * ne12_dst * ne13_dst;
+
+    if (index >= dst_total_elements) {
+        return;
+    }
+
+    const int i10_dst = index % ne10_dst;
+    const int i11_dst = (index / ne10_dst) % ne11_dst;
+    const int i12_dst = (index / (ne10_dst * ne11_dst)) % ne12_dst;
+    const int i13_dst = index / (ne10_dst * ne11_dst * ne12_dst);
+
+    const int i02_src = (int)(i12_dst / sf2);
+    const int i03_src = (int)(i13_dst / sf3);
+
+    const float y = ((float)i11_dst + pixel_offset) / sf1;
+    const float x = ((float)i10_dst + pixel_offset) / sf0;
+
+    // support and invscale, minimum 1 pixel for bilinear
+    const float support1 = max(1.0f / sf1, 1.0f);
+    const float invscale1 = 1.0f / support1;
+    const float support0 = max(1.0f / sf0, 1.0f);
+    const float invscale0 = 1.0f / support0;
+
+    // the range of source pixels that contribute
+    const int64_t x_min = max(int64_t(0), int64_t(x - support0 + pixel_offset));
+    const int64_t x_max = min(int64_t(ne00_src), int64_t(x + support0 + pixel_offset));
+    const int64_t y_min = max(int64_t(0), int64_t(y - support1 + pixel_offset));
+    const int64_t y_max = min(int64_t(ne01_src), int64_t(y + support1 + pixel_offset));
+
+    // bilinear filter with antialiasing
+    float val = 0.0f;
+    float total_weight = 0.0f;
+
+    auto triangle_filter = [](float x) -> float {
+        return max(1.0f - fabsf(x), 0.0f);
+    };
+
+    for (int64_t sy = y_min; sy < y_max; sy++) {
+        const float weight_y = triangle_filter((sy - y + pixel_offset) * invscale1);
+
+        for (int64_t sx = x_min; sx < x_max; sx++) {
+            const float weight_x = triangle_filter((sx - x + pixel_offset) * invscale0);
+            const float weight = weight_x * weight_y;
+
+            if (weight <= 0.0f) {
+                continue;
+            }
+
+            const float pixel = *(const float*)((const char*)src0 + sx * nb00 + sy * nb01 + i02_src * nb02 + i03_src * nb03);
+            val += pixel * weight;
+            total_weight += weight;
+        }
+    }
+
+    if (total_weight > 0.0f) {
+        val /= total_weight;
+    }
+
+    dst[index] = val;
+}
+
 void upscale_f32_cuda(const upscale_context& ctx, cudaStream_t stream)
 {
     auto dst_data = make_strided_mdspan(ctx.dst_d, ctx.dst_ne, ctx.dst_nb);
@@ -18,7 +88,10 @@ void upscale_f32_cuda(const upscale_context& ctx, cudaStream_t stream)
     );
 }
 
-void upscale_f32_bilinear_cuda(const upscale_context& ctx, const float pixel_offset, cudaStream_t stream) {
+void upscale_f32_bilinear_cuda(const upscale_context& ctx, const float pixel_offset, bool antialias, cudaStream_t stream) {
+    if (antialias) {
+        return;
+    }
     auto dst_data = make_strided_mdspan(ctx.dst_d, ctx.dst_ne, ctx.dst_nb);
     auto src0_data = make_strided_mdspan(ctx.src0_d, ctx.src0_ne, ctx.src0_nb);
     launch_functor(stream, std::make_tuple(ctx.dst_ne[3], ctx.dst_ne[2], ctx.dst_ne[1], ctx.dst_ne[0]),

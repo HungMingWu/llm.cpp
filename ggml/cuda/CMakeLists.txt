@@ -39,6 +39,7 @@ target_sources(libggml
       buffer_type.cpp
       common.cpp
       fused.cpp
+      op.cpp
       registry.cpp
       utils.cpp
       fused/softcap.cu
@@ -62,11 +63,14 @@ target_sources(libggml
       op/count-equal.cu
       op/cpy.cu
       op/cross-entropy-loss.cu
+      op/cumsum.cu
+      op/diag.cu
       op/diagmask.cu
       op/dump.cu
       op/fattn-tile.cu
       op/fattn-wmma-f16.cu
       op/fattn.cu
+      op/fill.cu
       op/getrows.cu
       op/gla.cu
       op/im2col.cu
@@ -88,9 +92,11 @@ target_sources(libggml
       op/scale.cu
       op/set-rows.cu
       op/softmax.cu
+      op/solve_tri.cu
       op/ssm-conv.cu
       op/ssm-scan.cu
       op/sumrows.cu
+      op/tri.cu
       op/tsembd.cu
       op/unary.cu
       op/upscale.cu

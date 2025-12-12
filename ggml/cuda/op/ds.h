@@ -77,6 +77,13 @@ namespace internal {
 
         GGML_GLU_OP_COUNT,
     };
+
+    enum ggml_tri_type {
+        GGML_TRI_TYPE_UPPER_DIAG = 0,
+        GGML_TRI_TYPE_UPPER = 1,
+        GGML_TRI_TYPE_LOWER_DIAG = 2,
+        GGML_TRI_TYPE_LOWER = 3
+    };
 }
 
 enum mmq_q8_1_ds_layout {

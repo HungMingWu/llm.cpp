@@ -207,6 +207,7 @@ static constexpr bool fast_fp16_available(const int cc) {
         (GGML_CUDA_CC_IS_NVIDIA(cc) && fp16_available(cc) && ggml_cuda_highest_compiled_arch(cc) != 610);
 }
 
+bool amd_wmma_available(const int cc);
 bool volta_mma_available(const int cc);
 bool turing_mma_available(const int cc);
 bool ampere_mma_available(const int cc);
