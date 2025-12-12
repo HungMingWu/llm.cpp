@@ -844,8 +844,9 @@ ggml_tensor* ggml_pad(
 	int p0,
 	int p1,
 	int p2,
-	int p3) {
-	return ggml_pad_ext(ctx, a, 0, p0, 0, p1, 0, p2, 0, p3);
+	int p3,
+	bool circular) {
+	return ggml_pad_ext(ctx, a, 0, p0, 0, p1, 0, p2, 0, p3, circular);
 }
 
 ggml_tensor* ggml_timestep_embedding(
@@ -899,8 +900,6 @@ ggml_tensor* ggml_flash_attn_ext(
 
 	if (mask) {
 		GGML_ASSERT(ggml_is_contiguous(mask));
-		GGML_ASSERT(mask->ne[1] >= GGML_PAD(q->ne[1], GGML_KQ_MASK_PAD) &&
-			"the Flash-Attention kernel requires the mask to be padded to GGML_KQ_MASK_PAD and at least n_queries big");
 		//GGML_ASSERT(ggml_can_repeat_rows(mask, qk));
 
 		GGML_ASSERT(q->ne[2] % mask->ne[2] == 0);
@@ -1655,6 +1654,8 @@ static ggml_tensor* ggml_interpolate_impl(
 	int64_t ne3,
 	uint32_t mode) {
 	GGML_ASSERT((mode & 0xFF) < GGML_SCALE_MODE_COUNT);
+	// TODO: implement antialias for modes other than bilinear
+	GGML_ASSERT(!(mode & GGML_SCALE_FLAG_ANTIALIAS) || (mode & 0xFF) == GGML_SCALE_MODE_BILINEAR);
 
 	ggml_tensor* result = ctx->create(a->type, { ne0, ne1, ne2, ne3 });
 
@@ -2216,12 +2217,10 @@ ggml_tensor* ggml_top_k(
 {
 	GGML_ASSERT(a->ne[0] >= k);
 
-	ggml_tensor* result = ggml_argsort(ctx, a, GGML_SORT_ORDER_DESC);
+	ggml_tensor* result = ctx->create(GGML_TYPE_I32, { k, a->ne[1], a->ne[2], a->ne[3] });
 
-	result = ggml_view(ctx, result,
-		{ k, result->ne[1], result->ne[2], result->ne[3] },
-		{ result->nb[1], result->nb[2], result->nb[3] },
-		0);
+	result->op = GGML_OP_TOP_K;
+	result->src.push_back(a);
 
 	return result;
 }
@@ -2383,7 +2382,8 @@ ggml_tensor* ggml_pad_ext(
 	int lp2,
 	int rp2,
 	int lp3,
-	int rp3
+	int rp3,
+	bool circular
 ) {
 	ggml_tensor* result = ctx->create(a->type,
 		{ a->ne[0] + lp0 + rp0,
@@ -2399,6 +2399,7 @@ ggml_tensor* ggml_pad_ext(
 	result->op_params[5] = rp2;
 	result->op_params[6] = lp3;
 	result->op_params[7] = rp3;
+	result->op_params[8] = circular;
 
 	result->op = GGML_OP_PAD;
 	result->src.push_back(a);
@@ -2558,4 +2559,33 @@ ggml_tensor* ggml_softplus(
 	bool inplace)
 {
 	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_SOFTPLUS, inplace);
+}
+
+ggml_tensor* ggml_argsort_top_k(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	int k) {
+	GGML_ASSERT(a->ne[0] >= k);
+
+	ggml_tensor* result = ggml_argsort(ctx, a, GGML_SORT_ORDER_DESC);
+
+	result = ggml_view(ctx, result,
+		{ k, result->ne[1], result->ne[2], result->ne[3] },
+		{ result->nb[1], result->nb[2], result->nb[3] },
+		0);
+
+	return result;
+}
+
+ggml_tensor* ggml_diag(
+	ggml_context* ctx,
+	ggml_tensor* a) {
+	GGML_ASSERT(a->ne[1] == 1);
+
+	ggml_tensor* result = ctx->create(a->type, { a->ne[0], a->ne[0], a->ne[2], a->ne[3] });
+
+	result->op = GGML_OP_DIAG;
+	result->src.push_back(a);
+
+	return result;
 }

@@ -27,7 +27,18 @@ ggml_backend_sched::ggml_backend_sched(std::span<ggml_backend*> backends,
 	this->bufts = bufts;
     const char* GGML_SCHED_DEBUG = getenv("GGML_SCHED_DEBUG");
     debug = GGML_SCHED_DEBUG ? atoi(GGML_SCHED_DEBUG) : 0;
+
+    debug_realloc = 0;
+#ifdef GGML_SCHED_NO_REALLOC
+    debug_realloc = 1;
+#endif
+    const char* GGML_SCHED_DEBUG_REALLOC = getenv("GGML_SCHED_DEBUG_REALLOC");
+    debug_realloc = GGML_SCHED_DEBUG_REALLOC ? atoi(GGML_SCHED_DEBUG_REALLOC) : debug_realloc;
+
     n_copies = parallel ? GGML_SCHED_MAX_COPIES : 1;
+
+    debug_graph_size = 0;
+    debug_prev_graph_size = 0;
 
     // initialize hash table
     // FIXME: needs to be size*2 to account for leafs (do it in graph_split instead)
@@ -534,10 +545,8 @@ void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
                                 tensor_copy = ggml_dup_tensor_layout(ctx.get(), src);
                                 tensor_copy->set_name("{}#{}#{}", src_backend->get_name(), src->name, c);
                             }
-                            if (n_copies > 1) {
-                                tensor_copy->set_flag(GGML_TENSOR_FLAG_INPUT);
-                                tensor_copy->set_flag(GGML_TENSOR_FLAG_OUTPUT); // prevent ggml-alloc from overwriting the tensor
-                            }
+                            tensor_copy->set_flag(GGML_TENSOR_FLAG_INPUT);
+                            tensor_copy->set_flag(GGML_TENSOR_FLAG_OUTPUT); // prevent ggml-alloc from overwriting the tensor
                             hv_tensor_copies_backend.push_back(tensor_copy);
                             SET_CAUSE(tensor_copy, "4.cpy");
                         }
@@ -552,10 +561,8 @@ void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
                         for (int c = 0; c < n_copies; c++) {
                             ggml_tensor* tensor_copy = ggml_dup_tensor_layout(ctx.get(), src);
                             tensor_copy->set_name("{}#{}#{}", cur_backend->get_name(), src->name, c);
-                            if (n_copies > 1) {
-                                tensor_copy->set_flag(GGML_TENSOR_FLAG_INPUT);
-                                tensor_copy->set_flag(GGML_TENSOR_FLAG_OUTPUT); // prevent ggml-alloc from overwriting the tensor
-                            }
+                            tensor_copy->set_flag(GGML_TENSOR_FLAG_INPUT);
+                            tensor_copy->set_flag(GGML_TENSOR_FLAG_OUTPUT); // prevent ggml-alloc from overwriting the tensor
                             hv_tensor_copies_backend.push_back(tensor_copy);
                             SET_CAUSE(tensor_copy, "4.cpy");
                         }
@@ -576,6 +583,10 @@ void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
         std::swap(node_backend_ids, prev_node_backend_ids);
         std::swap(leaf_backend_ids, prev_leaf_backend_ids);
     }
+
+    int graph_size = std::max<int>(graph.nodes.size(), graph.leafs.size() + splits.size() * GGML_SCHED_MAX_SPLIT_INPUTS * 2 * n_copies);
+    // remember the actual graph_size for performing reallocation checks later [GGML_SCHED_DEBUG_REALLOC]
+    debug_prev_graph_size = std::exchange(debug_graph_size, graph_size);
 
     this->graph.nodes.clear();
     this->graph.leafs.clear();
@@ -692,14 +703,27 @@ bool ggml_backend_sched::alloc_splits() {
 
     // allocate graph
     if (backend_ids_changed || !galloc->alloc_graph(&graph)) {
+#ifndef NDEBUG
+        GGML_LOG_DEBUG("{}: failed to allocate graph, reserving (backend_ids_changed = {})\n", __func__, backend_ids_changed);
+#endif
+
+        if (debug_realloc > 0) {
+            // we are interested only in situations where the graph was reallocated even though its size remained the same [GGML_SCHED_DEBUG_REALLOC]
+            // example: https://github.com/ggml-org/llama.cpp/pull/17143
+            const bool unexpected = !backend_ids_changed && debug_prev_graph_size == debug_graph_size;
+
+            if (unexpected || debug_realloc > 1) {
+                GGML_ABORT("{}: unexpected graph reallocation (graph size = {}, nodes = {}, leafs = {}), debug_realloc = {}\n", __func__,
+                    debug_graph_size, graph.n_nodes, graph.n_leafs, debug_realloc);
+            }
+        }
+
         // the re-allocation may cause the split inputs to be moved to a different address
         // synchronize without ggml_backend_sched_synchronize to avoid changing cur_copy
         for (auto backend : backends) {
             backend->synchronize();
         }
-#ifndef NDEBUG
-        GGML_LOG_DEBUG("{}: failed to allocate graph, reserving (backend_ids_changed = {})", __func__, backend_ids_changed);
-#endif
+
         galloc->reserve(graph, node_backend_ids, leaf_backend_ids);
         if (!galloc->alloc_graph(&graph)) {
             GGML_LOG_ERROR("{}: failed to allocate graph", __func__);

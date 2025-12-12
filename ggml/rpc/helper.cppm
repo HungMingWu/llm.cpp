@@ -7,6 +7,10 @@ import :rpc.ds;
 
 rpc_tensor serialize_tensor(const ggml_tensor* tensor) {
     rpc_tensor result;
+    if (!tensor) {
+        memset(&result, 0, sizeof(result));
+        return result;
+    }
     result.id = reinterpret_cast<uint64_t>(tensor);
     result.type = tensor->type;
 #if 0

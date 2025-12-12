@@ -158,85 +158,17 @@ static __global__ void flash_attn_ext_f16(
 #endif // defined(FLASH_ATTN_AVAILABLE) && defined(TURING_MMA_AVAILABLE)
 }
 
-template <int DKQ, int DV, int ncols1, int ncols2>
-void ggml_cuda_flash_attn_ext_mma_f16_case(const flash_attn_ext_context& ctx) {
-    const int id = ggml_cuda_get_device();
-    const int cc = ggml_cuda_info().devices[id].cc;
-
-    typedef fattn_mma_f16_config<DKQ, DV> c;
-
-    const int nstages = cp_async_available(cc) ? c::nstages_target : 0;
-
-    constexpr int ncols = ncols1 * ncols2;
-    constexpr int ntiles = ncols <= 8 ? 1 : 2; // Number of tiles per warp.
-    constexpr int cols_per_warp = ntiles * tile_B::I;
-    constexpr int nwarps_max_x = ncols / cols_per_warp;
-    constexpr int nwarps_max_y = c::nbatch_fa / tile_A::I;
-    constexpr int nwarps = nwarps_max_x * nwarps_max_y <= c::nwarps_max ? nwarps_max_x * nwarps_max_y : c::nwarps_max;
-
-    constexpr bool mla = DKQ == 576;
-
-    const int nbatch_K2 = c::get_nbatch_K2_host(cc, ncols);
-    const int nbatch_V2 = c::get_nbatch_K2_host(cc, ncols);
-    const int nbatch_combine = c::get_nbatch_combine_host(cc, ncols);
-
-    static_assert(DKQ % tile_B::J == 0, "bad DKQ");
-    static_assert(DV % tile_A::J == 0, "bad DV");
-    static_assert(ncols % cols_per_warp == 0, "bad ncols");
-
-    const size_t nbytes_shared_KV_1stage = c::nbatch_fa * std::max(nbatch_K2 + 4, nbatch_V2 + 4) * sizeof(half2);
-    const size_t nbytes_shared_KV_2stage = c::nbatch_fa * (nbatch_K2 + 4 + nbatch_V2 + 4) * sizeof(half2);
-    const size_t nbytes_shared_Q = ncols * (DKQ / 2 + 4) * sizeof(half2);
-    const size_t nbytes_shared_mask = ncols1 * (c::nbatch_fa / 2 + 4) * sizeof(half2);
-    const size_t nbytes_shared_combine = nwarps * cols_per_warp * (nbatch_combine + 4) * sizeof(half2);
-
-    const size_t nbytes_shared_KV = nstages <= 1 ? nbytes_shared_KV_1stage : nbytes_shared_KV_2stage;
-
-    const size_t nbytes_shared_total = std::max(nbytes_shared_combine, c::Q_in_reg ?
-        std::max(nbytes_shared_Q, nbytes_shared_KV + nbytes_shared_mask) :
-        nbytes_shared_Q + nbytes_shared_KV + nbytes_shared_mask);
-
-    fattn_kernel_t fattn_kernel;
-    if (ctx.logit_softcap == 0.0f) {
-        constexpr bool use_logit_softcap = false;
-        fattn_kernel = flash_attn_ext_f16<DKQ, DV, ncols1, ncols2, nwarps, ntiles, use_logit_softcap, mla>;
-
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-        static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = { false };
-        if (!shared_memory_limit_raised[id]) {
-            CUDA_CHECK(cudaFuncSetAttribute(fattn_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, nbytes_shared_total));
-            shared_memory_limit_raised[id] = true;
-        }
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-    }
-    else {
-        constexpr bool use_logit_softcap = true;
-        fattn_kernel = flash_attn_ext_f16<DKQ, DV, ncols1, ncols2, nwarps, ntiles, use_logit_softcap, mla>;
-
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-        static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = { false };
-        if (!shared_memory_limit_raised[id]) {
-            CUDA_CHECK(cudaFuncSetAttribute(fattn_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, nbytes_shared_total));
-            shared_memory_limit_raised[id] = true;
-        }
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-    }
-
-    launch_fattn<DV, ncols1, ncols2>
-        (ctx, fattn_kernel, nwarps, nbytes_shared_total, FATTN_KQ_STRIDE, true, true, true);
-}
-
 template <int DKQ, int DV, int ncols2>
 static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1(const flash_attn_ext_context& ctx) {
     const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
     if constexpr (ncols2 <= 8) {
-        if (ctx.Q.ne1 <= 8 / ncols2) {
+        if (turing_mma_available(cc) && ctx.Q.ne1 <= 8 / ncols2) {
             ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 8 / ncols2, ncols2>(ctx);
             return;
         }
     }
 
-    if (ctx.Q.ne1 <= 16 / ncols2) {
+    if (turing_mma_available(cc) && ctx.Q.ne1 <= 16 / ncols2) {
         ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 16 / ncols2, ncols2>(ctx);
         return;
     }
@@ -251,22 +183,20 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1(const flash_attn_ext_
 
 template <int DKQ, int DV>
 static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2(const flash_attn_ext_context& ctx) {
-    const bool use_gqa_opt = ctx.mask.exist && ctx.max_bias == 0.0f;
-
     GGML_ASSERT(ctx.Q.ne2 % ctx.K.ne2 == 0);
     const int gqa_ratio = ctx.Q.ne2 / ctx.K.ne2;
 
-    if (use_gqa_opt && gqa_ratio % 8 == 0) {
+    if (ctx.use_gqa_opt && gqa_ratio % 8 == 0) {
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 8>(ctx);
         return;
     }
 
-    if (use_gqa_opt && gqa_ratio % 4 == 0) {
+    if (ctx.use_gqa_opt && gqa_ratio % 4 == 0) {
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 4>(ctx);
         return;
     }
 
-    if (use_gqa_opt && gqa_ratio % 2 == 0) {
+    if (ctx.use_gqa_opt && gqa_ratio % 2 == 0) {
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx);
         return;
     }

@@ -181,8 +181,13 @@ static ggml_backend_reg* ggml_backend_load_best(std::u8string name_path, bool si
 	fs::path best_path;
 
 	for (const auto& search_path : search_paths) {
-		if (!fs::exists(search_path)) {
-			GGML_LOG_DEBUG("{}: search path {} does not exist\n", __func__, path_str(search_path));
+		if (std::error_code ec; !fs::exists(search_path, ec)) {
+			if (ec) {
+				GGML_LOG_DEBUG("{}: posix_stat({}) failure, error-message: {}\n", __func__, path_str(search_path), ec.message());
+			}
+			else {
+				GGML_LOG_DEBUG("{}: search path {} does not exist\n", __func__, path_str(search_path));
+			}
 			continue;
 		}
 		fs::directory_iterator dir_it(search_path, fs::directory_options::skip_permission_denied);
@@ -246,6 +251,7 @@ void ggml_backend_load_all_from_path(std::optional<fs::path> dir_path = {}) {
 #endif
 
 	ggml_backend_load_best(u8"blas", silent, dir_path);
+	ggml_backend_load_best(u8"zendnn", silent, dir_path);
 	ggml_backend_load_best(u8"cann", silent, dir_path);
 	ggml_backend_load_best(u8"cuda", silent, dir_path);
 	ggml_backend_load_best(u8"hip", silent, dir_path);

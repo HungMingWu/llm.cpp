@@ -8,7 +8,7 @@
 #define MMQ_DP4A_MAX_BATCH_SIZE 64 // Max. batch size to use for dp4a MMQ kernels when FP16 tensor cores are available.
 
 static int get_mmq_x_max_host(const int cc) {
-    return (amd_mfma_available(cc) || turing_mma_available(cc)) ? 128 :
+    return (amd_mfma_available(cc) || turing_mma_available(cc) || amd_wmma_available(cc)) ? 128 :
         GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA ?
 #ifdef GGML_CUDA_FORCE_MMQ
         128 : 64;
@@ -515,7 +515,7 @@ struct upscale_context {
 };
 
 void upscale_f32_cuda(const upscale_context& ctx, cudaStream_t stream);
-void upscale_f32_bilinear_cuda(const upscale_context& ctx, const float pixel_offset, cudaStream_t stream);
+void upscale_f32_bilinear_cuda(const upscale_context& ctx, const float pixel_offset, bool antialias, cudaStream_t stream);
 void upscale_f32_bicubic_cuda(const upscale_context& ctx, const float pixel_offset, cudaStream_t stream);
 
 // acc
@@ -543,6 +543,7 @@ struct pad_context {
     size_t src0_nb[4];
     size_t dst_nb[4];
     const int lp0, rp0, lp1, rp1, lp2, rp2, lp3, rp3;
+    bool circular;
 };
 
 void pad_f32_cuda(const pad_context& ctx, cudaStream_t stream);
@@ -580,6 +581,7 @@ struct flash_attn_ext_context {
     const float max_bias;
     const float logit_softcap;
     const internal::ggml_prec precision;
+    const bool use_gqa_opt;
 
     struct {
         const internal::ggml_type type;
@@ -863,3 +865,72 @@ void conv2d_cuda(const conv2d_context& ctx, cudaStream_t stream);
 
 // dump.cu, use for dump cuda memory
 void dump_cuda_memory(const void* data, size_t length);
+
+// diag.cu
+struct diag_context {
+    internal::ggml_type dst_type;
+    const void* src0_d;
+    void* dst_d;
+    const int64_t ne0, ne1, ne2, ne3, n_elems;
+};
+void diag_cuda(const diag_context& ctx, cudaStream_t stream);
+
+// fill.cu
+void fill_cuda(internal::ggml_type dst_type, void* dst_d, const int64_t k, float value, cudaStream_t stream);
+
+// solve_tri.cu
+void solve_tri_f32_cuda(const float* A,
+    const float* B,
+    float* X,
+    int           n,
+    int           k,
+    int64_t       ne02,
+    int64_t       ne03,
+    size_t        nb02,
+    size_t        nb03,
+    size_t        nb12,
+    size_t        nb13,
+    size_t        nb2,
+    size_t        nb3,
+    cudaStream_t  stream);
+
+void solve_tri_f32_cublas(ggml_cuda_pool& pool, cublasHandle_t cublas_handle,
+    const float* A,
+    const float* B,
+    float* X,
+    int                         n,
+    int                         k,
+    int64_t                     ne02,
+    int64_t                     ne03,
+    size_t                      s02,
+    size_t                      s03,
+    size_t                      s12,
+    size_t                      s13,
+    size_t                      s2,
+    size_t                      s3,
+    cudaStream_t                stream);
+
+// tri.cu
+struct tri_context {
+    internal::ggml_type src0_type;
+    const void* src0_d;
+    void* dst_d;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
+    internal::ggml_tri_type ttype;
+};
+void tri_cuda(const tri_context& ctx, cudaStream_t  stream);
+
+// cumsum.cu
+struct cumsum_context {
+    internal::ggml_type src0_type;
+    const void* src0_d;
+    void* dst_d;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
+};
+void cumsum_cuda(const cumsum_context& ctx, cudaStream_t  stream);

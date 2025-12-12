@@ -59,11 +59,22 @@ void ggml_backend_rpc::synchronize()
 
 ggml_status ggml_backend_rpc::graph_compute_impl(ggml_cgraph* cgraph)
 {
-    std::vector<uint8_t> input;
-    serialize_graph(device, cgraph, input);
-    rpc_msg_graph_compute_rsp response;
-    auto sock = get_socket(endpoint);
-    bool status = send_rpc_cmd(sock, RPC_CMD_GRAPH_COMPUTE, input.data(), input.size(), &response, sizeof(response));
-    RPC_STATUS_ASSERT(status);
-    return (enum ggml_status)response.result;
+    //GGML_ASSERT(cgraph->nodes.size() > 0);
+    bool reuse = gc.is_cached(cgraph);
+    if (reuse) {
+        rpc_msg_graph_recompute_req request;
+        request.device = device;
+        auto sock = get_socket(endpoint);
+        bool status = send_rpc_cmd(sock, RPC_CMD_GRAPH_RECOMPUTE, &request, sizeof(request));
+        RPC_STATUS_ASSERT(status);
+    }
+    else {
+        gc.add(cgraph);
+        std::vector<uint8_t> input;
+        serialize_graph(device, cgraph, input);
+        auto sock = get_socket(endpoint);
+        bool status = send_rpc_cmd(sock, RPC_CMD_GRAPH_COMPUTE, input.data(), input.size());
+        RPC_STATUS_ASSERT(status);
+    }
+    return GGML_STATUS_SUCCESS;
 }

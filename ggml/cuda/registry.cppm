@@ -45,10 +45,7 @@ public:
     using ggml_backend_device::ggml_backend_device;
     const char* get_name() override { return name.c_str(); }
     const char* get_description() override { return description.c_str(); }
-    void get_memory(size_t* free, size_t* total) override {
-        ggml_cuda_set_device(device);
-        CUDA_CHECK(cudaMemGetInfo(free, total));
-    }
+    void get_memory(size_t* free, size_t* total) override;
     enum ggml_backend_dev_type get_type() override {
         return GGML_BACKEND_DEVICE_TYPE_GPU;
     }

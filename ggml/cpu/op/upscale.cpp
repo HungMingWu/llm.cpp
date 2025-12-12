@@ -53,6 +53,65 @@ static void ggml_compute_forward_upscale_f32(ggml_tensor* dst) {
                 }
             }
         }
+    } else if (mode == GGML_SCALE_MODE_BILINEAR && (mode_flags & GGML_SCALE_FLAG_ANTIALIAS)) {
+        // Similar to F.interpolate(..., mode="bilinear", align_corners=False, antialias=True)
+        // https://github.com/pytorch/pytorch/blob/8871ff29b743948d1225389d5b7068f37b22750b/aten/src/ATen/native/cpu/UpSampleKernel.cpp
+        auto triangle_filter = [](float x) -> float {
+            return std::max(1.0f - fabsf(x), 0.0f);
+        };
+
+        // support and invscale, minimum 1 pixel for bilinear
+        const float support1 = std::max(1.0f, 1.0f / sf1);
+        const float invscale1 = 1.0f / support1;
+        const float support0 = std::max(1.0f, 1.0f / sf0);
+        const float invscale0 = 1.0f / support0;
+
+        for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+            const int64_t i03 = i3 / sf3;
+            for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+                const int64_t i02 = i2 / sf2;
+                for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                    const float y = ((float)i1 + pixel_offset) / sf1;
+                    for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
+                        const float x = ((float)i0 + pixel_offset) / sf0;
+
+                        // the range of source pixels that contribute
+                        const int64_t x_min = std::max<int64_t>(x - support0 + pixel_offset, 0);
+                        const int64_t x_max = std::min<int64_t>(x + support0 + pixel_offset, src0->ne[0]);
+                        const int64_t y_min = std::max<int64_t>(y - support1 + pixel_offset, 0);
+                        const int64_t y_max = std::min<int64_t>(y + support1 + pixel_offset, src0->ne[1]);
+
+                        // bilinear filter with antialiasing
+                        float val = 0.0f;
+                        float total_weight = 0.0f;
+
+                        for (int64_t sy = y_min; sy < y_max; sy++) {
+                            const float weight_y = triangle_filter((sy - y + pixel_offset) * invscale1);
+
+                            for (int64_t sx = x_min; sx < x_max; sx++) {
+                                const float weight_x = triangle_filter((sx - x + pixel_offset) * invscale0);
+                                const float weight = weight_x * weight_y;
+
+                                if (weight <= 0.0f) {
+                                    continue;
+                                }
+
+                                const float pixel = *(const float*)((const char*)src0->data + sx * src0->nb[0] + sy * src0->nb[1] + i02 * src0->nb[2] + i03 * src0->nb[3]);
+                                val += pixel * weight;
+                                total_weight += weight;
+                            }
+                        }
+
+                        if (total_weight > 0.0f) {
+                            val /= total_weight;
+                        }
+
+                        float* dst_ptr = (float*)((char*)dst->data + i0 * dst->nb[0] + i1 * dst->nb[1] + i2 * dst->nb[2] + i3 * dst->nb[3]);
+                        *dst_ptr = val;
+                    }
+                }
+            }
+        }
     }
     else if (mode == GGML_SCALE_MODE_BILINEAR) {
         for (int64_t i3 = 0; i3 < dst_mdspan.extent(0); i3++) {

@@ -271,11 +271,17 @@ static void rpc_serve_client(std::span<std::unique_ptr<ggml_backend>> backends, 
             if (!recv_msg(sockfd, input)) {
                 return;
             }
-            rpc_msg_graph_compute_rsp response;
-            if (!server.graph_compute(input, response)) {
+            if (!server.graph_compute(input)) {
                 return;
             }
-            if (!send_msg(sockfd, &response, sizeof(response))) {
+            break;
+        }
+        case RPC_CMD_GRAPH_RECOMPUTE: {
+            rpc_msg_graph_recompute_req request;
+            if (!recv_msg(sockfd, &request, sizeof(request))) {
+                return;
+            }
+            if (!server.graph_recompute(request)) {
                 return;
             }
             break;

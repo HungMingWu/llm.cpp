@@ -28,10 +28,17 @@ static constexpr bool new_mma_available_v = true;
 static constexpr bool new_mma_available_v = false;
 #endif 
 
-#if defined(GGML_USE_HIP) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL
+#if defined(GGML_USE_HIP) && (defined(RDNA2) || defined(RDNA3) || defined(RDNA4) || defined(__gfx906__) || defined(CDNA))
+static constexpr bool v_dot2_f32_f16_available_v = true;
+#define V_DOT2_F32_F16_AVAILABLE // Specical case, may remove later
+#else
+static constexpr bool v_dot2_f32_f16_available_v = false;
+#endif
+
+#if defined(GGML_USE_HIP) || defined(GGML_USE_MUSA) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL
 static constexpr bool fp16_available_v = true;
 static constexpr bool fast_fp16_available_v = (__CUDA_ARCH__ != 610);
 #else
 static constexpr bool fp16_available_v = false;
 static constexpr bool fast_fp16_available_v = false;
-#endif // defined(GGML_USE_HIP) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL
+#endif // defined(GGML_USE_HIP) || defined(GGML_USE_MUSA) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL

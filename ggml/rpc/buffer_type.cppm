@@ -8,9 +8,10 @@ import :ds;
 
 class ggml_rpc_buffer_type : public ggml_backend_buffer_type {
 	std::string endpoint;
+	uint32_t    device;
 	std::string name;
-	size_t alignment;
-	size_t max_size;
+	size_t      alignment;
+	size_t      max_size;
 protected:
 	std::unique_ptr<ggml_backend_buffer> alloc_buffer_impl(size_t size) override;
 public:

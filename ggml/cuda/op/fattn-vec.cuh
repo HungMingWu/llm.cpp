@@ -33,7 +33,7 @@ static __global__ void flash_attn_ext_vec(
     [[maybe_unused]] const float m1,
     [[maybe_unused]] const uint32_t n_head_log2,
     [[maybe_unused]] const float logit_softcap,
-    [[maybe_unused]] const int32_t ne00, [[maybe_unused]] const int32_t ne01, [[maybe_unused]] const int32_t ne02, [[maybe_unused]] const int32_t ne03,
+    [[maybe_unused]] const int32_t ne00, [[maybe_unused]] const uint3   ne01, [[maybe_unused]] const int32_t ne02, [[maybe_unused]] const int32_t ne03,
     [[maybe_unused]] const int32_t nb01, [[maybe_unused]] const int32_t nb02, [[maybe_unused]] const int32_t nb03,
     [[maybe_unused]] const int32_t ne10, [[maybe_unused]] const int32_t ne11, [[maybe_unused]] const int32_t ne12, [[maybe_unused]] const int32_t ne13,
     [[maybe_unused]] const int32_t nb11, [[maybe_unused]] const int32_t nb12, [[maybe_unused]] const int64_t nb13,
@@ -77,8 +77,8 @@ static __global__ void flash_attn_ext_vec(
 
     constexpr vec_dot_KQ_t vec_dot_KQ = get_vec_dot_KQ<type_K, D, nthreads_KQ>();
     constexpr bool Q_q8_1 = type_K != internal::GGML_TYPE_F16;
-    using dequantize_t = std::conditional_t<fast_fp16_available_v, half, float>;
-    constexpr dequantize_V_t dequantize_V = get_dequantize_V<type_V, dequantize_t, V_rows_per_thread>();
+    using t1 = std::conditional_t<v_dot2_f32_f16_available_v, half, float>;
+    constexpr dequantize_V_t dequantize_V = get_dequantize_V<type_V, t1, V_rows_per_thread>();
 
     const int ic0 = blockIdx.x * ncols; // Index of the Q/QKV column to work on.
 
@@ -100,10 +100,9 @@ static __global__ void flash_attn_ext_vec(
 
     constexpr int ne_KQ = ncols * D;
     constexpr int ne_combine = nwarps * V_cols_per_iter * D;
-    using t1 = std::conditional_t<fast_fp16_available_v, half2, float2>;
-    using t2 = std::conditional_t<fast_fp16_available_v, half, float>;
-    t1            VKQ[ncols][(D / 2) / nthreads_V] = { {{0.0f, 0.0f}} };
-    __shared__ t2   KQ[ne_KQ > ne_combine ? ne_KQ : ne_combine];
+    using t2 = std::conditional_t<v_dot2_f32_f16_available_v, half2, float2>;
+    t2 VKQ[ncols][(D / 2) / nthreads_V] = { {{0.0f, 0.0f}} };
+    __shared__ t1   KQ[ne_KQ > ne_combine ? ne_KQ : ne_combine];
 
     float KQ_max[ncols];
     float KQ_sum[ncols];
@@ -114,8 +113,7 @@ static __global__ void flash_attn_ext_vec(
     }
 
     // Convert Q to float2 (f16 K) or q8_1 (quantized K) and store in registers:
-    t1  Q_reg[ncols][(D / 2) / nthreads_KQ]; // Will be initialized completely.
-
+    t2  Q_reg[ncols][(D / 2) / nthreads_KQ]; // Will be initialized completely.
     int    Q_i32[ncols][1 > D / (sizeof(int) * nthreads_KQ) ? 1 : D / (sizeof(int) * nthreads_KQ)];
     float2  Q_ds[ncols][1 > D / (sizeof(int) * nthreads_KQ) ? 1 : D / (sizeof(int) * nthreads_KQ)];
     if constexpr (Q_q8_1) {
@@ -132,12 +130,12 @@ static __global__ void flash_attn_ext_vec(
             float2* tmp_q_ds = (float2*)(tmp_q_i32 + D / sizeof(int));
 
             // Set memory to zero if out of bounds:
-            if (ncols > 1 && ic0 + j >= ne01) {
+            if (ncols > 1 && ic0 + j >= int(ne01.z)) {
 #pragma unroll
                 for (int i0 = 0; i0 < int(D / sizeof(int)); i0 += WARP_SIZE) {
                     const int i = i0 + threadIdx.x;
 
-                    if (i0 + WARP_SIZE <= D / sizeof(int) || i < D / sizeof(int)) {
+                    if (i0 + WARP_SIZE <= int(D / sizeof(int)) || i < int(D / sizeof(int))) {
                         tmp_q_i32[i] = 0;
                     }
                 }
@@ -175,7 +173,7 @@ static __global__ void flash_attn_ext_vec(
         __syncthreads();
     }
     else {
-        if constexpr (fast_fp16_available_v) {
+        if constexpr (v_dot2_f32_f16_available_v) {
             const half2 scale_h2 = make_half2(scale, scale);
 #pragma unroll
             for (int j = 0; j < ncols; ++j) {
@@ -185,7 +183,7 @@ static __global__ void flash_attn_ext_vec(
                     const int i = i0 + (nthreads_KQ == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_KQ) * cpy_ne;
 
                     float2 tmp[cpy_ne] = { {0.0f, 0.0f} };
-                    if (ncols == 1 || ic0 + j < ne01) {
+                    if (ncols == 1 || ic0 + j < int(ne01.z)) {
                         ggml_cuda_memcpy_1<cpy_nb>(tmp, &Q_j[i]);
                         ggml_cuda_memcpy_1<cpy_nb>(tmp + cpy_ne / 2, &Q_j[i + cpy_ne / 2]);
                     }
@@ -199,15 +197,14 @@ static __global__ void flash_attn_ext_vec(
                     Q_reg[j][k] *= scale_h2;
                 }
             }
-        }
-        else {
+        } else {
 #pragma unroll
             for (int j = 0; j < ncols; ++j) {
                 const float2* Q_j = (const float2*)(Q + j * nb01);
 #pragma unroll
                 for (int i0 = 0; i0 < D / 2; i0 += nthreads_KQ * cpy_ne) {
                     const int i = i0 + (nthreads_KQ == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_KQ) * cpy_ne;
-                    if (ncols == 1 || ic0 + j < ne01) {
+                    if (ncols == 1 || ic0 + j < int(ne01.z)) {
                         ggml_cuda_memcpy_1<cpy_nb>(&Q_reg[j][i0 / nthreads_KQ], &Q_j[i]);
                         ggml_cuda_memcpy_1<cpy_nb>(&Q_reg[j][i0 / nthreads_KQ + cpy_ne / 2], &Q_j[i + cpy_ne / 2]);
                     }
@@ -251,13 +248,13 @@ static __global__ void flash_attn_ext_vec(
                     sum = logit_softcap * tanhf(sum);
                 }
 
-                if (mask) {
+                if (mask && (ncols == 1 || ic0 + j < int(ne01.z))) {
                     sum += slope * __half2float(maskh[j * ne11 + i_KQ]);
                 }
 
-                KQ_max_new[j] = fmaxf(KQ_max_new[j], sum);
+                KQ_max_new[j] = fmaxf(KQ_max_new[j], sum + FATTN_KQ_MAX_OFFSET);
 
-                if ((nthreads_KQ == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_KQ) == i_KQ_0) {
+                if ((nthreads_KQ == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_KQ) == uint32_t(i_KQ_0)) {
                     KQ_reg[j] = sum;
                 }
             }
@@ -276,7 +273,7 @@ static __global__ void flash_attn_ext_vec(
             KQ_sum[j] = KQ_sum[j] * KQ_max_scale + KQ_reg[j];
             KQ[j * nthreads + tid] = KQ_reg[j];
 
-            if constexpr (fast_fp16_available_v) {
+            if constexpr (v_dot2_f32_f16_available_v) {
                 const half2 KQ_max_scale_h2 = make_half2(KQ_max_scale, KQ_max_scale);
 #pragma unroll
                 for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2; i_VKQ_0 += nthreads_V) {
@@ -299,7 +296,7 @@ static __global__ void flash_attn_ext_vec(
         for (int k0 = 0; k0 < WARP_SIZE; k0 += V_cols_per_iter) {
             const int k = threadIdx.y * WARP_SIZE + k0 + (nthreads_V == WARP_SIZE ? 0 : threadIdx.x / nthreads_V);
 
-            if constexpr (fast_fp16_available_v) {
+            if constexpr (v_dot2_f32_f16_available_v) {
                 half2 KQ_k[ncols];
 #pragma unroll
                 for (int j = 0; j < ncols; ++j) {
@@ -359,20 +356,19 @@ static __global__ void flash_attn_ext_vec(
 
             KQ_sum[j] = KQ_sum[j] * KQ_max_scale + (threadIdx.x == 0 ? expf(sink - KQ_max[j]) : 0.0f);
 
-            if constexpr (fast_fp16_available_v) {
-                const half2 KQ_max_scale_h2 = make_half2(KQ_max_scale, KQ_max_scale);
+#ifdef V_DOT2_F32_F16_AVAILABLE
+            const half2 KQ_max_scale_h2 = make_half2(KQ_max_scale, KQ_max_scale);
 #pragma unroll
-                for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2; i_VKQ_0 += nthreads_V) {
-                    VKQ[j][i_VKQ_0 / nthreads_V] *= KQ_max_scale_h2;
-                }
+            for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2; i_VKQ_0 += nthreads_V) {
+                VKQ[j][i_VKQ_0 / nthreads_V] *= KQ_max_scale_h2;
             }
-            else {
+#else
 #pragma unroll
-                for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2; i_VKQ_0 += nthreads_V) {
-                    VKQ[j][i_VKQ_0 / nthreads_V].x *= KQ_max_scale;
-                    VKQ[j][i_VKQ_0 / nthreads_V].y *= KQ_max_scale;
-                }
+            for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2; i_VKQ_0 += nthreads_V) {
+                VKQ[j][i_VKQ_0 / nthreads_V].x *= KQ_max_scale;
+                VKQ[j][i_VKQ_0 / nthreads_V].y *= KQ_max_scale;
             }
+#endif // V_DOT2_F32_F16_AVAILABLE
         }
     }
 
@@ -398,7 +394,7 @@ static __global__ void flash_attn_ext_vec(
 
 #pragma unroll
     for (int j_VKQ = 0; j_VKQ < ncols; ++j_VKQ) {
-        if (ncols > 1 && ic0 + j_VKQ >= ne01) {
+        if (ncols > 1 && ic0 + j_VKQ >= int(ne01.z)) {
             break;
         }
 
@@ -407,7 +403,7 @@ static __global__ void flash_attn_ext_vec(
         const float kqmax_scale = expf(KQ_max[j_VKQ] - kqmax_new);
         KQ_max[j_VKQ] = kqmax_new;
 
-        if constexpr (fast_fp16_available_v) {
+        if constexpr (v_dot2_f32_f16_available_v) {
             half2* VKQ_tmp = (half2*)KQ + threadIdx.y * (V_cols_per_iter * D / 2)
                 + (nthreads_V == WARP_SIZE ? 0 : threadIdx.x / nthreads_V) * (D / 2);
 
@@ -465,7 +461,7 @@ static __global__ void flash_attn_ext_vec(
                 if (gridDim.y == 1) {
                     dst_val /= KQ_sum[j_VKQ];
                 }
-                dst[(((sequence * ne01 + ic0 + j_VKQ) * ne02 + head) * gridDim.y + blockIdx.y) * D + i0 + tid] = dst_val;
+                dst[(((sequence * int(ne01.z) + ic0 + j_VKQ) * ne02 + head) * gridDim.y + blockIdx.y) * D + i0 + tid] = dst_val;
             }
         }
 
@@ -475,19 +471,10 @@ static __global__ void flash_attn_ext_vec(
 
     }
 
-    if (gridDim.y != 1 && tid < ncols && (ncols == 1 || ic0 + tid < ne01)) {
-        dst_meta[((sequence * ne01 + ic0 + tid) * ne02 + head) * gridDim.y + blockIdx.y] = make_float2(KQ_max[tid], KQ_sum[tid]);
+    if (gridDim.y != 1 && tid < ncols && (ncols == 1 || ic0 + tid < int(ne01.z))) {
+        dst_meta[((sequence * int(ne01.z) + ic0 + tid) * ne02 + head) * gridDim.y + blockIdx.y] = make_float2(KQ_max[tid], KQ_sum[tid]);
     }
 #else
-    GGML_UNUSED_VARS(Q, K, V, mask, sinks, KV_max, dst, dst_meta, scale,
-        max_bias, m0, m1, n_head_log2, logit_softcap,
-        ne00, ne01, ne02, ne03,
-        nb01, nb02, nb03,
-        ne10, ne11, ne12, ne13,
-        nb11, nb12, nb13,
-        nb21, nb22, nb23,
-        ne31, ne32, ne33,
-        nb31, nb32, nb33);
     NO_DEVICE_CODE;
 #endif // FLASH_ATTN_AVAILABLE
 }

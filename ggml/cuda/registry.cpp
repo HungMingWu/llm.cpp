@@ -1,6 +1,12 @@
 module;
 #include <bit>
 #include "cuda_config.h"
+#include "common.h"
+#include "vendors/cuda.h"
+#if defined(__linux__)
+#include <stdio.h>
+#include <memory>
+#endif
 #define WARP_SIZE 32
 
 module ggml;
@@ -10,6 +16,117 @@ static int register_ok = []() {
     get_reg().register_backend(ggml_backend_cuda_reg());
     return 0;
 }();
+
+#if defined(__linux__)
+// Helper function to get available memory from /proc/meminfo for UMA systems
+static bool ggml_backend_cuda_get_available_uma_memory(long* available_memory_kb, long* free_swap_kb) {
+    FILE* meminfo_file = nullptr;
+    // 2KB buffer for reading /proc/meminfo since it does not report size info, should be enough
+    const size_t BUFFER_SIZE = 2048;
+    auto file_buffer = std::make_unique<char[]>(BUFFER_SIZE);
+    size_t bytes_read = 0;
+    long huge_tlb_total_pages = -1;
+    long huge_tlb_free_pages = -1;
+    long huge_tlb_page_size = -1;
+
+    if (available_memory_kb == nullptr || free_swap_kb == nullptr) {
+        return false;
+    }
+
+    meminfo_file = fopen("/proc/meminfo", "r");
+    if (meminfo_file == nullptr) {
+        GGML_LOG_ERROR("%s: failed to open /proc/meminfo\n", __func__);
+        return false;
+    }
+
+    // Read file into buffer
+    bytes_read = fread(file_buffer.get(), 1, BUFFER_SIZE - 1, meminfo_file);
+    fclose(meminfo_file);
+
+    if (bytes_read == 0) {
+        GGML_LOG_ERROR("%s: failed to read from /proc/meminfo\n", __func__);
+        return false;
+    }
+    file_buffer[bytes_read] = '\0';
+
+    *available_memory_kb = -1;
+    *free_swap_kb = -1;
+
+    // Parse the file buffer line by line
+    char* line = file_buffer.get();
+    char* line_next;
+    while (line < file_buffer.get() + bytes_read) {
+        // Find the end of the current line
+        line_next = strchr(line, '\n');
+        if (line_next != nullptr) {
+            *line_next = '\0';
+            line_next++;
+        }
+        else {
+            line_next = file_buffer.get() + bytes_read;
+        }
+
+        long value;
+        if (sscanf(line, "MemAvailable: %ld kB", &value) == 1) {
+            *available_memory_kb = value;
+        }
+        else if (sscanf(line, "SwapFree: %ld kB", &value) == 1) {
+            *free_swap_kb = value;
+        }
+        else if (sscanf(line, "HugePages_Total: %ld", &value) == 1) {
+            huge_tlb_total_pages = value;
+        }
+        else if (sscanf(line, "HugePages_Free: %ld", &value) == 1) {
+            huge_tlb_free_pages = value;
+        }
+        else if (sscanf(line, "Hugepagesize: %ld kB", &value) == 1) {
+            huge_tlb_page_size = value;
+        }
+
+        line = line_next;
+    }
+
+    if (huge_tlb_total_pages != 0 && huge_tlb_total_pages != -1) {
+        *available_memory_kb = huge_tlb_free_pages * huge_tlb_page_size;
+
+        // Hugetlbfs pages are not swappable.
+        *free_swap_kb = 0;
+    }
+
+    GGML_LOG_DEBUG("%s: final available_memory_kb: %ld\n", __func__, *available_memory_kb);
+    return true;
+}
+#endif // defined(__linux__)
+
+void ggml_backend_cuda_device::get_memory(size_t* free, size_t* total)
+{
+    ggml_cuda_set_device(device);
+    CUDA_CHECK(cudaMemGetInfo(free, total));
+
+    // ref: https://github.com/ggml-org/llama.cpp/pull/17368
+#if defined(__linux__)
+    // Check if this is a UMA (Unified Memory Architecture) system
+    cudaDeviceProp prop;
+    CUDA_CHECK(cudaGetDeviceProperties(&prop, this->device));
+
+    // Check if UMA is explicitly enabled via environment variable
+    bool uma_env = getenv("GGML_CUDA_ENABLE_UNIFIED_MEMORY") != nullptr;
+    bool is_uma = prop.integrated > 0 || uma_env;
+
+    if (is_uma) {
+        // For UMA systems (like DGX Spark), use system memory info
+        long available_memory_kb = 0;
+        long free_swap_kb = 0;
+
+        if (ggml_backend_cuda_get_available_uma_memory(&available_memory_kb, &free_swap_kb) && available_memory_kb > 0) {
+            *free = (size_t)available_memory_kb * 1024;
+        }
+        else {
+            GGML_LOG_ERROR("%s: /proc/meminfo reading failed, using cudaMemGetInfo\n", __func__);
+        }
+    }
+#endif // defined(__linux__)
+}
 
 bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
 {
@@ -55,6 +172,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
         case GGML_UNARY_OP_EXPM1:
         case GGML_UNARY_OP_SOFTPLUS:
         case GGML_UNARY_OP_ELU:
+        case GGML_UNARY_OP_XIELU:
         case GGML_UNARY_OP_FLOOR:
         case GGML_UNARY_OP_CEIL:
         case GGML_UNARY_OP_ROUND:
@@ -228,6 +346,9 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
         if (src0_type == GGML_TYPE_I32 && src1_type == GGML_TYPE_F32) {
             return true;
         }
+        if (src0_type == GGML_TYPE_I32 && src1_type == GGML_TYPE_I32) {
+            return true;
+        }
         if (src0_type == src1_type && ggml_is_contiguous(op->src[0]) && ggml_is_contiguous(op->src[1])) {
             return true;
         }
@@ -356,6 +477,11 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_CROSS_ENTROPY_LOSS_BACK:
     case GGML_OP_OPT_STEP_ADAMW:
     case GGML_OP_OPT_STEP_SGD:
+    case GGML_OP_FILL:
+    case GGML_OP_CUMSUM:
+    case GGML_OP_TRI:
+    case GGML_OP_DIAG:
+    case GGML_OP_SOLVE_TRI:
         return true;
     default:
         return false;

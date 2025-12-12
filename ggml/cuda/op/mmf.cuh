@@ -1,5 +1,6 @@
 #pragma once
 #include "mma.cuh"
+#include "convert.cuh"
 #define GGML_ASSERT(x) assert(x)
 
 using namespace ggml_cuda_mma;
@@ -20,20 +21,32 @@ static __global__ void mul_mat_f(
     [[maybe_unused]] const int stride_channel_y, [[maybe_unused]] const int stride_channel_dst,
     [[maybe_unused]] const int sample_ratio, [[maybe_unused]] const int stride_sample_x,
     [[maybe_unused]] const int stride_sample_y, [[maybe_unused]] const int stride_sample_dst) {
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-    constexpr bool I_16_supported = tile<16, 8, T>::supported() && tile<16, 8, float>::supported();
-    constexpr bool I_32_supported = tile<32, 8, T>::supported() && tile<32, 8, float>::supported();
-
-    if (!I_16_supported && !I_32_supported) {
+    // TODO: handle this in a consistent and simpler way after AMD MFMA support has been added
+#if (!defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)) || defined(AMD_WMMA_AVAILABLE)
+#if defined(AMD_WMMA_AVAILABLE)
+    // Special case for tf32, just dummy mma layout as wmma doesn't support it.
+    constexpr int tile_B_I = std::is_same_v<T, float> ? 8 : 16;
+    constexpr int tile_C_J = std::is_same_v<T, float> ? 8 : 16;
+    typedef tile<16, 8, T>     tile_A;
+    typedef tile<tile_B_I, 8, T>     tile_B;
+    typedef tile<16, tile_C_J, float> tile_C;
+#else
+#ifdef VOLTA_MMA_AVAILABLE
+    if constexpr (!std::is_same_v<T, half2>) { NO_DEVICE_CODE; }
+    else {
+        typedef tile<32, 4, T, DATA_LAYOUT_I_MAJOR>          tile_A;
+        typedef tile< 8, 4, T, DATA_LAYOUT_I_MAJOR_MIRRORED> tile_B;
+        typedef tile<32, 8, float, DATA_LAYOUT_I_MAJOR>          tile_C;
+#else
+    typedef tile<16, 8, T>     tile_A;
+    typedef tile<8, 8, T>     tile_B;
+    typedef tile<16, 8, float> tile_C;
+#endif // VOLTA_MMA_AVAILABLE
+#endif // defined(AMD_WMMA_AVAILABLE)
+    if constexpr (!tile_A::supported() || !tile_B::supported() || !tile_C::supported()) {
         NO_DEVICE_CODE;
         return;
     }
-
-    constexpr int I_preferred = I_16_supported ? 16 : 32; // For Turing MMA both work but 16 is ~1% faster.
-
-    typedef tile<I_preferred, 8, T>     tile_A;
-    typedef tile<8, 8, T>     tile_B;
-    typedef tile<I_preferred, 8, float> tile_C;
 
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
     constexpr int tile_k_padded = warp_size + 4;
@@ -156,12 +169,12 @@ static __global__ void mul_mat_f(
 
                     if constexpr (!has_ids) {
                         const float2 tmp = j < cols_per_block ? y2[j * stride_col_y + col] : make_float2(0.0f, 0.0f);
-                        tile_xy[j0 * tile_k_padded + threadIdx.x] = { tmp.x, tmp.y };
+                        tile_xy[j0 * tile_k_padded + threadIdx.x] = ggml_cuda_cast<T>(tmp);
                     }
                     else {
                         const bool valid = j < cols_per_block && (col_base + j) < ncols_dst_total && slot_map[j] >= 0;
                         float2 tmp = valid ? *(const float2*)&y[slot_map[j] * stride_channel_y + 2 * (j * stride_col_y + col)] : make_float2(0.0f, 0.0f);
-                        tile_xy[j0 * tile_k_padded + threadIdx.x] = { tmp.x, tmp.y };
+                        tile_xy[j0 * tile_k_padded + threadIdx.x] = ggml_cuda_cast<T>(tmp);
                     }
                 }
             }
@@ -230,9 +243,12 @@ static __global__ void mul_mat_f(
             }
         }
     }
+#ifdef VOLTA_MMA_AVAILABLE
+    }
+#endif //VOLTA_MMA_AVAILABLE
 #else
     NO_DEVICE_CODE;
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+#endif // (!defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)) || defined(AMD_WMMA_AVAILABLE)
 }
 
 //This kernel is for larger batch sizes of mul_mat_id
@@ -250,20 +266,33 @@ static __global__ void mul_mat_f_ids(
     [[maybe_unused]] const int sample_ratio, [[maybe_unused]] const int stride_sample_x,
     [[maybe_unused]] const int stride_sample_y, [[maybe_unused]] const int stride_sample_dst,
     [[maybe_unused]] const uint3 sis1_fd, [[maybe_unused]] const uint3 nch_fd) {
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-    constexpr bool I_16_supported = tile<16, 8, T>::supported() && tile<16, 8, float>::supported();
-    constexpr bool I_32_supported = tile<32, 8, T>::supported() && tile<32, 8, float>::supported();
-
-    if (!I_16_supported && !I_32_supported) {
+    // TODO: handle this in a consistent and simpler way after AMD MFMA support has been added
+#if (!defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)) || defined(AMD_WMMA_AVAILABLE)
+#if defined(AMD_WMMA_AVAILABLE)
+    // Special case for tf32, just dummy mma layout as wmma doesn't support it.
+    constexpr int tile_B_I = std::is_same_v<T, float> ? 8 : 16;
+    constexpr int tile_C_J = std::is_same_v<T, float> ? 8 : 16;
+    typedef tile<16, 8, T>     tile_A;
+    typedef tile<tile_B_I, 8, T>     tile_B;
+    typedef tile<16, tile_C_J, float> tile_C;
+#else
+#ifdef VOLTA_MMA_AVAILABLE
+    if constexpr (!std::is_same_v<T, half2>) { NO_DEVICE_CODE; }
+    else {
+        typedef tile<32, 4, T, DATA_LAYOUT_I_MAJOR>          tile_A;
+        typedef tile< 8, 4, T, DATA_LAYOUT_I_MAJOR_MIRRORED> tile_B;
+        typedef tile<32, 8, float, DATA_LAYOUT_I_MAJOR>          tile_C;
+#else
+    typedef tile<16, 8, T>     tile_A;
+    typedef tile<8, 8, T>     tile_B;
+    typedef tile<16, 8, float> tile_C;
+#endif // VOLTA_MMA_AVAILABLE
+#endif // defined(AMD_WMMA_AVAILABLE)
+    if constexpr (!tile_A::supported() || !tile_B::supported() || !tile_C::supported()) {
         NO_DEVICE_CODE;
         return;
     }
 
-    constexpr int I_preferred = I_16_supported ? 16 : 32; // For Turing MMA both work butr 16 is ~1% faster.
-
-    typedef tile<I_preferred, 8, T>     tile_A;
-    typedef tile<8, 8, T>     tile_B;
-    typedef tile<I_preferred, 8, float> tile_C;
 
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
     constexpr int tile_k_padded = warp_size + 4;
@@ -404,7 +433,7 @@ static __global__ void mul_mat_f_ids(
 #pragma unroll
                 for (int j0 = 0; j0 < tile_B::I; ++j0) {
                     const float2 tmp = vals_buf[curr_buf][j0];
-                    tile_xy[j0 * tile_k_padded + threadIdx.x] = { tmp.x, tmp.y };
+                    tile_xy[j0 * tile_k_padded + threadIdx.x] = ggml_cuda_cast<T>(tmp);
                 }
 
                 if (itB + 1 < ntB) {
@@ -483,9 +512,12 @@ static __global__ void mul_mat_f_ids(
             }
         }
     }
+#ifdef VOLTA_MMA_AVAILABLE
+    }
+#endif // VOLTA_MMA_AVAILABLE
 #else
     NO_DEVICE_CODE;
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+#endif // (!defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)) || defined(AMD_WMMA_AVAILABLE)
 }
 
 template<typename T, int cols_per_block, int nwarps>
@@ -549,7 +581,8 @@ void mul_mat_f_cuda(
     cudaStream_t stream, const mmf_ids_data* ids_data) {
     typedef tile<16, 8, T>     tile_A_16;
     typedef tile<32, 8, T>     tile_A_32;
-    typedef tile< 8, 8, T>     tile_B;
+    typedef tile<16, 8, T>     tile_B_16;
+    typedef tile< 8, 8, T>     tile_B_8;
 
     GGML_ASSERT(ncols_x % 2 == 0);
     GGML_ASSERT(stride_row % 2 == 0);
@@ -576,7 +609,8 @@ void mul_mat_f_cuda(
 
     constexpr int rows_per_block = MMF_ROWS_PER_BLOCK;
     const int nbytes_shared_iter = nwarps_best * (volta_mma_available(cc) ? tile_A_32::I : tile_A_16::I) * (warp_size + 4) * 4;
-    const int nbytes_shared_combine = GGML_PAD(cols_per_block, tile_B::I) * (nwarps_best * rows_per_block + 4) * 4;
+    const int nbytes_cols_per_block_pad = amd_wmma_available(cc) ? tile_B_16::I : tile_B_8::I;
+    const int nbytes_shared_combine = GGML_PAD(cols_per_block, nbytes_cols_per_block_pad) * (nwarps_best * rows_per_block + 4) * 4;
     const int nbytes_shared = std::max(nbytes_shared_iter, nbytes_shared_combine);
     const int nbytes_slotmap = ids ? GGML_PAD(cols_per_block, 16) * sizeof(int) : 0;
     const int nbytes_shared_total = nbytes_shared + nbytes_slotmap;

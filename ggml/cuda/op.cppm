@@ -773,6 +773,38 @@ namespace op
         silu_back_f32_cuda(src0_d, src1_d, dst_d, src0->nelements(), stream);
     }
 
+    void cumsum(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        GGML_ASSERT(src0->type == dst->type);
+        cumsum_context ctx {
+            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .src0_d = src0->data,
+            .dst_d = dst->data,
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] }
+        };
+        cumsum_cuda(ctx, stream);
+    }
+
+    void tri(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        GGML_ASSERT(src0->type == dst->type);
+
+        tri_context ctx {
+            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .src0_d = src0->data,
+            .dst_d = dst->data,
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
+            .ttype = std::bit_cast<internal::ggml_tri_type>(dst->op_params[0])
+        };
+        tri_cuda(ctx, stream);
+    }
+
     void rwkv_wkv6(cudaStream_t stream, ggml_tensor* dst) {
         const int64_t C = dst->ne[0];
         const int64_t HEADS = dst->src[0]->ne[1];
@@ -952,132 +984,7 @@ namespace op
         mul_mat_vec_q_switch_type(ctx, stream);
     }
 
-    void mul_mat_q(
-        ggml_cuda_pool& pool, cudaStream_t stream, const ggml_tensor* ids, ggml_tensor* dst) {
-        const ggml_tensor* src0 = dst->src[0];
-        const ggml_tensor* src1 = dst->src[1];
-
-        GGML_ASSERT(src1->type == GGML_TYPE_F32);
-        GGML_ASSERT(dst->type == GGML_TYPE_F32);
-        GGML_ASSERT(!ids || ids->type == GGML_TYPE_I32); // Optional, used for batched GGML_MUL_MAT_ID.
-
-        const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
-
-        const size_t ts_src0 = ggml_type_size(src0->type);
-        const size_t ts_src1 = ggml_type_size(src1->type);
-        const size_t ts_dst = ggml_type_size(dst->type);
-
-        GGML_ASSERT(src0->nb[0] == ts_src0);
-        GGML_ASSERT(src1->nb[0] == ts_src1);
-        GGML_ASSERT(dst->nb[0] == ts_dst);
-        GGML_ASSERT(!ids || ids->nb[0] == ggml_type_size(ids->type));
-
-        const char* src0_d = (const char*)src0->data;
-        const float* src1_d = (const float*)src1->data;
-        float* dst_d = (float*)dst->data;
-
-        // If src0 is a temporary compute buffer, clear any potential padding.
-        if (src0->buffer->getUsage() == GGML_BACKEND_BUFFER_USAGE_COMPUTE) {
-            const size_t size_data = src0->nbytes();
-            const size_t size_alloc = src0->buffer->get_alloc_size(src0);
-            if (size_alloc > size_data) {
-                GGML_ASSERT(ggml_is_contiguously_allocated(src0));
-                GGML_ASSERT(!src0->view_src);
-                CUDA_CHECK(cudaMemsetAsync((char*)src0->data + size_data, 0, size_alloc - size_data, stream));
-            }
-        }
-
-        const int64_t ne10_padded = GGML_PAD(src1->ne[0], MATRIX_ROW_PADDING);
-
-        const int64_t s01 = src0->nb[1] / ts_src0;
-        const int64_t s1 = dst->nb[1] / ts_dst;
-        const int64_t s02 = src0->nb[2] / ts_src0;
-        const int64_t s2 = dst->nb[2] / ts_dst;
-        const int64_t s03 = src0->nb[3] / ts_src0;
-        const int64_t s3 = dst->nb[3] / ts_dst;
-
-        const bool use_stream_k = (GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA)
-            || GGML_CUDA_CC_IS_CDNA(cc);
-
-        if (!ids) {
-            const size_t nbytes_src1_q8_1 = src1->ne[3] * src1->ne[2] * src1->ne[1] * ne10_padded * sizeof(block_q8_1) / QK8_1 +
-                get_mmq_x_max_host(cc) * sizeof(block_q8_1_mmq);
-            ggml_cuda_pool_alloc<char> src1_q8_1(pool, nbytes_src1_q8_1);
-
-            {
-                const int64_t s11 = src1->nb[1] / ts_src1;
-                const int64_t s12 = src1->nb[2] / ts_src1;
-                const int64_t s13 = src1->nb[3] / ts_src1;
-                quantize_mmq_q8_1_cuda(src1_d, nullptr, src1_q8_1.get(), std::bit_cast<internal::ggml_type>(src0->type),
-                    src1->ne[0], s11, s12, s13, ne10_padded, src1->ne[1], src1->ne[2], src1->ne[3], stream);
-                CUDA_CHECK(cudaGetLastError());
-            }
-
-            const int64_t s12 = src1->ne[1] * ne10_padded * sizeof(block_q8_1) / (QK8_1 * sizeof(int));
-            const int64_t s13 = src1->ne[2] * s12;
-
-            const mmq_args args = {
-                src0_d, std::bit_cast<internal::ggml_type>(src0->type), (const int*)src1_q8_1.ptr, nullptr, nullptr, dst_d,
-                src0->ne[0], src0->ne[1], dst->ne[1], s01, src1->ne[1], s1,
-                src0->ne[2], src1->ne[2], s02, s12, s2,
-                src0->ne[3], src1->ne[3], s03, s13, s3,
-                use_stream_k, dst->ne[1] };
-            ggml_cuda_mul_mat_q_switch_type(pool, args, stream);
-            return;
-        }
-
-        GGML_ASSERT(src1->ne[3] == 1);
-        GGML_ASSERT(src1->nb[2] % src1->nb[1] == 0);
-        GGML_ASSERT(dst->nb[2] % dst->nb[1] == 0);
-
-        const int64_t n_expert_used = ids->ne[0];
-        const int64_t ne_get_rows = src1->ne[2] * n_expert_used;
-        GGML_ASSERT(dst->ne[1] == n_expert_used);
-
-        ggml_cuda_pool_alloc<int32_t> ids_src1(pool, ne_get_rows);
-        ggml_cuda_pool_alloc<int32_t> ids_dst(pool, ne_get_rows);
-        ggml_cuda_pool_alloc<int32_t> expert_bounds(pool, src0->ne[2] + 1);
-
-        {
-            GGML_ASSERT(ids->nb[0] == ggml_element_size(ids));
-            const int si1 = ids->nb[1] / ggml_element_size(ids);
-            const int sis1 = src1->nb[2] / src1->nb[1];
-
-            ggml_cuda_launch_mm_ids_helper((const int32_t*)ids->data, ids_src1.get(), ids_dst.get(), expert_bounds.get(),
-                src0->ne[2], src1->ne[2], n_expert_used, src1->ne[1], si1, sis1, stream);
-            CUDA_CHECK(cudaGetLastError());
-        }
-
-        const size_t nbytes_src1_q8_1 = src1->ne[2] * n_expert_used * ne10_padded * sizeof(block_q8_1) / QK8_1 +
-            get_mmq_x_max_host(cc) * sizeof(block_q8_1_mmq);
-        ggml_cuda_pool_alloc<char> src1_q8_1(pool, nbytes_src1_q8_1);
-
-        const int64_t ne11_flat = src1->ne[2] * n_expert_used;
-        const int64_t ne12_flat = 1;
-        const int64_t ne13_flat = 1;
-
-        {
-            const int64_t s11 = src1->nb[1] / ts_src1;
-            const int64_t s12 = src1->nb[2] / ts_src1;
-            const int64_t s13 = src1->nb[2] / ts_src1;
-            quantize_mmq_q8_1_cuda(src1_d, ids_src1.get(), src1_q8_1.get(), std::bit_cast<internal::ggml_type>(src0->type),
-                src1->ne[0], s11, s12, s13, ne10_padded, ne11_flat, ne12_flat, ne13_flat, stream);
-            CUDA_CHECK(cudaGetLastError());
-        }
-
-        const int64_t s12 = src1->ne[1] * ne10_padded * sizeof(block_q8_1) / (QK8_1 * sizeof(int));
-        const int64_t s13 = src1->ne[2] * s12;
-
-        // Note that ne02 is used instead of ne12 because the number of y channels determines the z dimension of the CUDA grid.
-        const mmq_args args = {
-            src0_d, std::bit_cast<internal::ggml_type>(src0->type), (const int*)src1_q8_1.get(), ids_dst.get(), expert_bounds.get(), dst_d,
-            src0->ne[0], src0->ne[1], ne_get_rows, s01, ne_get_rows, s1,
-            src0->ne[2], src0->ne[2], s02, s12, s2,
-            src0->ne[3], src1->ne[3], s03, s13, s3,
-            use_stream_k, src1->ne[2] };
-
-        ggml_cuda_mul_mat_q_switch_type(pool, args, stream);
-    }
+    void mul_mat_q(ggml_cuda_pool& pool, cudaStream_t stream, const ggml_tensor* ids, ggml_tensor* dst);
 
     void mul_mat_id(ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst, auto mat_mul_cb) {
         const ggml_tensor* src0 = dst->src[0];
@@ -1369,6 +1276,30 @@ namespace op
         log_cuda(ctx);
     }
 
+    void diag(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+
+        GGML_ASSERT(ggml_is_contiguous(dst));
+        GGML_ASSERT(ggml_is_contiguous(src0));
+
+        GGML_ASSERT(src0->ne[0] == dst->ne[0]);
+        GGML_ASSERT(src0->ne[1] == 1);
+        GGML_ASSERT(src0->ne[2] == dst->ne[2]);
+        GGML_ASSERT(src0->ne[3] == dst->ne[3]);
+
+        diag_context ctx {
+            .dst_type = std::bit_cast<internal::ggml_type>(dst->type),
+            .src0_d = src0->data,
+            .dst_d = dst->data,
+            .ne0 = dst->ne[0],
+            .ne1 = dst->ne[1],
+            .ne2 = dst->ne[2],
+            .ne3 = dst->ne[3],
+            .n_elems = dst->nelements()
+        };
+        diag_cuda(ctx, stream);
+    }
+
     void diag_mask_inf(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         const float* src0_d = (const float*)src0->data;
@@ -1625,48 +1556,7 @@ namespace op
         sum_rows_f32_cuda(src0_d, dst_d, ncols, nrows, stream);
     }
 
-    void upscale(cudaStream_t stream, ggml_tensor* dst) {
-        const ggml_tensor* src0 = dst->src[0];
-
-        GGML_ASSERT(src0->type == GGML_TYPE_F32);
-        GGML_ASSERT(dst->type == GGML_TYPE_F32);
-
-        const int mode_flags = dst->op_params[0];
-        const ggml_scale_mode mode = (ggml_scale_mode)(mode_flags & 0xFF);
-
-        float sf0 = (float)dst->ne[0] / src0->ne[0];
-        float sf1 = (float)dst->ne[1] / src0->ne[1];
-        const float sf2 = (float)dst->ne[2] / src0->ne[2];
-        const float sf3 = (float)dst->ne[3] / src0->ne[3];
-
-        float pixel_offset = 0.5f;
-        if (mode_flags & GGML_SCALE_FLAG_ALIGN_CORNERS) {
-            sf0 = (dst->ne[0] > 1 && src0->ne[0] > 1) ? (float)(dst->ne[0] - 1) / (src0->ne[0] - 1) : sf0;
-            sf1 = (dst->ne[1] > 1 && src0->ne[1] > 1) ? (float)(dst->ne[1] - 1) / (src0->ne[1] - 1) : sf1;
-            pixel_offset = 0.0f;
-        }
-
-        upscale_context ctx{
-            .src0_d = (const float*)src0->data,
-			.dst_d = (float*)dst->data,
-            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
-            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
-            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
-            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
-            .sf0 = sf0,
-            .sf1 = sf1,
-            .sf2 = sf2,
-            .sf3 = sf3
-        };
-
-        if (mode == GGML_SCALE_MODE_NEAREST) {
-            upscale_f32_cuda(ctx, stream);
-        } else if (mode == GGML_SCALE_MODE_BILINEAR) {
-            upscale_f32_bilinear_cuda(ctx, pixel_offset, stream);
-        } else if (mode == GGML_SCALE_MODE_BICUBIC) {
-            upscale_f32_bicubic_cuda(ctx, pixel_offset, stream);
-        }
-    }
+    void upscale(cudaStream_t stream, ggml_tensor* dst);
 
     void group_norm(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
@@ -1712,32 +1602,7 @@ namespace op
         acc_f32_cuda(ctx, stream);
     }
 
-    void pad(cudaStream_t stream, ggml_tensor* dst) {
-        const ggml_tensor* src0 = dst->src[0];
-
-        GGML_ASSERT(src0->type == GGML_TYPE_F32);
-        GGML_ASSERT(dst->type == GGML_TYPE_F32);
-        GGML_ASSERT(ggml_is_contiguous(src0));
-
-        pad_context ctx{
-            .src0_d = (const float*)src0->data,
-            .dst_d = (float*)dst->data,
-            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
-            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
-			.src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
-            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
-            .lp0 = ((const int32_t*)(dst->op_params))[0],
-            .rp0 = ((const int32_t*)(dst->op_params))[1],
-            .lp1 = ((const int32_t*)(dst->op_params))[2],
-            .rp1 = ((const int32_t*)(dst->op_params))[3],
-            .lp2 = ((const int32_t*)(dst->op_params))[4],
-            .rp2 = ((const int32_t*)(dst->op_params))[5],
-            .lp3 = ((const int32_t*)(dst->op_params))[6],
-            .rp3 = ((const int32_t*)(dst->op_params))[7]
-        };
-        pad_f32_cuda(ctx, stream);
-    }
-
+    void pad(cudaStream_t stream, ggml_tensor* dst);
     void pad_reflect_1d(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
 
@@ -1893,8 +1758,8 @@ namespace op
         // For small batch sizes the vector kernel may be preferable over the kernels optimized for large batch sizes:
         const bool can_use_vector_kernel = Q->ne[0] <= 256 && Q->ne[0] % 64 == 0 && K->ne[1] % FATTN_KQ_STRIDE == 0;
 
-        // If Turing tensor cores available, use them:
-        if (turing_mma_available(cc) && K->ne[1] % FATTN_KQ_STRIDE == 0 && Q->ne[0] != 40 && Q->ne[0] != 72) {
+        // If Turing tensor cores are available, use them:
+        if (turing_mma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72) {
             if (can_use_vector_kernel) {
                 if (!ggml_is_quantized(K->type) && !ggml_is_quantized(V->type)) {
                     if (cc >= GGML_CUDA_CC_ADA_LOVELACE && Q->ne[1] == 1 && Q->ne[3] == 1 && !(gqa_ratio > 4 && K->ne[1] >= 8192)) {
@@ -1917,7 +1782,21 @@ namespace op
                     return BEST_FATTN_KERNEL_VEC;
                 }
             }
+            return BEST_FATTN_KERNEL_MMA_F16;
+        }
 
+        if (volta_mma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72) {
+            int gqa_ratio_eff = 1;
+            const int ncols2_max = Q->ne[0] == 576 ? 16 : 8;
+            while (gqa_ratio % (2 * gqa_ratio_eff) == 0 && gqa_ratio_eff < ncols2_max) {
+                gqa_ratio_eff *= 2;
+            }
+            if (can_use_vector_kernel && Q->ne[1] * gqa_ratio_eff <= 2) {
+                return BEST_FATTN_KERNEL_VEC;
+            }
+            if (Q->ne[1] * gqa_ratio_eff <= 16) {
+                return BEST_FATTN_KERNEL_TILE; // On Volta tensor cores are only faster for sufficiently large matrices.
+            }
             return BEST_FATTN_KERNEL_MMA_F16;
         }
 
@@ -1960,14 +1839,30 @@ namespace op
 
         ggml_cuda_set_device(device);
 
+        static constexpr int64_t FATTN_KQ_STRIDE = 256;
+        float max_bias = std::bit_cast<float>(dst->op_params[1]);
+        // Edge cases like no mask, ALiBi, unpadded K/V, or misaligned addresses for large data transfers
+        //     are put into the template specialization without GQA optimizations.
+        auto use_gpa_opt = [=]() -> bool {
+            for (const ggml_tensor* t : { Q, K, V, mask }) {
+                if (t == nullptr) {
+                    continue;
+                }
+                for (size_t i = 1; i < GGML_MAX_DIMS; ++i)
+                    if (t->nb[i] % 16 != 0)
+                        return false;
+            }
+            return mask && max_bias == 0.0f && K->ne[1] % FATTN_KQ_STRIDE == 0;
+        }();
         flash_attn_ext_context ctx{
             .device = device,
             .main_stream = stream,
             .pool = &pool,
             .scale = std::bit_cast<float>(dst->op_params[0]),
-            .max_bias = std::bit_cast<float>(dst->op_params[1]),
+            .max_bias = max_bias,
             .logit_softcap = std::bit_cast<float>(dst->op_params[2]),
             .precision = std::bit_cast<internal::ggml_prec>(dst->op_params[3]),
+            .use_gqa_opt = use_gpa_opt,
             .Q = {
                 .type = std::bit_cast<internal::ggml_type>(Q->type),
                 .data = Q->data,
@@ -2626,5 +2521,13 @@ namespace op
         const int64_t ne = src0->nelements();
 
         opt_step_sgd_f32_cuda(src0_d, src0_grad_d, params_d, ne, stream);
+    }
+
+    void solve_tri(ggml_cuda_pool& pool, cublasHandle_t cublas_handle, cudaStream_t stream, ggml_tensor* dst);
+
+    void fill(cudaStream_t stream, ggml_tensor* dst) {
+        GGML_ASSERT(ggml_is_contiguous(dst));
+        fill_cuda(std::bit_cast<internal::ggml_type>(dst->type), dst->data,
+            dst->nelements(), std::bit_cast<float>(dst->op_params[0]), stream);
     }
 }

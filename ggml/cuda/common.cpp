@@ -233,7 +233,9 @@ bool fp32_mma_hardware_available(const int cc) {
 }
 
 bool bf16_mma_hardware_available(const int cc) {
-    return (GGML_CUDA_CC_IS_NVIDIA(cc) && cc >= GGML_CUDA_CC_AMPERE) || GGML_CUDA_CC_IS_CDNA(cc) || cc >= GGML_CUDA_CC_RDNA3;
+    return GGML_CUDA_CC_IS_AMD(cc) ||
+        (GGML_CUDA_CC_IS_NVIDIA(cc) && fp16_available(cc) && ggml_cuda_highest_compiled_arch(cc) != 610) ||
+        (GGML_CUDA_CC_IS_MTHREADS(cc) && fp16_available(cc));
 }
 
 bool fast_fp16_hardware_available(const int cc)
@@ -262,6 +264,10 @@ bool amd_mfma_available(const int cc)
 #else
     return false;
 #endif //!defined(GGML_HIP_NO_MMQ_MFMA)
+}
+
+bool amd_wmma_available(const int cc) {
+    return (GGML_CUDA_CC_IS_RDNA4(cc) || GGML_CUDA_CC_IS_RDNA3(cc));
 }
 
 bool volta_mma_available(const int cc) {

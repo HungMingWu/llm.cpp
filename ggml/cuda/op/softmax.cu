@@ -35,7 +35,7 @@ static __global__ void soft_max_f32(
     extern __shared__ float data_soft_max_f32[];
     float* buf_iw = data_soft_max_f32; // shared memory buffer for inter-warp communication
     // shared memory buffer to cache values between iterations:
-    float* vals = use_shared ? buf_iw + WARP_SIZE : dst.data_handle();
+    float* vals = use_shared ? buf_iw + WARP_SIZE : &dst(i03, i02, i01, 0);
 
     float max_val = !sinks.empty() ? sinks[i02] : -INFINITY;
 

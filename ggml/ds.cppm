@@ -86,8 +86,9 @@ export {
         GGML_SCALE_MODE_COUNT
     };
 
-    enum ggml_scale_flag : int {
-        GGML_SCALE_FLAG_ALIGN_CORNERS = (1 << 8)
+    enum ggml_scale_flag {
+        GGML_SCALE_FLAG_ALIGN_CORNERS = (1 << 8),
+        GGML_SCALE_FLAG_ANTIALIAS = (1 << 9),
     };
 
     enum ggml_glu_op : int {
@@ -197,6 +198,7 @@ export {
         GGML_OP_ARANGE,
         GGML_OP_TIMESTEP_EMBEDDING,
         GGML_OP_ARGSORT,
+        GGML_OP_TOP_K,
         GGML_OP_LEAKY_RELU,
         GGML_OP_TRI,
         GGML_OP_FILL,
@@ -576,7 +578,7 @@ export {
         size_t max_size(int chunk) const;
         void reset();
         buffer_address alloc(size_t size, const ggml_tensor* tensor);
-        void free_tensor(buffer_address addr, size_t size, const ggml_tensor* tensor);
+        void free_bytes(buffer_address addr, size_t size);
     };
 
     struct hash_node {
@@ -754,6 +756,12 @@ export {
         bool op_offload;
 
         int debug;
+
+        // used for debugging graph reallocations [GGML_SCHED_DEBUG_REALLOC]
+        // ref: https://github.com/ggml-org/llama.cpp/pull/17617
+        int debug_realloc;
+        int debug_graph_size;
+        int debug_prev_graph_size;
     private:
 		std::unordered_map<ggml_backend*, size_t> id_map;
         ggml_backend* backend_from_buffer(const ggml_tensor* tensor, const ggml_tensor* op);

@@ -49,12 +49,9 @@
 #pragma GCC diagnostic ignored "-Wignored-attributes"
 #endif
 
-#include "sgemm.h"
-#include "ggml-impl.h"
-#include "ggml-cpu-impl.h"
-#include "ggml-quants.h"
-#include "simd-mappings.h"
-
+#include <assert.h>
+#include <stdint.h>
+#include <xmmintrin.h>
 #include <array>
 #include <type_traits>
 
@@ -72,10 +69,13 @@
 
 #define MM256_SET_M128I(a, b) _mm256_insertf128_si256(_mm256_castsi128_si256(b), (a), 1)
 
+module ggml;
+import :cpu.llamafile.sgemm;
+
 namespace {
 
     inline float unhalf(ggml_fp16_t d) {
-        return GGML_CPU_FP16_TO_FP32(d);
+        return toFloat32(d);
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -118,8 +118,7 @@ namespace {
 #endif
 
 #if defined(__MMA__)
-    typedef vector unsigned char vec_t;
-    typedef __vector_quad acc_t;
+#include "sgemm-ppc.h"
 #endif
     ////////////////////////////////////////////////////////////////////////////////////////////////////
     // VECTORIZED FUSED MULTIPLY ADD
@@ -391,7 +390,7 @@ namespace {
             }
             else {
                 GGML_LOG_ERROR("mnpack<%d, %d> bloc size not supported\n", RM, (int)SIZE_N);
-                GGML_ASSERT(false); // we have miss something.
+                assert(false); // we have miss something.
             }
         }
 
@@ -432,7 +431,7 @@ namespace {
 
         template <int RM, int RN, int BM>
         NOINLINE void gemm(int64_t m, int64_t n, int64_t BN) {
-            GGML_ASSERT(m % (RM * BM) == 0);
+            assert(m % (RM * BM) == 0);
             const int64_t ytiles = m / (RM * BM);
             const int64_t xtiles = (n + RN - 1) / RN;
             const int64_t jj_RN = (xtiles - (xtiles * RN - n));
@@ -444,12 +443,12 @@ namespace {
             const int64_t nb_job = ytiles * NB_BN;
 
             if (params->ith == 0) {
-                GGML_ASSERT(jj_BN * SIZE_BN + (NB_BN - jj_BN) * (SIZE_BN - 1) == xtiles);
+                assert(jj_BN * SIZE_BN + (NB_BN - jj_BN) * (SIZE_BN - 1) == xtiles);
                 // Every thread starts at ith, so the first unprocessed chunk is nth.  This save a bit of coordination right at the start.
-                ggml_threadpool_chunk_set(params->threadpool, params->nth);
+                //ggml_threadpool_chunk_set(params->threadpool, params->nth);
             }
 
-            ggml_barrier(params->threadpool);
+            //ggml_barrier(params->threadpool);
 
             int64_t job = params->ith;
             while (job < nb_job) {
@@ -472,13 +471,13 @@ namespace {
                             gemm_bloc<RM, RN - 1>(ii + bi, jj);
                         }
                     }
-                    GGML_ASSERT(jj == jj2);
+                    assert(jj == jj2);
                 }
 
-                job = ggml_threadpool_chunk_add(params->threadpool, 1);
+                //job = ggml_threadpool_chunk_add(params->threadpool, 1);
             }
 
-            ggml_barrier(params->threadpool);
+            //ggml_barrier(params->threadpool);
             return;
         }
 
@@ -1588,161 +1587,56 @@ namespace {
     };
 
     template <typename TA>
-    class tinyBLAS_Q0_PPC {
-    public:
-        tinyBLAS_Q0_PPC(int64_t k,
-            const TA* A, int64_t lda,
-            const block_q8_0* B, int64_t ldb,
-            float* C, int64_t ldc,
-            int ith, int nth)
-            : A(A), B(B), C(C), k(k), lda(lda), ldb(ldb), ldc(ldc), ith(ith), nth(nth) {
-        }
+    tinyBLAS_Q0_PPC<TA>::tinyBLAS_Q0_PPC(int64_t k,
+        const TA* A, int64_t lda,
+        const block_q8_0* B, int64_t ldb,
+        float* C, int64_t ldc,
+        int ith, int nth)
+        : A(A), B(B), C(C), k(k), lda(lda), ldb(ldb), ldc(ldc), ith(ith), nth(nth) {
+        kc = 64;
+    }
 
-        void matmul(int64_t m, int64_t n) {
+    template<typename TA>
+    void tinyBLAS_Q0_PPC<TA>::matmul(int64_t m, int64_t n) {
+        int mc = 64; int nc = 64;
+        if (n % 8 == 0 && n < nc) {
+            nc = n;
+            mc = 32;
+            kc = 32;
+        }
+        const bool is_aligned = ((m & (mc - 1)) == 0) & ((n & (nc - 1)) == 0) & ((k & (kc - 1)) == 0);
+        if (is_aligned) {
+            this->matmul_tiled_q0(m, n, mc, nc, kc);
+        }
+        else {
             mnpack(0, m, 0, n);
         }
+    }
 
-    private:
-
-        inline void save_res(int ii, int jj, int idx, vector float* fin_res, int RM = 4, int RN = 4) {
-            for (int I = 0; I < RM; I++) {
-                for (int J = 0; J < RN; J++) {
-                    *((float*)(C + ii + ((jj + J) * ldc) + I)) = *((float*)&fin_res[idx + I] + J);
-                }
-            }
-        }
-
-        template<int size>
-        inline void compute(acc_t* ACC, int c_idx, int s_idx, std::array<int, size>& comparray, vector float* vs, vector float* fin_res) {
-            vector signed int vec_C[4];
-            vector float CA[4] = { 0 };
-            vector float res[4] = { 0 };
-            __builtin_mma_disassemble_acc(vec_C, ACC);
-            for (int i = 0; i < 4; i++) {
-                CA[i] = vec_splats((float)(((double)comparray[c_idx + i]) * -128.0));
-                res[i] = vec_add(vec_ctf(vec_C[i], 0), CA[i]);
-                fin_res[s_idx + i] = vec_madd(res[i], vs[s_idx + i], fin_res[s_idx + i]);
-            }
-        }
-        /* This function processes quantized data from block_q4_0 elements.
-         * First the we try to extract the two int4 values stored in single int8_t into two signed int8.
-         * And then we subtract each of the resultant element with 8, to convert signed int8 to unsigned int8.
-         * Also compute the rowsum which is required to compensate the above conversion. */
-        inline void process_q4_elements(vector signed char(&c)[2], int* ca) {
-            const vector signed char lowMask = vec_splats((signed char)0xF);
-            const vector unsigned char v4 = vec_splats((unsigned char)0x4);
-            const vector signed char v8 = vec_splats((signed char)0x8);
-            vector signed int vsum = { 0 };
-            vector signed int vsum2 = { 0 };
-            c[0] = vec_and(c[1], lowMask);
-            c[1] = vec_sr(c[1], v4);
-            c[0] = vec_sub(c[0], v8);
-            c[1] = vec_sub(c[1], v8);
-            vsum = vec_sum4s(c[0], vsum);
-            vsum2 = vec_sum4s(c[1], vsum2);
-            vsum = vec_add(vsum, vsum2);
-            *(ca) = vsum[0] + vsum[1] + vsum[2] + vsum[3];
-        }
-
-        template <typename V1, typename V2>
-        inline void vector_permute_store(V2& s1, V2& s2, V2& s3, V2& s4, V1* vecOffset, bool flip) {
-            vector unsigned char swiz1 = { 0, 1, 2, 3, 4, 5, 6, 7, 16, 17, 18, 19, 20, 21, 22, 23 };
-            vector unsigned char swiz2 = { 8, 9, 10, 11, 12, 13, 14, 15, 24, 25, 26, 27, 28, 29, 30, 31 };
-            vector unsigned char swiz3 = { 0, 1, 2, 3, 8, 9, 10, 11, 16, 17, 18, 19, 24, 25, 26, 27 };
-            vector unsigned char swiz4 = { 4, 5, 6, 7, 12, 13, 14, 15, 20, 21, 22, 23, 28, 29, 30, 31 };
-            V2 t1, t2, t3, t4, t5, t6, t7, t8;
-            vector unsigned char xor_vector;
-            uint8_t flip_vec = 0x80;
-            xor_vector = vec_splats(flip_vec);
-            t1 = vec_perm(s1, s2, swiz1);
-            t2 = vec_perm(s1, s2, swiz2);
-            t3 = vec_perm(s3, s4, swiz1);
-            t4 = vec_perm(s3, s4, swiz2);
-            t5 = vec_perm(t1, t3, swiz3);
-            t6 = vec_perm(t1, t3, swiz4);
-            t7 = vec_perm(t2, t4, swiz3);
-            t8 = vec_perm(t2, t4, swiz4);
-            if (flip == true) {
-                t5 = vec_xor(t5, xor_vector);
-                t6 = vec_xor(t6, xor_vector);
-                t7 = vec_xor(t7, xor_vector);
-                t8 = vec_xor(t8, xor_vector);
-            }
-            vec_xst(t5, 0, vecOffset);
-            vec_xst(t6, 0, vecOffset + 16);
-            vec_xst(t7, 0, vecOffset + 32);
-            vec_xst(t8, 0, vecOffset + 48);
-        }
-
-        template<int size>
-        void packNormalInt4(const TA* a, int64_t lda, int rows, int cols, int8_t* vec, std::array<int, size>& comparray) {
-            int64_t i, j;
-            TA* aoffset = NULL;
-            int8_t* vecOffset = NULL;
-            TA* aoffset1 = NULL, * aoffset2 = NULL, * aoffset3 = NULL, * aoffset4 = NULL;
-            TA* aoffset5 = NULL, * aoffset6 = NULL, * aoffset7 = NULL, * aoffset8 = NULL;
-            vector signed char c1[2] = { 0 }, c2[2] = { 0 }, c3[2] = { 0 }, c4[2] = { 0 };
-            vector signed char c5[2] = { 0 }, c6[2] = { 0 }, c7[2] = { 0 }, c8[2] = { 0 };
-            aoffset = const_cast<TA*>(a);
-            vecOffset = vec;
-            j = (rows >> 3);
-            if (j > 0) {
-                do {
-                    aoffset1 = aoffset;
-                    aoffset2 = aoffset1 + lda;
-                    aoffset3 = aoffset2 + lda;
-                    aoffset4 = aoffset3 + lda;
-                    aoffset5 = aoffset4 + lda;
-                    aoffset6 = aoffset5 + lda;
-                    aoffset7 = aoffset6 + lda;
-                    aoffset8 = aoffset7 + lda;
-                    aoffset += 8 * lda;
-                    i = (cols >> 2);
-                    if (i > 0) {
-                        do {
-                            c1[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset1->qs));
-                            c2[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset2->qs));
-                            c3[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset3->qs));
-                            c4[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset4->qs));
-                            c5[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset5->qs));
-                            c6[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset6->qs));
-                            c7[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset7->qs));
-                            c8[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset8->qs));
-
-                            process_q4_elements(c1, &comparray[0]);
-                            process_q4_elements(c2, &comparray[1]);
-                            process_q4_elements(c3, &comparray[2]);
-                            process_q4_elements(c4, &comparray[3]);
-                            process_q4_elements(c5, &comparray[4]);
-                            process_q4_elements(c6, &comparray[5]);
-                            process_q4_elements(c7, &comparray[6]);
-                            process_q4_elements(c8, &comparray[7]);
-                            vector_permute_store<int8_t, vector signed char>(c1[0], c2[0], c3[0], c4[0], vecOffset, false);
-                            vector_permute_store<int8_t, vector signed char>(c1[1], c2[1], c3[1], c4[1], vecOffset + 64, false);
-                            vector_permute_store<int8_t, vector signed char>(c5[0], c6[0], c7[0], c8[0], vecOffset + 128, false);
-                            vector_permute_store<int8_t, vector signed char>(c5[1], c6[1], c7[1], c8[1], vecOffset + 192, false);
-                            aoffset1 += lda;
-                            aoffset2 += lda;
-                            aoffset3 += lda;
-                            aoffset4 += lda;
-                            aoffset5 += lda;
-                            aoffset6 += lda;
-                            aoffset7 += lda;
-                            aoffset8 += lda;
-                            vecOffset += 256;
-                            i--;
-                        } while (i > 0);
-                    }
-                    j--;
-                } while (j > 0);
-            }
-
-            if (rows & 4) {
+    template<typename TA>
+    template<int size>
+    void tinyBLAS_Q0_PPC<TA>::packNormalInt4(const TA* a, int64_t lda, int rows, int cols, int8_t* vec, std::array<int, size>& comparray) {
+        int64_t i, j;
+        TA* aoffset = NULL;
+        int8_t* vecOffset = NULL;
+        TA* aoffset1 = NULL, * aoffset2 = NULL, * aoffset3 = NULL, * aoffset4 = NULL;
+        TA* aoffset5 = NULL, * aoffset6 = NULL, * aoffset7 = NULL, * aoffset8 = NULL;
+        vector signed char c1[2] = { 0 }, c2[2] = { 0 }, c3[2] = { 0 }, c4[2] = { 0 };
+        vector signed char c5[2] = { 0 }, c6[2] = { 0 }, c7[2] = { 0 }, c8[2] = { 0 };
+        aoffset = const_cast<TA*>(a);
+        vecOffset = vec;
+        j = (rows >> 3);
+        if (j > 0) {
+            do {
                 aoffset1 = aoffset;
                 aoffset2 = aoffset1 + lda;
                 aoffset3 = aoffset2 + lda;
                 aoffset4 = aoffset3 + lda;
-                aoffset += 4 * lda;
+                aoffset5 = aoffset4 + lda;
+                aoffset6 = aoffset5 + lda;
+                aoffset7 = aoffset6 + lda;
+                aoffset8 = aoffset7 + lda;
+                aoffset += 8 * lda;
                 i = (cols >> 2);
                 if (i > 0) {
                     do {
@@ -1750,102 +1644,122 @@ namespace {
                         c2[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset2->qs));
                         c3[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset3->qs));
                         c4[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset4->qs));
+                        c5[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset5->qs));
+                        c6[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset6->qs));
+                        c7[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset7->qs));
+                        c8[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset8->qs));
 
                         process_q4_elements(c1, &comparray[0]);
                         process_q4_elements(c2, &comparray[1]);
                         process_q4_elements(c3, &comparray[2]);
                         process_q4_elements(c4, &comparray[3]);
+                        process_q4_elements(c5, &comparray[4]);
+                        process_q4_elements(c6, &comparray[5]);
+                        process_q4_elements(c7, &comparray[6]);
+                        process_q4_elements(c8, &comparray[7]);
                         vector_permute_store<int8_t, vector signed char>(c1[0], c2[0], c3[0], c4[0], vecOffset, false);
                         vector_permute_store<int8_t, vector signed char>(c1[1], c2[1], c3[1], c4[1], vecOffset + 64, false);
+                        vector_permute_store<int8_t, vector signed char>(c5[0], c6[0], c7[0], c8[0], vecOffset + 128, false);
+                        vector_permute_store<int8_t, vector signed char>(c5[1], c6[1], c7[1], c8[1], vecOffset + 192, false);
                         aoffset1 += lda;
                         aoffset2 += lda;
                         aoffset3 += lda;
                         aoffset4 += lda;
-                        vecOffset += 128;
+                        aoffset5 += lda;
+                        aoffset6 += lda;
+                        aoffset7 += lda;
+                        aoffset8 += lda;
+                        vecOffset += 256;
                         i--;
                     } while (i > 0);
                 }
-            }
+                j--;
+            } while (j > 0);
+        }
 
-            if (rows & 3) {
-                aoffset1 = aoffset;
-                aoffset2 = aoffset1 + lda;
-                aoffset3 = aoffset2 + lda;
-                i = (cols >> 2);
-                if (i > 0) {
-                    do {
-                        switch (rows) {
-                        case 3: c3[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset3->qs));
-                        case 2: c2[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset2->qs));
-                        case 1: c1[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset1->qs));
-                            break;
-                        }
-                        process_q4_elements(c1, &comparray[0]);
-                        process_q4_elements(c2, &comparray[1]);
-                        process_q4_elements(c3, &comparray[2]);
-                        process_q4_elements(c4, &comparray[3]);
-                        vector_permute_store<int8_t, vector signed char>(c1[0], c2[0], c3[0], c4[0], vecOffset, false);
-                        vector_permute_store<int8_t, vector signed char>(c1[1], c2[1], c3[1], c4[1], vecOffset + 64, false);
-                        aoffset1 += lda;
-                        aoffset2 += lda;
-                        aoffset3 += lda;
-                        vecOffset += 128;
-                        i--;
-                    } while (i > 0);
-                }
+        if (rows & 4) {
+            aoffset1 = aoffset;
+            aoffset2 = aoffset1 + lda;
+            aoffset3 = aoffset2 + lda;
+            aoffset4 = aoffset3 + lda;
+            aoffset += 4 * lda;
+            i = (cols >> 2);
+            if (i > 0) {
+                do {
+                    c1[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset1->qs));
+                    c2[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset2->qs));
+                    c3[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset3->qs));
+                    c4[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset4->qs));
+
+                    process_q4_elements(c1, &comparray[0]);
+                    process_q4_elements(c2, &comparray[1]);
+                    process_q4_elements(c3, &comparray[2]);
+                    process_q4_elements(c4, &comparray[3]);
+                    vector_permute_store<int8_t, vector signed char>(c1[0], c2[0], c3[0], c4[0], vecOffset, false);
+                    vector_permute_store<int8_t, vector signed char>(c1[1], c2[1], c3[1], c4[1], vecOffset + 64, false);
+                    aoffset1 += lda;
+                    aoffset2 += lda;
+                    aoffset3 += lda;
+                    aoffset4 += lda;
+                    vecOffset += 128;
+                    i--;
+                } while (i > 0);
             }
         }
-        template<typename VA, typename VB>
-        void packNormal(const block_q8_0* a, int64_t lda, int rows, int cols, VA* vec, bool flip) {
-            int64_t i, j;
-            block_q8_0* aoffset = NULL;
-            VA* vecOffset = NULL;
-            block_q8_0* aoffsets[8];
-            __vector_pair arr[8];
-            VB c[8][2] = { 0 };
-            VB c1[8] = { 0 }; VB c2[8] = { 0 };
-            aoffset = const_cast<block_q8_0*>(a);
-            vecOffset = vec;
-            j = (rows >> 3);
-            if (j > 0) {
+
+        if (rows & 3) {
+            aoffset1 = aoffset;
+            aoffset2 = aoffset1 + lda;
+            aoffset3 = aoffset2 + lda;
+            i = (cols >> 2);
+            if (i > 0) {
                 do {
-                    aoffsets[0] = aoffset;
-                    for (int it = 1; it < 8; it++)
-                        aoffsets[it] = aoffsets[it - 1] + lda;
-                    aoffset += 8 * lda;
-
-                    i = (cols >> 3);
-                    if (i > 0) {
-                        do {
-                            for (int it = 0; it < 8; it++) {
-                                arr[it] = __builtin_vsx_lxvp(0, (__vector_pair*)aoffsets[it]->qs);
-                                __builtin_vsx_disassemble_pair(c[it], &arr[it]);
-                                c1[it] = c[it][0];
-                                c2[it] = c[it][1];
-                            }
-                            vector_permute_store<VA, VB>(c1[0], c1[1], c1[2], c1[3], vecOffset, flip);
-                            vector_permute_store<VA, VB>(c2[0], c2[1], c2[2], c2[3], vecOffset + 64, flip);
-                            vector_permute_store<VA, VB>(c1[4], c1[5], c1[6], c1[7], vecOffset + 128, flip);
-                            vector_permute_store<VA, VB>(c2[4], c2[5], c2[6], c2[7], vecOffset + 192, flip);
-                            for (int it = 0; it < 8; it++)
-                                aoffsets[it] += lda;
-                            vecOffset += 256;
-                            i--;
-                        } while (i > 0);
+                    switch (rows) {
+                    case 3: c3[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset3->qs));
+                    case 2: c2[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset2->qs));
+                    case 1: c1[1] = reinterpret_cast<vector signed char>(vec_xl(0, aoffset1->qs));
+                        break;
                     }
-                    j--;
-                } while (j > 0);
+                    process_q4_elements(c1, &comparray[0]);
+                    process_q4_elements(c2, &comparray[1]);
+                    process_q4_elements(c3, &comparray[2]);
+                    process_q4_elements(c4, &comparray[3]);
+                    vector_permute_store<int8_t, vector signed char>(c1[0], c2[0], c3[0], c4[0], vecOffset, false);
+                    vector_permute_store<int8_t, vector signed char>(c1[1], c2[1], c3[1], c4[1], vecOffset + 64, false);
+                    aoffset1 += lda;
+                    aoffset2 += lda;
+                    aoffset3 += lda;
+                    vecOffset += 128;
+                    i--;
+                } while (i > 0);
             }
+        }
+    }
 
-            if (rows & 4) {
+    template<typename TA>
+    template<typename VA, typename VB>
+    void tinyBLAS_Q0_PPC<TA>::packNormal(const block_q8_0* a, int64_t lda, int rows, int cols, VA* vec, bool flip) {
+        int64_t i, j;
+        block_q8_0* aoffset = NULL;
+        VA* vecOffset = NULL;
+        block_q8_0* aoffsets[8];
+        __vector_pair arr[8];
+        VB c[8][2] = { 0 };
+        VB c1[8] = { 0 }; VB c2[8] = { 0 };
+        aoffset = const_cast<block_q8_0*>(a);
+        vecOffset = vec;
+        j = (rows >> 3);
+        if (j > 0) {
+            do {
                 aoffsets[0] = aoffset;
-                for (int it = 1; it < 4; it++)
+                for (int it = 1; it < 8; it++)
                     aoffsets[it] = aoffsets[it - 1] + lda;
-                aoffset += 4 * lda;
+                aoffset += 8 * lda;
+
                 i = (cols >> 3);
                 if (i > 0) {
                     do {
-                        for (int it = 0; it < 4; it++) {
+                        for (int it = 0; it < 8; it++) {
                             arr[it] = __builtin_vsx_lxvp(0, (__vector_pair*)aoffsets[it]->qs);
                             __builtin_vsx_disassemble_pair(c[it], &arr[it]);
                             c1[it] = c[it][0];
@@ -1853,343 +1767,353 @@ namespace {
                         }
                         vector_permute_store<VA, VB>(c1[0], c1[1], c1[2], c1[3], vecOffset, flip);
                         vector_permute_store<VA, VB>(c2[0], c2[1], c2[2], c2[3], vecOffset + 64, flip);
-                        for (int it = 0; it < 4; it++) {
+                        vector_permute_store<VA, VB>(c1[4], c1[5], c1[6], c1[7], vecOffset + 128, flip);
+                        vector_permute_store<VA, VB>(c2[4], c2[5], c2[6], c2[7], vecOffset + 192, flip);
+                        for (int it = 0; it < 8; it++)
                             aoffsets[it] += lda;
-                        }
-                        vecOffset += 128;
+                        vecOffset += 256;
                         i--;
                     } while (i > 0);
                 }
-            }
-
-            if (rows & 3) {
-                aoffsets[0] = aoffset;
-                for (int it = 1; it < 3; it++)
-                    aoffsets[it] = aoffsets[it - 1] + lda;
-                i = (cols >> 3);
-                if (i > 0) {
-                    do {
-                        switch (rows) {
-                        case 3: arr[2] = __builtin_vsx_lxvp(0, (__vector_pair*)aoffsets[2]->qs);
-                            __builtin_vsx_disassemble_pair(c[2], &arr[2]);
-                            c1[2] = c[2][0]; c2[2] = c[2][1];
-                        case 2: arr[1] = __builtin_vsx_lxvp(0, (__vector_pair*)aoffsets[1]->qs);
-                            __builtin_vsx_disassemble_pair(c[1], &arr[1]);
-                            c1[1] = c[1][0]; c2[1] = c[1][1];
-                        case 1: arr[0] = __builtin_vsx_lxvp(0, (__vector_pair*)aoffsets[0]->qs);
-                            __builtin_vsx_disassemble_pair(c[0], &arr[0]);
-                            c1[0] = c[0][0]; c2[0] = c[0][1];
-                            break;
-                        }
-                        vector_permute_store<VA, VB>(c1[0], c1[1], c1[2], c1[3], vecOffset, flip);
-                        vector_permute_store<VA, VB>(c2[0], c2[1], c2[2], c2[3], vecOffset + 64, flip);
-                        for (int it = 0; it < 3; it++)
-                            aoffsets[it] += lda;
-                        vecOffset += 128;
-                        i--;
-                    } while (i > 0);
-                }
+                j--;
+            } while (j > 0);
+        }
+        if (rows & 4) {
+            aoffsets[0] = aoffset;
+            for (int it = 1; it < 4; it++)
+                aoffsets[it] = aoffsets[it - 1] + lda;
+            aoffset += 4 * lda;
+            i = (cols >> 3);
+            if (i > 0) {
+                do {
+                    for (int it = 0; it < 4; it++) {
+                        arr[it] = __builtin_vsx_lxvp(0, (__vector_pair*)aoffsets[it]->qs);
+                        __builtin_vsx_disassemble_pair(c[it], &arr[it]);
+                        c1[it] = c[it][0];
+                        c2[it] = c[it][1];
+                    }
+                    vector_permute_store<VA, VB>(c1[0], c1[1], c1[2], c1[3], vecOffset, flip);
+                    vector_permute_store<VA, VB>(c2[0], c2[1], c2[2], c2[3], vecOffset + 64, flip);
+                    for (int it = 0; it < 4; it++) {
+                        aoffsets[it] += lda;
+                    }
+                    vecOffset += 128;
+                    i--;
+                } while (i > 0);
             }
         }
 
-        void mnpack(int64_t m0, int64_t m, int64_t n0, int64_t n) {
-            int m_rem = MIN(m - m0, 16);
-            int n_rem = MIN(n - n0, 16);
+        if (rows & 3) {
+            aoffsets[0] = aoffset;
+            for (int it = 1; it < 3; it++)
+                aoffsets[it] = aoffsets[it - 1] + lda;
+            i = (cols >> 3);
+            if (i > 0) {
+                do {
+                    switch (rows) {
+                    case 3: arr[2] = __builtin_vsx_lxvp(0, (__vector_pair*)aoffsets[2]->qs);
+                        __builtin_vsx_disassemble_pair(c[2], &arr[2]);
+                        c1[2] = c[2][0]; c2[2] = c[2][1];
+                    case 2: arr[1] = __builtin_vsx_lxvp(0, (__vector_pair*)aoffsets[1]->qs);
+                        __builtin_vsx_disassemble_pair(c[1], &arr[1]);
+                        c1[1] = c[1][0]; c2[1] = c[1][1];
+                    case 1: arr[0] = __builtin_vsx_lxvp(0, (__vector_pair*)aoffsets[0]->qs);
+                        __builtin_vsx_disassemble_pair(c[0], &arr[0]);
+                        c1[0] = c[0][0]; c2[0] = c[0][1];
+                        break;
+                    }
+                    vector_permute_store<VA, VB>(c1[0], c1[1], c1[2], c1[3], vecOffset, flip);
+                    vector_permute_store<VA, VB>(c2[0], c2[1], c2[2], c2[3], vecOffset + 64, flip);
+                    for (int it = 0; it < 3; it++)
+                        aoffsets[it] += lda;
+                    vecOffset += 128;
+                    i--;
+                } while (i > 0);
+            }
+        }
+    }
 
-            int mc = 0, nc = 0;
+    template<typename TA>
+    void tinyBLAS_Q0_PPC<TA>::mnpack(int64_t m0, int64_t m, int64_t n0, int64_t n) {
+        int m_rem = MIN(m - m0, 16);
+        int n_rem = MIN(n - n0, 16);
 
-            if (m_rem >= 8 && n_rem >= 8) {
-                mc = 8;
-                nc = 8;
-                gemm<8, 8>(m0, m, n0, n);
-            }
-            else if (m_rem >= 4 && n_rem >= 8) {
-                mc = 4;
-                nc = 8;
-                gemm<4, 8>(m0, m, n0, n);
-            }
-            else if (m_rem >= 8 && n_rem >= 4) {
-                mc = 8;
-                nc = 4;
-                gemm<8, 4>(m0, m, n0, n);
-            }
-            else if (m_rem >= 4 && n_rem >= 4) {
-                mc = 4;
-                nc = 4;
-                gemm_small(m0, m, n0, n, mc, nc);
+        int mc = 0, nc = 0;
+
+        if (m_rem >= 8 && n_rem >= 8) {
+            mc = 8;
+            nc = 8;
+            gemm<8, 8>(m0, m, n0, n);
+        }
+        else if (m_rem >= 4 && n_rem >= 8) {
+            mc = 4;
+            nc = 8;
+            gemm<4, 8>(m0, m, n0, n);
+        }
+        else if (m_rem >= 8 && n_rem >= 4) {
+            mc = 8;
+            nc = 4;
+            gemm<8, 4>(m0, m, n0, n);
+        }
+        else if (m_rem >= 4 && n_rem >= 4) {
+            mc = 4;
+            nc = 4;
+            gemm_small(m0, m, n0, n, mc, nc);
+        }
+        else {
+            mc = (m_rem >= 4) ? 4 : m_rem;
+            nc = (n_rem >= 4) ? 4 : n_rem;
+            if (mc == 0 || nc == 0)
+                return;
+            gemm_small(m0, m, n0, n, mc, nc);
+        }
+
+        int64_t mp = m0 + ((m - m0) / mc) * mc;
+        int64_t np = n0 + ((n - n0) / nc) * nc;
+        mnpack(mp, m, n0, np);
+        mnpack(m0, m, np, n);
+    }
+
+
+    template<typename TA>
+    void tinyBLAS_Q0_PPC<TA>::KERNEL_4x8(int64_t ii, int64_t jj) {
+        vec_t vec_A[8], vec_B[16] = { 0 };
+        acc_t acc_0, acc_1;
+        std::array<int, 4> comparray{};
+        vector float fin_res[8] = { 0 };
+        vector float vs[8] = { 0 };
+        bool isAblock_q4 = std::is_same_v<TA, block_q4_0>;
+        for (int l = 0; l < k; l++) {
+            __builtin_mma_xxsetaccz(&acc_0);
+            __builtin_mma_xxsetaccz(&acc_1);
+            if (std::is_same_v<TA, block_q4_0>) {
+                packNormalInt4<4>((A + (ii * lda) + l), lda, 4, 4, (int8_t*)vec_A, comparray);
             }
             else {
-                mc = (m_rem >= 4) ? 4 : m_rem;
-                nc = (n_rem >= 4) ? 4 : n_rem;
-                if (mc == 0 || nc == 0)
-                    return;
-                gemm_small(m0, m, n0, n, mc, nc);
+                packNormal<int8_t, vector signed char>((const block_q8_0*)(A + (ii * lda) + l), lda, 4, 8, (int8_t*)vec_A, false);
             }
-
-            int64_t mp = m0 + ((m - m0) / mc) * mc;
-            int64_t np = n0 + ((n - n0) / nc) * nc;
-            mnpack(mp, m, n0, np);
-            mnpack(m0, m, np, n);
+            packNormal<uint8_t, vector unsigned char>((B + (jj * ldb) + l), ldb, 8, 8, (uint8_t*)vec_B, true);
+            for (int x = 0; x < 8; x++) {
+                __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x], vec_B[x]);
+                __builtin_mma_xvi8ger4pp(&acc_1, vec_A[x], vec_B[x + 8]);
+            }
+            for (int I = 0; I < 4; I++) {
+                for (int J = 0; J < 4; J++) {
+                    *((float*)&vs[I] + J) = (unhalf((A + ((ii + I) * lda) + l)->d) * unhalf((B + ((jj + J) * ldb) + l)->d));
+                    *((float*)&vs[I + 4] + J) = (unhalf((A + ((ii + I) * lda) + l)->d) * unhalf((B + ((jj + J + 4) * ldb) + l)->d));
+                }
+            }
+            if (!isAblock_q4) {
+                auto aoffset = A + (ii * lda) + l;
+                for (int i = 0; i < 4; i++) {
+                    comparray[i] = 0;
+                    int ca = 0;
+                    auto* at = aoffset->qs;
+                    for (int j = 0; j < 32; j++)
+                        ca += (int)*at++;
+                    comparray[i] = ca;
+                    aoffset += lda;
+                }
+            }
+            compute(&acc_0, 0, 0, comparray, vs, fin_res);
+            compute(&acc_1, 0, 4, comparray, vs, fin_res);
         }
+        save_res(ii, jj, 0, fin_res);
+        save_res(ii, jj + 4, 4, fin_res);
+    }
 
+    template<typename TA>
+    void tinyBLAS_Q0_PPC<TA>::KERNEL_8x4(int64_t ii, int64_t jj) {
+        vec_t vec_A[16], vec_B[8] = { 0 };
+        acc_t acc_0, acc_1;
+        std::array<int, 8> comparray{};
+        vector float fin_res[8] = { 0 };
+        vector float vs[8] = { 0 };
+        bool isAblock_q4 = std::is_same_v<TA, block_q4_0>;
+        for (int l = 0; l < k; l++) {
+            __builtin_mma_xxsetaccz(&acc_0);
+            __builtin_mma_xxsetaccz(&acc_1);
+            if (std::is_same_v<TA, block_q4_0>) {
+                packNormalInt4<8>((A + (ii * lda) + l), lda, 8, 4, (int8_t*)vec_A, comparray);
+            }
+            else {
+                packNormal<int8_t, vector signed char>((const block_q8_0*)(A + (ii * lda) + l), lda, 8, 8, (int8_t*)vec_A, false);
+            }
+            packNormal<uint8_t, vector unsigned char>((B + (jj * ldb) + l), ldb, 4, 8, (uint8_t*)vec_B, true);
+            for (int x = 0; x < 8; x++) {
+                __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x], vec_B[x]);
+                __builtin_mma_xvi8ger4pp(&acc_1, vec_A[x + 8], vec_B[x]);
+            }
+            for (int I = 0; I < 8; I++) {
+                for (int J = 0; J < 4; J++) {
+                    *((float*)&vs[I] + J) = (unhalf((A + ((ii + I) * lda) + l)->d) * unhalf((B + ((jj + J) * ldb) + l)->d));
+                }
+            }
+            if (!isAblock_q4) {
+                auto aoffset = A + (ii * lda) + l;
+                for (int i = 0; i < 8; i++) {
+                    comparray[i] = 0;
+                    int ca = 0;
+                    auto* at = aoffset->qs;
+                    for (int j = 0; j < 32; j++)
+                        ca += (int)*at++;
+                    comparray[i] = ca;
+                    aoffset += lda;
+                }
+            }
+            compute(&acc_0, 0, 0, comparray, vs, fin_res);
+            compute(&acc_1, 4, 4, comparray, vs, fin_res);
+        }
+        save_res(ii, jj, 0, fin_res);
+        save_res(ii + 4, jj, 4, fin_res);
+    }
 
-        void KERNEL_4x8(int64_t ii, int64_t jj) {
-            vec_t vec_A[8], vec_B[16] = { 0 };
-            acc_t acc_0, acc_1;
+    template<typename TA>
+    void tinyBLAS_Q0_PPC<TA>::KERNEL_8x8(int64_t ii, int64_t jj) {
+        vec_t vec_A[16], vec_B[16] = { 0 };
+        acc_t acc_0, acc_1, acc_2, acc_3;
+        acc_t acc_4, acc_5, acc_6, acc_7;
+        std::array<int, 8> comparray{};
+        vector float fin_res[16] = { 0 };
+        vector float vs[16] = { 0 };
+        bool isAblock_q4 = std::is_same_v<TA, block_q4_0>;
+        for (int l = 0; l < k; l++) {
+            __builtin_mma_xxsetaccz(&acc_0);
+            __builtin_mma_xxsetaccz(&acc_1);
+            __builtin_mma_xxsetaccz(&acc_2);
+            __builtin_mma_xxsetaccz(&acc_3);
+            if (std::is_same_v<TA, block_q4_0>) {
+                packNormalInt4<8>((A + (ii * lda) + l), lda, 8, 4, (int8_t*)vec_A, comparray);
+            }
+            else {
+                packNormal<int8_t, vector signed char>((const block_q8_0*)(A + (ii * lda) + l), lda, 8, 8, (int8_t*)vec_A, false);
+            }
+            packNormal<uint8_t, vector unsigned char>((B + (jj * ldb) + l), ldb, 8, 8, (uint8_t*)vec_B, true);
+            for (int x = 0; x < 8; x++) {
+                __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x], vec_B[x]);
+                __builtin_mma_xvi8ger4pp(&acc_1, vec_A[x + 8], vec_B[x]);
+                __builtin_mma_xvi8ger4pp(&acc_2, vec_A[x], vec_B[x + 8]);
+                __builtin_mma_xvi8ger4pp(&acc_3, vec_A[x + 8], vec_B[x + 8]);
+            }
+            for (int I = 0; I < 8; I++) {
+                for (int J = 0; J < 4; J++) {
+                    *((float*)&vs[I] + J) = (unhalf((A + ((ii + I) * lda) + l)->d) * unhalf((B + ((jj + J) * ldb) + l)->d));
+                    *((float*)&vs[I + 8] + J) = (unhalf((A + ((ii + I) * lda) + l)->d) * unhalf((B + ((jj + J + 4) * ldb) + l)->d));
+                }
+            }
+            if (!isAblock_q4) {
+                auto aoffset = A + (ii * lda) + l;
+                for (int i = 0; i < 8; i++) {
+                    comparray[i] = 0;
+                    int ca = 0;
+                    auto* at = aoffset->qs;
+                    for (int j = 0; j < 32; j++)
+                        ca += (int)*at++;
+                    comparray[i] = ca;
+                    aoffset += lda;
+                }
+            }
+            compute(&acc_0, 0, 0, comparray, vs, fin_res);
+            compute(&acc_1, 4, 4, comparray, vs, fin_res);
+            compute(&acc_2, 0, 8, comparray, vs, fin_res);
+            compute(&acc_3, 4, 12, comparray, vs, fin_res);
+        }
+        save_res(ii, jj, 0, fin_res);
+        save_res(ii + 4, jj, 4, fin_res);
+        save_res(ii, jj + 4, 8, fin_res);
+        save_res(ii + 4, jj + 4, 12, fin_res);
+    }
+
+    template<typename TA>
+    void tinyBLAS_Q0_PPC<TA>::gemm_small(int64_t m0, int64_t m, int64_t n0, int64_t n, int RM, int RN) {
+        int64_t ytiles = (m - m0) / RM;
+        int64_t xtiles = (n - n0) / RN;
+        int64_t tiles = xtiles * ytiles;
+        int64_t duty = (tiles + nth - 1) / nth;
+        int64_t start = duty * ith;
+        int64_t end = start + duty;
+        vec_t vec_A[8] = { 0 }, vec_B[8] = { 0 };
+        vector signed int vec_C[4];
+        acc_t acc_0;
+        bool isAblock_q4 = std::is_same_v<TA, block_q4_0>;
+
+        if (end > tiles)
+            end = tiles;
+        for (int64_t job = start; job < end; ++job) {
+            int64_t ii = m0 + job / xtiles * RM;
+            int64_t jj = n0 + job % xtiles * RN;
             std::array<int, 4> comparray{};
-            vector float fin_res[8] = { 0 };
-            vector float vs[8] = { 0 };
-            bool isAblock_q4 = std::is_same_v<TA, block_q4_0>;
+            vector float res[4] = { 0 };
+            vector float fin_res[4] = { 0 };
+            vector float vs[4] = { 0 };
+            vector float CA[4] = { 0 };
+            __builtin_prefetch((A + (ii * lda) + 0)->qs, 0, 1); // prefetch first value
+            __builtin_prefetch((B + (jj * ldb) + 0)->qs, 0, 1); // prefetch first value
             for (int l = 0; l < k; l++) {
+                __builtin_prefetch((A + (ii * lda) + (l + 1))->qs, 0, 1); // prefetch one loop ahead
+                __builtin_prefetch((B + (jj * ldb) + (l + 1))->qs, 0, 1); // prefetch one loop ahead
                 __builtin_mma_xxsetaccz(&acc_0);
-                __builtin_mma_xxsetaccz(&acc_1);
-                if (std::is_same_v<TA, block_q4_0>) {
-                    packNormalInt4<4>((A + (ii * lda) + l), lda, 4, 4, (int8_t*)vec_A, comparray);
+                if (isAblock_q4) {
+                    packNormalInt4<4>((A + (ii * lda) + l), lda, RM, 4, (int8_t*)vec_A, comparray);
                 }
                 else {
-                    packNormal<int8_t, vector signed char>((const block_q8_0*)(A + (ii * lda) + l), lda, 4, 8, (int8_t*)vec_A, false);
+                    packNormal<int8_t, vector signed char>((const block_q8_0*)(A + (ii * lda) + l), lda, RM, 8, (int8_t*)vec_A, false);
                 }
-                packNormal<uint8_t, vector unsigned char>((B + (jj * ldb) + l), ldb, 8, 8, (uint8_t*)vec_B, true);
-                for (int x = 0; x < 8; x++) {
+                packNormal<uint8_t, vector unsigned char>((B + (jj * ldb) + l), ldb, RN, 8, (uint8_t*)vec_B, true);
+                for (int x = 0; x < 8; x += 4) {
                     __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x], vec_B[x]);
-                    __builtin_mma_xvi8ger4pp(&acc_1, vec_A[x], vec_B[x + 8]);
+                    __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x + 1], vec_B[x + 1]);
+                    __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x + 2], vec_B[x + 2]);
+                    __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x + 3], vec_B[x + 3]);
                 }
-                for (int I = 0; I < 4; I++) {
-                    for (int J = 0; J < 4; J++) {
-                        *((float*)&vs[I] + J) = (unhalf((A + ((ii + I) * lda) + l)->d) * unhalf((B + ((jj + J) * ldb) + l)->d));
-                        *((float*)&vs[I + 4] + J) = (unhalf((A + ((ii + I) * lda) + l)->d) * unhalf((B + ((jj + J + 4) * ldb) + l)->d));
-                    }
-                }
-                if (!isAblock_q4) {
-                    auto aoffset = A + (ii * lda) + l;
-                    for (int i = 0; i < 4; i++) {
-                        comparray[i] = 0;
-                        int ca = 0;
-                        auto* at = aoffset->qs;
-                        for (int j = 0; j < 32; j++)
-                            ca += (int)*at++;
-                        comparray[i] = ca;
-                        aoffset += lda;
-                    }
-                }
-                compute<4>(&acc_0, 0, 0, comparray, vs, fin_res);
-                compute<4>(&acc_1, 0, 4, comparray, vs, fin_res);
-            }
-            save_res(ii, jj, 0, fin_res);
-            save_res(ii, jj + 4, 4, fin_res);
-        }
-
-        void KERNEL_8x4(int64_t ii, int64_t jj) {
-            vec_t vec_A[16], vec_B[8] = { 0 };
-            acc_t acc_0, acc_1;
-            std::array<int, 8> comparray{};
-            vector float fin_res[8] = { 0 };
-            vector float vs[8] = { 0 };
-            bool isAblock_q4 = std::is_same_v<TA, block_q4_0>;
-            for (int l = 0; l < k; l++) {
-                __builtin_mma_xxsetaccz(&acc_0);
-                __builtin_mma_xxsetaccz(&acc_1);
-                if (std::is_same_v<TA, block_q4_0>) {
-                    packNormalInt4<8>((A + (ii * lda) + l), lda, 8, 4, (int8_t*)vec_A, comparray);
-                }
-                else {
-                    packNormal<int8_t, vector signed char>((const block_q8_0*)(A + (ii * lda) + l), lda, 8, 8, (int8_t*)vec_A, false);
-                }
-                packNormal<uint8_t, vector unsigned char>((B + (jj * ldb) + l), ldb, 4, 8, (uint8_t*)vec_B, true);
-                for (int x = 0; x < 8; x++) {
-                    __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x], vec_B[x]);
-                    __builtin_mma_xvi8ger4pp(&acc_1, vec_A[x + 8], vec_B[x]);
-                }
-                for (int I = 0; I < 8; I++) {
-                    for (int J = 0; J < 4; J++) {
+                for (int I = 0; I < RM; I++) {
+                    for (int J = 0; J < RN; J++) {
                         *((float*)&vs[I] + J) = (unhalf((A + ((ii + I) * lda) + l)->d) * unhalf((B + ((jj + J) * ldb) + l)->d));
                     }
                 }
+                __builtin_mma_disassemble_acc(vec_C, &acc_0);
                 if (!isAblock_q4) {
                     auto aoffset = A + (ii * lda) + l;
-                    for (int i = 0; i < 8; i++) {
-                        comparray[i] = 0;
-                        int ca = 0;
-                        auto* at = aoffset->qs;
-                        for (int j = 0; j < 32; j++)
-                            ca += (int)*at++;
-                        comparray[i] = ca;
-                        aoffset += lda;
-                    }
-                }
-                compute<8>(&acc_0, 0, 0, comparray, vs, fin_res);
-                compute<8>(&acc_1, 4, 4, comparray, vs, fin_res);
-            }
-            save_res(ii, jj, 0, fin_res);
-            save_res(ii + 4, jj, 4, fin_res);
-        }
-
-        void KERNEL_8x8(int64_t ii, int64_t jj) {
-            vec_t vec_A[16], vec_B[16] = { 0 };
-            acc_t acc_0, acc_1, acc_2, acc_3;
-            std::array<int, 8> comparray{};
-            vector float fin_res[16] = { 0 };
-            vector float vs[16] = { 0 };
-            bool isAblock_q4 = std::is_same_v<TA, block_q4_0>;
-            for (int l = 0; l < k; l++) {
-                __builtin_mma_xxsetaccz(&acc_0);
-                __builtin_mma_xxsetaccz(&acc_1);
-                __builtin_mma_xxsetaccz(&acc_2);
-                __builtin_mma_xxsetaccz(&acc_3);
-                if (std::is_same_v<TA, block_q4_0>) {
-                    packNormalInt4<8>((A + (ii * lda) + l), lda, 8, 4, (int8_t*)vec_A, comparray);
-                }
-                else {
-                    packNormal<int8_t, vector signed char>((const block_q8_0*)(A + (ii * lda) + l), lda, 8, 8, (int8_t*)vec_A, false);
-                }
-                packNormal<uint8_t, vector unsigned char>((B + (jj * ldb) + l), ldb, 8, 8, (uint8_t*)vec_B, true);
-                for (int x = 0; x < 8; x++) {
-                    __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x], vec_B[x]);
-                    __builtin_mma_xvi8ger4pp(&acc_1, vec_A[x + 8], vec_B[x]);
-                    __builtin_mma_xvi8ger4pp(&acc_2, vec_A[x], vec_B[x + 8]);
-                    __builtin_mma_xvi8ger4pp(&acc_3, vec_A[x + 8], vec_B[x + 8]);
-                }
-                for (int I = 0; I < 8; I++) {
-                    for (int J = 0; J < 4; J++) {
-                        *((float*)&vs[I] + J) = (unhalf((A + ((ii + I) * lda) + l)->d) * unhalf((B + ((jj + J) * ldb) + l)->d));
-                        *((float*)&vs[I + 8] + J) = (unhalf((A + ((ii + I) * lda) + l)->d) * unhalf((B + ((jj + J + 4) * ldb) + l)->d));
-                    }
-                }
-                if (!isAblock_q4) {
-                    auto aoffset = A + (ii * lda) + l;
-                    for (int i = 0; i < 8; i++) {
-                        comparray[i] = 0;
-                        int ca = 0;
-                        auto* at = aoffset->qs;
-                        for (int j = 0; j < 32; j++)
-                            ca += (int)*at++;
-                        comparray[i] = ca;
-                        aoffset += lda;
-                    }
-                }
-                compute<8>(&acc_0, 0, 0, comparray, vs, fin_res);
-                compute<8>(&acc_1, 4, 4, comparray, vs, fin_res);
-                compute<8>(&acc_2, 0, 8, comparray, vs, fin_res);
-                compute<8>(&acc_3, 4, 12, comparray, vs, fin_res);
-            }
-            save_res(ii, jj, 0, fin_res);
-            save_res(ii + 4, jj, 4, fin_res);
-            save_res(ii, jj + 4, 8, fin_res);
-            save_res(ii + 4, jj + 4, 12, fin_res);
-        }
-
-        void gemm_small(int64_t m0, int64_t m, int64_t n0, int64_t n, int RM, int RN) {
-            int64_t ytiles = (m - m0) / RM;
-            int64_t xtiles = (n - n0) / RN;
-            int64_t tiles = xtiles * ytiles;
-            int64_t duty = (tiles + nth - 1) / nth;
-            int64_t start = duty * ith;
-            int64_t end = start + duty;
-            vec_t vec_A[8] = { 0 }, vec_B[8] = { 0 };
-            vector signed int vec_C[4];
-            acc_t acc_0;
-            bool isAblock_q4 = std::is_same_v<TA, block_q4_0>;
-
-            if (end > tiles)
-                end = tiles;
-            for (int64_t job = start; job < end; ++job) {
-                int64_t ii = m0 + job / xtiles * RM;
-                int64_t jj = n0 + job % xtiles * RN;
-                std::array<int, 4> comparray{};
-                vector float res[4] = { 0 };
-                vector float fin_res[4] = { 0 };
-                vector float vs[4] = { 0 };
-                vector float CA[4] = { 0 };
-                __builtin_prefetch((A + (ii * lda) + 0)->qs, 0, 1); // prefetch first value
-                __builtin_prefetch((B + (jj * ldb) + 0)->qs, 0, 1); // prefetch first value
-                for (int l = 0; l < k; l++) {
-                    __builtin_prefetch((A + (ii * lda) + (l + 1))->qs, 0, 1); // prefetch one loop ahead
-                    __builtin_prefetch((B + (jj * ldb) + (l + 1))->qs, 0, 1); // prefetch one loop ahead
-                    __builtin_mma_xxsetaccz(&acc_0);
-                    if (isAblock_q4) {
-                        packNormalInt4<4>((A + (ii * lda) + l), lda, RM, 4, (int8_t*)vec_A, comparray);
-                    }
-                    else {
-                        packNormal<int8_t, vector signed char>((const block_q8_0*)(A + (ii * lda) + l), lda, RM, 8, (int8_t*)vec_A, false);
-                    }
-                    packNormal<uint8_t, vector unsigned char>((B + (jj * ldb) + l), ldb, RN, 8, (uint8_t*)vec_B, true);
-                    for (int x = 0; x < 8; x += 4) {
-                        __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x], vec_B[x]);
-                        __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x + 1], vec_B[x + 1]);
-                        __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x + 2], vec_B[x + 2]);
-                        __builtin_mma_xvi8ger4pp(&acc_0, vec_A[x + 3], vec_B[x + 3]);
-                    }
-                    for (int I = 0; I < RM; I++) {
-                        for (int J = 0; J < RN; J++) {
-                            *((float*)&vs[I] + J) = (unhalf((A + ((ii + I) * lda) + l)->d) * unhalf((B + ((jj + J) * ldb) + l)->d));
-                        }
-                    }
-                    __builtin_mma_disassemble_acc(vec_C, &acc_0);
-                    if (!isAblock_q4) {
-                        auto aoffset = A + (ii * lda) + l;
-                        for (int i = 0; i < RM; i++) {
-                            comparray[i] = 0;
-                            int ca = 0;
-                            auto* at = aoffset->qs;
-                            for (int j = 0; j < 32; j++)
-                                ca += (int)*at++;
-                            comparray[i] = ca;
-                            aoffset += lda;
-                        }
-                    }
                     for (int i = 0; i < RM; i++) {
-                        CA[i] = vec_splats((float)(((double)comparray[i]) * -128.0));
-                        res[i] = vec_add(vec_ctf(vec_C[i], 0), CA[i]);
-                        fin_res[i] = vec_madd(res[i], vs[i], fin_res[i]);
+                        comparray[i] = 0;
+                        int ca = 0;
+                        auto* at = aoffset->qs;
+                        for (int j = 0; j < 32; j++)
+                            ca += (int)*at++;
+                        comparray[i] = ca;
+                        aoffset += lda;
                     }
                 }
-                save_res(ii, jj, 0, fin_res, RM, RN);
+                for (int i = 0; i < RM; i++) {
+                    CA[i] = vec_splats((float)(((double)comparray[i]) * -128.0));
+                    res[i] = vec_add(vec_ctf(vec_C[i], 0), CA[i]);
+                    fin_res[i] = vec_madd(res[i], vs[i], fin_res[i]);
+                }
             }
+            save_res(ii, jj, 0, fin_res, RM, RN);
         }
+    }
 
-        template<int RM, int RN>
-        inline void kernel(int64_t ii, int64_t jj) {
-            if constexpr (RM == 4 && RN == 8) {
-                KERNEL_4x8(ii, jj);
-            }
-            else if constexpr (RM == 8 && RN == 4) {
-                KERNEL_8x4(ii, jj);
-            }
-            else if constexpr (RM == 8 && RN == 8) {
-                KERNEL_8x8(ii, jj);
-            }
-            else {
-                assert(false && "RN/RM values not supported");
-            }
+    template<typename TA>
+    template <int RM, int RN>
+    NOINLINE void tinyBLAS_Q0_PPC<TA>::gemm(int64_t m0, int64_t m, int64_t n0, int64_t n) {
+        int64_t ytiles = (m - m0) / RM;
+        int64_t xtiles = (n - n0) / RN;
+        int64_t tiles = xtiles * ytiles;
+        int64_t duty = (tiles + nth - 1) / nth;
+        int64_t start = duty * ith;
+        int64_t end = start + duty;
+        if (end > tiles)
+            end = tiles;
+        for (int64_t job = start; job < end; ++job) {
+            int64_t ii = m0 + job / xtiles * RM;
+            int64_t jj = n0 + job % xtiles * RN;
+            this->kernel<RM, RN>(ii, jj);
         }
+    }
 
-        template <int RM, int RN>
-        NOINLINE void gemm(int64_t m0, int64_t m, int64_t n0, int64_t n) {
-            int64_t ytiles = (m - m0) / RM;
-            int64_t xtiles = (n - n0) / RN;
-            int64_t tiles = xtiles * ytiles;
-            int64_t duty = (tiles + nth - 1) / nth;
-            int64_t start = duty * ith;
-            int64_t end = start + duty;
-            if (end > tiles)
-                end = tiles;
-            for (int64_t job = start; job < end; ++job) {
-                int64_t ii = m0 + job / xtiles * RM;
-                int64_t jj = n0 + job % xtiles * RN;
-                kernel<RM, RN>(ii, jj);
-            }
-        }
-
-        const TA* const A;
-        const block_q8_0* const B;
-        float* C;
-        const int64_t k;
-        const int64_t lda;
-        const int64_t ldb;
-        const int64_t ldc;
-        const int ith;
-        const int nth;
-    };
+    template class tinyBLAS_Q0_PPC<block_q4_0>;
+    template class tinyBLAS_Q0_PPC<block_q8_0>;
 
     class tinyBLAS_PPC {
     public:

@@ -245,7 +245,8 @@ export {
 		int p0,
 		int p1,
 		int p2,
-		int p3);
+		int p3,
+		bool circular = false);
 
 	ggml_tensor* ggml_timestep_embedding(
 		ggml_context* ctx,
@@ -259,11 +260,11 @@ export {
 		float negative_slope,
 		bool inplace);
 
-	// q:    [n_embd_k, n_batch,     n_head,    ne3 ]
-	// k:    [n_embd_k, n_kv,        n_head_kv, ne3 ]
-	// v:    [n_embd_v, n_kv,        n_head_kv, ne3 ] !! not transposed !!
-	// mask: [n_kv,     n_batch_pad, ne32,      ne33] !! n_batch_pad = GGML_PAD(n_batch, GGML_KQ_MASK_PAD) !!
-	// res:  [n_embd_v, n_head,      n_batch,   ne3 ] !! permuted !!
+	// q:    [n_embd_k, n_batch, n_head,    ne3 ]
+	// k:    [n_embd_k, n_kv,    n_head_kv, ne3 ]
+	// v:    [n_embd_v, n_kv,    n_head_kv, ne3 ] !! not transposed !!
+	// mask: [n_kv,     n_batch, ne32,      ne33]
+	// res:  [n_embd_v, n_head,  n_batch,   ne3 ] !! permuted !!
 	//
 	// broadcast:
 	//   n_head % n_head_kv == 0
@@ -711,6 +712,14 @@ export {
 		ggml_tensor* a,
 		bool inplace);
 
+	// similar to ggml_top_k but implemented as `argsort` + `view`
+	ggml_tensor* ggml_argsort_top_k(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		int k);
+
+	// top k elements per row
+	// note: the resulting top k indices are in no particular order
 	ggml_tensor* ggml_top_k(
 		ggml_context* ctx,
 		ggml_tensor* a,
@@ -780,7 +789,8 @@ export {
 		int lp2,
 		int rp2,
 		int lp3,
-		int rp3);
+		int rp3,
+		bool circular = false);
 
 	// xIELU activation function
 	// x = x * (c_a(alpha_n) + c_b(alpha_p, beta) * sigmoid(beta * x)) + eps * (x > 0)
@@ -867,4 +877,8 @@ export {
 		bool left,
 		bool lower,
 		bool uni);
+
+	ggml_tensor* ggml_diag(
+		ggml_context* ctx,
+		ggml_tensor* a);
 }

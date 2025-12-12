@@ -10,6 +10,7 @@ module;
 #include <unordered_map>
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
+#define LOG_DBG(...)
 
 namespace fs = std::filesystem;
 
@@ -40,6 +41,11 @@ bool rpc_server::get_alloc_size(const rpc_msg_get_alloc_size_req& request, rpc_m
     if (tensor == nullptr) {
         GGML_LOG_ERROR("Null tensor pointer passed to server get_alloc_size function.");
         return false;
+    }
+    for (int i = 0; i < GGML_MAX_SRC; i++) {
+        if (request.srcs[i].id != 0) {
+            tensor->src[i] = deserialize_tensor(&ctx, &request.srcs[i]);
+        }
     }
 
     if (tensor->buffer == nullptr) {
@@ -231,7 +237,8 @@ bool rpc_server::get_cached_file(uint64_t hash, std::vector<uint8_t>& data) {
     }
     std::string hash_str = std::format("{:016}", hash);
     fs::path cache_file = fs::path(cache_dir) / hash_str;
-    if (!fs::exists(cache_file)) {
+    std::error_code ec;
+    if (!fs::exists(cache_file, ec)) {
         return false;
     }
     std::ifstream ifs(cache_file, std::ios::binary);
@@ -421,7 +428,7 @@ ggml_tensor* rpc_server::create_node(uint64_t id,
     return result;
 }
 
-bool rpc_server::graph_compute(const std::vector<uint8_t>& input, rpc_msg_graph_compute_rsp& response) {
+bool rpc_server::graph_compute(const std::vector<uint8_t>& input) {
     // serialization format:
     // | device (4 bytes) | n_nodes (4 bytes) | nodes (n_nodes * sizeof(uint64_t) | n_tensors (4 bytes) | tensors (n_tensors * sizeof(rpc_tensor)) |
     if (input.size() < 2 * sizeof(uint32_t)) {
@@ -451,8 +458,10 @@ bool rpc_server::graph_compute(const std::vector<uint8_t>& input, rpc_msg_graph_
     const rpc_tensor* tensors = (const rpc_tensor*)src;
     //LOG_DBG("[%s] device: %u, n_nodes: %u, n_tensors: %u\n", __func__, device, n_nodes, n_tensors);
 
-    ggml_context ctx;
-    ggml_cgraph graph;
+    ggml_context ctx_inst;
+    ggml_context* ctx = &ctx_inst;
+    auto graph = std::make_unique<ggml_cgraph>();
+    graph->nodes.resize(n_nodes);
     std::unordered_map<uint64_t, const rpc_tensor*> tensor_ptrs;
     for (uint32_t i = 0; i < n_tensors; i++) {
         tensor_ptrs[tensors[i].id] = &tensors[i];
@@ -461,18 +470,37 @@ bool rpc_server::graph_compute(const std::vector<uint8_t>& input, rpc_msg_graph_
     for (uint32_t i = 0; i < n_nodes; i++) {
         int64_t id;
         memcpy(&id, &nodes[i], sizeof(id));
-        graph.nodes.emplace_back(create_node(id, &ctx, tensor_ptrs, tensor_map));
+        graph->nodes[i] = create_node(id, ctx, tensor_ptrs, tensor_map);
 
         // Check if create_node failed for a *non-zero* ID.
         // If id was 0, create_node returning nullptr is expected.
         // If id was non-zero and create_node returned nullptr, it indicates a deserialization error.
-        if (graph.nodes[i] == nullptr && id != 0) {
+        if (graph->nodes[i] == nullptr && id != 0) {
             GGML_LOG_ERROR("[{}] failed to create graph node {} (id={})\n", __func__, i, id);
             return false;
         }
     }
-    ggml_status status = backends[device]->graph_compute(&graph);
-    response.result = status;
+    ggml_status status = backends[device]->graph_compute(graph.get());
+    GGML_ASSERT(status == GGML_STATUS_SUCCESS && "Unsuccessful graph computations are not supported with RPC");
+#if 0
+    stored_graphs[device].ctx_ptr.swap(ctx_ptr);
+    stored_graphs[device].graph = graph.get();
+#endif
+    return true;
+}
+
+bool rpc_server::graph_recompute(const rpc_msg_graph_recompute_req& request) {
+    uint32_t device = request.device;
+    if (device >= backends.size()) {
+        return false;
+    }
+    if (stored_graphs[device].graph == nullptr) {
+        return false;
+    }
+    ggml_cgraph* graph = stored_graphs[device].graph;
+    LOG_DBG("[%s] device: %u\n", __func__, device);
+    ggml_status status = backends[device]->graph_compute(graph);
+    GGML_ASSERT(status == GGML_STATUS_SUCCESS && "Unsuccessful graph computations are not supported with RPC");
     return true;
 }
 

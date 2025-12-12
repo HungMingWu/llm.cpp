@@ -21,6 +21,7 @@ static size_t aligned_offset(const void* buffer, size_t offset, size_t alignment
 
 static bool ggml_op_can_inplace(enum ggml_op op) {
 	switch (op) {
+	case GGML_OP_FILL:
 	case GGML_OP_SCALE:
 	case GGML_OP_DIAG_MASK_ZERO:
 	case GGML_OP_DIAG_MASK_INF:
@@ -49,15 +50,8 @@ static bool ggml_is_view(const ggml_tensor* t) {
 }
 
 // this is a very naive implementation, but for our case the number of free blocks should be very small
-void ggml_dyn_tallocr::free_tensor(buffer_address addr, size_t size, const ggml_tensor* tensor) {
+void ggml_dyn_tallocr::free_bytes(buffer_address addr, size_t size) {
 	size = aligned_offset(NULL, size, alignment);
-
-	AT_PRINTF("%s: freeing %s at {chunk=%d, offset=%zu} (%zu bytes) - n_free_blocks = %d\n",
-		__func__, tensor->name, addr.chunk, addr.offset, size, chunks[addr.chunk]->n_free_blocks);
-
-#ifdef GGML_ALLOCATOR_DEBUG
-	remove_allocated_tensor(alloc, addr, tensor);
-#endif
 
 	tallocr_chunk& chunk = chunks[addr.chunk];
 
@@ -245,7 +239,14 @@ void ggml_gallocr::free_node(ggml_tensor* node) {
 	auto& alloc = buf_tallocs[buffer_id];
 	ggml_backend_buffer_type* buft = bufts[buffer_id];
 	size_t size = buft->get_alloc_size(node);
-	alloc->free_tensor(hn.addr, size, node);
+
+	AT_PRINTF("%s: freeing %s at {chunk=%d, offset=%zu} (%zu bytes) - n_free_blocks = %d\n",
+		__func__, node->name, hn->addr.chunk, hn->addr.offset, size, alloc->chunks[hn->addr.chunk]->n_free_blocks);
+#ifdef GGML_ALLOCATOR_DEBUG
+	remove_allocated_tensor(alloc, hn->addr, node);
+#endif
+
+	alloc->free_bytes(hn.addr, size);
 	hn.allocated = false;
 }
 
@@ -259,13 +260,17 @@ void ggml_gallocr::free_extra_space(ggml_tensor* node, ggml_tensor* parent) {
 
 	GGML_ASSERT(parent_size >= node_size);
 
+	// note: we want after the freeing the chunks to continue to be aligned
+	auto p_alloc = buf_tallocs[p_hn.buffer_id];
+	parent_size = aligned_offset(NULL, parent_size, p_alloc->alignment);
+	node_size = aligned_offset(NULL, node_size, p_alloc->alignment);
+
 	if (parent_size > node_size) {
-		auto p_alloc = buf_tallocs[p_hn.buffer_id];
 		buffer_address p_addr = p_hn.addr;
 		p_addr.offset += node_size;
 		size_t extra_size = parent_size - node_size;
 		AT_PRINTF("freeing extra %zu bytes from parent %s for %s\n", extra_size, parent->name, node->name);
-		p_alloc->free_tensor(p_addr, extra_size, parent);
+		p_alloc->free_bytes(p_addr, extra_size);
 	}
 }
 
@@ -659,8 +664,14 @@ bool ggml_gallocr::reserve(const ggml_cgraph& graph, std::span<const int> node_b
 		}
 		if (realloc) {
 #ifndef NDEBUG
-			size_t cur_size = buffers[i] ? buffers[i]->size() : 0;
-			GGML_LOG_DEBUG("{}: reallocating {} buffer from size {:.02} MiB to {:.02} MiB", __func__, bufts[i]->get_name(), cur_size / 1024.0 / 1024.0, new_size / 1024.0 / 1024.0);
+			{
+				size_t cur_size = buffers[i] ? buffers[i]->size() : 0;
+				if (cur_size > 0) {
+					GGML_LOG_DEBUG("{}: reallocating {} buffer from size {:.02f} MiB to {:.02f} MiB\n",
+						__func__, bufts[i]->get_name(),
+						cur_size / 1024.0 / 1024.0, new_size / 1024.0 / 1024.0);
+				}
+			}
 #endif
 			buffers[i] = std::make_shared<vbuffer>(bufts[i], buf_tallocs[i].get(), GGML_BACKEND_BUFFER_USAGE_COMPUTE);
 			if (buffers[i] == nullptr) {
