@@ -2441,7 +2441,7 @@ static __device__ __forceinline__ void mmq_write_back_dp4a(
     }
 }
 
-template <internal::ggml_type type, int mmq_x, int mmq_y, bool need_check>
+template <int mmq_x, int mmq_y, bool need_check>
 static __device__ __forceinline__ void mmq_write_back_mma(
     const float* __restrict__ sum, const int* __restrict__ ids_dst, float* __restrict__ dst,
     const int stride, const int i_max, const int j_max) {
@@ -2557,7 +2557,7 @@ static __device__ __forceinline__ void mul_mat_q_process_tile(
         else {
             return { dst, stride_col_dst, tile_x_max_i, tile_y_max_j };
         }
-        }();
+    }();
 
     if constexpr (new_mma_available_v) {
         mmq_write_back_mma<mmq_x, mmq_y, need_check>(sum, ids_dst, write_dst, stride, i_max, j_max);
