@@ -28,52 +28,97 @@ static __global__ void flash_attn_ext_f16(
     [[maybe_unused]] const int32_t nb21, [[maybe_unused]] const int32_t nb22, [[maybe_unused]] const int64_t nb23,
     [[maybe_unused]] const int32_t ne31, [[maybe_unused]] const int32_t ne32, [[maybe_unused]] const int32_t ne33,
     [[maybe_unused]] const int32_t nb31, [[maybe_unused]] const int32_t nb32, [[maybe_unused]] const int64_t nb33) {
-#if defined(FLASH_ATTN_AVAILABLE) && defined(TURING_MMA_AVAILABLE)
+    if constexpr (flash_attn_available_v && turing_mma_available_v) {
 
-    // Skip unused kernel variants for faster compilation:
-    if (use_logit_softcap && !(DKQ == 128 || DKQ == 256)) {
-        NO_DEVICE_CODE;
-        return;
-    }
+        // Skip unused kernel variants for faster compilation:
+        if (use_logit_softcap && !(DKQ == 128 || DKQ == 256)) {
+            NO_DEVICE_CODE;
+            return;
+        }
 #if __CUDA_ARCH__ == GGML_CUDA_CC_TURING
-    if (ncols1 * ncols2 > 32) {
-        NO_DEVICE_CODE;
-        return;
-    }
+        if (ncols1 * ncols2 > 32) {
+            NO_DEVICE_CODE;
+            return;
+        }
 #endif // __CUDA_ARCH__ == GGML_CUDA_CC_TURING
 
-    static_assert(!mla || DKQ >= DV, "MLA needs DKQ >= DV");
+        static_assert(!mla || DKQ >= DV, "MLA needs DKQ >= DV");
 
-    constexpr int ncols = ncols1 * ncols2;
-    constexpr int nbatch_fa = ggml_cuda_fattn_mma_get_nbatch_fa(DKQ, DV, ncols);
-    constexpr int nthreads = ggml_cuda_fattn_mma_get_nthreads(DKQ, DV, ncols);
-    constexpr int nwarps = nthreads / WARP_SIZE;
+        constexpr int ncols = ncols1 * ncols2;
+        constexpr int nbatch_fa = ggml_cuda_fattn_mma_get_nbatch_fa(DKQ, DV, ncols);
+        constexpr int nthreads = ggml_cuda_fattn_mma_get_nthreads(DKQ, DV, ncols);
+        constexpr int nwarps = nthreads / WARP_SIZE;
 
-    const int gqa_ratio = ne02 / ne12; // With grouped query attention there are > 1 Q matrices per K, V matrix.
+        const int gqa_ratio = ne02 / ne12; // With grouped query attention there are > 1 Q matrices per K, V matrix.
 
-    const int stride_Q1 = nb01 / sizeof(float2);
-    const int stride_Q2 = nb02 / sizeof(float2);
-    const int stride_K = nb11 / sizeof(half2);
-    const int stride_mask = nb31 / sizeof(half);
+        const int stride_Q1 = nb01 / sizeof(float2);
+        const int stride_Q2 = nb02 / sizeof(float2);
+        const int stride_K = nb11 / sizeof(half2);
+        const int stride_mask = nb31 / sizeof(half);
 
-    const int stride_V = mla ? stride_K : nb21 / sizeof(half2);
+        const int stride_V = mla ? stride_K : nb21 / sizeof(half2);
 
-    const int iter_k = (ne11 + (nbatch_fa - 1)) / nbatch_fa;
-    const int iter_j = (ne01.z + (ncols1 - 1)) / ncols1;
+        const int iter_k = (ne11 + (nbatch_fa - 1)) / nbatch_fa;
+        const int iter_j = (ne01.z + (ncols1 - 1)) / ncols1;
 
-    // kbc == k block continuous, current index in continuous ijk space.
-    int       kbc = int64_t(blockIdx.x + 0) * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
-    const int kbc_stop = int64_t(blockIdx.x + 1) * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
+        // kbc == k block continuous, current index in continuous ijk space.
+        int       kbc = int64_t(blockIdx.x + 0) * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
+        const int kbc_stop = int64_t(blockIdx.x + 1) * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
 
-    // If the seams of 2 CUDA blocks fall within an output tile their results need to be combined.
-    // For this we need to track both the block that starts the tile (needs_fixup) and the block that finishes the tile (is_fixup).
-    // In the most general case >2 seams can fall into the same tile.
+        // If the seams of 2 CUDA blocks fall within an output tile their results need to be combined.
+        // For this we need to track both the block that starts the tile (needs_fixup) and the block that finishes the tile (is_fixup).
+        // In the most general case >2 seams can fall into the same tile.
 
-    // kb0 == k start index when in the output tile.
-    int kb0_start = kbc % iter_k;
-    int kb0_stop = min(iter_k, kb0_start + kbc_stop - kbc);
+        // kb0 == k start index when in the output tile.
+        int kb0_start = kbc % iter_k;
+        int kb0_stop = min(iter_k, kb0_start + kbc_stop - kbc);
 
-    while (kbc < kbc_stop && kb0_stop == iter_k) {
+        while (kbc < kbc_stop && kb0_stop == iter_k) {
+            const int sequence = kbc / (iter_k * iter_j * (ne02 / ncols2));
+            const int zt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence) / (iter_k * iter_j); // head in units of ncols2
+            const int jt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence - iter_k * iter_j * zt) / iter_k; // j index of current tile.
+
+            const int head0 = zt * ncols2;
+
+            const float2* Q_f2 = (const float2*)(Q + nb03 * sequence + nb02 * head0);
+            const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head0 / gqa_ratio));
+            const half* mask_h = ncols2 == 1 && !mask ? nullptr :
+                (const half*)(mask + nb33 * (sequence % ne33));
+            float2* dstk = ((float2*)dst) + (sequence * ne01.z * ne02 + head0) * (DV / 2);
+
+            const half2* V_h2 = mla ? K_h2 + (DKQ / 2 - DV / 2) : (const half2*)(V + nb23 * sequence + nb22 * (head0 / gqa_ratio));
+            const float* sinks_f = sinks ? (const float*)sinks + head0 : nullptr;
+
+            const float slope = ncols2 == 1 ? get_alibi_slope(max_bias, head0, n_head_log2, m0, m1) : 1.0f;
+
+            if (KV_max) {
+                kb0_stop = min(kb0_stop, KV_max[sequence * iter_j + jt] / nbatch_fa);
+            }
+            constexpr bool is_fixup = false; // All but (potentially) the last iterations write their data to dst rather than the fixup buffer.
+            if (kb0_start == 0) {
+                constexpr bool needs_fixup = false; // CUDA block is working on an entire tile.
+                flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, use_logit_softcap, mla, needs_fixup, is_fixup>
+                    (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
+                        ne01, ne02, ne11, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start, kb0_stop);
+            }
+            else {
+                constexpr bool needs_fixup = true; // CUDA block is missing the beginning of a tile.
+                flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, use_logit_softcap, mla, needs_fixup, is_fixup>
+                    (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
+                        ne01, ne02, ne11, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start, kb0_stop);
+            }
+
+            kbc += iter_k;
+            kbc -= kbc % iter_k;
+
+            kb0_start = 0;
+            kb0_stop = min(iter_k, kbc_stop - kbc);
+        }
+
+        if (kbc >= kbc_stop) {
+            return;
+        }
+
         const int sequence = kbc / (iter_k * iter_j * (ne02 / ncols2));
         const int zt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence) / (iter_k * iter_j); // head in units of ncols2
         const int jt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence - iter_k * iter_j * zt) / iter_k; // j index of current tile.
@@ -94,60 +139,16 @@ static __global__ void flash_attn_ext_f16(
         if (KV_max) {
             kb0_stop = min(kb0_stop, KV_max[sequence * iter_j + jt] / nbatch_fa);
         }
-        constexpr bool is_fixup = false; // All but (potentially) the last iterations write their data to dst rather than the fixup buffer.
-        if (kb0_start == 0) {
-            constexpr bool needs_fixup = false; // CUDA block is working on an entire tile.
-            flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, use_logit_softcap, mla, needs_fixup, is_fixup>
-                (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
-                    ne01, ne02, ne11, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start, kb0_stop);
-        }
-        else {
-            constexpr bool needs_fixup = true; // CUDA block is missing the beginning of a tile.
-            flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, use_logit_softcap, mla, needs_fixup, is_fixup>
-                (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
-                    ne01, ne02, ne11, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start, kb0_stop);
-        }
 
-        kbc += iter_k;
-        kbc -= kbc % iter_k;
-
-        kb0_start = 0;
-        kb0_stop = min(iter_k, kbc_stop - kbc);
+        constexpr bool is_fixup = true; // Last index writes its data to fixup buffer to avoid data races with other blocks.
+        constexpr bool needs_fixup = false;
+        flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, use_logit_softcap, mla, needs_fixup, is_fixup>
+            (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
+                ne01, ne02, ne11, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start, kb0_stop);
     }
-
-    if (kbc >= kbc_stop) {
-        return;
+    else {
+        NO_DEVICE_CODE;
     }
-
-    const int sequence = kbc / (iter_k * iter_j * (ne02 / ncols2));
-    const int zt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence) / (iter_k * iter_j); // head in units of ncols2
-    const int jt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence - iter_k * iter_j * zt) / iter_k; // j index of current tile.
-
-    const int head0 = zt * ncols2;
-
-    const float2* Q_f2 = (const float2*)(Q + nb03 * sequence + nb02 * head0);
-    const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head0 / gqa_ratio));
-    const half* mask_h = ncols2 == 1 && !mask ? nullptr :
-        (const half*)(mask + nb33 * (sequence % ne33));
-    float2* dstk = ((float2*)dst) + (sequence * ne01.z * ne02 + head0) * (DV / 2);
-
-    const half2* V_h2 = mla ? K_h2 + (DKQ / 2 - DV / 2) : (const half2*)(V + nb23 * sequence + nb22 * (head0 / gqa_ratio));
-    const float* sinks_f = sinks ? (const float*)sinks + head0 : nullptr;
-
-    const float slope = ncols2 == 1 ? get_alibi_slope(max_bias, head0, n_head_log2, m0, m1) : 1.0f;
-
-    if (KV_max) {
-        kb0_stop = min(kb0_stop, KV_max[sequence * iter_j + jt] / nbatch_fa);
-    }
-
-    constexpr bool is_fixup = true; // Last index writes its data to fixup buffer to avoid data races with other blocks.
-    constexpr bool needs_fixup = false;
-    flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, use_logit_softcap, mla, needs_fixup, is_fixup>
-        (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
-            ne01, ne02, ne11, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start, kb0_stop);
-#else
-    NO_DEVICE_CODE;
-#endif // defined(FLASH_ATTN_AVAILABLE) && defined(TURING_MMA_AVAILABLE)
 }
 
 template <int DKQ, int DV, int ncols2>
