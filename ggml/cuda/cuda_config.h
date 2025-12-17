@@ -22,12 +22,6 @@ constexpr bool enable_cuda_cub_v = true;
 constexpr bool enable_cuda_cub_v = false;
 #endif
 
-#if !(defined(GGML_USE_HIP) && defined(__HIP_PLATFORM_AMD__)) && __CUDA_ARCH__ >= GGML_CUDA_CC_TURING
-static constexpr bool new_mma_available_v = true;
-#else
-static constexpr bool new_mma_available_v = false;
-#endif 
-
 #if defined(GGML_USE_HIP) && (defined(RDNA2) || defined(RDNA3) || defined(RDNA4) || defined(__gfx906__) || defined(CDNA))
 static constexpr bool v_dot2_f32_f16_available_v = true;
 #define V_DOT2_F32_F16_AVAILABLE // Specical case, may remove later

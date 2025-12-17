@@ -2504,11 +2504,9 @@ static __device__ __forceinline__ void mul_mat_q_process_tile(
     int* tile_y = data_mul_mat_q + mmq_x;
     int* tile_x = tile_y + GGML_PAD3(mmq_x * MMQ_TILE_Y_K, nwarps * warp_size);
 
-#if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
-    constexpr vec_dot_mmq_t    vec_dot = mmq_type_traits<mmq_x, mmq_y, need_check, type>::vec_dot_mma;
-#else
-    constexpr vec_dot_mmq_t    vec_dot = mmq_type_traits<mmq_x, mmq_y, need_check, type>::vec_dot_dp4a;
-#endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
+    constexpr bool use_mma = amd_mfma_available_v || turing_mma_available_v || amd_wmma_available_v;
+    constexpr vec_dot_mmq_t vec_dot = use_mma ? mmq_type_traits<mmq_x, mmq_y, need_check, type>::vec_dot_mma :
+        mmq_type_traits<mmq_x, mmq_y, need_check, type>::vec_dot_dp4a;
 
     constexpr int blocks_per_iter = MMQ_ITER_K / qk;
 
@@ -2559,7 +2557,7 @@ static __device__ __forceinline__ void mul_mat_q_process_tile(
         }
     }();
 
-    if constexpr (new_mma_available_v) {
+    if constexpr (use_mma) {
         mmq_write_back_mma<mmq_x, mmq_y, need_check>(sum, ids_dst, write_dst, stride, i_max, j_max);
     }
     else {
