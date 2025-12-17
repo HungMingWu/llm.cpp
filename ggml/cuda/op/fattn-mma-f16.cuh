@@ -1,4 +1,5 @@
 #pragma once
+#include <float.h>
 #include "mma.cuh"
 #include "cp-async.cuh"
 

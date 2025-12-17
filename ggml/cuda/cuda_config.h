@@ -42,3 +42,39 @@ static constexpr bool fast_fp16_available_v = (__CUDA_ARCH__ != 610);
 static constexpr bool fp16_available_v = false;
 static constexpr bool fast_fp16_available_v = false;
 #endif // defined(GGML_USE_HIP) || defined(GGML_USE_MUSA) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL
+
+#if defined(GGML_USE_HIP) && defined(CDNA) && !defined(GGML_HIP_NO_MMQ_MFMA)
+static constexpr bool amd_mfma_available_v = true;
+#define AMD_MFMA_AVAILABLE
+#else
+static constexpr bool amd_mfma_available_v = false;
+#endif // defined(GGML_USE_HIP) && defined(CDNA) && !defined(GGML_HIP_NO_MMQ_MFMA)
+
+#if defined(GGML_USE_HIP) && (defined(RDNA4) || defined(RDNA3))
+static constexpr bool amd_wmma_available_v = true;
+#define AMD_WMMA_AVAILABLE
+#else
+static constexpr bool amd_wmma_available_v = false;
+#endif // defined(GGML_USE_HIP) && defined(RDNA4)
+
+// The Volta instructions are in principle available on Turing or newer but they are effectively unusable:
+#if !defined(GGML_USE_HIP) && __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+static constexpr bool volta_mma_available_v = true;
+#define VOLTA_MMA_AVAILABLE
+#else
+static constexpr bool volta_mma_available_v = false;
+#endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
+
+#if !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_TURING
+static constexpr bool turing_mma_available_v = true;
+#define TURING_MMA_AVAILABLE
+#else
+static constexpr bool turing_mma_available_v = false;
+#endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_TURING
+
+#if !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+static constexpr bool ampere_mma_available_v = true;
+#define AMPERE_MMA_AVAILABLE
+#else
+static constexpr bool ampere_mma_available_v = false;
+#endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE

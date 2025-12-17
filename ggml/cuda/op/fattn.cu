@@ -21,7 +21,7 @@ static __global__ void flash_attn_ext_f16(
     [[maybe_unused]] const float m1,
     [[maybe_unused]] const uint32_t n_head_log2,
     [[maybe_unused]] const float logit_softcap,
-    [[maybe_unused]] const int32_t ne00, [[maybe_unused]] const int32_t ne01, [[maybe_unused]] const int32_t ne02, [[maybe_unused]] const int32_t ne03,
+    [[maybe_unused]] const int32_t ne00, [[maybe_unused]] const uint3   ne01, [[maybe_unused]] const int32_t ne02, [[maybe_unused]] const int32_t ne03,
     [[maybe_unused]] const int32_t nb01, [[maybe_unused]] const int32_t nb02, [[maybe_unused]] const int32_t nb03,
     [[maybe_unused]] const int32_t ne10, [[maybe_unused]] const int32_t ne11, [[maybe_unused]] const int32_t ne12, [[maybe_unused]] const int32_t ne13,
     [[maybe_unused]] const int32_t nb11, [[maybe_unused]] const int32_t nb12, [[maybe_unused]] const int64_t nb13,
@@ -44,27 +44,26 @@ static __global__ void flash_attn_ext_f16(
 
     static_assert(!mla || DKQ >= DV, "MLA needs DKQ >= DV");
 
-    typedef fattn_mma_f16_config<DKQ, DV> c;
-
-    static_assert(FATTN_KQ_STRIDE % fattn_mma_f16_config<DKQ, DV>::nbatch_fa == 0, "bad nbatch_fa");
+    constexpr int ncols = ncols1 * ncols2;
+    constexpr int nbatch_fa = ggml_cuda_fattn_mma_get_nbatch_fa(DKQ, DV, ncols);
+    constexpr int nthreads = ggml_cuda_fattn_mma_get_nthreads(DKQ, DV, ncols);
+    constexpr int nwarps = nthreads / WARP_SIZE;
 
     const int gqa_ratio = ne02 / ne12; // With grouped query attention there are > 1 Q matrices per K, V matrix.
 
     const int stride_Q1 = nb01 / sizeof(float2);
     const int stride_Q2 = nb02 / sizeof(float2);
     const int stride_K = nb11 / sizeof(half2);
-    const int stride_mask = nb31 / sizeof(half2);
+    const int stride_mask = nb31 / sizeof(half);
 
     const int stride_V = mla ? stride_K : nb21 / sizeof(half2);
 
-    const int iter_k = ne11 / FATTN_KQ_STRIDE;
-    const int iter_j = (ne01 + (ncols1 - 1)) / ncols1;
-
-    constexpr int kb_niter = FATTN_KQ_STRIDE / c::nbatch_fa; // Number of kernel iterations per assigned KQ slice.
+    const int iter_k = (ne11 + (nbatch_fa - 1)) / nbatch_fa;
+    const int iter_j = (ne01.z + (ncols1 - 1)) / ncols1;
 
     // kbc == k block continuous, current index in continuous ijk space.
-    int       kbc = (blockIdx.x + 0) * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
-    const int kbc_stop = (blockIdx.x + 1) * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
+    int       kbc = int64_t(blockIdx.x + 0) * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
+    const int kbc_stop = int64_t(blockIdx.x + 1) * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
 
     // If the seams of 2 CUDA blocks fall within an output tile their results need to be combined.
     // For this we need to track both the block that starts the tile (needs_fixup) and the block that finishes the tile (is_fixup).
@@ -83,34 +82,30 @@ static __global__ void flash_attn_ext_f16(
 
         const float2* Q_f2 = (const float2*)(Q + nb03 * sequence + nb02 * head0);
         const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head0 / gqa_ratio));
-        const half2* mask_h2 = ncols2 == 1 && !mask ? nullptr :
-            (const half2*)(mask + nb33 * (sequence % ne33) + nb31 * jt * ncols1);
-        float2* dstk = ((float2*)dst) + (sequence * ne01 * ne02 + head0) * (DV / 2);
+        const half* mask_h = ncols2 == 1 && !mask ? nullptr :
+            (const half*)(mask + nb33 * (sequence % ne33));
+        float2* dstk = ((float2*)dst) + (sequence * ne01.z * ne02 + head0) * (DV / 2);
 
         const half2* V_h2 = mla ? K_h2 + (DKQ / 2 - DV / 2) : (const half2*)(V + nb23 * sequence + nb22 * (head0 / gqa_ratio));
         const float* sinks_f = sinks ? (const float*)sinks + head0 : nullptr;
 
         const float slope = ncols2 == 1 ? get_alibi_slope(max_bias, head0, n_head_log2, m0, m1) : 1.0f;
 
-        const int kb0_start_kernel = kb0_start * kb_niter;
-        int       kb0_stop_kernel = kb0_stop * kb_niter;
-
         if (KV_max) {
-            kb0_stop_kernel = min(kb0_stop_kernel, KV_max[sequence * iter_j + jt] / c::nbatch_fa);
+            kb0_stop = min(kb0_stop, KV_max[sequence * iter_j + jt] / nbatch_fa);
         }
-
         constexpr bool is_fixup = false; // All but (potentially) the last iterations write their data to dst rather than the fixup buffer.
         if (kb0_start == 0) {
             constexpr bool needs_fixup = false; // CUDA block is working on an entire tile.
-            flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, ntiles, use_logit_softcap, mla, needs_fixup, is_fixup>
-                (Q_f2, K_h2, V_h2, mask_h2, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
-                    ne01, ne02, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start_kernel, kb0_stop_kernel);
+            flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, use_logit_softcap, mla, needs_fixup, is_fixup>
+                (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
+                    ne01, ne02, ne11, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start, kb0_stop);
         }
         else {
-            constexpr bool needs_fixup = true; // CUDA block is working on the beginning of a tile.
-            flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, ntiles, use_logit_softcap, mla, needs_fixup, is_fixup>
-                (Q_f2, K_h2, V_h2, mask_h2, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
-                    ne01, ne02, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start_kernel, kb0_stop_kernel);
+            constexpr bool needs_fixup = true; // CUDA block is missing the beginning of a tile.
+            flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, use_logit_softcap, mla, needs_fixup, is_fixup>
+                (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
+                    ne01, ne02, ne11, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start, kb0_stop);
         }
 
         kbc += iter_k;
@@ -132,27 +127,24 @@ static __global__ void flash_attn_ext_f16(
 
     const float2* Q_f2 = (const float2*)(Q + nb03 * sequence + nb02 * head0);
     const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head0 / gqa_ratio));
-    const half2* mask_h2 = ncols2 == 1 && !mask ? nullptr :
-        (const half2*)(mask + nb33 * (sequence % ne33) + nb31 * jt * ncols1);
-    float2* dstk = ((float2*)dst) + (sequence * ne01 * ne02 + head0) * (DV / 2);
+    const half* mask_h = ncols2 == 1 && !mask ? nullptr :
+        (const half*)(mask + nb33 * (sequence % ne33));
+    float2* dstk = ((float2*)dst) + (sequence * ne01.z * ne02 + head0) * (DV / 2);
 
     const half2* V_h2 = mla ? K_h2 + (DKQ / 2 - DV / 2) : (const half2*)(V + nb23 * sequence + nb22 * (head0 / gqa_ratio));
     const float* sinks_f = sinks ? (const float*)sinks + head0 : nullptr;
 
     const float slope = ncols2 == 1 ? get_alibi_slope(max_bias, head0, n_head_log2, m0, m1) : 1.0f;
 
-    const int kb0_start_kernel = kb0_start * kb_niter;
-    int       kb0_stop_kernel = kb0_stop * kb_niter;
-
     if (KV_max) {
-        kb0_stop_kernel = min(kb0_stop_kernel, KV_max[sequence * iter_j + jt] / c::nbatch_fa);
+        kb0_stop = min(kb0_stop, KV_max[sequence * iter_j + jt] / nbatch_fa);
     }
 
     constexpr bool is_fixup = true; // Last index writes its data to fixup buffer to avoid data races with other blocks.
     constexpr bool needs_fixup = false;
-    flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, ntiles, use_logit_softcap, mla, needs_fixup, is_fixup>
-        (Q_f2, K_h2, V_h2, mask_h2, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
-            ne01, ne02, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start_kernel, kb0_stop_kernel);
+    flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, use_logit_softcap, mla, needs_fixup, is_fixup>
+        (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
+            ne01, ne02, ne11, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start, kb0_stop);
 #else
     NO_DEVICE_CODE;
 #endif // defined(FLASH_ATTN_AVAILABLE) && defined(TURING_MMA_AVAILABLE)

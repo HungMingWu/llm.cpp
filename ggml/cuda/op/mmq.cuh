@@ -2645,7 +2645,7 @@ static __device__ __forceinline__ void load_tiles(
             const uint8_t* sc8 = (const uint8_t*)&sc32;
             const uint8_t* m8 = (const uint8_t*)&m32;
 
-            const half2 dm = bxi->dm * make_half2(1.0f, -1.0f);
+            const half2 dm = __tohalf2(bxi->dm) * make_half2(1.0f, -1.0f);
 
 #pragma unroll
             for (int l = 0; l < sizeof(int); ++l) {
@@ -2767,7 +2767,7 @@ static __device__ __forceinline__ void load_tiles(
             const uint8_t* sc8 = (const uint8_t*)&sc32;
             const uint8_t* m8 = (const uint8_t*)&m32;
 
-            const half2 dm = bxi->dm * make_half2(1.0f, -1.0f);
+            const half2 dm = __tohalf2(bxi->dm) * make_half2(1.0f, -1.0f);
 
 #pragma unroll
             for (int l = 0; l < int(sizeof(int)); ++l) {
