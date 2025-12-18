@@ -568,7 +568,7 @@ struct ggml_cuda_pool_leg : public ggml_cuda_pool {
     }
 };
 
-std::unique_ptr<ggml_cuda_pool> ggml_backend_cuda::new_pool_for_device(int device, [[maybe_unsued]] int stream_no) {
+std::unique_ptr<ggml_cuda_pool> ggml_backend_cuda::new_pool_for_device(int device, [[maybe_unused]] int stream_no) {
 #if !defined(GGML_USE_HIP) && !defined(GGML_CUDA_NO_VMM)
     if (ggml_cuda_info().devices[device].vmm) {
         return std::unique_ptr<ggml_cuda_pool>(new ggml_cuda_pool_vmm(device));
