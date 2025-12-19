@@ -79,7 +79,6 @@ static constexpr bool turing_mma_available_v = false;
 
 #if !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
 static constexpr bool ampere_mma_available_v = true;
-#define AMPERE_MMA_AVAILABLE
 #else
 static constexpr bool ampere_mma_available_v = false;
 #endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
