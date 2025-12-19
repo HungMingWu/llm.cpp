@@ -268,7 +268,3 @@ struct ggml_cuda_unroll<1> {
         f(0, args...);
     }
 };
-
-#if defined(GGML_USE_HIP) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL
-#define FP16_AVAILABLE
-#endif // defined(GGML_USE_HIP) || __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL
