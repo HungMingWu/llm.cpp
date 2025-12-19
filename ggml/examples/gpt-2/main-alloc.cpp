@@ -742,7 +742,7 @@ int main(int argc, char** argv) {
         ggml_gallocr allocr(model.backend->get_default_buffer_type());
 
         // pre-allocate the compute buffer for the worst case (optional)
-        allocr.reserve(&gf);
+        allocr.reserve(gf);
         size_t mem_size = allocr.get_buffer_size(0);
         std::println(stderr, "{}: compute buffer size: {:.2} MB", __func__, mem_size / 1024.0 / 1024.0);
         return allocr;

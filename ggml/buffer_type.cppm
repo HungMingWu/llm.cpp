@@ -14,11 +14,17 @@ export
     protected:
         // allocate a buffer of this type
         virtual std::unique_ptr<ggml_backend_buffer> alloc_buffer_impl(size_t size) = 0;
+        struct alloc_buf_info {
+            size_t buffer_size;
+            std::vector<ggml_tensor*> allocated_tensors;
+        };
+        std::vector<alloc_buf_info> calc_alloc_info(const ggml_context* ctx);
     public:
         virtual ~ggml_backend_buffer_type() = default;
         virtual const char* get_name() = 0;
 
         std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size);
+        size_t calc_needed_size(const ggml_context* ctx);
         std::unique_ptr<ggml_backend_buffer> alloc_tensors(const ggml_context* ctx);
 
         // tensor alignment

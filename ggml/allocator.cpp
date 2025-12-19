@@ -220,7 +220,9 @@ buffer_address ggml_dyn_tallocr::alloc(size_t size, const ggml_tensor* tensor) {
 }
 
 bool ggml_gallocr::is_allocated(ggml_tensor* t) {
-	return t->data != nullptr || hash_map[t].allocated;
+	return t->data != nullptr // tensor data already set externally
+		|| t->buffer // tensor on external buffer (but not yet allocated)
+		|| is_own(t); // tensor will be allocated by galloc
 }
 
 bool ggml_gallocr::is_own(ggml_tensor* t) {
@@ -537,7 +539,7 @@ bool ggml_gallocr::alloc_graph(ggml_cgraph* graph) {
 #ifndef NDEBUG
 			GGML_LOG_DEBUG("{}: reallocating buffers automatically", __func__);
 #endif
-			if (!reserve(graph)) {
+			if (!reserve(*graph)) {
 				return false;
 			}
 		}
@@ -580,7 +582,9 @@ bool ggml_gallocr::alloc_graph(ggml_cgraph* graph) {
 
 static const buffer_address GGML_BUFFER_ADDRESS_INVALID = { -1, SIZE_MAX };
 
-bool ggml_gallocr::reserve(const ggml_cgraph& graph, std::span<const int> node_buffer_ids, std::span<const int> leaf_buffer_ids) {
+bool ggml_gallocr::reserve(const ggml_cgraph& graph,
+	std::span<const int> node_buffer_ids, std::span<const int> leaf_buffer_ids, bool no_alloc)
+{
 	// reset allocators
 	for (auto& talloc : buf_tallocs) {
 		talloc->reset();
@@ -668,15 +672,19 @@ bool ggml_gallocr::reserve(const ggml_cgraph& graph, std::span<const int> node_b
 				size_t cur_size = buffers[i] ? buffers[i]->size() : 0;
 				if (cur_size > 0) {
 					GGML_LOG_DEBUG("{}: reallocating {} buffer from size {:.02f} MiB to {:.02f} MiB\n",
-						__func__, bufts[i]->get_name(),
-						cur_size / 1024.0 / 1024.0, new_size / 1024.0 / 1024.0);
+						__func__, bufts[i]->get_name(), cur_size / 1024.0 / 1024.0, new_size / 1024.0 / 1024.0);
 				}
 			}
 #endif
-			buffers[i] = std::make_shared<vbuffer>(bufts[i], buf_tallocs[i].get(), GGML_BACKEND_BUFFER_USAGE_COMPUTE);
-			if (buffers[i] == nullptr) {
-				GGML_LOG_ERROR("{}: failed to allocate {} buffer of size %zu\n", __func__, bufts[i]->get_name(), new_size);
-				return false;
+			if (no_alloc) {
+				buffers[i].reset();
+			}
+			else {
+				buffers[i] = std::make_shared<vbuffer>(bufts[i], buf_tallocs[i].get(), GGML_BACKEND_BUFFER_USAGE_COMPUTE);
+				if (buffers[i] == nullptr) {
+					GGML_LOG_ERROR("{}: failed to allocate {} buffer of size %zu\n", __func__, bufts[i]->get_name(), new_size);
+					return false;
+				}
 			}
 		}
 	}
@@ -684,9 +692,27 @@ bool ggml_gallocr::reserve(const ggml_cgraph& graph, std::span<const int> node_b
 	return true;
 }
 
-bool ggml_gallocr::reserve(const ggml_cgraph* graph) {
-	std::vector<int> nodes_zero(graph->nodes.size()), leafs_zero(graph->leafs.size());
-	return reserve(*graph, nodes_zero, leafs_zero);
+bool ggml_gallocr::reserve(const ggml_cgraph &graph) {
+	std::vector<int> nodes_zero(graph.nodes.size()), leafs_zero(graph.leafs.size());
+	return reserve(graph, nodes_zero, leafs_zero);
+}
+
+bool ggml_gallocr::reserve(const ggml_cgraph& graph,
+	std::span<const int> node_buffer_ids, std::span<const int> leaf_buffer_ids)
+{
+	return reserve(graph, node_buffer_ids, leaf_buffer_ids, /*no_alloc =*/ false);
+}
+
+void ggml_gallocr::reserve_n_size(const ggml_cgraph &graph, std::span<const int> node_buffer_ids,
+	std::span<const int> leaf_buffer_ids, size_t* sizes)
+{
+	assert(reserve(graph, node_buffer_ids, leaf_buffer_ids, /*no_alloc =*/ true));
+	for (int i = 0; i < buffers.size(); i++) {
+		sizes[i] = 0;
+		for (auto &chunk : buf_tallocs[i]->chunks) {
+			sizes[i] += chunk.max_size;
+		}
+	}
 }
 
 void ggml_tallocr::alloc(ggml_tensor* tensor) {

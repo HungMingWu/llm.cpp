@@ -151,7 +151,7 @@ int main(void)
     ggml_gallocr allocr = [&] {
         ggml_gallocr allocr(model.backend->get_default_buffer_type());
         // compute the required memory
-        allocr.reserve(&gf);
+        allocr.reserve(gf);
         size_t mem_size = allocr.get_buffer_size(0);
         fprintf(stderr, "%s: compute buffer size: %.2f MB\n", __func__, mem_size / 1024.0f / 1024.0f);
         return allocr;

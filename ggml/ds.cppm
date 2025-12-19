@@ -634,6 +634,7 @@ export {
         void alloc_graph_impl(const ggml_cgraph &graph,
             std::span<const int> node_buffer_ids, std::span<const int> leaf_buffer_ids);
         void free_extra_space(ggml_tensor* node, ggml_tensor* parent);
+        bool reserve(const ggml_cgraph& graph, std::span<const int> node_buffer_ids, std::span<const int> leaf_buffer_ids, bool no_alloc);
     public:
         ggml_gallocr(std::span<ggml_backend_buffer_type*> bufts);
         ggml_gallocr(ggml_backend_buffer_type* buft) :
@@ -642,7 +643,9 @@ export {
         size_t get_buffer_size(int buffer_id);
         bool alloc_graph(ggml_cgraph* graph);
         bool reserve(const ggml_cgraph& graph, std::span<const int> node_buffer_ids, std::span<const int> leaf_buffer_ids);
-        bool reserve(const ggml_cgraph* graph);
+        bool reserve(const ggml_cgraph& graph);
+        void reserve_n_size(
+            const ggml_cgraph &graph, std::span<const int> node_buffer_ids, std::span<const int> leaf_buffer_ids, size_t* sizes);
     };
 
     using ggml_bitset_t = uint32_t;
@@ -783,6 +786,7 @@ export {
         void reset();
         size_t get_buffer_size(ggml_backend* backend);
         bool reserve(const ggml_cgraph* measure_graph);
+        void reserve_size(ggml_cgraph* measure_graph, size_t* sizes);
         ggml_status graph_compute(const ggml_cgraph& graph);
         void set_eval_callback(ggml_backend_sched_eval_callback callback) {
             callback_eval = callback;

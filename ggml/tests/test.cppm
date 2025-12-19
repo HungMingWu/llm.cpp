@@ -13,7 +13,7 @@ export {
         for (auto& tensor : ctx->tensors)
             func(tensor);
         ggml_gallocr allocr(backend->get_default_buffer_type());
-        allocr.reserve(&gf);
+        allocr.reserve(gf);
         allocr.alloc_graph(&gf);
         backend->compute(&gf);
 
@@ -32,7 +32,7 @@ export {
         for (auto& tensor : ctx->tensors)
             func(tensor);
         ggml_gallocr allocr(backend->get_default_buffer_type());
-        allocr.reserve(&gf);
+        allocr.reserve(gf);
         allocr.alloc_graph(&gf);
         backend->compute(&gf);
         finish();
@@ -46,7 +46,7 @@ export {
         for (auto& tensor : ctx->tensors)
             func(tensor);
         ggml_gallocr allocr(backend->get_default_buffer_type());
-        allocr.reserve(&gf);
+        allocr.reserve(gf);
         allocr.alloc_graph(&gf);
         backend->compute(&gf);
 

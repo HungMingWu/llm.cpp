@@ -673,6 +673,17 @@ bool ggml_backend_sched::reserve(const ggml_cgraph* measure_graph)
     return true;
 }
 
+void ggml_backend_sched::reserve_size(ggml_cgraph* measure_graph, size_t* sizes)
+{
+    reset();
+
+    synchronize();
+
+    split_graph(*measure_graph);
+
+    galloc->reserve_n_size(graph, node_backend_ids, leaf_backend_ids, sizes);
+}
+
 bool ggml_backend_sched::alloc_splits() {
     bool backend_ids_changed = [&] {
         if (node_backend_ids.size() != prev_node_backend_ids.size()) return true;
