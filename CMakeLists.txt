@@ -8,6 +8,7 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 endif()
 
 option(GGML_CUDA                            "ggml: use CUDA"                                  ON)
+option(GGML_CUDA_FA                         "ggml: compile ggml FlashAttention CUDA kernels"  ON)
 option(GGML_LLAMAFILE                       "ggml: use LLAMAFILE"                             OFF)
 add_subdirectory(ggml)
 #add_subdirectory(table) # gen table if required
