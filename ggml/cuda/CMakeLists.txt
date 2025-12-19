@@ -17,7 +17,7 @@ else()
     set(CUDA_USE_CUB FALSE)
 endif()
 
-if (GGML_CUDA_FA)
+if (NOT GGML_CUDA_FA)
     target_compile_definitions(libggml PRIVATE GGML_CUDA_NO_FA)
 endif()
 
