@@ -66,7 +66,6 @@ static constexpr bool amd_wmma_available_v = false;
 // The Volta instructions are in principle available on Turing or newer but they are effectively unusable:
 #if !defined(GGML_USE_HIP) && __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
 static constexpr bool volta_mma_available_v = true;
-#define VOLTA_MMA_AVAILABLE
 #else
 static constexpr bool volta_mma_available_v = false;
 #endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ == GGML_CUDA_CC_VOLTA
