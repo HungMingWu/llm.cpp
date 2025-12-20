@@ -48,3 +48,47 @@ auto make_strided_mdspan(T* data, const int64_t (&extents)[N], const size_t (&st
         std::span{ extents }.template first<M>(),
         std::span{ strides }.template first<M>());
 }
+
+template <typename T, std::size_t... Extents>
+class mdarray {
+public:
+    static constexpr std::size_t rank = sizeof...(Extents);
+
+    using extents_type = std::experimental::extents<std::size_t, Extents...>;
+    using mdspan_type = std::experimental::mdspan<T, extents_type>;
+
+private:
+    static constexpr std::size_t total_size = (Extents * ...);
+
+    std::array<T, total_size> storage_{};
+    mdspan_type view_{ storage_.data() };
+
+public:
+    // ===== constructors =====
+    constexpr mdarray() = default;
+
+    constexpr explicit mdarray(const T& value) {
+        storage_.fill(value);
+    }
+
+    // ===== element access =====
+    template <typename... Indices>
+    constexpr T& operator()(Indices... indices) noexcept {
+        static_assert(sizeof...(Indices) == rank);
+        return view_(indices...);
+    }
+
+    template <typename... Indices>
+    constexpr const T& operator()(Indices... indices) const noexcept {
+        static_assert(sizeof...(Indices) == rank);
+        return view_(indices...);
+    }
+
+    // ===== raw access =====
+    constexpr T* data() noexcept { return storage_.data(); }
+    constexpr const T* data() const noexcept { return storage_.data(); }
+
+    // ===== mdspan view =====
+    constexpr mdspan_type mdspan() noexcept { return view_; }
+    constexpr mdspan_type mdspan() const noexcept { return view_; }
+};
