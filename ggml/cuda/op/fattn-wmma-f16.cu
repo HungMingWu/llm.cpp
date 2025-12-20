@@ -588,29 +588,29 @@ void ggml_cuda_flash_attn_ext_wmma_f16(const flash_attn_ext_context& ctx) {
         return;
     }
 
-#if !defined(GGML_USE_HIP)
-    if (ctx.Q.ne1 <= 8 && ctx.Q.ne0 % warp_size == 0) {
-        constexpr int cols_per_block = 8;
-        switch (ctx.Q.ne0) {
-        case 64:
-            ggml_cuda_flash_attn_ext_wmma_f16_case<64, cols_per_block, half>(ctx);
-            break;
-        case 96:
-            ggml_cuda_flash_attn_ext_wmma_f16_case<96, cols_per_block, half>(ctx);
-            break;
-        case 128:
-            ggml_cuda_flash_attn_ext_wmma_f16_case<128, cols_per_block, half>(ctx);
-            break;
-        case 256:
-            ggml_cuda_flash_attn_ext_wmma_f16_case<256, cols_per_block, half>(ctx);
-            break;
-        default:
-            GGML_ABORT("fatal error");
-            break;
+    if constexpr (!use_hip_v) {
+        if (ctx.Q.ne1 <= 8 && ctx.Q.ne0 % warp_size == 0) {
+            constexpr int cols_per_block = 8;
+            switch (ctx.Q.ne0) {
+            case 64:
+                ggml_cuda_flash_attn_ext_wmma_f16_case<64, cols_per_block, half>(ctx);
+                break;
+            case 96:
+                ggml_cuda_flash_attn_ext_wmma_f16_case<96, cols_per_block, half>(ctx);
+                break;
+            case 128:
+                ggml_cuda_flash_attn_ext_wmma_f16_case<128, cols_per_block, half>(ctx);
+                break;
+            case 256:
+                ggml_cuda_flash_attn_ext_wmma_f16_case<256, cols_per_block, half>(ctx);
+                break;
+            default:
+                GGML_ABORT("fatal error");
+                break;
+            }
+            return;
         }
-        return;
     }
-#endif // !defined(GGML_USE_HIP)
 
     if (ctx.Q.ne1 <= 32) {
         constexpr int cols_per_block = 16;

@@ -117,15 +117,14 @@ static constexpr __device__ int mmq_get_granularity_device(const int mmq_x) {
     }
 }
 
-#if defined(GGML_USE_HIP)
 static int mmq_get_nwarps_host(const int cc, const int warp_size) {
-    return amd_mfma_available(cc) ? 8 : 256 / warp_size;
+    if constexpr (use_hip_v) {
+        return amd_mfma_available(cc) ? 8 : 256 / warp_size;
+    }
+    else {
+        return 256 / warp_size;
+    }
 }
-#else
-static int mmq_get_nwarps_host(const int /*cc*/, const int warp_size) {
-    return 256 / warp_size;
-}
-#endif // (GGML_USE_HIP)
 
 static int mmq_get_granularity_host(const int mmq_x, const int cc) {
     if (amd_mfma_available(cc) || amd_wmma_available(cc)) {
@@ -144,37 +143,36 @@ static constexpr __device__ int get_mmq_x_max_device() {
         return 128;
     }
 
-#if defined(GGML_USE_HIP)
-    return 64;
-#else // defined(GGML_USE_HIP)
-
+    if constexpr (use_hip_v) {
+        return 64;
+    }
+    else {
 #if __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
 #ifdef GGML_CUDA_FORCE_MMQ
-    return 128;
+        return 128;
 #else // GGML_CUDA_FORCE_MMQ
-    return MMQ_DP4A_MAX_BATCH_SIZE;
+        return MMQ_DP4A_MAX_BATCH_SIZE;
 #endif // GGML_CUDA_FORCE_MMQ
 #else // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-    return 64;
+        return 64;
 #endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-
-#endif // defined(GGML_USE_HIP)
+    }
 }
 
 static constexpr __device__ int get_mmq_y_device() {
-#if defined(GGML_USE_HIP)
+    if constexpr (use_hip_v) {
 #if defined(RDNA1)
-    return 64;
+        return 64;
 #else
-    return 128;
+        return 128;
 #endif // defined RDNA1
-#else
+    } else {
 #if __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-    return 128;
+        return 128;
 #else
-    return 64;
+        return 64;
 #endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-#endif // defined(GGML_USE_HIP)
+    }
 }
 
 #define GGML_PAD3(x, n) (((x) + (n) - 1) & ~((n) - 1))
@@ -3316,21 +3314,32 @@ static __device__ __forceinline__ void load_tiles(
     }
 }
 
+static constexpr size_t minBlocksPerMultiprocessor()
+{
+#if __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
+    return 1;
+#endif
+    return 2;
+}
+
+// On non-CDNA AMD or old CUDA the performance with stream-k was worse, use conventional tiling instead:
+static constexpr bool need_tile_process()
+{
+    if constexpr (use_hip_v) {
+#ifndef CDNA
+        return true;
+#endif
+    }
+#if __CUDA_ARCH__ < GGML_CUDA_CC_VOLTA
+    return true;
+#else
+    return false;
+#endif
+}
 
 // The mul_mat_q kernel implements "stream-k" work partitioning as described in https://arxiv.org/abs/2301.03598
-
 template <internal::ggml_type type, typename src_t, int mmq_x, bool need_check>
-#if defined(GGML_USE_HIP)
-#if defined(RDNA4) || defined(RDNA3) || defined(RDNA2) || defined(CDNA) || defined(GCN)
-__launch_bounds__(ggml_cuda_get_physical_warp_size()* mmq_get_nwarps_device(), 2)
-#endif // defined(RDNA4) || defined(RDNA3) || defined(RDNA2) || defined(CDNA) || defined(GCN)
-#else
-#if __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-__launch_bounds__(ggml_cuda_get_physical_warp_size()* mmq_get_nwarps_device(), 1)
-#else
-__launch_bounds__(ggml_cuda_get_physical_warp_size()* mmq_get_nwarps_device(), 2)
-#endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-#endif // defined(GGML_USE_HIP)
+__launch_bounds__(ggml_cuda_get_physical_warp_size()* mmq_get_nwarps_device(), minBlocksPerMultiprocessor())
 static __global__ void mul_mat_q(
     const char* __restrict__ x, const int* __restrict__ y, const int32_t* __restrict__ ids_dst,
     const int32_t* __restrict__ expert_bounds, float* __restrict__ dst, float* __restrict__ tmp_fixup,
@@ -3370,8 +3379,7 @@ static __global__ void mul_mat_q(
     }
     __syncthreads();
 
-    // On non-CDNA AMD or old CUDA the performance with stream-k was worse, use conventional tiling instead:
-#if (defined(GGML_USE_HIP) && !defined(CDNA)) || __CUDA_ARCH__ < GGML_CUDA_CC_VOLTA
+    if constexpr (need_tile_process())
     {
         const int wt = blockIdx.z / nchannels_y;
         const int zt = blockIdx.z - wt * nchannels_y;
@@ -3425,7 +3433,6 @@ static __global__ void mul_mat_q(
                 tile_x_max_i, tile_y_max_j, 0, ncols_x / qk);
         return;
     }
-#endif // (defined(GGML_USE_HIP) && !defined(CDNA3)) || __CUDA_ARCH__ < GGML_CUDA_CC_VOLTA
 
     const     int64_t blocks_per_ne00 = ncols_x / qk;
     constexpr int     blocks_per_iter = MMQ_ITER_K / qk;

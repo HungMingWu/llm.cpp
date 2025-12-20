@@ -10,6 +10,21 @@ static constexpr __device__ int ggml_cuda_fattn_vec_get_nthreads_device() {
     return 128;
 }
 
+template <int D>
+constexpr size_t getnthreads_KQ_q()
+{
+    if constexpr (use_hip_v) {
+#ifdef RDNA
+        return 2;
+#else
+        return 4;
+#endif // RDNA
+    }
+    else {
+        return D / 4 < 32 ? D / 4 : 32;
+    }
+}
+
 // Currenlty llvm with the amdgcn target dose not support unrolling loops
 // that contain a break that can not be resolved at compile time.
 #ifdef __clang__
@@ -53,17 +68,8 @@ static __global__ void flash_attn_ext_vec(
     constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
     constexpr int cpy_ne = cpy_nb / 4;
 
-#ifdef GGML_USE_HIP
-#ifdef RDNA
-    constexpr int nthreads_KQ_q = 2;
-#else
-    constexpr int nthreads_KQ_q = 4;
-#endif // RDNA
+    constexpr int nthreads_KQ_q = getnthreads_KQ_q<D>();
     constexpr int nthreads_V_q = (D / 4 < 32 ? D / 4 : 32);
-#else
-    constexpr int nthreads_KQ_q = (D / 4 < 32 ? D / 4 : 32);
-    constexpr int nthreads_V_q = (D / 4 < 32 ? D / 4 : 32);
-#endif // GGML_USE_HIP
 
     constexpr int nthreads = ggml_cuda_fattn_vec_get_nthreads_device();
     constexpr int nthreads_KQ = type_K == internal::GGML_TYPE_F16 ? 128 / cpy_nb : nthreads_KQ_q;
@@ -288,9 +294,9 @@ static __global__ void flash_attn_ext_vec(
             }
         }
 
-#ifndef GGML_USE_HIP
-        __syncwarp();
-#endif // GGML_USE_HIP
+        if constexpr (!use_hip_v) {
+            __syncwarp();
+        }
 
 #pragma unroll
         for (int k0 = 0; k0 < WARP_SIZE; k0 += V_cols_per_iter) {

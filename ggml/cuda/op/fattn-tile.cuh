@@ -263,20 +263,17 @@ static __host__ uint32_t ggml_cuda_fattn_tile_get_config(const int DKQ, const in
 }
 
 static constexpr __device__ uint32_t ggml_cuda_fattn_tile_get_config(const int DKQ, const int DV, const int ncols) {
-#ifdef GGML_USE_HIP
+    if constexpr (use_hip_v) {
 #ifdef RDNA
-    return ggml_cuda_fattn_tile_get_config_amd_rdna(DKQ, DV, ncols);
+        return ggml_cuda_fattn_tile_get_config_amd_rdna(DKQ, DV, ncols);
 #else
-    return ggml_cuda_fattn_tile_get_config_amd(DKQ, DV, ncols);
+        return ggml_cuda_fattn_tile_get_config_amd(DKQ, DV, ncols);
 #endif // RDNA
-#else
-    if constexpr (fast_fp16_available_v) {
+    } else if constexpr (fast_fp16_available_v) {
         return ggml_cuda_fattn_tile_get_config_nvidia_fp16(DKQ, DV, ncols);
-    }
-    else {
+    } else {
         return ggml_cuda_fattn_tile_get_config_nvidia_fp32(DKQ, DV, ncols);
     }
-#endif // GGML_USE_HIP
 }
 
 static __host__ int ggml_cuda_fattn_tile_get_nthreads(const int DKQ, const int DV, const int ncols, const int cc) {
@@ -1057,8 +1054,7 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
 
     constexpr size_t nbytes_shared = 0;
 
-#ifdef GGML_USE_HIP
-    if constexpr (DV <= 128) {
+    if constexpr (use_hip_v && DV <= 128) {
         if (ctx.Q.ne1 > 32 / ncols2) {
             constexpr int cols_per_block = 64;
             const int nwarps = ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, cols_per_block, cc) / warp_size;
@@ -1069,11 +1065,8 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
             return;
         }
     }
-#endif // GGML_USE_HIP
 
-#ifndef GGML_USE_HIP
-    if constexpr (DV <= 256)
-#endif // GGML_USE_HIP
+    if constexpr (use_hip_v || DV <= 256)
     {
         if (ctx.Q.ne1 > 16 / ncols2) {
             constexpr int cols_per_block = 32;
