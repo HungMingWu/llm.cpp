@@ -426,7 +426,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter_KQ(
     const int k_VKQ_0,
     const int k_VKQ_sup,
     const int k_KQ_0,
-    float* KQ_acc) {
+    std::experimental::mdspan<float, std::dextents<size_t, 2>> KQ_acc) {
     constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
     constexpr int cpy_ne = cpy_nb / 4;
 
@@ -474,7 +474,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter_KQ(
             for (int jc0 = 0; jc0 < cpw; ++jc0) {
 #pragma unroll
                 for (int k = 0; k < cpy_ne; ++k) {
-                    ggml_cuda_mad(KQ_acc[i_KQ_0 / (np * warp_size) * cpw + jc0], K_k(i_KQ_0 / (np * warp_size), k), Q_k(jc0, k));
+                    ggml_cuda_mad(KQ_acc(i_KQ_0 / (np * warp_size), jc0), K_k(i_KQ_0 / (np * warp_size), k), Q_k(jc0, k));
                 }
             }
         }
@@ -529,19 +529,19 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
         KQ_max_new[jc0] = KQ_max[jc0];
     }
 
-    float KQ_acc[nbatch_fa / (np * warp_size) * cpw] = { 0.0f }; // Accumulators for KQ matrix multiplication.
+    mdarray<float, nbatch_fa / (np * warp_size), cpw> KQ_acc; // Accumulators for KQ matrix multiplication.
 
     // KQ = K @ Q matrix multiplication:
     constexpr int nbatch_K_last = DKQ % nbatch_K;
 #pragma unroll
     for (int k_KQ_0 = 0; k_KQ_0 < DKQ - nbatch_K_last; k_KQ_0 += nbatch_K) {
         flash_attn_tile_iter_KQ<warp_size, nwarps, ncols1, ncols2, DKQ, nbatch_fa, nbatch_K, use_logit_softcap, oob_check>(
-            Q_tmp, K_h2, KV_tmp, stride_K2, k_VKQ_0, k_VKQ_sup, k_KQ_0, KQ_acc);
+            Q_tmp, K_h2, KV_tmp, stride_K2, k_VKQ_0, k_VKQ_sup, k_KQ_0, KQ_acc.mdspan());
     }
     if (nbatch_K_last > 0) {
         constexpr int k_KQ_0 = DKQ - nbatch_K_last;
         flash_attn_tile_iter_KQ<warp_size, nwarps, ncols1, ncols2, DKQ, nbatch_fa, nbatch_K_last, use_logit_softcap, oob_check>(
-            Q_tmp, K_h2, KV_tmp, stride_K2, k_VKQ_0, k_VKQ_sup, k_KQ_0, KQ_acc);
+            Q_tmp, K_h2, KV_tmp, stride_K2, k_VKQ_0, k_VKQ_sup, k_KQ_0, KQ_acc.mdspan());
     }
 
     // Apply logit softcap + mask, update KQ_max:
@@ -556,18 +556,18 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
             if constexpr (fast_fp16_available_v && !v_dot2_f32_f16_available_v) {
                 // Without the v_dot2_f32_f16 instruction there is a higher risk of numerical overflow in the KQ calculation.
                 // Therefore, scale down Q values and apply the inverse scale the FP32 KQ values afterwards again.
-                KQ_acc[i_KQ_0 / (np * warp_size) * cpw + jc0] *= 4.0f;
+                KQ_acc(i_KQ_0 / (np * warp_size), jc0) *= 4.0f;
             }
 
             if (use_logit_softcap) {
-                KQ_acc[(i_KQ_0 / (np * warp_size)) * cpw + jc0] = logit_softcap * tanhf(KQ_acc[(i_KQ_0 / (np * warp_size)) * cpw + jc0]);
+                KQ_acc((i_KQ_0 / (np * warp_size)), jc0) = logit_softcap * tanhf(KQ_acc((i_KQ_0 / (np * warp_size)), jc0));
             }
 
             if (!oob_check || i_KQ < k_VKQ_sup) {
-                KQ_acc[(i_KQ_0 / (np * warp_size)) * cpw + jc0] += (ncols2 > 1 || mask) ?
+                KQ_acc((i_KQ_0 / (np * warp_size)), jc0) += (ncols2 > 1 || mask) ?
                     slope * __half2float(mask[j * stride_mask + k_VKQ_0 + i_KQ]) : 0.0f;
 
-                KQ_max_new[jc0] = fmaxf(KQ_max_new[jc0], KQ_acc[(i_KQ_0 / (np * warp_size)) * cpw + jc0] + FATTN_KQ_MAX_OFFSET);
+                KQ_max_new[jc0] = fmaxf(KQ_max_new[jc0], KQ_acc((i_KQ_0 / (np * warp_size)), jc0) + FATTN_KQ_MAX_OFFSET);
             }
         }
 
@@ -604,7 +604,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
 #pragma unroll
             for (int i0 = 0; i0 < nbatch_fa; i0 += np * warp_size) {
                 const float val = !oob_check || i0 + (threadIdx.y % np) * warp_size + threadIdx.x < static_cast<uint32_t>(k_VKQ_sup) ?
-                    expf(KQ_acc[(i0 / (np * warp_size)) * cpw + jc] - KQ_max[jc]) : 0.0f;
+                    expf(KQ_acc((i0 / (np * warp_size)), jc) - KQ_max[jc]) : 0.0f;
                 KQ_sum_add += val;
                 tmp[i0 / (np * warp_size)][jc1] = val;
             }
