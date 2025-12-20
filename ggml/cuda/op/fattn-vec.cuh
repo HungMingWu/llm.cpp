@@ -34,20 +34,16 @@ constexpr size_t getnthreads_KQ_q()
 template<int D, int ncols, internal::ggml_type type_K, internal::ggml_type type_V, bool use_logit_softcap> // D == head size
 __launch_bounds__(ggml_cuda_fattn_vec_get_nthreads_device(), 1)
 static __global__ void flash_attn_ext_vec(
-    [[maybe_unused]] const char* __restrict__ Q,
+    flash_attn_ext_context ctx,
     [[maybe_unused]] const char* __restrict__ K,
     [[maybe_unused]] const char* __restrict__ V,
-    [[maybe_unused]] const char* __restrict__ mask,
-    [[maybe_unused]] const char* __restrict__ sinks,
     [[maybe_unused]] const int* __restrict__ KV_max,
     [[maybe_unused]] float* __restrict__ dst,
     [[maybe_unused]] float2* __restrict__ dst_meta,
     [[maybe_unused]] const float scale,
-    [[maybe_unused]] const float max_bias,
     [[maybe_unused]] const float m0,
     [[maybe_unused]] const float m1,
     [[maybe_unused]] const uint32_t n_head_log2,
-    [[maybe_unused]] const float logit_softcap,
     [[maybe_unused]] const int32_t ne00, [[maybe_unused]] const uint3   ne01, [[maybe_unused]] const int32_t ne02, [[maybe_unused]] const int32_t ne03,
     [[maybe_unused]] const int32_t nb01, [[maybe_unused]] const int32_t nb02, [[maybe_unused]] const int32_t nb03,
     [[maybe_unused]] const int32_t ne10, [[maybe_unused]] const int32_t ne11, [[maybe_unused]] const int32_t ne12, [[maybe_unused]] const int32_t ne13,
@@ -91,13 +87,15 @@ static __global__ void flash_attn_ext_vec(
     const int sequence = blockIdx.z / ne02;
     const int head = blockIdx.z - sequence * ne02;
     const int gqa_ratio = ne02 / ne12; // With grouped query attention there are > 1 Q matrices per K, V matrix.
+    const char* __restrict__ Q = (const char*)ctx.Q.data;
     Q += nb03 * sequence + nb02 * head + nb01 * ic0;
     K += nb13 * sequence + nb12 * (head / gqa_ratio);
     V += nb23 * sequence + nb22 * (head / gqa_ratio);
 
+    const char* __restrict__ mask = (const char*)ctx.mask.data;
     const half* maskh = (const half*)(mask + nb33 * (sequence % ne33) + nb31 * ic0);
 
-    const float slope = get_alibi_slope(max_bias, head, n_head_log2, m0, m1);
+    const float slope = get_alibi_slope(ctx.max_bias, head, n_head_log2, m0, m1);
 
     static_assert(D % (2 * WARP_SIZE) == 0, "D not divisible by 2*WARP_SIZE == 64.");
     constexpr int nwarps = nthreads / WARP_SIZE;
@@ -251,7 +249,7 @@ static __global__ void flash_attn_ext_vec(
                 sum = warp_reduce_sum<nthreads_KQ>(sum);
 
                 if (use_logit_softcap) {
-                    sum = logit_softcap * tanhf(sum);
+                    sum = ctx.logit_softcap * tanhf(sum);
                 }
 
                 if (mask && (ncols == 1 || ic0 + j < int(ne01.z))) {
@@ -345,6 +343,7 @@ static __global__ void flash_attn_ext_vec(
         }
     }
 
+    const char* __restrict__ sinks = (const char*)ctx.sinks.data;
     if (sinks && blockIdx.y == 0) {
         const float sink = ((const float*)sinks)[head];
 

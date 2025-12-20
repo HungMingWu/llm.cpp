@@ -26,20 +26,16 @@
 template<int D, int ncols, int nwarps, int VKQ_stride, typename KQ_acc_t, bool use_logit_softcap>
 __launch_bounds__(nwarps* ggml_cuda_get_physical_warp_size(), 1)
 static __global__ void flash_attn_ext_f16(
-    [[maybe_unused]] const char* __restrict__ Q,
+    flash_attn_ext_context ctx,
     [[maybe_unused]] const char* __restrict__ K,
     [[maybe_unused]] const char* __restrict__ V,
-    [[maybe_unused]] const char* __restrict__ mask,
-    [[maybe_unused]] const char* __restrict__ sinks,
     [[maybe_unused]] const int* __restrict__ KV_max,
     [[maybe_unused]] float* __restrict__ dst,
     [[maybe_unused]] float2* __restrict__ dst_meta,
     [[maybe_unused]] const float scale,
-    [[maybe_unused]] const float max_bias,
     [[maybe_unused]] const float m0,
     [[maybe_unused]] const float m1,
     [[maybe_unused]] const uint32_t n_head_log2,
-    [[maybe_unused]] const float logit_softcap,
     [[maybe_unused]] const int32_t ne00, [[maybe_unused]] const uint3   ne01, [[maybe_unused]] const int32_t ne02, [[maybe_unused]] const int32_t ne03,
     [[maybe_unused]] const int32_t nb01, [[maybe_unused]] const int32_t nb02, [[maybe_unused]] const int32_t nb03,
     [[maybe_unused]] const int32_t ne10, [[maybe_unused]] const int32_t ne11, [[maybe_unused]] const int32_t ne12, [[maybe_unused]] const int32_t ne13,
@@ -83,21 +79,24 @@ static __global__ void flash_attn_ext_f16(
     const int sequence = blockIdx.z / ne02;
     const int head = blockIdx.z - sequence * ne02;
     const int gqa_ratio = ne02 / ne12; // With grouped query attention there are > 1 Q matrices per K, V matrix.
+    const char* __restrict__ Q = (const char*)ctx.Q.data;
     const float* Q_f = (const float*)(Q + nb03 * sequence + nb02 * head + nb01 * ic0);
     const half* K_h = (const half*)(K + nb13 * sequence + nb12 * (head / gqa_ratio));
     const half* V_h = (const half*)(V + nb13 * sequence + nb12 * (head / gqa_ratio)); // K and V have same shape
+    const char* __restrict__ mask = (const char*)ctx.mask.data;
     const half* maskh = (const half*)(mask + nb33 * (sequence % ne33) + nb31 * ic0);
     const half2* mask2 = (const half2*)maskh;
+    const char* __restrict__ sinks = (const char*)ctx.sinks.data;
     const float* sinksf = (const float*)sinks;
 
     const int stride_Q = nb01 / sizeof(float);
     const int stride_KV = nb11 / sizeof(half);
 
-    const float slopef = get_alibi_slope(max_bias, head, n_head_log2, m0, m1);
+    const float slopef = get_alibi_slope(ctx.max_bias, head, n_head_log2, m0, m1);
     const half  slopeh = __float2half(slopef);
     const half2 slope2 = make_half2(slopef, slopef);
 
-    const half2 logit_softcap_2 = make_half2(logit_softcap, logit_softcap);
+    const half2 logit_softcap_2 = make_half2(ctx.logit_softcap, ctx.logit_softcap);
 
     frag_b Q_b[D / 16][ncols / frag_n];
 
@@ -211,7 +210,7 @@ static __global__ void flash_attn_ext_f16(
                     KQ_f_tmp[k0 / warp_size] = KQ_f[j * kqs_padded + k];
 
                     if (use_logit_softcap) {
-                        KQ_f_tmp[k0 / warp_size] = logit_softcap * tanhf(KQ_f_tmp[k0 / warp_size]);
+                        KQ_f_tmp[k0 / warp_size] = ctx.logit_softcap * tanhf(KQ_f_tmp[k0 / warp_size]);
                     }
                 }
 

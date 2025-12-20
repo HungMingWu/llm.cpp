@@ -1679,9 +1679,9 @@ namespace op
     };
 
     best_fattn_kernel ggml_cuda_get_best_fattn_kernel([[maybe_unused]] const int device, [[maybe_unused]] const ggml_tensor* dst) {
-#ifndef FLASH_ATTN_AVAILABLE
-        return BEST_FATTN_KERNEL_NONE;
-#endif// FLASH_ATTN_AVAILABLE
+        if constexpr (!flash_attn_available_v) {
+            return BEST_FATTN_KERNEL_NONE;
+        }
 
         const ggml_tensor* KQV = dst;
         const ggml_tensor* Q = dst->src[0];

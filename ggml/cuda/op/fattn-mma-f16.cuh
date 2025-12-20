@@ -1376,20 +1376,16 @@ static __device__ __forceinline__ void flash_attn_ext_f16_process_tile(
 template<int DKQ, int DV, int ncols1, int ncols2, bool use_logit_softcap, bool mla>
 __launch_bounds__(ggml_cuda_fattn_mma_get_nthreads(DKQ, DV, ncols1* ncols2), ggml_cuda_fattn_mma_get_occupancy(DKQ, DV, ncols1* ncols2))
 static __global__ void flash_attn_ext_f16(
-    [[maybe_unused]] const char* __restrict__ Q,
+    flash_attn_ext_context ctx,
     [[maybe_unused]] const char* __restrict__ K,
     [[maybe_unused]] const char* __restrict__ V,
-    [[maybe_unused]] const char* __restrict__ mask,
-    [[maybe_unused]] const char* __restrict__ sinks,
     [[maybe_unused]] const int* __restrict__ KV_max,
     [[maybe_unused]] float* __restrict__ dst,
     [[maybe_unused]] float2* __restrict__ dst_meta,
     [[maybe_unused]] const float scale,
-    [[maybe_unused]] const float max_bias,
     [[maybe_unused]] const float m0,
     [[maybe_unused]] const float m1,
     [[maybe_unused]] const uint32_t n_head_log2,
-    [[maybe_unused]] const float logit_softcap,
     [[maybe_unused]] const int32_t ne00,  [[maybe_unused]] const uint3   ne01,  [[maybe_unused]] const int32_t ne02,  [[maybe_unused]] const int32_t ne03,
     [[maybe_unused]] const int32_t nb01,  [[maybe_unused]] const int32_t nb02,  [[maybe_unused]] const int32_t nb03,
     [[maybe_unused]] const int32_t ne10,  [[maybe_unused]] const int32_t ne11,  [[maybe_unused]] const int32_t ne12,  [[maybe_unused]] const int32_t ne13,
@@ -1441,7 +1437,7 @@ static __global__ void flash_attn_ext_f16(
         // kb0 == k start index when in the output tile.
         int kb0_start = kbc % iter_k;
         int kb0_stop = min(iter_k, kb0_start + kbc_stop - kbc);
-
+        const char* __restrict__ Q = (const char*)ctx.Q.data;
         while (kbc < kbc_stop && kb0_stop == iter_k) {
             const int sequence = kbc / (iter_k * iter_j * (ne02 / ncols2));
             const int zt = (kbc - iter_k * iter_j * (ne02 / ncols2) * sequence) / (iter_k * iter_j); // head in units of ncols2
@@ -1451,14 +1447,16 @@ static __global__ void flash_attn_ext_f16(
 
             const float2* Q_f2 = (const float2*)(Q + nb03 * sequence + nb02 * head0);
             const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head0 / gqa_ratio));
+            const char* __restrict__ mask = (const char*)ctx.mask.data;
             const half* mask_h = ncols2 == 1 && !mask ? nullptr :
                 (const half*)(mask + nb33 * (sequence % ne33));
             float2* dstk = ((float2*)dst) + (sequence * ne01.z * ne02 + head0) * (DV / 2);
 
             const half2* V_h2 = mla ? K_h2 + (DKQ / 2 - DV / 2) : (const half2*)(V + nb23 * sequence + nb22 * (head0 / gqa_ratio));
+            const char* __restrict__ sinks = (const char*)ctx.sinks.data;
             const float* sinks_f = sinks ? (const float*)sinks + head0 : nullptr;
 
-            const float slope = ncols2 == 1 ? get_alibi_slope(max_bias, head0, n_head_log2, m0, m1) : 1.0f;
+            const float slope = ncols2 == 1 ? get_alibi_slope(ctx.max_bias, head0, n_head_log2, m0, m1) : 1.0f;
 
             if (KV_max) {
                 kb0_stop = min(kb0_stop, KV_max[sequence * iter_j + jt] / nbatch_fa);
@@ -1467,13 +1465,13 @@ static __global__ void flash_attn_ext_f16(
             if (kb0_start == 0) {
                 constexpr bool needs_fixup = false; // CUDA block is working on an entire tile.
                 flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, use_logit_softcap, mla, needs_fixup, is_fixup>
-                    (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
+                    (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, ctx.logit_softcap,
                         ne01, ne02, ne11, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start, kb0_stop);
             }
             else {
                 constexpr bool needs_fixup = true; // CUDA block is missing the beginning of a tile.
                 flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, use_logit_softcap, mla, needs_fixup, is_fixup>
-                    (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
+                    (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, ctx.logit_softcap,
                         ne01, ne02, ne11, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start, kb0_stop);
             }
 
@@ -1496,14 +1494,16 @@ static __global__ void flash_attn_ext_f16(
 
         const float2* Q_f2 = (const float2*)(Q + nb03 * sequence + nb02 * head0);
         const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head0 / gqa_ratio));
+        const char* __restrict__ mask = (const char*)ctx.mask.data;
         const half* mask_h = ncols2 == 1 && !mask ? nullptr :
             (const half*)(mask + nb33 * (sequence % ne33));
         float2* dstk = ((float2*)dst) + (sequence * ne01.z * ne02 + head0) * (DV / 2);
 
         const half2* V_h2 = mla ? K_h2 + (DKQ / 2 - DV / 2) : (const half2*)(V + nb23 * sequence + nb22 * (head0 / gqa_ratio));
+        const char* __restrict__ sinks = (const char*)ctx.sinks.data;
         const float* sinks_f = sinks ? (const float*)sinks + head0 : nullptr;
 
-        const float slope = ncols2 == 1 ? get_alibi_slope(max_bias, head0, n_head_log2, m0, m1) : 1.0f;
+        const float slope = ncols2 == 1 ? get_alibi_slope(ctx.max_bias, head0, n_head_log2, m0, m1) : 1.0f;
 
         if (KV_max) {
             kb0_stop = min(kb0_stop, KV_max[sequence * iter_j + jt] / nbatch_fa);
@@ -1512,7 +1512,7 @@ static __global__ void flash_attn_ext_f16(
         constexpr bool is_fixup = true; // Last index writes its data to fixup buffer to avoid data races with other blocks.
         constexpr bool needs_fixup = false;
         flash_attn_ext_f16_process_tile<DKQ, DV, ncols1, ncols2, nwarps, use_logit_softcap, mla, needs_fixup, is_fixup>
-            (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, logit_softcap,
+            (Q_f2, K_h2, V_h2, mask_h, sinks_f, dstk, dst_meta, scale, slope, ctx.logit_softcap,
                 ne01, ne02, ne11, stride_Q1, stride_Q2, stride_K, stride_V, stride_mask, jt, kb0_start, kb0_stop);
     }
     else {

@@ -8,6 +8,7 @@
 
 static constexpr size_t FATTN_KQ_STRIDE_TILE_F32 = 32;
 static constexpr int64_t FATTN_KQ_STRIDE = 256;
+#define HALF_MAX_HALF         __float2half(65504.0f/2) // Use neg. of this instead of -INFINITY to initialize KQ max vals to avoid NaN upon subtraction.
 #define GGML_PAD1(x, n) (((x) + (n) - 1) & ~((n) - 1))
 
 // log(2) = 0.6931, by adding this to the KQ maximum used for the softmax the numerical range representable
@@ -17,20 +18,16 @@ static constexpr int64_t FATTN_KQ_STRIDE = 256;
 #define FATTN_KQ_MAX_OFFSET 0.6931f
 
 using fattn_kernel_t = void (*)(
-    const char* __restrict__ Q,
+    flash_attn_ext_context ctx,
     const char* __restrict__ K,
     const char* __restrict__ V,
-    const char* __restrict__ mask,
-    const char* __restrict__ sinks,
     const int* __restrict__ KV_max,
     float* __restrict__ dst,
     float2* __restrict__ dst_meta,
     const float scale,
-    const float max_bias,
     const float m0,
     const float m1,
     const uint32_t n_head_log2,
-    const float logit_softcap,
     const int32_t ne00, const uint3   ne01, const int32_t ne02, const int32_t ne03,
     const int32_t nb01, const int32_t nb02, const int32_t nb03,
     const int32_t ne10, const int32_t ne11, const int32_t ne12, const int32_t ne13,
@@ -987,14 +984,12 @@ void launch_fattn(
 
     GGML_ASSERT(block_dim.x % warp_size == 0);
     fattn_kernel << <blocks_num, block_dim, nbytes_shared, main_stream >> > (
-        (const char*)ctx.Q.data,
+        ctx,
         K_data,
         V_data,
-        (const char*)ctx.mask.data,
-		(const char*)ctx.sinks.data,
         KV_max.ptr,
         !stream_k && parallel_blocks > 1 ? dst_tmp.ptr : (float*)ctx.KQV.data, dst_tmp_meta.ptr,
-        scale, ctx.max_bias, m0, m1, n_head_log2, ctx.logit_softcap,
+        scale, m0, m1, n_head_log2,
         ctx.Q.ne0, ne01, ctx.Q.ne2, ctx.Q.ne3, ctx.Q.nb1, ctx.Q.nb2, ctx.Q.nb3,
         ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3, nb11, nb12, nb13,
         nb21, nb22, nb23,

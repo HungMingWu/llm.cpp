@@ -714,20 +714,16 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
 template<int DKQ, int DV, int ncols1, int ncols2, bool use_logit_softcap> // D == head size
 __launch_bounds__(ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, ncols1 * ncols2), ggml_cuda_fattn_tile_get_occupancy(DKQ, DV, ncols1 * ncols2))
 static __global__ void flash_attn_tile(
-    [[maybe_unused]] const char* __restrict__ Q,
+    flash_attn_ext_context ctx,
     [[maybe_unused]] const char* __restrict__ K,
     [[maybe_unused]] const char* __restrict__ V,
-    [[maybe_unused]] const char* __restrict__ mask,
-    [[maybe_unused]] const char* __restrict__ sinks,
     [[maybe_unused]] const int* __restrict__ KV_max,
     [[maybe_unused]] float* __restrict__ dst,
     [[maybe_unused]] float2 * __restrict__ dst_meta,
     [[maybe_unused]] const float scale,
-    [[maybe_unused]] const float max_bias,
     [[maybe_unused]] const float m0,
     [[maybe_unused]] const float m1,
     [[maybe_unused]] const uint32_t n_head_log2,
-    [[maybe_unused]] const float logit_softcap,
     [[maybe_unused]] const int32_t ne00, [[maybe_unused]] const uint3   ne01, [[maybe_unused]] const int32_t ne02, [[maybe_unused]] const int32_t ne03,
     [[maybe_unused]] const int32_t nb01, [[maybe_unused]] const int32_t nb02, [[maybe_unused]] const int32_t nb03,
     [[maybe_unused]] const int32_t ne10, [[maybe_unused]] const int32_t ne11, [[maybe_unused]] const int32_t ne12, [[maybe_unused]] const int32_t ne13,
@@ -764,17 +760,19 @@ static __global__ void flash_attn_tile(
         const int sequence = blockIdx.z / (ne02 / ncols2);
         const int head0 = blockIdx.z * ncols2 - sequence * ne02; // == blockIdx.z % (ne02/ncols2)
         const int gqa_ratio = ne02 / ne12; // With grouped query attention there are > 1 Q matrices per K, V matrix.
+        const char* __restrict__ Q = (const char*)ctx.Q.data;
         const float* Q_f = (const float*)(Q + nb03 * sequence + nb02 * head0);
         const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head0 / gqa_ratio));
         const half2* V_h2 = (const half2*)(V + nb23 * sequence + nb22 * (head0 / gqa_ratio)); // K and V have same shape
 
+        const char* __restrict__ mask = (const char*)ctx.mask.data;
         const half* maskh = mask ? (const half*)(mask + nb33 * (sequence % ne33)) : nullptr;
 
         const int stride_K2 = nb11 / sizeof(half2);
         const int stride_V2 = nb21 / sizeof(half2);
         const int stride_mask = nb31 / sizeof(half);
 
-        const float slope = ncols2 == 1 ? get_alibi_slope(max_bias, head0, n_head_log2, m0, m1) : 1.0f;
+        const float slope = ncols2 == 1 ? get_alibi_slope(ctx.max_bias, head0, n_head_log2, m0, m1) : 1.0f;
 
         constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
         constexpr int cpy_ne = cpy_nb / 4;
@@ -865,14 +863,14 @@ static __global__ void flash_attn_tile(
             while (k_VKQ_0 < k_VKQ_max - nbatch_fa) {
                 constexpr bool oob_check = false;
                 flash_attn_tile_iter<warp_size, nwarps, ncols1, ncols2, DKQ, DV, nbatch_fa, nbatch_K, use_logit_softcap, oob_check>
-                    (Q_tmp, K_h2, V_h2, maskh, ne01, logit_softcap, slope, KQ, KV_tmp,
+                    (Q_tmp, K_h2, V_h2, maskh, ne01, ctx.logit_softcap, slope, KQ, KV_tmp,
                         stride_K2, stride_V2, stride_mask, KQ_max, KQ_sum, VKQ, k_VKQ_0, k_VKQ_max, col_Q_0);
                 k_VKQ_0 += gridDim.y * nbatch_fa;
             }
             if (k_VKQ_0 < k_VKQ_max) {
                 constexpr bool oob_check = true;
                 flash_attn_tile_iter<warp_size, nwarps, ncols1, ncols2, DKQ, DV, nbatch_fa, nbatch_K, use_logit_softcap, oob_check>
-                    (Q_tmp, K_h2, V_h2, maskh, ne01, logit_softcap, slope, KQ, KV_tmp,
+                    (Q_tmp, K_h2, V_h2, maskh, ne01, ctx.logit_softcap, slope, KQ, KV_tmp,
                         stride_K2, stride_V2, stride_mask, KQ_max, KQ_sum, VKQ, k_VKQ_0, k_VKQ_max, col_Q_0);
             }
         }
@@ -881,7 +879,7 @@ static __global__ void flash_attn_tile(
             for (int k_VKQ_0 = blockIdx.y * nbatch_fa; k_VKQ_0 < k_VKQ_max; k_VKQ_0 += gridDim.y * nbatch_fa) {
                 constexpr bool oob_check = false;
                 flash_attn_tile_iter<warp_size, nwarps, ncols1, ncols2, DKQ, DV, nbatch_fa, nbatch_K, use_logit_softcap, oob_check>
-                    (Q_tmp, K_h2, V_h2, maskh, ne01, logit_softcap, slope, KQ, KV_tmp,
+                    (Q_tmp, K_h2, V_h2, maskh, ne01, ctx.logit_softcap, slope, KQ, KV_tmp,
                         stride_K2, stride_V2, stride_mask, KQ_max, KQ_sum, VKQ, k_VKQ_0, k_VKQ_max, col_Q_0);
             }
         }
@@ -957,6 +955,7 @@ static __global__ void flash_attn_tile(
         }
 
         // Attention sink: adjust KQ max and sum only for the first of all parallel blocks:
+        const char* __restrict__ sinks = (const char*)ctx.sinks.data;
         if (sinks && blockIdx.y == 0) {
 #pragma unroll
             for (int jc0 = 0; jc0 < cpw; ++jc0) {
