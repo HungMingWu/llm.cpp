@@ -591,7 +591,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
     // Calculate KQ softmax, write to shared KQ buffer, re-scale VKQ accumulators:
 #pragma unroll
     for (int jc0 = 0; jc0 < cpw; jc0 += KQ_cs) {
-        std::conditional_t< fast_fp16_available_v, half, float>  tmp[nbatch_fa / (np * warp_size)][KQ_cs];
+        mdarray<T_KQ, nbatch_fa / (np * warp_size), KQ_cs> tmp;
 
 #pragma unroll
         for (int jc1 = 0; jc1 < KQ_cs; ++jc1) {
@@ -606,7 +606,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
                 const float val = !oob_check || i0 + (threadIdx.y % np) * warp_size + threadIdx.x < static_cast<uint32_t>(k_VKQ_sup) ?
                     expf(KQ_acc((i0 / (np * warp_size)), jc) - KQ_max[jc]) : 0.0f;
                 KQ_sum_add += val;
-                tmp[i0 / (np * warp_size)][jc1] = val;
+                tmp(i0 / (np * warp_size), jc1) = val;
             }
             KQ_sum[jc] = KQ_sum[jc] * KQ_max_scale + KQ_sum_add;
 
@@ -629,9 +629,9 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
         for (int i0 = 0; i0 < nbatch_fa; i0 += np * warp_size) {
             const int i = i0 + (threadIdx.y % np) * warp_size + threadIdx.x;
 
-            ggml_cuda_memcpy_1<sizeof(tmp[0])>(
+            ggml_cuda_memcpy_1<sizeof(T_KQ) * KQ_cs>(
                 KQ + (jc0 / KQ_cs + (threadIdx.y / np) * (cpw / KQ_cs)) * (nbatch_fa * KQ_cs) + i * KQ_cs,
-                tmp[i0 / (np * warp_size)]);
+                &tmp(i0 / (np * warp_size), 0));
         }
     }
 
