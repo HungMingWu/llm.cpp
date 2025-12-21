@@ -451,21 +451,17 @@ static __device__ __forceinline__ void flash_attn_tile_iter_KQ(
         for (int i_KQ_0 = 0; i_KQ_0 < nbatch_fa; i_KQ_0 += np * warp_size) {
             const int i_KQ = i_KQ_0 + (threadIdx.y % np) * warp_size + threadIdx.x;
 
-            if constexpr (fast_fp16_available_v) {
-                ggml_cuda_memcpy_1<cpy_nb>(&K_k(i_KQ_0 / (np * warp_size), 0), &KV_tmp[i_KQ * (nbatch_K / 2 + cpy_ne) + k_KQ_1]);
-            } else {
-                ggml_cuda_memcpy_1<cpy_nb>(&K_k(i_KQ_0 / (np * warp_size), 0), &KV_tmp[i_KQ * (nbatch_K + cpy_ne) + k_KQ_1]);
-            }
+#pragma unroll
+            for (size_t i = 0; i < cpy_ne; i++)
+                K_k(i_KQ_0 / (np * warp_size), i) = KV_tmp[i_KQ * (nbatch_K / nbatch_div + cpy_ne) + k_KQ_1 + i];
         }
 #pragma unroll
         for (int jc0 = 0; jc0 < cpw; ++jc0) {
             const int jc = jc0 + (threadIdx.y / np) * cpw;
 
-            if constexpr (fast_fp16_available_v) {
-                ggml_cuda_memcpy_1<cpy_nb>(&Q_k(jc0, 0), &Q_tmp[jc * (DKQ / 2) + k_KQ_0 / 2 + k_KQ_1]);
-            } else {
-                ggml_cuda_memcpy_1<cpy_nb>(&Q_k(jc0, 0), &Q_tmp[jc * DKQ + k_KQ_0 + k_KQ_1]);
-            }
+#pragma unroll
+            for (size_t i = 0; i < cpy_ne; i++)
+                Q_k(jc0, i) = Q_tmp[jc * (DKQ / nbatch_div) + (k_KQ_0 / nbatch_div) + k_KQ_1 + i];
         }
 
 #pragma unroll
