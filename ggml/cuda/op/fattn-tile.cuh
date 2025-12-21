@@ -439,13 +439,12 @@ static __device__ __forceinline__ void flash_attn_tile_iter_KQ(
     __syncthreads();
 
     static constexpr size_t nbatch_div = fast_fp16_available_v ? 2 : 1;
-    using t1 = std::conditional_t<fast_fp16_available_v, half2, float>;
     static_assert((nbatch_K / nbatch_div) % cpy_ne == 0, "bad nbatch_K");
 
 #pragma unroll
     for (int k_KQ_1 = 0; k_KQ_1 < nbatch_K / nbatch_div; k_KQ_1 += cpy_ne) {
-        mdarray<t1, nbatch_fa / (np * warp_size), cpy_ne> K_k;
-        mdarray<t1, cpw, cpy_ne> Q_k;
+        mdarray<T_vec_dot, nbatch_fa / (np * warp_size), cpy_ne> K_k;
+        mdarray<T_vec_dot, cpw, cpy_ne> Q_k;
 
 #pragma unroll
         for (int i_KQ_0 = 0; i_KQ_0 < nbatch_fa; i_KQ_0 += np * warp_size) {
