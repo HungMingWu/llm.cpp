@@ -340,10 +340,13 @@ static __device__ __forceinline__ void flash_attn_tile_load_tile(
                 for (int j0 = j0_start; j0 < j0_stop; j0 += stride_j) {
                     const int j = j0 * cpy_ne + (stride_j == warp_size ? threadIdx.x : threadIdx.x % stride_j) * cpy_ne;
 
-                    const half2 zero[cpy_ne] = { {0.0f, 0.0f} };
-                    ggml_cuda_memcpy_1<cpy_nb>(
-                        tile_KV + i * (J / 2 + J_padding) + j,
-                        !oob_check || i < i_sup ? KV + i * stride_KV + j : zero);
+                    const half2* in = KV + i * stride_KV + j;
+                    half2* out = tile_KV + i * (J / 2 + J_padding) + j;
+#pragma unroll
+                    for (int l = 0; l < cpy_ne; ++l) {
+                        half2 tmp_h2 = (!oob_check || i < i_sup) ? *in++ : half2{};
+                        *out++ = tmp_h2;
+                    }
                 }
             }
         }
@@ -390,17 +393,15 @@ static __device__ __forceinline__ void flash_attn_tile_load_tile(
                 for (int j0 = j0_start; j0 < j0_stop; j0 += stride_j) {
                     const int j = j0 * (cpy_ne / 2) + (stride_j == warp_size ? threadIdx.x : threadIdx.x % stride_j) * (cpy_ne / 2);
 
-                    const half2 zero[cpy_ne / 2] = { {0.0f, 0.0f} };
-                    half2 tmp_h2[cpy_ne / 2];
-                    ggml_cuda_memcpy_1<sizeof(tmp_h2)>(
-                        tmp_h2, !oob_check || i < i_sup ? KV + i * stride_KV + j : zero);
-
-                    float2 tmp_f2[cpy_ne / 2];
+                    const half2* in = KV + i * stride_KV + j;
+                    float* out = tile_KV + i * (J + J_padding) + 2 * j;
 #pragma unroll
                     for (int l = 0; l < cpy_ne / 2; ++l) {
-                        tmp_f2[l] = __half22float2(tmp_h2[l]);
+                        half2 tmp_h2 = (!oob_check || i < i_sup) ? *in++ : half2{};
+                        float2 tmp_f2 = __half22float2(tmp_h2);
+                        *out++ = tmp_f2.x;
+                        *out++ = tmp_f2.y;
                     }
-                    ggml_cuda_memcpy_1<sizeof(tmp_f2)>(tile_KV + i * (J + J_padding) + 2 * j, tmp_f2);
                 }
             }
         }
