@@ -502,7 +502,7 @@ void ggml_cuda_flash_attn_ext_vec_case_impl(const flash_attn_ext_context& ctx) {
 
 template <int D, internal::ggml_type type_K, internal::ggml_type type_V>
 void ggml_cuda_flash_attn_ext_vec_case(const flash_attn_ext_context& ctx) {
-    if (ctx.Q.ne1 == 1) {
+    if (ctx.Q.ne[1] == 1) {
         constexpr int cols_per_block = 1;
         if (ctx.logit_softcap == 0.0f) {
             constexpr bool use_logit_softcap = false;

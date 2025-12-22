@@ -155,18 +155,18 @@ template <int DKQ, int DV, int ncols2>
 static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1(const flash_attn_ext_context& ctx) {
     const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
     if constexpr (ncols2 <= 8) {
-        if (turing_mma_available(cc) && ctx.Q.ne1 <= 8 / ncols2) {
+        if (turing_mma_available(cc) && ctx.Q.ne[1] <= 8 / ncols2) {
             ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 8 / ncols2, ncols2>(ctx);
             return;
         }
     }
 
-    if (turing_mma_available(cc) && ctx.Q.ne1 <= 16 / ncols2) {
+    if (turing_mma_available(cc) && ctx.Q.ne[1] <= 16 / ncols2) {
         ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 16 / ncols2, ncols2>(ctx);
         return;
     }
 
-    if (ggml_cuda_highest_compiled_arch(cc) == GGML_CUDA_CC_TURING || ctx.Q.ne1 <= 32 / ncols2) {
+    if (ggml_cuda_highest_compiled_arch(cc) == GGML_CUDA_CC_TURING || ctx.Q.ne[1] <= 32 / ncols2) {
         ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 32 / ncols2, ncols2>(ctx);
         return;
     }
@@ -176,8 +176,8 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1(const flash_attn_ext_
 
 template <int DKQ, int DV>
 static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2(const flash_attn_ext_context& ctx) {
-    GGML_ASSERT(ctx.Q.ne2 % ctx.K.ne2 == 0);
-    const int gqa_ratio = ctx.Q.ne2 / ctx.K.ne2;
+    GGML_ASSERT(ctx.Q.ne[2] % ctx.K.ne2 == 0);
+    const int gqa_ratio = ctx.Q.ne[2] / ctx.K.ne2;
 
     if (ctx.use_gqa_opt && gqa_ratio % 8 == 0) {
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 8>(ctx);
@@ -198,7 +198,7 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2(const flash_attn_ext_
 }
 
 void ggml_cuda_flash_attn_ext_mma_f16(const flash_attn_ext_context& ctx) {
-    switch (ctx.Q.ne0) {
+    switch (ctx.Q.ne[0]) {
     case 64:
         GGML_ASSERT(ctx.V.ne0 == 64);
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2< 64, 64>(ctx);
@@ -229,8 +229,8 @@ void ggml_cuda_flash_attn_ext_mma_f16(const flash_attn_ext_context& ctx) {
         const bool use_gqa_opt = ctx.mask.exist && ctx.max_bias == 0.0f;
         GGML_ASSERT(use_gqa_opt);
 
-        GGML_ASSERT(ctx.Q.ne2 % ctx.K.ne2 == 0);
-        const int gqa_ratio = ctx.Q.ne2 / ctx.K.ne2;
+        GGML_ASSERT(ctx.Q.ne[2] % ctx.K.ne2 == 0);
+        const int gqa_ratio = ctx.Q.ne[2] / ctx.K.ne2;
         GGML_ASSERT(gqa_ratio % 16 == 0);
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 16>(ctx);
     } break;
@@ -244,7 +244,7 @@ void ggml_cuda_flash_attn_ext_mma_f16(const flash_attn_ext_context& ctx) {
     {                                                                                                            \
         const bool type_K_okay = ctx.K.type == (type_K) || (ctx.K.type == internal::GGML_TYPE_F32 && (type_K) == internal::GGML_TYPE_F16); \
         const bool type_V_okay = ctx.V.type == (type_V) || (ctx.V.type == internal::GGML_TYPE_F32 && (type_V) == internal::GGML_TYPE_F16); \
-        if (ctx.Q.ne0 == (D) && type_K_okay && type_V_okay) {                                                     \
+        if (ctx.Q.ne[0] == (D) && type_K_okay && type_V_okay) {                                                     \
             ggml_cuda_flash_attn_ext_vec_case<D, type_K, type_V>(ctx);                                           \
             return;                                                                                              \
         }                                                                                                        \

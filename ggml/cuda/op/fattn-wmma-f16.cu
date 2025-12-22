@@ -532,9 +532,9 @@ void ggml_cuda_flash_attn_ext_wmma_f16(const flash_attn_ext_context& ctx) {
     const int warp_size = ggml_cuda_info().devices[ctx.device].warp_size;
 
     if (prec != internal::GGML_PREC_DEFAULT) {
-        if (ctx.Q.ne1 <= 32 || ctx.Q.ne0 > 128) {
+        if (ctx.Q.ne[1] <= 32 || ctx.Q.ne[0] > 128) {
             constexpr int cols_per_block = 16;
-            switch (ctx.Q.ne0) {
+            switch (ctx.Q.ne[0]) {
             case 64:
                 ggml_cuda_flash_attn_ext_wmma_f16_case< 64, cols_per_block, float>(ctx);
                 break;
@@ -560,7 +560,7 @@ void ggml_cuda_flash_attn_ext_wmma_f16(const flash_attn_ext_context& ctx) {
         }
         else {
             constexpr int cols_per_block = 32;
-            switch (ctx.Q.ne0) {
+            switch (ctx.Q.ne[0]) {
             case 64:
                 ggml_cuda_flash_attn_ext_wmma_f16_case<64, cols_per_block, float>(ctx);
                 break;
@@ -588,9 +588,9 @@ void ggml_cuda_flash_attn_ext_wmma_f16(const flash_attn_ext_context& ctx) {
     }
 
     if constexpr (!use_hip_v) {
-        if (ctx.Q.ne1 <= 8 && ctx.Q.ne0 % warp_size == 0) {
+        if (ctx.Q.ne[1] <= 8 && ctx.Q.ne[0] % warp_size == 0) {
             constexpr int cols_per_block = 8;
-            switch (ctx.Q.ne0) {
+            switch (ctx.Q.ne[0]) {
             case 64:
                 ggml_cuda_flash_attn_ext_wmma_f16_case<64, cols_per_block, half>(ctx);
                 break;
@@ -611,9 +611,9 @@ void ggml_cuda_flash_attn_ext_wmma_f16(const flash_attn_ext_context& ctx) {
         }
     }
 
-    if (ctx.Q.ne1 <= 32) {
+    if (ctx.Q.ne[1] <= 32) {
         constexpr int cols_per_block = 16;
-        switch (ctx.Q.ne0) {
+        switch (ctx.Q.ne[0]) {
         case 64:
             ggml_cuda_flash_attn_ext_wmma_f16_case< 64, cols_per_block, half>(ctx);
             break;
@@ -640,7 +640,7 @@ void ggml_cuda_flash_attn_ext_wmma_f16(const flash_attn_ext_context& ctx) {
     }
 
     constexpr int cols_per_block = 32;
-    switch (ctx.Q.ne0) {
+    switch (ctx.Q.ne[0]) {
     case 64:
         ggml_cuda_flash_attn_ext_wmma_f16_case< 64, cols_per_block, half>(ctx);
         break;

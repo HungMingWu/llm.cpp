@@ -240,4 +240,127 @@ namespace op {
                 dst->nb[3] / sizeof(float), stream);
         }
     }
+
+    void flash_attn_ext(int device, ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* Q = dst->src[0];
+        const ggml_tensor* K = dst->src[1];
+        const ggml_tensor* V = dst->src[2];
+        const ggml_tensor* mask = dst->src[3];
+        const ggml_tensor* sinks = dst->src[4];
+
+        ggml_cuda_set_device(device);
+
+        static constexpr int64_t FATTN_KQ_STRIDE = 256;
+        float max_bias = std::bit_cast<float>(dst->op_params[1]);
+        // Edge cases like no mask, ALiBi, unpadded K/V, or misaligned addresses for large data transfers
+        //     are put into the template specialization without GQA optimizations.
+        auto use_gpa_opt = [=]() -> bool {
+            for (const ggml_tensor* t : { Q, K, V, mask }) {
+                if (t == nullptr) {
+                    continue;
+                }
+                for (size_t i = 1; i < GGML_MAX_DIMS; ++i)
+                    if (t->nb[i] % 16 != 0)
+                        return false;
+            }
+            return mask && max_bias == 0.0f && K->ne[1] % FATTN_KQ_STRIDE == 0;
+            }();
+        flash_attn_ext_context ctx{
+            .device = device,
+            .main_stream = stream,
+            .pool = &pool,
+            .scale = std::bit_cast<float>(dst->op_params[0]),
+            .max_bias = max_bias,
+            .logit_softcap = std::bit_cast<float>(dst->op_params[2]),
+            .precision = std::bit_cast<internal::ggml_prec>(dst->op_params[3]),
+            .use_gqa_opt = use_gpa_opt,
+            .Q = {
+                .type = std::bit_cast<internal::ggml_type>(Q->type),
+                .data = Q->data,
+				.ne = { Q->ne[0], Q->ne[1], Q->ne[2], Q->ne[3] },
+                .nb = { Q->nb[0], Q->nb[1], Q->nb[2], Q->nb[3] },
+                .element_size = ggml_element_size(Q)
+            },
+            .K = {
+                .type = std::bit_cast<internal::ggml_type>(K->type),
+                .block_size = ggml_blck_size(K->type),
+                .type_size = ggml_type_size(K->type),
+                .data = K->data,
+                .elements = K->nelements(),
+                .ne0 = K->ne[0],
+                .ne1 = K->ne[1],
+                .ne2 = K->ne[2],
+                .ne3 = K->ne[3],
+                .nb0 = K->nb[0],
+                .nb1 = K->nb[1],
+                .nb2 = K->nb[2],
+                .nb3 = K->nb[3],
+                .bs = ggml_blck_size(K->type),
+                .ts = ggml_type_size(K->type),
+                .element_size = ggml_element_size(K)
+            },
+            .V = {
+                .exist = V != nullptr,
+                .type = std::bit_cast<internal::ggml_type>(V ? V->type : GGML_TYPE_F32),
+                .block_size = V ? ggml_blck_size(V->type) : 0,
+                .type_size = V ? ggml_type_size(V->type) : 0,
+                .data = V ? V->data : nullptr,
+                .elements = V ? V->nelements() : 0,
+                .ne0 = V ? V->ne[0] : 0,
+                .ne1 = V ? V->ne[1] : 0,
+                .ne2 = V ? V->ne[2] : 0,
+                .ne3 = V ? V->ne[3] : 0,
+                .nb0 = V ? V->nb[0] : 0,
+                .nb1 = V ? V->nb[1] : 0,
+                .nb2 = V ? V->nb[2] : 0,
+                .nb3 = V ? V->nb[3] : 00,
+                .bs = V ? ggml_blck_size(V->type) : 0,
+                .ts = V ? ggml_type_size(V->type) : 0,
+                .element_size = V ? ggml_element_size(V) : 0
+            },
+            .mask = {
+                .exist = mask != nullptr,
+                .type = std::bit_cast<internal::ggml_type>(mask ? mask->type : GGML_TYPE_F32),
+                .data = mask ? mask->data : nullptr,
+                .ne0 = (mask) ? mask->ne[0] : 0,
+                .ne1 = (mask) ? mask->ne[1] : 0,
+                .ne2 = (mask) ? mask->ne[2] : 0,
+                .ne3 = (mask) ? mask->ne[3] : 0,
+                .nb0 = (mask) ? mask->nb[0] : 0,
+                .nb1 = (mask) ? mask->nb[1] : 0,
+                .nb2 = (mask) ? mask->nb[2] : 0,
+                .nb3 = (mask) ? mask->nb[3] : 0
+            },
+            .sinks = {
+                .data = sinks ? sinks->data : nullptr
+            },
+            .KQV = {
+                .type = std::bit_cast<internal::ggml_type>(dst->type),
+                .data = dst->data,
+                .elements = dst->nelements(),
+                .nrows = ggml_nrows(dst),
+                .ne0 = dst->ne[0],
+                .ne1 = dst->ne[1],
+                .ne2 = dst->ne[2],
+                .ne3 = dst->ne[3]
+            }
+        };
+
+        switch (ggml_cuda_get_best_fattn_kernel(ggml_cuda_get_device(), dst)) {
+        case BEST_FATTN_KERNEL_NONE:
+            GGML_ABORT("fatal error");
+        case BEST_FATTN_KERNEL_TILE:
+            ggml_cuda_flash_attn_ext_tile(ctx);
+            break;
+        case BEST_FATTN_KERNEL_VEC:
+            ggml_cuda_flash_attn_ext_vec(ctx);
+            break;
+        case BEST_FATTN_KERNEL_WMMA_F16:
+            ggml_cuda_flash_attn_ext_wmma_f16(ctx);
+            break;
+        case BEST_FATTN_KERNEL_MMA_F16:
+            ggml_cuda_flash_attn_ext_mma_f16(ctx);
+            break;
+        }
+    }
 }

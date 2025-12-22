@@ -1052,7 +1052,7 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
     constexpr size_t nbytes_shared = 0;
 
     if constexpr (use_hip_v && DV <= 128) {
-        if (ctx.Q.ne1 > 32 / ncols2) {
+        if (ctx.Q.ne[1] > 32 / ncols2) {
             constexpr int cols_per_block = 64;
             const int nwarps = ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, cols_per_block, cc) / warp_size;
             const int nbatch_fa = ggml_cuda_fattn_tile_get_nbatch_fa(DKQ, DV, cols_per_block, cc);
@@ -1065,7 +1065,7 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
 
     if constexpr (use_hip_v || DV <= 256)
     {
-        if (ctx.Q.ne1 > 16 / ncols2) {
+        if (ctx.Q.ne[1] > 16 / ncols2) {
             constexpr int cols_per_block = 32;
             const int nwarps = ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, cols_per_block, cc) / warp_size;
             const int nbatch_fa = ggml_cuda_fattn_tile_get_nbatch_fa(DKQ, DV, cols_per_block, cc);
@@ -1076,7 +1076,7 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
         }
     }
 
-    if (ctx.Q.ne1 > 8 / ncols2) {
+    if (ctx.Q.ne[1] > 8 / ncols2) {
         constexpr int cols_per_block = 16;
         const int nwarps = ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, cols_per_block, cc) / warp_size;
         const int nbatch_fa = ggml_cuda_fattn_tile_get_nbatch_fa(DKQ, DV, cols_per_block, cc);
@@ -1087,7 +1087,7 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
     }
 
     if constexpr (ncols2 <= 8) {
-        if (ctx.Q.ne1 > 4 / ncols2) {
+        if (ctx.Q.ne[1] > 4 / ncols2) {
             constexpr int cols_per_block = 8;
             const int nwarps = ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, cols_per_block, cc) / warp_size;
             const int nbatch_fa = ggml_cuda_fattn_tile_get_nbatch_fa(DKQ, DV, cols_per_block, cc);
@@ -1099,7 +1099,7 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
     }
 
     if constexpr (ncols2 <= 4) {
-        if (ctx.Q.ne1 > 2 / ncols2) {
+        if (ctx.Q.ne[1] > 2 / ncols2) {
             constexpr int cols_per_block = 4;
             const int nwarps = ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, cols_per_block, cc) / warp_size;
             const int nbatch_fa = ggml_cuda_fattn_tile_get_nbatch_fa(DKQ, DV, cols_per_block, cc);
@@ -1125,12 +1125,12 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
 
 template <int DKQ, int DV, bool use_logit_softcap>
 static void launch_fattn_tile_switch_ncols2(const flash_attn_ext_context& ctx) {
-    GGML_ASSERT(ctx.Q.ne2 % ctx.K.ne2 == 0);
-    const int gqa_ratio = ctx.Q.ne2 / ctx.K.ne2;
+    GGML_ASSERT(ctx.Q.ne[2] % ctx.K.ne2 == 0);
+    const int gqa_ratio = ctx.Q.ne[2] / ctx.K.ne2;
 
     const bool nvidia = GGML_CUDA_CC_IS_NVIDIA(ggml_cuda_info().devices[ggml_cuda_get_device()].cc);
     const int gqa_limit = nvidia && gqa_ratio <= 4 ? 16 : INT_MAX;
-    const bool use_gqa_opt = ctx.mask.exist && ctx.max_bias == 0.0f && ctx.Q.ne1 <= gqa_limit && ctx.K.ne1 % FATTN_KQ_STRIDE == 0;
+    const bool use_gqa_opt = ctx.mask.exist && ctx.max_bias == 0.0f && ctx.Q.ne[1] <= gqa_limit && ctx.K.ne1 % FATTN_KQ_STRIDE == 0;
 
     if constexpr (DV == 512) {
         if (use_gqa_opt && gqa_ratio % 16 == 0) {

@@ -817,7 +817,7 @@ void launch_fattn(
     GGML_ASSERT(ctx.Q.type == internal::GGML_TYPE_F32);
     GGML_ASSERT(ctx.KQV.type == internal::GGML_TYPE_F32);
 
-    GGML_ASSERT(ctx.Q.nb0 == ctx.Q.element_size);
+    GGML_ASSERT(ctx.Q.nb[0] == ctx.Q.element_size);
     GGML_ASSERT(ctx.K.nb0 == ctx.K.element_size);
     GGML_ASSERT(!ctx.V.exist || ctx.V.nb0 == ctx.V.element_size);
 
@@ -885,17 +885,17 @@ void launch_fattn(
         V_data = (char*)V_f16.ptr;
     }
 
-    const int ntiles_x = ((ctx.Q.ne1 + ncols1 - 1) / ncols1);
-    const int ntiles_total = ntiles_x * (ctx.Q.ne2 / ncols2) * ctx.Q.ne3;
+    const int ntiles_x = ((ctx.Q.ne[1] + ncols1 - 1) / ncols1);
+    const int ntiles_total = ntiles_x * (ctx.Q.ne[2] / ncols2) * ctx.Q.ne[3];
 
     // Optional optimization where the mask is scanned to determine whether part of the calculation can be skipped.
     // Only worth the overhead if there is at lease one FATTN_KQ_STRIDE x FATTN_KQ_STRIDE square to be skipped or
     //     multiple sequences of possibly different lengths.
-    if (ctx.mask.exist && ctx.K.ne1 % FATTN_KQ_STRIDE == 0 && (ctx.Q.ne1 >= 1024 || ctx.Q.ne3 > 1)) {
+    if (ctx.mask.exist && ctx.K.ne1 % FATTN_KQ_STRIDE == 0 && (ctx.Q.ne[1] >= 1024 || ctx.Q.ne[3] > 1)) {
         const int s31 = ctx.mask.nb1 / sizeof(half2);
         const int s33 = ctx.mask.nb3 / sizeof(half2);
 
-        const dim3 blocks_num_KV_max(ntiles_x, ctx.Q.ne3, 1);
+        const dim3 blocks_num_KV_max(ntiles_x, ctx.Q.ne[3], 1);
         const dim3 block_dim_KV_max(FATTN_KQ_STRIDE / 2, 1, 1);
 
         const int ne_KV_max = blocks_num_KV_max.x * blocks_num_KV_max.y;
@@ -960,7 +960,7 @@ void launch_fattn(
 
         blocks_num.x = ntiles_x;
         blocks_num.y = parallel_blocks;
-        blocks_num.z = (ctx.Q.ne2 / ncols2) * ctx.Q.ne3;
+        blocks_num.z = (ctx.Q.ne[2] / ncols2) * ctx.Q.ne[3];
 
         if (parallel_blocks > 1) {
             dst_tmp.alloc(parallel_blocks * ctx.KQV.elements);
@@ -973,14 +973,14 @@ void launch_fattn(
         scale /= ctx.logit_softcap;
     }
 
-    const uint32_t n_head = ctx.Q.ne2;
+    const uint32_t n_head = ctx.Q.ne[2];
     const uint32_t n_head_log2 = 1u << uint32_t(floorf(log2f(float(n_head))));
 
     const float m0 = powf(2.0f, -(ctx.max_bias) / n_head_log2);
     const float m1 = powf(2.0f, -(ctx.max_bias / 2.0f) / n_head_log2);
 
     // TODO other tensor dimensions after removal of WMMA kernel:
-    const uint3 ne01 = init_fastdiv_values(ctx.Q.ne1);
+    const uint3 ne01 = init_fastdiv_values(ctx.Q.ne[1]);
 
     GGML_ASSERT(block_dim.x % warp_size == 0);
     fattn_kernel << <blocks_num, block_dim, nbytes_shared, main_stream >> > (
@@ -990,7 +990,7 @@ void launch_fattn(
         KV_max.ptr,
         !stream_k && parallel_blocks > 1 ? dst_tmp.ptr : (float*)ctx.KQV.data, dst_tmp_meta.ptr,
         scale, m0, m1, n_head_log2,
-        ctx.Q.ne0, ne01, ctx.Q.ne2, ctx.Q.ne3, ctx.Q.nb1, ctx.Q.nb2, ctx.Q.nb3,
+        ctx.Q.ne[0], ne01, ctx.Q.ne[2], ctx.Q.ne[3], ctx.Q.nb[1], ctx.Q.nb[2], ctx.Q.nb[3],
         ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3, nb11, nb12, nb13,
         nb21, nb22, nb23,
         ctx.mask.ne1, ctx.mask.ne2, ctx.mask.ne3,
@@ -1005,12 +1005,12 @@ void launch_fattn(
 
             flash_attn_stream_k_fixup<DV, ncols1, ncols2>
                 << <blocks_num_combine, block_dim_combine, 0, main_stream >> >
-                ((float*)ctx.KQV.data, dst_tmp_meta.ptr, ctx.Q.ne1, ctx.Q.ne2, ctx.Q.ne3, ctx.K.ne1, nbatch_fa);
+                ((float*)ctx.KQV.data, dst_tmp_meta.ptr, ctx.Q.ne[1], ctx.Q.ne[2], ctx.Q.ne[3], ctx.K.ne1, nbatch_fa);
         }
     }
     else if (parallel_blocks > 1) {
         const dim3 block_dim_combine(DV, 1, 1);
-        const dim3 blocks_num_combine(ctx.Q.ne1, ctx.Q.ne2, ctx.Q.ne3);
+        const dim3 blocks_num_combine(ctx.Q.ne[1], ctx.Q.ne[2], ctx.Q.ne[3]);
         const size_t nbytes_shared_combine = parallel_blocks * sizeof(float2);
 
         flash_attn_combine_results<DV>
