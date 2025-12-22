@@ -758,8 +758,7 @@ static __global__ void flash_attn_tile(
         const int sequence = blockIdx.z / (ne02 / ncols2);
         const int head0 = blockIdx.z * ncols2 - sequence * ne02; // == blockIdx.z % (ne02/ncols2)
         const int gqa_ratio = ne02 / ne12; // With grouped query attention there are > 1 Q matrices per K, V matrix.
-        const char* __restrict__ Q = (const char*)ctx.Q.data;
-        const float* Q_f = (const float*)(Q + nb03 * sequence + nb02 * head0);
+        auto Q_data = make_strided_mdspan(static_cast<const float*>(ctx.Q.data), ctx.Q.ne, ctx.Q.nb);
         const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head0 / gqa_ratio));
         const half2* V_h2 = (const half2*)(V + nb23 * sequence + nb22 * (head0 / gqa_ratio)); // K and V have same shape
 
@@ -818,9 +817,8 @@ static __global__ void flash_attn_tile(
             for (int i0 = 0; i0 < DKQp; i0 += np * warp_size * cpy_ne_D) {
                 if (i0 + np * warp_size * cpy_ne_D <= DKQ || i0 + (threadIdx.y % np) * (warp_size * cpy_ne_D) + threadIdx.x * cpy_ne_D < DKQ) {
                     float tmp_f[cpy_ne_D] = { 0.0f };
-                    ggml_cuda_memcpy_1<sizeof(tmp_f)>
-                        (tmp_f, &Q_f[c * (nb02 / sizeof(float)) + fastmodulo(col_Q_0 + j, ne01) * (nb01 / sizeof(float))
-                            + i0 + (threadIdx.y % np) * (warp_size * cpy_ne_D) + threadIdx.x * cpy_ne_D]);
+                    for (size_t i = 0; i < cpy_ne_D; i++)
+                        tmp_f[i] = Q_data(sequence, head0 + c, (col_Q_0 + j) % ctx.Q.ne[1], i0 + (threadIdx.y % np) * (warp_size * cpy_ne_D) + threadIdx.x * cpy_ne_D + i);
 
 #pragma unroll
                     for (int i1 = 0; i1 < cpy_ne_D; ++i1) {
