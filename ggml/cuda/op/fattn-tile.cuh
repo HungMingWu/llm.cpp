@@ -759,9 +759,16 @@ static __global__ void flash_attn_tile(
         const int head0 = blockIdx.z * ncols2 - sequence * ne02; // == blockIdx.z % (ne02/ncols2)
         const int gqa_ratio = ne02 / ne12; // With grouped query attention there are > 1 Q matrices per K, V matrix.
         auto Q_data = make_strided_mdspan(static_cast<const float*>(ctx.Q.data), ctx.Q.ne, ctx.Q.nb);
-        const half2* K_h2 = (const half2*)(K + nb13 * sequence + nb12 * (head0 / gqa_ratio));
-        const half2* V_h2 = (const half2*)(V + nb23 * sequence + nb22 * (head0 / gqa_ratio)); // K and V have same shape
-
+        // Cast from half to half2 for K and V
+        std::array<int64_t, 4> K_ne = { ctx.K.ne0 / 2, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3 };
+        std::array<size_t, 4> K_nb = { sizeof(half2), nb11, nb12, nb13 };
+        auto K_data = make_strided_mdspan((const half2*)(K), K_ne, K_nb);
+        // Cast from half to half2, K and V have same shape
+        std::array<int64_t, 4> V_ne = { ctx.V.ne0 / 2, ctx.V.ne1, ctx.V.ne2, ctx.V.ne3 };
+        std::array<size_t, 4> V_nb = { sizeof(half2), nb21, nb22, nb23 };
+        auto V_data = make_strided_mdspan((const half2*)(V), V_ne, V_nb);
+        const half2* K_h2 = &K_data(sequence, head0 / gqa_ratio, 0, 0);
+        const half2* V_h2 = &V_data(sequence, head0 / gqa_ratio, 0, 0);
         const char* __restrict__ mask = (const char*)ctx.mask.data;
         const half* maskh = mask ? (const half*)(mask + nb33 * (sequence % ne33)) : nullptr;
 
