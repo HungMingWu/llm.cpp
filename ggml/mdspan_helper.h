@@ -53,6 +53,12 @@ namespace details {
     }
 }
 
+template <typename T, size_t N>
+using mdspan_t = std::mdspan<T, std::dims<N>, std::layout_right>;
+
+template <typename T, size_t N>
+using mdspan_stiride_t = std::mdspan<T, std::dims<N>, std::layout_stride>;
+
 template <size_t M = 4, typename T, size_t N>
 HOST DEVICE auto make_strided_mdspan(T* data, const std::array<int64_t, N>& extents, const std::array<size_t, N>& strides) {
 	return details::make_strided_mdspan(data,

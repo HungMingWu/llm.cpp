@@ -421,13 +421,13 @@ template <int warp_size, int nwarps, int ncols1, int ncols2, int DKQ, int nbatch
     bool use_logit_softcap, bool oob_check, typename T_vec_dot>
 static __device__ __forceinline__ void flash_attn_tile_iter_KQ(
     T_vec_dot* const Q_tmp,
-    const half2* const __restrict__ K_h2,
+    mdspan_stiride_t<const half2, 2> K_h2,
     T_vec_dot* const KV_tmp,
     const int stride_K2,
     const int k_VKQ_0,
     const int k_VKQ_sup,
     const int k_KQ_0,
-    std::mdspan<float, std::dims<2>> KQ_acc) {
+    mdspan_t<float, 2> KQ_acc) {
     constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
     constexpr int cpy_ne = cpy_nb / 4;
 
@@ -436,7 +436,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter_KQ(
     constexpr int np = nwarps > ncols ? nwarps / ncols : 1; // number of parallel warps per Q column
 
     flash_attn_tile_load_tile<warp_size, nwarps, nbatch_fa, nbatch_K, cpy_ne, oob_check>
-        (K_h2 + int64_t(k_VKQ_0) * stride_K2 + k_KQ_0 / 2, KV_tmp, stride_K2, k_VKQ_sup);
+        (&K_h2(k_VKQ_0, k_KQ_0 / 2), KV_tmp, stride_K2, k_VKQ_sup);
     __syncthreads();
 
     static constexpr size_t nbatch_div = fast_fp16_available_v ? 2 : 1;
@@ -486,8 +486,8 @@ template <int warp_size, int nwarps, int ncols1, int ncols2, int DKQ, int DV, in
     bool use_logit_softcap, bool oob_check, typename T_vec_dot, typename T_KQ, typename T_acc>
 static __device__ __forceinline__ void flash_attn_tile_iter(
     T_vec_dot* const Q_tmp,
-    const half2* const __restrict__ K_h2,
-    const half2* const __restrict__ V_h2,
+    mdspan_stiride_t<const half2, 2> K_h2,
+    mdspan_stiride_t<const half2, 2> V_h2,
     const half* const __restrict__ mask,
     const uint3 ne01,
     const float logit_softcap,
@@ -640,7 +640,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
 #pragma unroll
     for (int k0 = 0; k0 < nbatch_fa; k0 += nbatch_V) {
         flash_attn_tile_load_tile<warp_size, nwarps, nbatch_V, DV, 0, oob_check>
-            (V_h2 + int64_t(k_VKQ_0 + k0) * stride_V2, KV_tmp, stride_V2, k_VKQ_sup - k0);
+            (&V_h2(k_VKQ_0 + k0, 0), KV_tmp, stride_V2, k_VKQ_sup - k0);
         __syncthreads();
 
         if constexpr (fast_fp16_available_v) {
@@ -767,8 +767,8 @@ static __global__ void flash_attn_tile(
         std::array<int64_t, 4> V_ne = { ctx.V.ne0 / 2, ctx.V.ne1, ctx.V.ne2, ctx.V.ne3 };
         std::array<size_t, 4> V_nb = { sizeof(half2), nb21, nb22, nb23 };
         auto V_data = make_strided_mdspan((const half2*)(V), V_ne, V_nb);
-        const half2* K_h2 = &K_data(sequence, head0 / gqa_ratio, 0, 0);
-        const half2* V_h2 = &V_data(sequence, head0 / gqa_ratio, 0, 0);
+        mdspan_stiride_t<const half2, 2> K_h2 = std::submdspan(K_data, sequence, head0 / gqa_ratio, std::full_extent, std::full_extent);
+        mdspan_stiride_t<const half2, 2> V_h2 = std::submdspan(V_data, sequence, head0 / gqa_ratio, std::full_extent, std::full_extent);
         const char* __restrict__ mask = (const char*)ctx.mask.data;
         const half* maskh = mask ? (const half*)(mask + nb33 * (sequence % ne33)) : nullptr;
 
