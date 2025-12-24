@@ -2,7 +2,7 @@ module;
 #include <assert.h>
 #include <stdint.h>
 #include "mdspan.hpp"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include <algorithm>
 #include <ranges>
 #define GGML_ABORT(...)
@@ -20,7 +20,7 @@ static void ggml_compute_forward_sum(ggml_tensor* dst) {
 
 	float sum = 0;
 
-	std::experimental::mdspan dst_data(static_cast<T*>(dst->data), 1);
+	std::mdspan dst_data(static_cast<T*>(dst->data), 1);
 	auto src0_data = make_strided_mdspan(static_cast<const T*>(src0->data), src0->ne, src0->nb);
 
 	for (int64_t i03 = 0; i03 < src0_data.extent(0); i03++) {

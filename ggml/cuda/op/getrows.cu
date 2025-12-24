@@ -5,7 +5,7 @@
 #include "common.cuh"
 #include "dequantize.cuh"
 #include "convert.cuh"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 
 template <typename src0_t, typename dst_t>

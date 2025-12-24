@@ -15,7 +15,7 @@ module;
 #include <exec/async_scope.hpp>
 #include "block.h"
 #include "mdspan.hpp"
-#include "helper.h"
+#include "mdspan_helper.h"
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_ABORT(...)
@@ -213,7 +213,7 @@ UseGgmlGemm1:;
 		const size_t we0 = src1->ne[0] / ggml_blck_size(vec_dot_type);
 		GGML_ASSERT(src1->type == GGML_TYPE_F32);
 		wdata.resize(src1->ne[3] * src1->ne[2] * src1->ne[1] * we0);
-		std::experimental::mdspan wdata_span(wdata.data(), src1->ne[3], src1->ne[2], src1->ne[1], we0);
+		std::mdspan wdata_span(wdata.data(), src1->ne[3], src1->ne[2], src1->ne[1], we0);
 		auto src1_data = make_strided_mdspan(static_cast<const float*>(src1->data), src1->ne, src1->nb);
 
 		for (int64_t i11 = 0; i11 < src1->ne[1]; i11++) {
@@ -313,7 +313,7 @@ UseGgmlGemm2:;
 		auto src0_data = make_strided_mdspan(static_cast<const src0_t*>(src0->data), src0->ne, src0->nb);
 		auto src1_data = make_strided_mdspan(static_cast<const vec_dot_t*>(src1->data), src1->ne, src1->nb);
 		const size_t we0 = src1->ne[0] / ggml_blck_size(vec_dot_type);
-		std::experimental::mdspan wdata_span(wdata.data(), src1->ne[3], src1->ne[2], src1->ne[1], we0);
+		std::mdspan wdata_span(wdata.data(), src1->ne[3], src1->ne[2], src1->ne[1], we0);
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=, &wdata] {
 			if (src1->type == vec_dot_type) {
 				ggml_compute_forward_mul_mat_one_chunk(
@@ -493,9 +493,9 @@ static void ggml_compute_forward_conv_transpose_1d(
 	const int32_t dilation = ((const int32_t*)(dst->op_params))[2];
 	GGML_ASSERT(LOut == (L - 1) * stride - 2 * padding + dilation * (K - 1) + 1);
 
-	std::experimental::mdspan src0_data(static_cast<const T*>(src0->data), CIn, COut, K);
-	std::experimental::mdspan src1_data(static_cast<const float*>(src1->data), CIn, L);
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), COut, LOut);
+	std::mdspan src0_data(static_cast<const T*>(src0->data), CIn, COut, K);
+	std::mdspan src1_data(static_cast<const float*>(src1->data), CIn, L);
+	std::mdspan dst_data(static_cast<float*>(dst->data), COut, LOut);
 
 	for (int64_t cout = 0; cout < COut; cout++) {
 		for (int64_t lout = 0; lout < LOut; lout++) {
@@ -544,9 +544,9 @@ static void ggml_compute_forward_conv_transpose_2d(
 	const int64_t WOut = dst->ne[0];
 	const int64_t HIn = input->ne[1];
 	const int64_t WIn = input->ne[0];
-	std::experimental::mdspan kernel_data(static_cast<const T*>(kernel->data), CIn, COut, Kh, Kw);
-	std::experimental::mdspan input_kernel(static_cast<const float*>(input->data), N, CIn, HIn, WIn);
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), N, COut, HOut, WOut);
+	std::mdspan kernel_data(static_cast<const T*>(kernel->data), CIn, COut, Kh, Kw);
+	std::mdspan input_kernel(static_cast<const float*>(input->data), N, CIn, HIn, WIn);
+	std::mdspan dst_data(static_cast<float*>(dst->data), N, COut, HOut, WOut);
 
 	const int32_t stride_w = std::bit_cast<int32_t>(dst->op_params[0]);
 	const int32_t stride_h = std::bit_cast<int32_t>(dst->op_params[1]);
@@ -1192,8 +1192,8 @@ static void ggml_compute_forward_im2col_impl(
 	GGML_ASSERT(src1->nb[0] == sizeof(float));
 
 	// im2col: [N, IC, IH, IW] => [N, OH, OW, IC, KH, KW]
-	std::experimental::mdspan src_data(static_cast<ggml_fp32_t*>(src1->data), N, IC, IH, IW);
-	std::experimental::mdspan dst_data(static_cast<T*>(dst->data), N, OH, OW, IC, KH, KW);
+	std::mdspan src_data(static_cast<ggml_fp32_t*>(src1->data), N, IC, IH, IW);
+	std::mdspan dst_data(static_cast<T*>(dst->data), N, OH, OW, IC, KH, KW);
 
 	for (int64_t in = 0; in < N; in++) {
 		for (int64_t ioh = 0; ioh < OH; ioh++) { // 1
@@ -2190,11 +2190,11 @@ static void ggml_compute_forward_ssm_conv_f32(
 	GGML_ASSERT(dst->ne[2] == src0->ne[2]);
 
 	// { n_s, n_t, d_inner }
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), n_s, n_t, d_inner);
+	std::mdspan dst_data(static_cast<float*>(dst->data), n_s, n_t, d_inner);
 	// { n_s, d_inner, d_conv - 1 + n_t }
-	std::experimental::mdspan conv_x(static_cast<const float*>(src0->data), n_s, d_inner, src0->ne[0]);
+	std::mdspan conv_x(static_cast<const float*>(src0->data), n_s, d_inner, src0->ne[0]);
 	// { d_inner, d_conv }
-	std::experimental::mdspan conv1d_weight(static_cast<const float*>(src1->data), d_inner, d_conv);
+	std::mdspan conv1d_weight(static_cast<const float*>(src1->data), d_inner, d_conv);
 
 	for (int64_t i1 = 0; i1 < d_inner; i1++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
@@ -2265,7 +2265,7 @@ static void ggml_compute_forward_ssm_scan_f32(
 	GGML_ASSERT(src5->nb[0] == sizeof(float));
 	GGML_ASSERT(src6->nb[0] == sizeof(int32_t));
 	GGML_ASSERT(nh % ng == 0);
-	std::experimental::mdspan y(static_cast<float*>(dst->data), ns, nt, nh, nr);  // { ns, nt, nh, dim }
+	std::mdspan y(static_cast<float*>(dst->data), ns, nt, nh, nr);  // { ns, nt, nh, dim }
 	auto s = make_strided_mdspan((float*)((char*)dst->data + s_off), src0->ne, src0->nb); 	// {ns, nh, dim, d_state }
 	auto s0 = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb); // { ns, nh, dim, d_state }
 	auto x = make_strided_mdspan(static_cast<const float*>(src1->data), src1->ne, src1->nb); // { ns, nt, nh, dim }
@@ -2282,8 +2282,8 @@ static void ggml_compute_forward_ssm_scan_f32(
 			// ref: https://github.com/state-spaces/mamba/blob/62db608da60f6fc790b8ed9f4b3225e95ca15fde/mamba_ssm/ops/triton/softplus.py#L16
 			stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
 				for (int64_t i3 = 0; i3 < ns; ++i3) {
-					std::experimental::mdspan sub_s0(&s0[ids[i3], 0, 0, 0], nh, nr, nc);
-					std::experimental::mdspan sub_s(&s[i3, 0, 0, 0], nh, nr, nc);
+					std::mdspan sub_s0(&s0[ids[i3], 0, 0, 0], nh, nr, nc);
+					std::mdspan sub_s(&s[i3, 0, 0, 0], nh, nr, nc);
 					for (int64_t i2 = 0; i2 < nt; ++i2) {
 						// Mamba-2 has a scalar decay factor per head; dA can be outside the state-wise loop
 
@@ -2319,8 +2319,8 @@ static void ggml_compute_forward_ssm_scan_f32(
 			// ref: https://github.com/state-spaces/mamba/blob/62db608da60f6fc790b8ed9f4b3225e95ca15fde/mamba_ssm/ops/triton/softplus.py#L16
 			stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
 				for (int64_t i3 = 0; i3 < ns; ++i3) {
-					std::experimental::mdspan sub_s0(&s0[ids[i3], 0, 0, 0], nh, nr, nc);
-					std::experimental::mdspan sub_s(&s[i3, 0, 0, 0], nh, nr, nc);
+					std::mdspan sub_s0(&s0[ids[i3], 0, 0, 0], nh, nr, nc);
+					std::mdspan sub_s(&s[i3, 0, 0, 0], nh, nr, nc);
 					for (int64_t i2 = 0; i2 < nt; ++i2) {
 						// Mamba-1 has an element-wise decay factor for the states
 
@@ -2382,13 +2382,13 @@ static void ggml_compute_forward_rwkv_wkv6_f32(
 	const int64_t n_seq_tokens = T / n_seqs;
 
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), T, HEADS, head_size);
-	std::experimental::mdspan k(static_cast<const float*>(dst->src[0]->data), T, HEADS, head_size);
-	std::experimental::mdspan v(static_cast<const float*>(dst->src[1]->data), T, HEADS, head_size);
-	std::experimental::mdspan r(static_cast<const float*>(dst->src[2]->data), T, HEADS, head_size);
-	std::experimental::mdspan time_faaaa(static_cast<const float*>(dst->src[3]->data), HEADS, head_size);
-	std::experimental::mdspan time_decay(static_cast<const float*>(dst->src[4]->data), T, HEADS, head_size);
-	std::experimental::mdspan state_cur(static_cast<float*>(dst->data) + C * T, n_seqs, HEADS, head_size, head_size);
+	std::mdspan dst_data(static_cast<float*>(dst->data), T, HEADS, head_size);
+	std::mdspan k(static_cast<const float*>(dst->src[0]->data), T, HEADS, head_size);
+	std::mdspan v(static_cast<const float*>(dst->src[1]->data), T, HEADS, head_size);
+	std::mdspan r(static_cast<const float*>(dst->src[2]->data), T, HEADS, head_size);
+	std::mdspan time_faaaa(static_cast<const float*>(dst->src[3]->data), HEADS, head_size);
+	std::mdspan time_decay(static_cast<const float*>(dst->src[4]->data), T, HEADS, head_size);
+	std::mdspan state_cur(static_cast<float*>(dst->data) + C * T, n_seqs, HEADS, head_size, head_size);
 
 	memset(dst->data, 0, T * C * sizeof(float));
 
@@ -2399,7 +2399,7 @@ static void ggml_compute_forward_rwkv_wkv6_f32(
 				// dst = r @ (time_faaaa * (k @ v) + state),
 				// state = time_decay * state + (k @ v),
 				// recursive through each token
-				std::experimental::mdspan state_prev(static_cast<float*>(dst->src[5]->data), n_seqs, HEADS, head_size, head_size);
+				std::mdspan state_prev(static_cast<float*>(dst->src[5]->data), n_seqs, HEADS, head_size, head_size);
 				for (int64_t t = batch_i * n_seq_tokens; t < (batch_i + 1) * n_seq_tokens; t++) {
 					for (int64_t i = 0; i < head_size; i++) {
 						for (int64_t j = 0; j < head_size; j++) {
@@ -2453,19 +2453,19 @@ static void ggml_compute_forward_gla_f32(
 
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), T, HEADS, head_size);
-	std::experimental::mdspan k(static_cast<const float*>(dst->src[0]->data), T, HEADS, head_size);
-	std::experimental::mdspan v(static_cast<const float*>(dst->src[1]->data), T, HEADS, head_size);
-	std::experimental::mdspan q(static_cast<const float*>(dst->src[2]->data), T, HEADS, head_size);
-	std::experimental::mdspan g(static_cast<const float*>(dst->src[3]->data), T, HEADS, head_size);
-	std::experimental::mdspan state_cur(static_cast<float*>(dst->data) + C * T, n_seqs, HEADS, head_size, head_size);
+	std::mdspan dst_data(static_cast<float*>(dst->data), T, HEADS, head_size);
+	std::mdspan k(static_cast<const float*>(dst->src[0]->data), T, HEADS, head_size);
+	std::mdspan v(static_cast<const float*>(dst->src[1]->data), T, HEADS, head_size);
+	std::mdspan q(static_cast<const float*>(dst->src[2]->data), T, HEADS, head_size);
+	std::mdspan g(static_cast<const float*>(dst->src[3]->data), T, HEADS, head_size);
+	std::mdspan state_cur(static_cast<float*>(dst->data) + C * T, n_seqs, HEADS, head_size, head_size);
 
 	memset(dst->data, 0, T * C * sizeof(float));
 
 	for (int64_t h = 0; h < HEADS; h++) {
 		for (int64_t batch_i = 0; batch_i < n_seqs; batch_i++) {
 			stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-				std::experimental::mdspan state_prev(static_cast<float*>(dst->src[4]->data), n_seqs, HEADS, head_size, head_size);
+				std::mdspan state_prev(static_cast<float*>(dst->src[4]->data), n_seqs, HEADS, head_size, head_size);
 				for (int64_t t = batch_i * n_seq_tokens; t < (batch_i + 1) * n_seq_tokens; t++) {
 					for (int64_t i = 0; i < head_size; i++) {
 						for (int64_t j = 0; j < head_size; j++) {
@@ -2517,7 +2517,7 @@ static void ggml_compute_forward_mul_mat_id_one_chunk(
 	const int64_t ir1_start,
 	const int64_t ir1_end,
 	const char* src0_cur,
-	const std::experimental::mdspan<mmid_row_mapping, std::experimental::dims<2>> matrix_rows,
+	const std::mdspan<mmid_row_mapping, std::dims<2>> matrix_rows,
 	const size_t row_size,
 	const bool src1_cont,
 	const void* wdata) {
@@ -2610,7 +2610,7 @@ static void ggml_compute_forward_mul_mat_id(
 	// initialize matrix_row_counts
 	std::vector<int64_t> matrix_row_counts(n_as, 0); // [n_as]
 	std::vector<mmid_row_mapping> matrix_rows(n_as * ids->ne[0] * ids->ne[1]); // [n_as][ids->ne[0]*ids->ne[1]]
-	std::experimental::mdspan matrix_rows_view(matrix_rows.data(), n_as, ids->ne[0] * ids->ne[1]);
+	std::mdspan matrix_rows_view(matrix_rows.data(), n_as, ids->ne[0] * ids->ne[1]);
 
 	std::vector<uint8_t> wdata_1;
 
@@ -3110,9 +3110,9 @@ static void ggml_compute_forward_soft_max_ext_back_f32(
 
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
-	std::experimental::mdspan dx(static_cast<float*>(dst->data), dst->ne[3] * dst->ne[2] * dst->ne[1], dst->ne[0]);
-	std::experimental::mdspan dy(static_cast<const float*>(src0->data), src0->ne[3] * src0->ne[2] * src0->ne[1], src0->ne[0]);
-	std::experimental::mdspan y(static_cast<const float*>(src1->data), src1->ne[3] * src1->ne[2] * src1->ne[1], src1->ne[0]);
+	std::mdspan dx(static_cast<float*>(dst->data), dst->ne[3] * dst->ne[2] * dst->ne[1], dst->ne[0]);
+	std::mdspan dy(static_cast<const float*>(src0->data), src0->ne[3] * src0->ne[2] * src0->ne[1], src0->ne[0]);
+	std::mdspan y(static_cast<const float*>(src1->data), src1->ne[3] * src1->ne[2] * src1->ne[1], src1->ne[0]);
 
 	// row range for this thread
 	for (int64_t i1 = 0; i1 < dx.extent(0); i1++) {
@@ -3685,7 +3685,7 @@ static void ggml_compute_forward_timestep_embedding_f32(
 	const int max_period = std::bit_cast<int>(dst->op_params[1]);
 
 	int half = dim / 2;
-	std::experimental::mdspan embed_data(static_cast<float*>(dst->data), dst->ne[1], dst->ne[0]);
+	std::mdspan embed_data(static_cast<float*>(dst->data), dst->ne[1], dst->ne[0]);
 	for (int64_t i = 0; i < src0->ne[0]; i++) {
 		if (dim % 2 != 0) {
 			embed_data[i, 2 * half] = 0.f;
@@ -4006,8 +4006,8 @@ static void ggml_compute_forward_cross_entropy_loss_f32(
 
 	std::atomic<float> sums;
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
-	std::experimental::mdspan src0_data(static_cast<float*>(src0->data), src0->ne[1], src0->ne[0]);
-	std::experimental::mdspan src1_data(static_cast<float*>(src1->data), src1->ne[1], src1->ne[0]);
+	std::mdspan src0_data(static_cast<float*>(src0->data), src0->ne[1], src0->ne[0]);
+	std::mdspan src1_data(static_cast<float*>(src1->data), src1->ne[1], src1->ne[0]);
 
 	for (int64_t i1 = 0; i1 < nr; i1++) {
 		stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=, &sums] {
@@ -4094,9 +4094,9 @@ static void ggml_compute_forward_cross_entropy_loss_back_f32(
 	const int64_t nc = src0f->ne[0];
 	const int64_t nr = ggml_nrows(src0f);
 
-	std::experimental::mdspan ds0(static_cast<float*>(dst->data), nr, nc);
-	std::experimental::mdspan s0(static_cast<const float*>(src0f->data), nr, nc);
-	std::experimental::mdspan s1(static_cast<const float*>(src1f->data), nr, nc);
+	std::mdspan ds0(static_cast<float*>(dst->data), nr, nc);
+	std::mdspan s0(static_cast<const float*>(src0f->data), nr, nc);
+	std::mdspan s1(static_cast<const float*>(src1f->data), nr, nc);
 	const float d_by_nr = ((const float*)grad->data)[0] / (float)nr;
 
 	// row range for this thread
@@ -4301,19 +4301,19 @@ static void ggml_compute_forward_rwkv_wkv7_f32(
 
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), T, HEADS, head_size);
-	std::experimental::mdspan r(static_cast<const float*>(dst->src[0]->data), T, HEADS, head_size);
-	std::experimental::mdspan w(static_cast<const float*>(dst->src[1]->data), T, HEADS, head_size);
-	std::experimental::mdspan k(static_cast<const float*>(dst->src[2]->data), T, HEADS, head_size);
-	std::experimental::mdspan v(static_cast<const float*>(dst->src[3]->data), T, HEADS, head_size);
-	std::experimental::mdspan a(static_cast<const float*>(dst->src[4]->data), T, HEADS, head_size);
-	std::experimental::mdspan b(static_cast<const float*>(dst->src[5]->data), T, HEADS, head_size);
-	std::experimental::mdspan state_cur(static_cast<float*>(state), n_seqs, HEADS, head_size, head_size);
+	std::mdspan dst_data(static_cast<float*>(dst->data), T, HEADS, head_size);
+	std::mdspan r(static_cast<const float*>(dst->src[0]->data), T, HEADS, head_size);
+	std::mdspan w(static_cast<const float*>(dst->src[1]->data), T, HEADS, head_size);
+	std::mdspan k(static_cast<const float*>(dst->src[2]->data), T, HEADS, head_size);
+	std::mdspan v(static_cast<const float*>(dst->src[3]->data), T, HEADS, head_size);
+	std::mdspan a(static_cast<const float*>(dst->src[4]->data), T, HEADS, head_size);
+	std::mdspan b(static_cast<const float*>(dst->src[5]->data), T, HEADS, head_size);
+	std::mdspan state_cur(static_cast<float*>(state), n_seqs, HEADS, head_size, head_size);
 
 	for (int64_t h = 0; h < HEADS; h++) {
 		for (int64_t batch_i = 0; batch_i < n_seqs; batch_i++) {
 			stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-				std::experimental::mdspan state_prev(static_cast<float*>(dst->src[6]->data), n_seqs, HEADS, head_size, head_size);
+				std::mdspan state_prev(static_cast<float*>(dst->src[6]->data), n_seqs, HEADS, head_size, head_size);
 				for (int64_t t = batch_i * n_seq_tokens; t < (batch_i + 1) * n_seq_tokens; t++) {
 					for (int64_t i = 0; i < head_size; i++) {
 						float sa = 0, result = 0;
@@ -4467,9 +4467,9 @@ static void ggml_compute_forward_conv_2d_dw_nchw(
 	ggml_tensor* dst,
 	const ggml_conv_2d_dw_params& ctx) {
 	// [N, C, H, W] layout
-	std::experimental::mdspan input_data(static_cast<const float*>(src->data), ctx.batches, ctx.channels, ctx.in_h, ctx.in_w);
-	std::experimental::mdspan kernel_data(static_cast<const float*>(kernel->data), ctx.channels, ctx.kernel_h, ctx.kernel_w);
-	std::experimental::mdspan output_data(static_cast<float*>(dst->data), ctx.batches, ctx.channels, ctx.out_h, ctx.out_w);
+	std::mdspan input_data(static_cast<const float*>(src->data), ctx.batches, ctx.channels, ctx.in_h, ctx.in_w);
+	std::mdspan kernel_data(static_cast<const float*>(kernel->data), ctx.channels, ctx.kernel_h, ctx.kernel_w);
+	std::mdspan output_data(static_cast<float*>(dst->data), ctx.batches, ctx.channels, ctx.out_h, ctx.out_w);
 
 	for (int64_t batch = 0; batch < ctx.batches; batch++) {
 		for (int64_t channel = 0; channel < ctx.channels; channel++) {
@@ -4513,9 +4513,9 @@ static void ggml_compute_forward_conv_2d_dw_nhwc(
 	const ggml_conv_2d_dw_params& ctx) {
 
 	// [N, H, W, C] layout
-	std::experimental::mdspan input_data(static_cast<const float*>(src->data), ctx.batches, ctx.in_h, ctx.in_w, ctx.channels);
-	std::experimental::mdspan kernel_data(static_cast<const float*>(kernel->data), ctx.kernel_h, ctx.kernel_w, ctx.channels);
-	std::experimental::mdspan output_data(static_cast<float*>(dst->data), ctx.batches, ctx.out_h, ctx.out_w, ctx.channels);
+	std::mdspan input_data(static_cast<const float*>(src->data), ctx.batches, ctx.in_h, ctx.in_w, ctx.channels);
+	std::mdspan kernel_data(static_cast<const float*>(kernel->data), ctx.kernel_h, ctx.kernel_w, ctx.channels);
+	std::mdspan output_data(static_cast<float*>(dst->data), ctx.batches, ctx.out_h, ctx.out_w, ctx.channels);
 
 	for (int64_t batch = 0; batch < ctx.batches; batch++) {
 		for (int64_t oh = 0; oh < ctx.out_h; oh++) {
@@ -5124,9 +5124,9 @@ static void ggml_compute_forward_conv_2d_impl(
 	const int64_t CIn = input->ne[2];
 	const int64_t IH = input->ne[1];
 	const int64_t IW = input->ne[0];
-	std::experimental::mdspan input_data(static_cast<const float*>(input->data), N, CIn, IH, IW);
-	std::experimental::mdspan kernel_data(static_cast<const kernel_t*>(kernel->data), COut, CIn, KH, KW);
-	std::experimental::mdspan output_data(static_cast<float*>(dst->data), N, COut, OH, OW);
+	std::mdspan input_data(static_cast<const float*>(input->data), N, CIn, IH, IW);
+	std::mdspan kernel_data(static_cast<const kernel_t*>(kernel->data), COut, CIn, KH, KW);
+	std::mdspan output_data(static_cast<float*>(dst->data), N, COut, OH, OW);
 
 	for (int64_t n = 0; n < N; n++) {
 		for (int64_t cout = 0; cout < COut; cout++) {
@@ -5217,7 +5217,7 @@ static void ggml_compute_forward_conv_3d_impl(
 	const int64_t knl_n_total = knl_n_per_channel * c;
 	const int64_t patch_total = n * dst_w * dst_h * dst_d;
 
-	std::experimental::mdspan src_data(static_cast<const float*>(src->data), n, c, src_d, src_h, src_w);
+	std::mdspan src_data(static_cast<const float*>(src->data), n, c, src_d, src_h, src_w);
 	std::vector<kernel_t> tmp_data(knl_w * knl_h * knl_d * c * patch_total);
 
 	std::array<int64_t, 8> element_ne = { knl_w, knl_h, knl_d, c, dst_w, dst_h, dst_d, n }; // reverse order
@@ -5269,12 +5269,12 @@ static void ggml_compute_forward_conv_3d_impl(
 	stdexec::sync_wait(scope.on_empty());
 
 	std::vector<float> gemm_output1(patch_total * oc);
-	std::experimental::mdspan gemm_output(gemm_output1.data(), n, dst_d, dst_h, dst_w, oc);
+	std::mdspan gemm_output(gemm_output1.data(), n, dst_d, dst_h, dst_w, oc);
 	ggml_call_mul_mat(kernel->type, pool, scope, patch_total, oc, knl_n_total, tmp_data.data(), knl_data, gemm_output1.data());
 
 	stdexec::sync_wait(scope.on_empty());
 
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), n, oc, dst_d, dst_h, dst_w);
+	std::mdspan dst_data(static_cast<float*>(dst->data), n, oc, dst_d, dst_h, dst_w);
 
 	for (int64_t batch_idx = 0; batch_idx < n; batch_idx++) {
 		for (int64_t dst_z = 0; dst_z < dst_d; dst_z++) {
@@ -5562,7 +5562,7 @@ static void ggml_compute_forward_im2col_3d(
 	std::array<int64_t, 5> new_src_ne = { IW, IH, ID, IC, N }; // reverse order
 	std::array<size_t, 5> new_src_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3], src1->nb[3]* IC};
 	auto src_data = make_strided_mdspan<5>(static_cast<const float*>(src1->data), new_src_ne, new_src_nb);
-	std::experimental::mdspan dst_data(static_cast<dst_t*>(dst->data), N, OD, OH, OW, IC, KD, KH, KW);
+	std::mdspan dst_data(static_cast<dst_t*>(dst->data), N, OD, OH, OW, IC, KD, KH, KW);
 	// im2col: [N, IC, ID, IH, IW] => [N, OD, OH, OW, IC, KD, KH, KW]
 	for (int64_t iic = 0; iic < IC; iic++) {
 		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
@@ -5658,7 +5658,7 @@ void ggml_compute_forward_im2col_back_f32(
 
 	// im2col: [N, IC, IH, IW] => [N, OH, OW, IC, KH, KW]
 	{
-		std::experimental::mdspan grad_in(static_cast<const float*>(src0->data), N, OH, OW, IC, KH, KW);
+		std::mdspan grad_in(static_cast<const float*>(src0->data), N, OH, OW, IC, KH, KW);
 #if 0
 		float* const wdata = (float*)dst->data;
 #else

@@ -1,6 +1,6 @@
 #include "cuda_func.h"
 #include "common.cuh"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 
 void pad_reflect_1d_cuda(const pad_reflect_1d_context& ctx, cudaStream_t stream)

@@ -1,5 +1,5 @@
 #include "cuda_func.h"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 #include "convert.cuh"
 
@@ -13,9 +13,9 @@ void conv_transpose_1d_f32_cuda(const conv_transpose_1d_context& ctx, cudaStream
     const int64_t L = ctx.src1_ne[0];
     const int64_t LOut = ctx.dst_ne[0];
     assert(LOut == (L - 1) * ctx.stride - 2 * ctx.padding + ctx.dilation * (K - 1) + 1);
-    std::experimental::mdspan dst_data(ctx.dst_d, ctx.dst_ne[1], ctx.dst_ne[0]);
-    std::experimental::mdspan src0_data(static_cast<const T*>(ctx.src0_d), ctx.src0_ne[2], ctx.src0_ne[1], ctx.src0_ne[0]);
-    std::experimental::mdspan src1_data(ctx.src1_d, ctx.src1_ne[1], ctx.src1_ne[0]);
+    std::mdspan dst_data(ctx.dst_d, ctx.dst_ne[1], ctx.dst_ne[0]);
+    std::mdspan src0_data(static_cast<const T*>(ctx.src0_d), ctx.src0_ne[2], ctx.src0_ne[1], ctx.src0_ne[0]);
+    std::mdspan src1_data(ctx.src1_d, ctx.src1_ne[1], ctx.src1_ne[0]);
     launch_functor(stream, std::make_tuple(COut, LOut),
         [=] __device__(int64_t cout, int64_t lout) {
             float accumulator = 0;

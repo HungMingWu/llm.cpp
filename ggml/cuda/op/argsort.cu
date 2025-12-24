@@ -1,7 +1,7 @@
 #include <algorithm>
 #include "cuda_func.h"
 #include "common.cuh"
-#include "helper.h"
+#include "mdspan_helper.h"
 
 #define GGML_ASSERT(...)
 #define GGML_ABORT(...)
@@ -10,7 +10,7 @@
 
 template <internal::ggml_sort_order order>
 struct argsort_cmp {
-    std::experimental::mdspan<const float, std::dextents<size_t, 2>> data;
+    std::mdspan<const float, std::dims<2>> data;
     int32_t* dst_row;
     int row;
     __device__ bool operator()(int32_t a, int32_t b) const {
@@ -89,8 +89,8 @@ void argsort_f32_i32_cuda_bitonic(const float* x,
     // FIXME: this limit could be raised by ~2-4x on Ampere or newer
     GGML_ASSERT(shared_mem <= ggml_cuda_info().devices[ggml_cuda_get_device()].smpb);
 
-    std::experimental::mdspan x_data(x, nrows, ncols);
-    std::experimental::mdspan dst_data(dst, nrows, ncols);
+    std::mdspan x_data(x, nrows, ncols);
+    std::mdspan dst_data(dst, nrows, ncols);
 
     if (order == internal::GGML_SORT_ORDER_ASC) {
         k_argsort_f32_i32<internal::GGML_SORT_ORDER_ASC>

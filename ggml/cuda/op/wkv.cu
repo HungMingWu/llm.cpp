@@ -1,5 +1,5 @@
 #include "cuda_func.h"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "operator.cuh"
 #include "launch.cuh"
 
@@ -117,14 +117,14 @@ static __global__ void rwkv_wkv7_f32(const int n_seqs,
 template <size_t head_size>
 void rwkv_wkv6_cuda(const rwkv_wkv6_context& ctx, cudaStream_t stream)
 {
-    std::experimental::mdspan s(ctx.s, ctx.n_seqs, ctx.HEADS, head_size, head_size);
-    std::experimental::mdspan k(ctx.k, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan r(ctx.r, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan v(ctx.v, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan td(ctx.td, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan tf(ctx.tf, ctx.HEADS, head_size);
-    std::experimental::mdspan dst_data(ctx.dst, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan dst_state(ctx.dst + ctx.T * ctx.C, ctx.n_seqs, ctx.HEADS, head_size, head_size);
+    std::mdspan s(ctx.s, ctx.n_seqs, ctx.HEADS, head_size, head_size);
+    std::mdspan k(ctx.k, ctx.T, ctx.HEADS, head_size);
+    std::mdspan r(ctx.r, ctx.T, ctx.HEADS, head_size);
+    std::mdspan v(ctx.v, ctx.T, ctx.HEADS, head_size);
+    std::mdspan td(ctx.td, ctx.T, ctx.HEADS, head_size);
+    std::mdspan tf(ctx.tf, ctx.HEADS, head_size);
+    std::mdspan dst_data(ctx.dst, ctx.T, ctx.HEADS, head_size);
+    std::mdspan dst_state(ctx.dst + ctx.T * ctx.C, ctx.n_seqs, ctx.HEADS, head_size, head_size);
     rwkv_wkv6_f32<head_size> << <ctx.n_seqs * ctx.HEADS, head_size, 0, stream >> >
         (ctx.n_seqs, ctx.T, ctx.C, ctx.HEADS, k, v, r, tf, td, s, dst_data, dst_state);
 }
@@ -144,15 +144,15 @@ void rwkv_wkv6_cuda(const rwkv_wkv6_context&ctx, cudaStream_t stream)
 template <size_t head_size>
 void rwkv_wkv7_cuda(const rwkv_wkv7_context& ctx, cudaStream_t stream)
 {
-    std::experimental::mdspan s(ctx.s, ctx.n_seqs, ctx.HEADS, head_size, head_size);
-    std::experimental::mdspan r(ctx.r, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan w(ctx.w, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan k(ctx.k, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan a(ctx.a, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan b(ctx.b, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan v(ctx.v, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan dst_data(ctx.dst, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan dst_state(ctx.dst + ctx.T * ctx.C, ctx.n_seqs, ctx.HEADS, head_size, head_size);
+    std::mdspan s(ctx.s, ctx.n_seqs, ctx.HEADS, head_size, head_size);
+    std::mdspan r(ctx.r, ctx.T, ctx.HEADS, head_size);
+    std::mdspan w(ctx.w, ctx.T, ctx.HEADS, head_size);
+    std::mdspan k(ctx.k, ctx.T, ctx.HEADS, head_size);
+    std::mdspan a(ctx.a, ctx.T, ctx.HEADS, head_size);
+    std::mdspan b(ctx.b, ctx.T, ctx.HEADS, head_size);
+    std::mdspan v(ctx.v, ctx.T, ctx.HEADS, head_size);
+    std::mdspan dst_data(ctx.dst, ctx.T, ctx.HEADS, head_size);
+    std::mdspan dst_state(ctx.dst + ctx.T * ctx.C, ctx.n_seqs, ctx.HEADS, head_size, head_size);
     rwkv_wkv7_f32<CUDA_WKV_BLOCK_SIZE> << <ctx.n_seqs * ctx.HEADS, head_size, 0, stream >> >
         (ctx.n_seqs, ctx.T, ctx.C, ctx.HEADS, r, w, k, v, a, b, s, dst_data, dst_state);
 }

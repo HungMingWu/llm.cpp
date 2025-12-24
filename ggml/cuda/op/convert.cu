@@ -8,7 +8,7 @@
 #include <assert.h>
 #include <type_traits>
 #include "launch.cuh"
-#include "helper.h"
+#include "mdspan_helper.h"
 
 #define CUDA_DEQUANTIZE_BLOCK_SIZE 256
 
@@ -16,7 +16,7 @@ template <typename src_t, typename dst_t>
 void convert_unary_cuda(const convert_context& ctx, const void* vx, dst_t* y, cudaStream_t stream) {
     auto src_data = make_strided_mdspan(static_cast<const src_t*>(vx), ctx.src_ne, ctx.src_nb);
     int64_t dst_ne[4] = { ctx.src_ne[0], ctx.src_ne[1], ctx.src_ne[2], ctx.src_ne[3] };
-    std::experimental::mdspan dst_data(y, dst_ne[3], dst_ne[2], dst_ne[1], dst_ne[0]);
+    std::mdspan dst_data(y, dst_ne[3], dst_ne[2], dst_ne[1], dst_ne[0]);
     launch_functor(stream, std::make_tuple(dst_ne[3], dst_ne[2], dst_ne[1], dst_ne[0]),
         [=] __device__(int64_t i3, int64_t i2, int64_t i1, int64_t i0) {
             dst_data(i3, i2, i1, i0) = ggml_cuda_cast<dst_t>(src_data(i3, i2, i1, i0));
@@ -309,7 +309,7 @@ template <typename src_t, int qr, typename dst_t>
 void dequantize_block_cuda(const convert_context &ctx, const void* x, dst_t* y, cudaStream_t stream) {
     auto src_data = make_strided_mdspan(static_cast<const src_t*>(x), ctx.src_ne, ctx.src_nb);
     int64_t dst_ne[4] = { ctx.src_ne[0], ctx.src_ne[1], ctx.src_ne[2], ctx.src_ne[3] };
-    std::experimental::mdspan dst_data(y, dst_ne[3], dst_ne[2], dst_ne[1], dst_ne[0]);
+    std::mdspan dst_data(y, dst_ne[3], dst_ne[2], dst_ne[1], dst_ne[0]);
     const int qk = src_t::block_size;
     launch_functor(stream, std::make_tuple(ctx.src_ne[3], ctx.src_ne[2], ctx.src_ne[1], ctx.src_ne[0] / 2),
         [=] __device__(int64_t i03, int64_t i02, int64_t i01, int64_t i00) {
@@ -345,7 +345,7 @@ void dequantize_block_cuda(const convert_context& ctx, const void* x, dst_t* y, 
     }
     auto src_data = make_strided_mdspan(static_cast<const src_t*>(x), src_ne, ctx.src_nb);
     int64_t dst_ne[4] = { ctx.src_ne[0], ctx.src_ne[1], ctx.src_ne[2], ctx.src_ne[3] };
-    std::experimental::mdspan dst_data(y, dst_ne[3], dst_ne[2], dst_ne[1], dst_ne[0]);
+    std::mdspan dst_data(y, dst_ne[3], dst_ne[2], dst_ne[1], dst_ne[0]);
     constexpr auto threads = [] {
         if constexpr (std::is_same_v<src_t, block_q2_K>) return 64;
         if constexpr (std::is_same_v<src_t, block_q3_K>) return 64;

@@ -5,7 +5,7 @@ module;
 #include <bit>
 #include <iostream>
 #include <ranges>
-#include "helper.h"
+#include "mdspan_helper.h"
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 

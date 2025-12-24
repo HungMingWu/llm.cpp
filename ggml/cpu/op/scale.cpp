@@ -27,8 +27,8 @@ static void ggml_compute_forward_scale_f32(ggml_tensor* dst) {
 
     const size_t nb1 = dst->nb[1];
 
-    std::experimental::mdspan dst_data(static_cast<float*>(dst->data), nr, nc);
-    std::experimental::mdspan src0_data(static_cast<const float*>(src0->data), nr, nc);
+    std::mdspan dst_data(static_cast<float*>(dst->data), nr, nc);
+    std::mdspan src0_data(static_cast<const float*>(src0->data), nr, nc);
 
     if (b == 0.0f) {
         for (int64_t i1 = 0; i1 < nr; i1++) {

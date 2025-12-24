@@ -1,6 +1,6 @@
 #include <algorithm>
 #include "cuda_func.h"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 
 void add_id_cuda(const add_id_context &ctx, cudaStream_t stream)

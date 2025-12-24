@@ -2,7 +2,7 @@
 #include "cuda_func.h"
 #include "common.cuh"
 #include "convert.cuh"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "reduce.cuh"
 
 static constexpr size_t CUDA_SOFT_MAX_BLOCK_SIZE = 1024;
@@ -158,8 +158,8 @@ void soft_max_back_f32_cuda(const softmax_back_context &ctx, cudaStream_t stream
     const dim3 block_dims(WARP_SIZE, 1, 1);
     const dim3 block_nums(ctx.nrows, 1, 1);
 
-    std::experimental::mdspan grad(ctx.src0_d, ctx.nrows, ctx.ncols);
-    std::experimental::mdspan dstf(ctx.src1_d, ctx.nrows, ctx.ncols);
-    std::experimental::mdspan dst(ctx.dst_d, ctx.nrows, ctx.ncols);
+    std::mdspan grad(ctx.src0_d, ctx.nrows, ctx.ncols);
+    std::mdspan dstf(ctx.src1_d, ctx.nrows, ctx.ncols);
+    std::mdspan dst(ctx.dst_d, ctx.nrows, ctx.ncols);
     soft_max_back_f32 << <block_nums, block_dims, 0, stream >> > (grad, dstf, dst, ctx.ncols, ctx.scale);
 }

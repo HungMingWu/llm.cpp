@@ -13,12 +13,18 @@
 #include "mdspan.hpp"
 #include <array>
 
+namespace std {
+    // C++26
+    template <size_t N>
+    using dims = std::dextents<size_t, N>;
+}
+
 namespace details {
     template <size_t N, std::size_t... I>
     HOST DEVICE auto construct_extent_type(const std::span<const int64_t, N>& extents, std::index_sequence<I...>)
     {
         // Reverse order, maybe change it.
-        using extents_type = std::experimental::dims<N>;
+        using extents_type = std::dims<N>;
         return extents_type(extents[N - I - 1]...);
     }
 
@@ -42,8 +48,8 @@ namespace details {
     HOST DEVICE auto make_strided_mdspan(T* data, const std::span<const int64_t, N>& extents, const std::span<const size_t, N>& strides) {
         auto ext = details::construct_extent_type(extents, Indx{});
         auto new_strides = details::construct_stride(strides, Indx{});
-        auto mapping = std::experimental::layout_stride::mapping<decltype(ext)> { ext, new_strides };
-        return std::experimental::mdspan(data, mapping);
+        auto mapping = std::layout_stride::mapping<decltype(ext)> { ext, new_strides };
+        return std::mdspan(data, mapping);
     }
 }
 
@@ -66,8 +72,8 @@ class mdarray {
 public:
     static constexpr std::size_t rank = sizeof...(Extents);
 
-    using extents_type = std::experimental::extents<std::size_t, Extents...>;
-    using mdspan_type = std::experimental::mdspan<T, extents_type>;
+    using extents_type = std::extents<std::size_t, Extents...>;
+    using mdspan_type = std::mdspan<T, extents_type>;
 
 private:
     static constexpr std::size_t total_size = (Extents * ...);

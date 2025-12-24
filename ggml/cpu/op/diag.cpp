@@ -1,7 +1,7 @@
 module;
 #include <assert.h>
 #include <stdint.h>
-#include "helper.h"
+#include "mdspan_helper.h"
 #define GGML_ABORT(...)
 
 module ggml;

@@ -1,6 +1,6 @@
 #include "common.cuh"
 #include "cuda_func.h"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 
 void concat_cuda(const concat_context &ctx, cudaStream_t stream)

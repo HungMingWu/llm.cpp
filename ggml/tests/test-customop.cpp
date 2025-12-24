@@ -50,9 +50,9 @@ task_vector custom2(ggml_tensor* dst) {
     assert(ggml_is_contiguous(dst));
     assert(ggml_is_contiguous(a));
     assert(ggml_is_contiguous(b));
-    std::experimental::mdspan dst_data(ggml_get_data_f32(dst), dst->ne[3], dst->ne[2], dst->ne[1], dst->ne[0]);
-    std::experimental::mdspan a_data(ggml_get_data_f32(a), a->ne[3], a->ne[2], a->ne[1], a->ne[0]);
-    std::experimental::mdspan b_data(ggml_get_data_f32(b), b->ne[3], b->ne[2], b->ne[1], b->ne[0]);
+    std::mdspan dst_data(ggml_get_data_f32(dst), dst->ne[3], dst->ne[2], dst->ne[1], dst->ne[0]);
+    std::mdspan a_data(ggml_get_data_f32(a), a->ne[3], a->ne[2], a->ne[1], a->ne[0]);
+    std::mdspan b_data(ggml_get_data_f32(b), b->ne[3], b->ne[2], b->ne[1], b->ne[0]);
 
     task_vector tasks;
     for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
@@ -123,12 +123,12 @@ task_vector custom(ggml_tensor* dst) {
     assert(ggml_are_same_shape(dst, src3));
     assert(ggml_are_same_shape(dst, src4));
 
-    std::experimental::mdspan dst_data((int32_t*)ggml_get_data(dst), dst->ne[3], dst->ne[2], dst->ne[1], dst->ne[0]);
-    std::experimental::mdspan src0_data(ggml_get_data_f32(src0), src0->ne[3], src0->ne[2], src0->ne[1], src0->ne[0]);
-    std::experimental::mdspan src1_data(ggml_get_data_f32(src1), src1->ne[3], src1->ne[2], src1->ne[1], src1->ne[0]);
-    std::experimental::mdspan src2_data(ggml_get_data_f32(src2), src2->ne[3], src2->ne[2], src2->ne[1], src2->ne[0]);
-    std::experimental::mdspan src3_data(ggml_get_data_f32(src3), src3->ne[3], src3->ne[2], src3->ne[1], src3->ne[0]);
-    std::experimental::mdspan src4_data(ggml_get_data_f32(src4), src4->ne[3], src4->ne[2], src4->ne[1], src4->ne[0]);
+    std::mdspan dst_data((int32_t*)ggml_get_data(dst), dst->ne[3], dst->ne[2], dst->ne[1], dst->ne[0]);
+    std::mdspan src0_data(ggml_get_data_f32(src0), src0->ne[3], src0->ne[2], src0->ne[1], src0->ne[0]);
+    std::mdspan src1_data(ggml_get_data_f32(src1), src1->ne[3], src1->ne[2], src1->ne[1], src1->ne[0]);
+    std::mdspan src2_data(ggml_get_data_f32(src2), src2->ne[3], src2->ne[2], src2->ne[1], src2->ne[0]);
+    std::mdspan src3_data(ggml_get_data_f32(src3), src3->ne[3], src3->ne[2], src3->ne[1], src3->ne[0]);
+    std::mdspan src4_data(ggml_get_data_f32(src4), src4->ne[3], src4->ne[2], src4->ne[1], src4->ne[0]);
 
     task_vector tasks;
     for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {

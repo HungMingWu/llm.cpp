@@ -5,7 +5,7 @@ module;
 #include "mdspan.hpp"
 #include <algorithm>
 #include <bit>
-#include "helper.h"
+#include "mdspan_helper.h"
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_ABORT(...)

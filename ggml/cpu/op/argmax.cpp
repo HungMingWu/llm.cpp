@@ -17,8 +17,8 @@ static void ggml_compute_forward_argmax_f32(ggml_tensor* dst) {
 	assert(src0->nb[0] == sizeof(float));
 	assert(dst->nb[0] == sizeof(int32_t));
 
-	std::experimental::mdspan dst_data(static_cast<int32_t*>(dst->data), dst->ne[0]);
-	std::experimental::mdspan src0_data(static_cast<float*>(src0->data), src0->ne[1], src0->ne[0]);
+	std::mdspan dst_data(static_cast<int32_t*>(dst->data), dst->ne[0]);
+	std::mdspan src0_data(static_cast<float*>(src0->data), src0->ne[1], src0->ne[0]);
 
 	for (int64_t i = 0; i < src0_data.extent(0); i++) {
 		float maxValue = -std::numeric_limits<float>::infinity();

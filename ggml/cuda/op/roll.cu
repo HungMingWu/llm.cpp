@@ -1,5 +1,5 @@
 #include "cuda_func.h"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 
 static __forceinline__ __device__ int64_t wrap_index(const int64_t idx, const int64_t ne) {

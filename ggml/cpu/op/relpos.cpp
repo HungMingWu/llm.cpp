@@ -14,8 +14,8 @@ static void ggml_compute_forward_get_rel_pos_f16(ggml_tensor* dst) {
 
 	const int64_t w = dst->ne[1];
 
-	std::experimental::mdspan dst_data(static_cast<ggml_fp16_t*>(dst->data), dst->ne[2], dst->ne[1], dst->ne[0]);
-	std::experimental::mdspan src0_data(static_cast<const ggml_fp16_t*>(src0->data),  src0->ne[1], src0->ne[0]);
+	std::mdspan dst_data(static_cast<ggml_fp16_t*>(dst->data), dst->ne[2], dst->ne[1], dst->ne[0]);
+	std::mdspan src0_data(static_cast<const ggml_fp16_t*>(src0->data),  src0->ne[1], src0->ne[0]);
 
 	for (int64_t i2 = 0; i2 < dst_data.extent(0); ++i2) {
 		for (int64_t i1 = 0; i1 < dst_data.extent(1); ++i1) {

@@ -2,7 +2,7 @@ module;
 #include <assert.h>
 #include <math.h>
 #include <print>
-#include "helper.h"
+#include "mdspan_helper.h"
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_ABORT(...)

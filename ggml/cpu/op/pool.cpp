@@ -19,8 +19,8 @@ static void ggml_compute_forward_pool_1d_sk_p0(
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), dst->ne[1], dst->ne[0]);
-	std::experimental::mdspan src0_data(static_cast<const src0_t*>(src0->data), src0->ne[1], src0->ne[0]);
+	std::mdspan dst_data(static_cast<float*>(dst->data), dst->ne[1], dst->ne[0]);
+	std::mdspan src0_data(static_cast<const src0_t*>(src0->data), src0->ne[1], src0->ne[0]);
 
 	const int64_t rs = dst->ne[0];
 
@@ -87,8 +87,8 @@ static void ggml_compute_forward_pool_2d(
 	const int s1 = opts[4];
 	const int p0 = opts[5];
 	const int p1 = opts[6];
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), dst->ne[2], dst->ne[1], dst->ne[0]);
-	std::experimental::mdspan src0_data(static_cast<const src0_t*>(src0->data), src0->ne[2], src0->ne[1], src0->ne[0]);
+	std::mdspan dst_data(static_cast<float*>(dst->data), dst->ne[2], dst->ne[1], dst->ne[0]);
+	std::mdspan src0_data(static_cast<const src0_t*>(src0->data), src0->ne[2], src0->ne[1], src0->ne[0]);
 
 	const int ka = k0 * k1;
 	const int offset0 = -p0;

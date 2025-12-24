@@ -1,5 +1,5 @@
 #pragma once
-#include "helper.h"
+#include "mdspan_helper.h"
 
 // nbatch_fa == number of KQ rows to process per iteration
 // nbatch_K == number of K columns to load in parallel for KQ calculation
@@ -427,7 +427,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter_KQ(
     const int k_VKQ_0,
     const int k_VKQ_sup,
     const int k_KQ_0,
-    std::experimental::mdspan<float, std::dextents<size_t, 2>> KQ_acc) {
+    std::mdspan<float, std::dims<2>> KQ_acc) {
     constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
     constexpr int cpy_ne = cpy_nb / 4;
 

@@ -25,8 +25,8 @@ static void ggml_compute_forward_leaky_relu(
 	assert(dst->nb[0] == sizeof(T));
 	assert(src0->nb[0] == sizeof(T));
 
-	std::experimental::mdspan dst_data(static_cast<T*>(dst->data), nr, nc);
-	std::experimental::mdspan src0_data(static_cast<const T*>(src0->data), nr, nc);
+	std::mdspan dst_data(static_cast<T*>(dst->data), nr, nc);
+	std::mdspan src0_data(static_cast<const T*>(src0->data), nr, nc);
 
 	for (int64_t i = 0; i < nr; i++) {
 		for (int64_t j = 0; j < nc; j++) {

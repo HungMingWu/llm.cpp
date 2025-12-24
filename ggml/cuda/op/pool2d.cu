@@ -2,12 +2,12 @@
 #include <float.h>
 #include "common.cuh"
 #include "cuda_func.h"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 
 void pool2d_nchw_kernel_cuda(const pool2d_context& ctx, cudaStream_t stream) {
-    std::experimental::mdspan src0_data(ctx.src0_d, ctx.N, ctx.OC, ctx.IH, ctx.IW);
-    std::experimental::mdspan dst_data(ctx.dst_d, ctx.N, ctx.OC, ctx.OH, ctx.OW);
+    std::mdspan src0_data(ctx.src0_d, ctx.N, ctx.OC, ctx.IH, ctx.IW);
+    std::mdspan dst_data(ctx.dst_d, ctx.N, ctx.OC, ctx.OH, ctx.OW);
 
     launch_functor(stream, std::make_tuple(ctx.N, ctx.OC, ctx.OH, ctx.OW),
         [=] __device__(int64_t n, int64_t c, int64_t oh, int64_t ow) {

@@ -1,5 +1,5 @@
 #include "cuda_func.h"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 
 #define GGML_ABORT(...)
@@ -11,9 +11,9 @@ __device__ __forceinline__ int calculate_input_coord(int out_coord, int kern_coo
 void conv2d_dw_nchw(const conv2d_dw_context& ctx, cudaStream_t stream)
 {
     // [N, C, H, W] layout
-    std::experimental::mdspan input_data(ctx.x_d, ctx.batches, ctx.channels, ctx.in_h, ctx.in_w);
-    std::experimental::mdspan kernel_data(ctx.w_d, ctx.channels, ctx.kernel_h, ctx.kernel_w);
-    std::experimental::mdspan output_data(ctx.y_d, ctx.batches, ctx.channels, ctx.out_h, ctx.out_w);
+    std::mdspan input_data(ctx.x_d, ctx.batches, ctx.channels, ctx.in_h, ctx.in_w);
+    std::mdspan kernel_data(ctx.w_d, ctx.channels, ctx.kernel_h, ctx.kernel_w);
+    std::mdspan output_data(ctx.y_d, ctx.batches, ctx.channels, ctx.out_h, ctx.out_w);
     launch_functor(stream, std::make_tuple(ctx.batches, ctx.channels, ctx.out_h, ctx.out_w),
         [=] __device__(int64_t batch, int64_t channel, int64_t oh, int64_t ow) {
             const int64_t kh_min = std::max(int64_t{ 0 }, (ctx.padding_h - oh * ctx.stride_h + ctx.dilation_h - 1) / ctx.dilation_h);
@@ -43,9 +43,9 @@ void conv2d_dw_nchw(const conv2d_dw_context& ctx, cudaStream_t stream)
 void conv2d_dw_nhwc(const conv2d_dw_context& ctx, cudaStream_t stream)
 {
     // [N, H, W, C] layout
-    std::experimental::mdspan input_data(ctx.x_d, ctx.batches, ctx.in_h, ctx.in_w, ctx.channels);
-    std::experimental::mdspan kernel_data(ctx.w_d, ctx.kernel_h, ctx.kernel_w, ctx.channels);
-    std::experimental::mdspan output_data(ctx.y_d, ctx.batches, ctx.out_h, ctx.out_w, ctx.channels);
+    std::mdspan input_data(ctx.x_d, ctx.batches, ctx.in_h, ctx.in_w, ctx.channels);
+    std::mdspan kernel_data(ctx.w_d, ctx.kernel_h, ctx.kernel_w, ctx.channels);
+    std::mdspan output_data(ctx.y_d, ctx.batches, ctx.out_h, ctx.out_w, ctx.channels);
     launch_functor(stream, std::make_tuple(ctx.batches, ctx.out_h, ctx.out_w, ctx.channels),
         [=] __device__(int64_t batch, int64_t oh, int64_t ow, int64_t channel) {
             const int64_t kh_min = std::max(int64_t{ 0 }, (ctx.padding_h - oh * ctx.stride_h + ctx.dilation_h - 1) / ctx.dilation_h);

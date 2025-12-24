@@ -2,7 +2,7 @@
 #include "cuda_func.h"
 #include "cpy-utils.cuh"
 #include "convert.cuh"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)

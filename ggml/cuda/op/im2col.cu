@@ -1,6 +1,6 @@
 #include "common.cuh"
 #include "convert.cuh"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 #include "cuda_func.h"
 
@@ -10,8 +10,8 @@ void im2col_cuda(const float* x, dst_t* dst,
     int64_t IW, int64_t IH, int64_t OW, int64_t OH, int64_t KW, int64_t KH, int64_t IC,
     int64_t N,
     int s0, int s1, int p0, int p1, int d0, int d1, cudaStream_t stream) {
-    std::experimental::mdspan src_data(x, N, IC, IH, IW);
-    std::experimental::mdspan dst_data(dst, N, OH, OW, IC, KH, KW);
+    std::mdspan src_data(x, N, IC, IH, IW);
+    std::mdspan dst_data(dst, N, OH, OW, IC, KH, KW);
     launch_functor(stream, std::make_tuple(N, OH, OW, IC, KH, KW),
         [=] __device__ (int64_t in, int64_t ioh, int64_t iow, int64_t iic, int64_t ikh, int64_t ikw) {
             using dst_t = decltype(dst_data);
@@ -51,7 +51,7 @@ void im2col_3d_cuda(const float* src, T* dst,
     std::array<int64_t, 5> src_ne = { IW, IH, ID, IC, N }; // reverse order
     std::array<size_t, 5> src_nb = { stride_x, stride_y, stride_z, stride_q, stride_q * IC };
     auto src_data = make_strided_mdspan<5>(src, src_ne, src_nb);
-    std::experimental::mdspan dst_data(dst, N, OD, OH, OW, IC, KD, KH, KW);
+    std::mdspan dst_data(dst, N, OD, OH, OW, IC, KD, KH, KW);
     launch_functor(stream, std::make_tuple(N, OD, OH, OW, IC, KD, KH, KW),
         [=] __device__ (int64_t in, int64_t iod, int64_t ioh, int64_t iow, int64_t iic, int64_t ikd, int64_t ikh, int64_t ikw) {
             using dst_t = decltype(dst_data);

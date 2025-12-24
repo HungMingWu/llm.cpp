@@ -8,8 +8,8 @@
 import ggml;
 
 void check_tensor(
-    const std::experimental::mdspan<float, std::experimental::dims<3>>& actual_mdspan,
-    const std::experimental::mdspan<float, std::experimental::dims<3>>& expected_mdspan)
+    const std::mdspan<float, std::experimental::dims<3>>& actual_mdspan,
+    const std::mdspan<float, std::experimental::dims<3>>& expected_mdspan)
 {
     assert(actual_mdspan.extents() == expected_mdspan.extents());
     for (int i2 = 0; i2 < actual_mdspan.extent(0); ++i2) {
@@ -75,8 +75,8 @@ int main(int argc, const char** argv) {
         assert(out->type == GGML_TYPE_F32 && out_inplace->type == GGML_TYPE_F32);
         std::vector<float> out_result(out->nelements());
         ggml_backend_tensor_get(out, out_result.data(), 0, out->nbytes());
-        std::experimental::mdspan out_result_mdspan(out_result.data(), out->ne[2], out->ne[1], out->ne[0]);
-        std::experimental::mdspan expected_out_mdspan(expected_out, 1, 4, 9);
+        std::mdspan out_result_mdspan(out_result.data(), out->ne[2], out->ne[1], out->ne[0]);
+        std::mdspan expected_out_mdspan(expected_out, 1, 4, 9);
         check_tensor(out_result_mdspan, expected_out_mdspan);
         ggml_backend_tensor_get(out_inplace, out_result.data(), 0, out_inplace->nbytes());
         check_tensor(out_result_mdspan, expected_out_mdspan);

@@ -1,7 +1,7 @@
 #include <array>
 #include "cuda_func.h"
 #include "common.cuh"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "convert.cuh"
 #include "launch.cuh"
 

@@ -1,6 +1,6 @@
 #include "cuda_func.h"
 #include "convert.cuh"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 
 __device__ __forceinline__ int64_t calculate_input_coord(int64_t out_coord,
@@ -13,9 +13,9 @@ __device__ __forceinline__ int64_t calculate_input_coord(int64_t out_coord,
 
 template <typename T>
 void conv2d_cuda(const conv2d_context& ctx, cudaStream_t stream) {
-    std::experimental::mdspan input_data(ctx.input_d, ctx.N, ctx.CIn, ctx.IH, ctx.IW);
-    std::experimental::mdspan kernel_data(static_cast<const T*>(ctx.kernel_d), ctx.N, ctx.CIn, ctx.KH, ctx.KW);
-    std::experimental::mdspan output_data(ctx.output_d, ctx.N, ctx.COut, ctx.OH, ctx.OW);
+    std::mdspan input_data(ctx.input_d, ctx.N, ctx.CIn, ctx.IH, ctx.IW);
+    std::mdspan kernel_data(static_cast<const T*>(ctx.kernel_d), ctx.N, ctx.CIn, ctx.KH, ctx.KW);
+    std::mdspan output_data(ctx.output_d, ctx.N, ctx.COut, ctx.OH, ctx.OW);
     launch_functor(stream, std::make_tuple(ctx.N, ctx.COut, ctx.OH, ctx.OW),
         [=] __device__(int64_t n, int64_t cout, int64_t oh, int64_t ow) {
             const int64_t kh_min = std::max(int64_t{ 0 }, (ctx.pad_h - oh * ctx.stride_h + ctx.dilation_h - 1) / ctx.dilation_h);

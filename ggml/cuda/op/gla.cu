@@ -1,5 +1,5 @@
 #include "cuda_func.h"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "operator.cuh"
 
 template <int head_size>
@@ -51,13 +51,13 @@ static __global__ void gated_linear_attn_f32(const int n_seqs, const int T, cons
 template <size_t head_size>
 void gated_linear_attn_cuda(const gla_context& ctx, cudaStream_t stream)
 {
-    std::experimental::mdspan s(ctx.s, ctx.n_seqs, ctx.HEADS, head_size, head_size);
-    std::experimental::mdspan k(ctx.k, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan r(ctx.r, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan v(ctx.v, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan td(ctx.td, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan dst_data(ctx.dst, ctx.T, ctx.HEADS, head_size);
-    std::experimental::mdspan dst_state(ctx.dst + ctx.T * ctx.C, ctx.n_seqs, ctx.HEADS, head_size, head_size);
+    std::mdspan s(ctx.s, ctx.n_seqs, ctx.HEADS, head_size, head_size);
+    std::mdspan k(ctx.k, ctx.T, ctx.HEADS, head_size);
+    std::mdspan r(ctx.r, ctx.T, ctx.HEADS, head_size);
+    std::mdspan v(ctx.v, ctx.T, ctx.HEADS, head_size);
+    std::mdspan td(ctx.td, ctx.T, ctx.HEADS, head_size);
+    std::mdspan dst_data(ctx.dst, ctx.T, ctx.HEADS, head_size);
+    std::mdspan dst_state(ctx.dst + ctx.T * ctx.C, ctx.n_seqs, ctx.HEADS, head_size, head_size);
     gated_linear_attn_f32<64> << <ctx.n_seqs * ctx.HEADS, head_size, 0, stream >> >
         (ctx.n_seqs, ctx.T, ctx.C, ctx.HEADS, ctx.scale, k, v, r, td, s, dst_data, dst_state);
 }

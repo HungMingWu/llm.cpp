@@ -29,9 +29,9 @@ static void ggml_compute_forward_silu_back_f32(ggml_tensor* dst) {
     const int nc = src1->ne[0];
     const int nr = ggml_nrows(src1);
 
-    std::experimental::mdspan dst_data(static_cast<float*>(dst->data), nr, nc);
-    std::experimental::mdspan grad_data(static_cast<const float*>(grad->data), nr, nc);
-    std::experimental::mdspan src1_data(static_cast<const float*>(src1->data), nr, nc);
+    std::mdspan dst_data(static_cast<float*>(dst->data), nr, nc);
+    std::mdspan grad_data(static_cast<const float*>(grad->data), nr, nc);
+    std::mdspan src1_data(static_cast<const float*>(src1->data), nr, nc);
 
     for (int i1 = 0; i1 < nr; i1++) {
         for (int64_t i0 = 0; i0 < nc; i0++) {

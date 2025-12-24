@@ -1,7 +1,7 @@
 #include "common.cuh"
 #include "reduce.cuh"
 #include "cuda_func.h"
-#include "helper.h"
+#include "mdspan_helper.h"
 
 static __global__ void norm_f32(
     auto x, auto dst, const int ncols, const float eps) {
@@ -127,9 +127,9 @@ static __global__ void rms_norm_back_f32(
 }
 
 void rms_norm_back_f32_cuda(const rms_norm_back_context& ctx, cudaStream_t stream) {
-    std::experimental::mdspan grad(ctx.grad_d, ctx.nrows, ctx.ncols);
-    std::experimental::mdspan xf(ctx.xf_d, ctx.nrows, ctx.ncols);
-    std::experimental::mdspan dst(ctx.dst_d, ctx.nrows, ctx.ncols);
+    std::mdspan grad(ctx.grad_d, ctx.nrows, ctx.ncols);
+    std::mdspan xf(ctx.xf_d, ctx.nrows, ctx.ncols);
+    std::mdspan dst(ctx.dst_d, ctx.nrows, ctx.ncols);
     if (ctx.ncols < 1024) {
         const dim3 block_dims(WARP_SIZE, 1, 1);
         rms_norm_back_f32 << <ctx.nrows, block_dims, 0, stream >> > (grad, xf, dst, ctx.ncols, ctx.eps);

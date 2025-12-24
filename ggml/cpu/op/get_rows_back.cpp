@@ -4,7 +4,7 @@ module;
 #include <string.h>
 #include <span>
 #include "mdspan.hpp"
-#include "helper.h"
+#include "mdspan_helper.h"
 #define GGML_ABORT(...)
 
 module ggml;
@@ -31,8 +31,8 @@ static void ggml_compute_forward_get_rows_back(
 	assert(src0->nb[0] == sizeof(T));
 
 	auto dst_data = make_strided_mdspan<2>(static_cast<ggml_fp32_t*>(dst->data), dst->ne, dst->nb);;
-	std::experimental::mdspan src0_data(static_cast<const ggml_fp32_t*>(src0->data), src0->ne[1], src0->ne[0]);
-	std::experimental::mdspan src1_data(static_cast<const int32_t*>(src1->data), src1->ne[0]);
+	std::mdspan src0_data(static_cast<const ggml_fp32_t*>(src0->data), src0->ne[1], src0->ne[0]);
+	std::mdspan src1_data(static_cast<const int32_t*>(src1->data), src1->ne[0]);
 
 	for (int i = 0; i < nr; ++i) {
 		const int r = src1_data[i];

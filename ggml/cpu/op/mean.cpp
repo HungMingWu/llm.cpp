@@ -22,8 +22,8 @@ static void ggml_compute_forward_mean_f32(
 	assert(dst->ne[2] == src0->ne[2]);
 	assert(dst->ne[3] == src0->ne[3]);
 
-	std::experimental::mdspan dst_data(static_cast<float*>(dst->data), dst->ne[3], dst->ne[2], dst->ne[1]);
-	std::experimental::mdspan src0_data(static_cast<float*>(src0->data), src0->ne[3], src0->ne[2], src0->ne[1], src0->ne[0]);
+	std::mdspan dst_data(static_cast<float*>(dst->data), dst->ne[3], dst->ne[2], dst->ne[1]);
+	std::mdspan src0_data(static_cast<float*>(src0->data), src0->ne[3], src0->ne[2], src0->ne[1], src0->ne[0]);
 
 	for (auto [i, j, k] : make_cartesian_product(src0_data.extent(0), src0_data.extent(1), src0_data.extent(2))) {
 		double sum = 0.0f;

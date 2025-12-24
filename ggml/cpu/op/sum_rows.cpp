@@ -23,8 +23,8 @@ static void ggml_compute_forward_sum_rows_f32(
 	assert(dst->ne[2] == src0->ne[2]);
 	assert(dst->ne[3] == src0->ne[3]);
 
-	std::experimental::mdspan dst_mdspan(static_cast<float*>(dst->data), dst->ne[3], dst->ne[2], dst->ne[1]);
-	std::experimental::mdspan src0_mdspan(static_cast<float*>(src0->data), src0->ne[3], src0->ne[2], src0->ne[1], src0->ne[0]);
+	std::mdspan dst_mdspan(static_cast<float*>(dst->data), dst->ne[3], dst->ne[2], dst->ne[1]);
+	std::mdspan src0_mdspan(static_cast<float*>(src0->data), src0->ne[3], src0->ne[2], src0->ne[1], src0->ne[0]);
 
 	auto cp = std::views::cartesian_product(
 		std::views::iota(0ul, src0_mdspan.extent(0)),

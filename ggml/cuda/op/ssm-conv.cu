@@ -1,5 +1,5 @@
 #include "cuda_func.h"
-#include "helper.h"
+#include "mdspan_helper.h"
 #define GGML_ABORT(...)
 
 template <size_t split_d_inner, size_t d_conv, typename src0_t, typename src1_t, typename dst_t>

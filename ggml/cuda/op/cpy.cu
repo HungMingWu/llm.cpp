@@ -5,7 +5,7 @@
 #include "table.h"
 #include "dequantize.cuh"
 #include "cpy-utils.cuh"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 
 #define GGML_ASSERT(...)

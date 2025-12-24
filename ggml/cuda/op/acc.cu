@@ -1,5 +1,5 @@
 #include "cuda_func.h"
-#include "helper.h"
+#include "mdspan_helper.h"
 #include "launch.cuh"
 
 void acc_f32_cuda(const acc_context& ctx, cudaStream_t stream) {
