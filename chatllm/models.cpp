@@ -189,6 +189,12 @@ namespace chatllm
         if (nullptr == dbg_ctx) return;
         if (tensor == nullptr) return;
 
+        if (!ggml::is_contiguous(tensor))
+        {
+            tensor = ggml::cont(dbg_ctx, tensor);
+            ggml::build_forward_expand(dbg_ctx, tensor);
+        }
+
         // if (strstr(tag.c_str(), "gen_vision_model.decoder.mid.0") == nullptr) return;
 
         inspected_set[tensor] = std::move(tag);

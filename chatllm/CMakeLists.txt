@@ -13,6 +13,7 @@ target_sources(chatllm
     FILE_SET chatllm_hidden_interface
     TYPE CXX_MODULES
     FILES
+      chat_encoders.cppm
       custom_ops.cppm
       models/models_priv.cppm
       models/qwen.cppm
@@ -20,6 +21,7 @@ target_sources(chatllm
       audio_process.cpp
       backend.cpp
       chat.cpp
+      chat_encoders.cpp
       layers.cpp
       main.cpp
       tokenizer.cpp
