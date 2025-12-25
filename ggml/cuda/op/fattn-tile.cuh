@@ -1,6 +1,16 @@
 #pragma once
 #include "mdspan_helper.h"
 
+__device__ __forceinline__ float2& operator+=(float2& lhs, const float2& rhs) {
+    lhs.x += rhs.x;
+    lhs.y += rhs.y;
+    return lhs;
+}
+
+__device__ __forceinline__ float2 operator*(const float2& lhs, const float2& rhs) {
+	return { lhs.x * rhs.x, lhs.y * rhs.y };
+}
+
 // nbatch_fa == number of KQ rows to process per iteration
 // nbatch_K == number of K columns to load in parallel for KQ calculation
 
@@ -638,64 +648,60 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
             (std::submdspan(V_h2, std::pair{ k0, k0 + nbatch_V }, std::full_extent), KV_tmp, k_VKQ_sup - k0);
         __syncthreads();
 
-        if constexpr (fast_fp16_available_v) {
-#pragma unroll
-            for (int k1 = 0; k1 < nbatch_V; k1 += np) {
-                half2 V_k[(DVp / 2) / warp_size];
-                half2 KQ_k[cpw];
+        using storage_t = std::conditional_t<fast_fp16_available_v, half2, float2>;
 
-                constexpr int cpy_ne_D = cpy_ne / 2 < (DVp / 2) / warp_size ? cpy_ne / 2 : (DVp / 2) / warp_size;
 #pragma unroll
+        for (int k1 = 0; k1 < nbatch_V; k1 += np) {
+            storage_t V_k[(DVp / 2) / warp_size];
+            storage_t KQ_k[cpw];
+
+            constexpr int cpy_ne_D = []() {
+                if constexpr (fast_fp16_available_v) {
+                    return cpy_ne / 2 < (DVp / 2) / warp_size ? cpy_ne / 2 : (DVp / 2) / warp_size;
+                }
+                else {
+                    return cpy_ne < DVp / warp_size ? cpy_ne : DVp / warp_size;;
+                }
+            }();
+#pragma unroll
+            if constexpr (fast_fp16_available_v) {
                 for (int i0 = 0; i0 < DVp / 2; i0 += warp_size * cpy_ne_D) {
                     ggml_cuda_memcpy_1<cpy_ne_D * 4>(&V_k[i0 / warp_size], &KV_tmp[(k1 + threadIdx.y % np) * (DV / 2) + i0 + threadIdx.x * cpy_ne_D]);
                 }
-#pragma unroll
-                for (int jc_VKQ_0 = 0; jc_VKQ_0 < cpw; jc_VKQ_0 += KQ_cs) {
-                    const int jc_KQ = jc_VKQ_0 / KQ_cs + (threadIdx.y / np) * (cpw / KQ_cs);
-
-                    half tmp[KQ_cs];
-                    ggml_cuda_memcpy_1<KQ_cs * sizeof(half)>(
-                        &tmp, KQ + jc_KQ * (nbatch_fa * KQ_cs) + (k0 + k1 + threadIdx.y % np) * KQ_cs);
-#pragma unroll
-                    for (int jc_VKQ_1 = 0; jc_VKQ_1 < KQ_cs; ++jc_VKQ_1) {
-                        KQ_k[jc_VKQ_0 + jc_VKQ_1] = __half2half2(tmp[jc_VKQ_1]);
-                    }
-                }
-
-#pragma unroll
-                for (int i0 = 0; i0 < DVp / 2; i0 += warp_size) {
-#pragma unroll
-                    for (int jc_VKQ_0 = 0; jc_VKQ_0 < cpw; ++jc_VKQ_0) {
-                        VKQ[jc_VKQ_0 * ((DVp / 2) / warp_size) + i0 / warp_size] += V_k[i0 / warp_size] * KQ_k[jc_VKQ_0];
-                    }
-                }
             }
-        } else {
-#pragma unroll
-            for (int k1 = 0; k1 < nbatch_V; k1 += np) {
-                float2 V_k[(DVp / 2) / warp_size];
-                float  KQ_k[cpw];
-
-                constexpr int cpy_ne_D = cpy_ne < DVp / warp_size ? cpy_ne : DVp / warp_size;
+            else {
 #pragma unroll
                 for (int i0 = 0; i0 < DVp; i0 += warp_size * cpy_ne_D) {
-                    ggml_cuda_memcpy_1<cpy_ne_D * 4>(&V_k[i0 / (2 * warp_size)], &KV_tmp[(k1 + threadIdx.y % np) * DV + i0 + threadIdx.x * cpy_ne_D]);
+#pragma unroll
+                    for (size_t i = 0; i < cpy_ne_D / 2; i++)
+                        V_k[i0 / (2 * warp_size) + i] =
+                        float2(KV_tmp[(k1 + threadIdx.y % np) * DV + i0 + threadIdx.x * cpy_ne_D + 2 * i],
+                            KV_tmp[(k1 + threadIdx.y % np) * DV + i0 + threadIdx.x * cpy_ne_D + 2 * i + 1]);
                 }
+            }
 #pragma unroll
-                for (int jc_VKQ_0 = 0; jc_VKQ_0 < cpw; jc_VKQ_0 += KQ_cs) {
-                    const int jc_KQ = jc_VKQ_0 / KQ_cs + (threadIdx.y / np) * (cpw / KQ_cs);
+            for (int jc_VKQ_0 = 0; jc_VKQ_0 < cpw; jc_VKQ_0 += KQ_cs) {
+                const int jc_KQ = jc_VKQ_0 / KQ_cs + (threadIdx.y / np) * (cpw / KQ_cs);
 
-                    ggml_cuda_memcpy_1<KQ_cs * sizeof(float)>(
-                        &KQ_k[jc_VKQ_0], KQ + jc_KQ * (nbatch_fa * KQ_cs) + (k0 + k1 + threadIdx.y % np) * KQ_cs);
+#pragma unroll
+                for (int jc_VKQ_1 = 0; jc_VKQ_1 < KQ_cs; ++jc_VKQ_1) {
+                    const auto value = [](const auto& value) {
+                        if constexpr (fast_fp16_available_v) {
+                            return __half2half2(value);
+                        }
+                        else {
+                            return float2(value, value);
+                        }
+                    }(KQ[jc_KQ * (nbatch_fa * KQ_cs) + (k0 + k1 + threadIdx.y % np) * KQ_cs + jc_VKQ_1]);
+                    KQ_k[jc_VKQ_0 + jc_VKQ_1] = value;
                 }
+            }
 
 #pragma unroll
-                for (int i0 = 0; i0 < DVp / 2; i0 += warp_size) {
+            for (int i0 = 0; i0 < DVp / 2; i0 += warp_size) {
 #pragma unroll
-                    for (int jc_VKQ_0 = 0; jc_VKQ_0 < cpw; ++jc_VKQ_0) {
-                        VKQ[jc_VKQ_0 * ((DVp / 2) / warp_size) + i0 / warp_size].x += V_k[i0 / warp_size].x * KQ_k[jc_VKQ_0];
-                        VKQ[jc_VKQ_0 * ((DVp / 2) / warp_size) + i0 / warp_size].y += V_k[i0 / warp_size].y * KQ_k[jc_VKQ_0];
-                    }
+                for (int jc_VKQ_0 = 0; jc_VKQ_0 < cpw; ++jc_VKQ_0) {
+                    VKQ[jc_VKQ_0 * ((DVp / 2) / warp_size) + i0 / warp_size] += V_k[i0 / warp_size] * KQ_k[jc_VKQ_0];
                 }
             }
         }
