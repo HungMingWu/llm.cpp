@@ -879,36 +879,19 @@ void diag_cuda(const diag_context& ctx, cudaStream_t stream);
 void fill_cuda(internal::ggml_type dst_type, void* dst_d, const int64_t k, float value, cudaStream_t stream);
 
 // solve_tri.cu
-void solve_tri_f32_cuda(const float* A,
-    const float* B,
-    float* X,
-    int           n,
-    int           k,
-    int64_t       ne02,
-    int64_t       ne03,
-    size_t        nb02,
-    size_t        nb03,
-    size_t        nb12,
-    size_t        nb13,
-    size_t        nb2,
-    size_t        nb3,
-    cudaStream_t  stream);
+struct solve_tri_context {
+    const float* A;
+    int64_t A_ne[4];
+    size_t A_nb[4];
+    const float* B;
+    int64_t B_ne[4];
+    size_t B_nb[4];
+    float* X;
+    int64_t X_ne[4];
+    size_t X_nb[4];
+};
+void solve_tri_f32_cuda(const solve_tri_context &ctx, ggml_cuda_pool& pool, cublasHandle_t cublas_handle, cudaStream_t stream);
 
-void solve_tri_f32_cublas(ggml_cuda_pool& pool, cublasHandle_t cublas_handle,
-    const float* A,
-    const float* B,
-    float* X,
-    int                         n,
-    int                         k,
-    int64_t                     ne02,
-    int64_t                     ne03,
-    size_t                      s02,
-    size_t                      s03,
-    size_t                      s12,
-    size_t                      s13,
-    size_t                      s2,
-    size_t                      s3,
-    cudaStream_t                stream);
 
 // tri.cu
 struct tri_context {

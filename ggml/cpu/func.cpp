@@ -5846,9 +5846,12 @@ void ggml_compute_forward_fill(
 	ggml_compute_forward_fill_f32(pool, scope, dst);
 }
 
-static void ggml_compute_forward_solve_tri_f32(const struct ggml_compute_params* params, struct ggml_tensor* dst) {
-	const struct ggml_tensor* src0 = dst->src[0];  // A (lower triangular)
-	const struct ggml_tensor* src1 = dst->src[1];  // B (RHS)
+static void ggml_compute_forward_solve_tri_f32(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];  // A (lower triangular)
+	const ggml_tensor* src1 = dst->src[1];  // B (RHS)
 
 	GGML_ASSERT(src0->type == GGML_TYPE_F32);
 	GGML_ASSERT(src1->type == GGML_TYPE_F32);
@@ -5861,54 +5864,42 @@ static void ggml_compute_forward_solve_tri_f32(const struct ggml_compute_params*
 	GGML_ASSERT(src0->ne[2] == src1->ne[2] && src1->ne[2] == dst->ne[2]);
 	GGML_ASSERT(src0->ne[3] == src1->ne[3] && src1->ne[3] == dst->ne[3]);
 
-	const int ith = params->ith;
-	const int nth = params->nth;
+	auto A_data = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb); // [n, n, B1, B2]
+	auto B_data = make_strided_mdspan(static_cast<const float*>(src1->data), src1->ne, src1->nb); // [n, k, B1, B2]
+	auto X_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb); // [n, k, B1, B2]
 
-	const int64_t k = src1->ne[0];   // number of RHS columns
-	const int64_t n = src1->ne[1];   // A is n¡Ñn
-	const int64_t nr = src0->ne[2] * src0->ne[3] * k; // we're parallelizing on columns here, so seq x token x column will be the unit
+	for (auto [i03, i02, i01] : make_cartesian_product(A_data.extent(0), A_data.extent(1), B_data.extent(3))) {
+		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+			auto A_batch = std::submdspan(A_data, i03, i02, std::full_extent, std::full_extent);
+			auto B_batch = std::submdspan(B_data, i03, i02, std::full_extent, std::full_extent);
 
-	// chunks per thread
-	const int64_t dr = (nr + nth - 1) / nth;
+			auto X_batch = std::submdspan(X_data, i03, i02, std::full_extent, std::full_extent);
 
-	// chunk range for this thread
-	const int64_t ir0 = dr * ith;
-	const int64_t ir1 = std::min(ir0 + dr, nr);
+			for (size_t i00 = 0; i00 < B_data.extent(2); ++i00) {
+				float sum = 0.0f;
+				for (size_t t = 0; t < i00; ++t) {
+					sum += A_batch[i00, t] * X_batch[t, i01];
+				}
 
-	const float* A = (const float*)src0->data;  // [n, n, B1, B2]
-	const float* B = (const float*)src1->data;  // [n, k, B1, B2]
-	float* X = (float*)dst->data;   // [n, k, B1, B2]
+				const float diag = A_batch[i00, i00];
+				assert(diag != 0.0f && "Zero diagonal in triangular matrix");
 
-	for (int64_t ir = ir0; ir < ir1; ++ir) {
-		const int64_t i03 = ir / (src0->ne[2] * k);
-		const int64_t i02 = (ir - i03 * src0->ne[2] * k) / k;
-		const int64_t i01 = (ir - i03 * src0->ne[2] * k - i02 * k);
-
-		const float* A_batch = A + i02 * src0->nb[2] / sizeof(float) + i03 * src0->nb[3] / sizeof(float);
-		const float* B_batch = B + i02 * src1->nb[2] / sizeof(float) + i03 * src1->nb[3] / sizeof(float);
-
-		float* X_batch = X + i02 * dst->nb[2] / sizeof(float) + i03 * dst->nb[3] / sizeof(float);
-
-		for (int64_t i00 = 0; i00 < n; ++i00) {
-			float sum = 0.0f;
-			for (int64_t t = 0; t < i00; ++t) {
-				sum += A_batch[i00 * n + t] * X_batch[t * k + i01];
+				X_batch[i00, i01] = (B_batch[i00, i01] - sum) / diag;
 			}
-
-			const float diag = A_batch[i00 * n + i00];
-			assert(diag != 0.0f && "Zero diagonal in triangular matrix");
-
-			X_batch[i00 * k + i01] = (B_batch[i00 * k + i01] - sum) / diag;
-		}
+		});
+		scope.spawn(std::move(sender));
 	}
 }
 
-void ggml_compute_forward_solve_tri(const struct ggml_compute_params* params, struct ggml_tensor* dst) {
+void ggml_compute_forward_solve_tri(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 	const ggml_tensor* src0 = dst->src[0];
 	const ggml_tensor* src1 = dst->src[1];
 
 	if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32) {
-		ggml_compute_forward_solve_tri_f32(params, dst);
+		ggml_compute_forward_solve_tri_f32(pool, scope, dst);
 	}
 	else {
 		GGML_ABORT("fatal error");
@@ -6312,7 +6303,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_SOLVE_TRI:
 	{
-		ggml_compute_forward_solve_tri(params, tensor);
+		ggml_compute_forward_solve_tri(pool, scope, tensor);
 	} break;
 	case GGML_OP_CUSTOM:
 	{

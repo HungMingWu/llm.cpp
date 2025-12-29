@@ -219,26 +219,18 @@ namespace op {
         GGML_ASSERT(ggml_is_contiguous(src0));
         GGML_ASSERT(ggml_is_contiguous(src1));
 
-        const int64_t n = src0->ne[0];
-        const int64_t k = src1->ne[0];
-        const int64_t ne02 = src0->ne[2];
-        const int64_t ne03 = src0->ne[3];
-
-        static constexpr int64_t MAX_N_FAST = 64;
-        static constexpr int64_t MAX_K_FAST = 32;
-
-        if (n <= MAX_N_FAST && k <= MAX_K_FAST) {
-            solve_tri_f32_cuda((const float*)src0->data, (const float*)src1->data, (float*)dst->data, n, k,
-                src0->ne[2], src0->ne[3], src0->nb[2] / sizeof(float), src0->nb[3] / sizeof(float),
-                src1->nb[2] / sizeof(float), src1->nb[3] / sizeof(float), dst->nb[2] / sizeof(float),
-                dst->nb[3] / sizeof(float), stream);
-        }
-        else {
-            solve_tri_f32_cublas(pool, cublas_handle, (const float*)src0->data, (const float*)src1->data, (float*)dst->data, n, k,
-                ne02, ne03, src0->nb[2] / sizeof(float), src0->nb[3] / sizeof(float),
-                src1->nb[2] / sizeof(float), src1->nb[3] / sizeof(float), dst->nb[2] / sizeof(float),
-                dst->nb[3] / sizeof(float), stream);
-        }
+        solve_tri_context ctx {
+            .A = (const float*)src0->data,
+            .A_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .A_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .B = (const float*)src1->data,
+            .B_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .B_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
+            .X = (float*)dst->data,
+            .X_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .X_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] }
+        };
+        solve_tri_f32_cuda(ctx, pool, cublas_handle, stream);
     }
 
     void flash_attn_ext(int device, ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst) {
@@ -264,7 +256,7 @@ namespace op {
                         return false;
             }
             return mask && max_bias == 0.0f && K->ne[1] % FATTN_KQ_STRIDE == 0;
-            }();
+        }();
         flash_attn_ext_context ctx{
             .device = device,
             .main_stream = stream,
