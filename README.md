@@ -13,6 +13,8 @@ Based on C++26 Standard
 - C++26 SIMD (No compiler support yet)
 - C++26 Static refelection (Clang P2296 branch support, but no mainstream compiler support yet)
 - std::span over an initializer list(P2447R6, MSVC doesn't support it yet)
+- CUDA fattn verification and optimization (Need Hardware support wmma and fp16 calcutation)
+- AMD Video Card support
 
 ### Minimum Requirement
 CUDA Version: 12.3, Compute Capability >= 5
