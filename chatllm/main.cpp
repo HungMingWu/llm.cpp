@@ -1583,6 +1583,7 @@ static void emit_model_info(Chat * chat, const Args & args, chatllm::Pipeline & 
     o["param_num"] = pipeline.model->get_param_num(false);
     o["active_param_num"] = pipeline.model->get_param_num(true);
     o["context_length"] = pipeline.model->get_max_length();
+    o["training_context_length"] = pipeline.get_loader()->basic_config.max_length;
     if (pipeline.model->get_text_embedding_dim() > 0)
         o["embedding_dim"] = pipeline.model->get_text_embedding_dim();
 
@@ -1770,6 +1771,7 @@ static void chatllm_continue_chat(Chat * chat)
     std::string output = chat->pipeline->chat(chat->history, chat->gen_config, streamer);
 
     chat->history[last_id].content.push_back(output);
+    chat->history.save_token_cursor(chat->pipeline->get_cursor());
 }
 
 static int chatllm_generate(struct chatllm_obj* obj)
@@ -1781,6 +1783,7 @@ static int chatllm_generate(struct chatllm_obj* obj)
 generate:
     std::string output = chat->pipeline->chat(chat->history, chat->gen_config, streamer);
     chat->history.push_back(output, role_asst);
+    chat->history.save_token_cursor(chat->pipeline->get_cursor());
 
     if (chat->tool_completion.size() > 0)
         chatllm_continue_chat(chat);
@@ -2039,12 +2042,12 @@ int API_CALL chatllm_history_set_cursor(struct chatllm_obj* obj, int pos)
 {
     DEF_CHAT_STREAMER();
     int old = chat->history.get_cursor();
-    if (pos >= old) return old;
+    if (pos >= old) return chatllm_history_get_cursor(obj);
 
     if (pos <= 0)
     {
-        chat->history.clear();
-        return chat->history.get_cursor();
+        chatllm_restart(obj, nullptr);
+        return chatllm_history_get_cursor(obj);
     }
 
     int cnt = 0;
@@ -2053,8 +2056,18 @@ int API_CALL chatllm_history_set_cursor(struct chatllm_obj* obj, int pos)
         chat->history.history.pop_back();
     }
 
-    chat->history.move_cursor_to_end();
-    return chat->history.get_cursor();
+    chat->history.move_cursor_to(0);
+    for (int i = (int)chat->history.size() - 1; i >= 0; i++)
+    {
+        if (chat->history[i].tok_pos >= 0)
+        {
+            chat->history.move_cursor_to(i + 1);
+            break;
+        }
+    }
+
+    chat->pipeline->set_cursor(chat->history.get_token_cursor());
+    return chatllm_history_get_cursor(obj);
 }
 
 int API_CALL chatllm_get_cursor(struct chatllm_obj* obj)

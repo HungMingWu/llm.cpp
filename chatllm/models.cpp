@@ -937,10 +937,12 @@ namespace chatllm
         // load magic
         loader.seek(0, SEEK_SET);
         std::string magic = loader.read_string(4);
+        bool is_ggml = false;
 
         if (magic == "ggml")
         {
             loader.ff = ModelLoader::FileFormat::GGML;
+            is_ggml = true;
         }
         else if (magic == "ggmm")
         {
@@ -957,6 +959,7 @@ namespace chatllm
                 if (last_non_null != std::string::npos)
                     loader.meta.erase(last_non_null + 1);
                 else;
+
                 loader.meta_json = json::JSON::Load(loader.meta);
                 auto name = loader.meta_json["model_name"];
                 auto native = loader.meta_json["model_native_name"];
@@ -975,10 +978,11 @@ namespace chatllm
         loader.model_type = loader.read_basic<int>();
         loader.version = loader.read_basic<int>();
 
-        if (loader.model_name.size() < 1)
+        if (is_ggml)
+        {
             loader.model_name = to_string((ModelType(loader.model_type)));
-        if (loader.model_native_name.size() < 1)
             loader.model_native_name = to_native_string((ModelType(loader.model_type)));
+        }
     }
 
     std::string ModelFactory::load_info(ModelLoader& loader)
