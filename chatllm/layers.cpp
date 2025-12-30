@@ -239,23 +239,6 @@ namespace chatllm
     {
         ggml::tensor* result = tensor;
 
-        *result = ggml::tensor{
-            /*.type         =*/ type,
-            /*.buffer       =*/ NULL,
-            /*.ne           =*/ { 1, 1, 1, 1 },
-            /*.nb           =*/ { 0, 0, 0, 0 },
-            /*.op           =*/ GGML_OP_NONE,
-            /*.op_params    =*/ { 0 },
-            /*.flags        =*/ 0,
-            /*.src          =*/ { NULL },
-            /*.view_src     =*/ NULL,
-            /*.view_offs    =*/ 0,
-            /*.data         =*/ NULL,
-            /*.name         =*/ { 0 },
-            /*.extra        =*/ NULL,
-            /*.padding      =*/ { 0 },
-        };
-
         for (int i = 0; i < n_dims; i++) {
             result->ne[i] = ne[i];
         }
