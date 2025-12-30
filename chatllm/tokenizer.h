@@ -106,6 +106,7 @@ namespace tokenizer
     class DataReader
     {
     public:
+        virtual ~DataReader() = default;
         virtual int64_t tell() = 0;
         virtual void seek(int64_t offset, int whence) = 0;
         virtual int64_t size(void) const { return _size; }
