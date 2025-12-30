@@ -2347,7 +2347,7 @@ namespace chatllm
         std::string r(query);
         size_t pos = 0;
         tokenizer::TextTrim t;
-        const char* delimiters[] = { ":", "¡G" };
+        const char *delimiters[] = {":", "ï¼š"};
         bool found = false;
 
         pos = r.find("\n");
@@ -2403,7 +2403,7 @@ namespace chatllm
         if (found)
         {
             replace_all(r, ",", " ");
-            replace_all(r, "¡A", " ");
+            replace_all(r, "ï¼Œ", " ");
             replace_all(r, ".", " ");
 
             r = t.transform(r);
@@ -2414,7 +2414,7 @@ namespace chatllm
         if ((pos = r.find(",")) != std::string::npos)
         {
             replace_all(r, ",", " ");
-            replace_all(r, "¡A", " ");
+            replace_all(r, "ï¼Œ", " ");
             replace_all(r, ".", " ");
 
             r = t.transform(r);
