@@ -33,11 +33,18 @@ target_sources(chatllm
       models/models_priv.cpp
       models/qwen.cpp
 )
+
 target_link_libraries(chatllm
   PRIVATE
     libllm
 )
+
 target_compile_features(chatllm
   PUBLIC
     cxx_std_23
+)
+
+target_compile_options(chatllm
+  PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
 )
