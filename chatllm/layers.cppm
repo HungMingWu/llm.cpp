@@ -1543,7 +1543,7 @@ export namespace chatllm
         size_t write_cache_data(std::span<const std::byte> buffer) override;
 
     protected:
-        virtual void before_forward(ComputeContext* ctx, const int n_past, const int qlen);
+        void before_forward(ComputeContext* ctx, const int n_past, const int qlen) override;
 
         // k: [batch, qlen, heads, head_size]
         // v: [batch, qlen, hidden_size]

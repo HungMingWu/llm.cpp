@@ -17,8 +17,8 @@ namespace chatllm
         void append_ai(int round_idx, const std::string& ai, std::vector<int>& ids) const override;
         void append_tool(int round_idx, const std::string& tool, std::vector<int>& ids) const override;
 
-        void append_ai_opening(int round_idx, std::vector<int>& ids) const;
-        void append_user_opening(int round_idx, std::vector<int>& ids) const;
+        void append_ai_opening(int round_idx, std::vector<int>& ids) const override;
+        void append_user_opening(int round_idx, std::vector<int>& ids) const override;
 
         void set_tokenizer(BaseTokenizer* tokenizer) override;
     protected:
