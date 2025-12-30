@@ -2275,7 +2275,6 @@ export namespace chatllm
     class BaseMLP : public Block
     {
     public:
-        BaseMLP() = default;
         BaseMLP(InitContext* ctx, int hidden_size, int intermediate_size, ActFunc act)
             : BaseMLP(ctx, hidden_size, intermediate_size, act, false, false, false)
         {
@@ -2461,7 +2460,6 @@ export namespace chatllm
             Softmax,
             Sigmoid,
         };
-        GenericSparseMLP() = default;
         GenericSparseMLP(InitContext* ctx, int hidden_size, int num_local_experts, int num_experts_per_tok,
             bool gate_score_use_bias, bool grouped_max, bool router_scale, bool gate_use_bias);
 
@@ -2531,7 +2529,6 @@ export namespace chatllm
     class BaseSparseMLP : public GenericSparseMLP
     {
     public:
-        BaseSparseMLP() = default;
         BaseSparseMLP(InitContext* ctx, int hidden_size, int intermediate_size, int num_local_experts, int num_experts_per_tok,
             ActFunc act, bool gate_score_use_bias, bool grouped_max = false, bool router_scale = false, bool experts_use_bias = false, bool gate_use_bias = false) :
             GenericSparseMLP(ctx, hidden_size, num_local_experts, num_experts_per_tok, gate_score_use_bias, grouped_max, router_scale, gate_use_bias),
@@ -2833,8 +2830,6 @@ export namespace chatllm
     class RobertaBlock : public Block
     {
     public:
-        RobertaBlock() = default;
-
         RobertaBlock(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size, int num_kv_heads, int max_length)
             : RobertaBlock(ctx, hidden_size, num_attention_heads, intermediate_size, num_kv_heads, max_length, true, true)
         {
