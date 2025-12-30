@@ -681,11 +681,8 @@ namespace chatllm
     std::string BaseTokenizer::decode(const std::vector<int>& ids) const
     {
         // filter out special tokens
-        std::vector<int> normal_ids(ids);
-        normal_ids.erase(std::remove_if(normal_ids.begin(), normal_ids.end(),
-            [this](int id)
-            { return is_special_id(id); }),
-            normal_ids.end());
+        auto is_not_special_id = [this](int id) {return !is_special_id(id); };
+        auto normal_ids = ids | std::views::filter(is_not_special_id) | std::ranges::to<std::vector>();
         std::string text;
         tp->Decode(normal_ids, &text);
         text = postprocess(text);
