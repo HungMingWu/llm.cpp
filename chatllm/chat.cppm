@@ -337,8 +337,8 @@ export namespace chatllm
     protected:
         virtual int get_history_start(const Messages& history, int max_length) const;
 
-        virtual std::string preprocess(const std::string& text) const;
-        virtual std::string postprocess(const std::string& text) const;
+        virtual std::string preprocess(std::string text) const;
+        virtual std::string postprocess(std::string text) const;
 
         int load_added_tokens(const json::JSON& config, std::initializer_list<std::pair<std::string, int*>> added_tokens);
 

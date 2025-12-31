@@ -633,12 +633,12 @@ namespace chatllm
         return terminate_ids.find(id) != terminate_ids.end();
     }
 
-    std::string BaseTokenizer::preprocess(const std::string& text) const
+    std::string BaseTokenizer::preprocess(std::string text) const
     {
         return text;
     }
 
-    std::string BaseTokenizer::postprocess(const std::string& text) const
+    std::string BaseTokenizer::postprocess(std::string text) const
     {
         return text;
     }
