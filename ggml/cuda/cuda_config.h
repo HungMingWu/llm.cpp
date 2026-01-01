@@ -82,6 +82,12 @@ static constexpr bool ampere_mma_available_v = true;
 static constexpr bool ampere_mma_available_v = false;
 #endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
 
+#if !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_BLACKWELL && __CUDA_ARCH__ < GGML_CUDA_CC_RUBIN
+static constexpr bool blackwell_mma_available_v = true;
+#else
+static constexpr bool blackwell_mma_available_v = false;
+#endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_BLACKWELL
+
 #if !defined(GGML_CUDA_NO_FA) && !(defined(GGML_USE_MUSA) && __MUSA_ARCH__ < 220)
 static constexpr bool flash_attn_available_v = true;
 #define FLASH_ATTN_AVAILABLE

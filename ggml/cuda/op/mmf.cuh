@@ -13,6 +13,8 @@ auto select_tile_A_type()
 {
     if constexpr (amd_wmma_available_v) {
         // Special case for tf32, just dummy mma layout as wmma doesn't support it.
+        constexpr bool is_tf32 = std::is_same_v<T, float>;
+        constexpr data_layout ab_layout = is_tf32 ? DATA_LAYOUT_I_MAJOR : get_input_data_layout();
         return tile<16, 8, T>{};
     }
     else if constexpr (volta_mma_available_v) {
@@ -28,8 +30,10 @@ auto select_tile_B_type()
 {
     if constexpr (amd_wmma_available_v) {
         // Special case for tf32, just dummy mma layout as wmma doesn't support it.
-        constexpr int tile_B_I = std::is_same_v<T, float> ? 8 : 16;
-        return tile<tile_B_I, 8, T>{};
+        constexpr bool is_tf32 = std::is_same_v<T, float>;
+        constexpr int tile_B_I = is_tf32 ? 8 : 16;
+        constexpr data_layout ab_layout = is_tf32 ? DATA_LAYOUT_I_MAJOR : get_input_data_layout();
+        return tile<tile_B_I, 8, T, ab_layout>{};
     }
     else if constexpr (volta_mma_available_v) {
         return tile<8, 4, T, DATA_LAYOUT_I_MAJOR_MIRRORED>{};
@@ -44,8 +48,9 @@ auto select_tile_C_type()
 {
     if constexpr (amd_wmma_available_v) {
         // Special case for tf32, just dummy mma layout as wmma doesn't support it.
-        constexpr int tile_C_J = std::is_same_v<T, float> ? 8 : 16;
-        return tile<16, tile_C_J, float>{};
+        constexpr bool is_tf32 = std::is_same_v<T, float>;
+        constexpr int tile_C_J = is_tf32 ? 8 : 16;
+        return tile<16, tile_C_J, float, DATA_LAYOUT_J_MAJOR>{};
     }
     else if constexpr (volta_mma_available_v) {
         return tile<32, 8, float, DATA_LAYOUT_I_MAJOR>{};

@@ -84,7 +84,7 @@ namespace utils
         }
     }
 
-    bool should_use_mmq(ggml_type type, int cc, int64_t ne11) {
+    bool should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t n_experts) {
         if constexpr (force_enable_cuda_blas_v) {
             return false;
         }
@@ -145,7 +145,10 @@ namespace utils
             if (GGML_CUDA_CC_IS_CDNA3(cc)) {
                 return true;
             }
-            if (ne11 <= 128 || type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q4_1 || type == GGML_TYPE_Q5_0 || type == GGML_TYPE_Q5_1) {
+            if (n_experts > 64 || ne11 <= 128) {
+                return true;
+            }
+            if (type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q4_1 || type == GGML_TYPE_Q5_0 || type == GGML_TYPE_Q5_1) {
                 return true;
             }
             if (ne11 <= 256 && (type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K)) {

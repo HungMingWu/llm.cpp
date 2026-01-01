@@ -1008,7 +1008,7 @@ namespace op
                 return;
             }
 
-            if (utils::should_use_mmq(src0->type, cc, src1->ne[2])) {
+            if (utils::should_use_mmq(src0->type, cc, src1->ne[2], /*n_experts=*/src0->ne[2])) {
                 mul_mat_q(pool, stream, ids, dst);
                 return;
             }

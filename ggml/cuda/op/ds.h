@@ -112,8 +112,15 @@ struct block_q8_1_mmq {
     };
     int8_t qs[4 * QK8_1]; // 128 values quantized to 8 bit each
 };
+
+struct block_fp4_mmq {
+    uint32_t d4[4];       // 8 E8M0 scales (1 per 32 values), 2 packed per uint32: d4[0]={s0,s1}, d4[1]={s2,s3}, etc.
+    int8_t   qs[4 * 32];  // 256 FP4 values packed as 4-bit pairs (2 per byte), 8 blocks of 32 values
+};
+
 static_assert(sizeof(block_q8_1_mmq) == 4 * QK8_1 + 4 * sizeof(half2), "Unexpected block_q8_1_mmq size");
 static_assert(sizeof(block_q8_1_mmq) == 4 * sizeof(block_q8_1), "Unexpected block_q8_1_mmq size");
+static_assert(sizeof(block_fp4_mmq) == sizeof(block_q8_1_mmq), "Unexpected block_fp4_mmq size");
 
 struct ggml_cuda_mm_fusion_args_device {
     const void* x_bias = nullptr;

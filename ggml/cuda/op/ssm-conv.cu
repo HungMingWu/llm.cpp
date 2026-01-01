@@ -83,33 +83,25 @@ void ssm_conv_f32_cuda(const ssm_conv_context& ctx, cudaStream_t stream) {
     auto src0_data = make_strided_mdspan<3>(ctx.src0_d, ctx.src0_ne, ctx.src0_nb);
     auto src1_data = make_strided_mdspan<2>(ctx.src1_d, ctx.src1_ne, ctx.src1_nb);
     auto dst_data = make_strided_mdspan<3>(ctx.dst_d, ctx.dst_ne, ctx.dst_nb);
-    if (ctx.n_t <= 32) {
-        const dim3 blocks(ctx.n_s, (ctx.nr + threads - 1) / threads, 1);
-        if (ctx.nc == 4) {
-            ssm_conv_f32<threads, 4> << <blocks, threads, 0, stream >> > (ctx.n_t, src0_data, src1_data, dst_data);
-        }
-        else if (ctx.nc == 3) {
-            ssm_conv_f32<threads, 3> << <blocks, threads, 0, stream >> > (ctx.n_t, src0_data, src1_data, dst_data);
-        }
-        else {
-            GGML_ABORT("Only support kernel size = 3 or size = 4 right now.");
-        }
-    }
-    else {
-        if (ctx.nc == 4) {
-            const int64_t split_n_t = 32;
-            dim3          blocks(ctx.n_s, (ctx.nr + threads - 1) / threads, (ctx.n_t + split_n_t - 1) / split_n_t);
-            ssm_conv_long_token_f32<threads, 4, split_n_t> << <blocks, threads, 0, stream >> > (
-                ctx.n_t, src0_data, src1_data, dst_data);
-        }
-        else if (ctx.nc == 3) {
-            const int64_t split_n_t = 32;
-            dim3          blocks(ctx.n_s, (ctx.nr + threads - 1) / threads, (ctx.n_t + split_n_t - 1) / split_n_t);
-            ssm_conv_long_token_f32<threads, 3, split_n_t> << <blocks, threads, 0, stream >> > (
-                ctx.n_t, src0_data, src1_data, dst_data);
+
+    auto launch_kernel = [&](auto NC) {
+        constexpr int kNC = decltype(NC)::value;
+        if (ctx.n_t <= 32) {
+            const dim3 blocks(ctx.n_s, (ctx.nr + threads - 1) / threads, 1);
+            ssm_conv_f32<threads, kNC> << <blocks, threads, 0, stream >> > (ctx.n_t, src0_data, src1_data, dst_data);
         }
         else {
-            GGML_ABORT("Only support kernel size = 3 or size = 4 right now.");
+            const int64_t split_n_t = 32;
+            dim3          blocks(ctx.n_s, (ctx.nr + threads - 1) / threads, (ctx.n_t + split_n_t - 1) / split_n_t);
+            ssm_conv_long_token_f32<threads, kNC, split_n_t> << <blocks, threads, 0, stream >> > (
+                ctx.n_t, src0_data, src1_data, dst_data);
         }
+    };
+
+    switch (ctx.nc) {
+    case 3: launch_kernel(std::integral_constant<int, 3>{}); break;
+    case 4: launch_kernel(std::integral_constant<int, 4>{}); break;
+    case 9: launch_kernel(std::integral_constant<int, 9>{}); break;
+    default: GGML_ABORT("Only support kernel sizes 3, 4, 9 right now.");
     }
 }

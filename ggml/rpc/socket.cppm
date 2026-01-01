@@ -216,6 +216,7 @@ std::shared_ptr<socket_t> get_socket(const std::string& endpoint) {
     std::string host;
     int port;
     if (!parse_endpoint(endpoint, host, port)) {
+        GGML_LOG_ERROR("Failed to parse endpoint: {}", endpoint);
         return nullptr;
     }
 #ifdef _WIN32
@@ -276,6 +277,10 @@ size_t get_max_size(const std::shared_ptr<socket_t>& sock, uint32_t device) {
 
 uint32_t get_device_count(const char* endpoint) {
     auto sock = get_socket(endpoint);
+    if (sock == nullptr) {
+        GGML_LOG_ERROR("Failed to connect to {}", endpoint);
+        return 0;
+    }
     rpc_msg_device_count_rsp response;
     bool status = send_rpc_cmd(sock, RPC_CMD_DEVICE_COUNT, nullptr, 0, &response, sizeof(response));
     RPC_STATUS_ASSERT(status);

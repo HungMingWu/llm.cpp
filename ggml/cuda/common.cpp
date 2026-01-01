@@ -281,3 +281,8 @@ bool turing_mma_available(const int cc) {
 bool ampere_mma_available(const int cc) {
     return GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_AMPERE;
 }
+
+bool blackwell_mma_available(const int cc) {
+    return GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_BLACKWELL &&
+        ggml_cuda_highest_compiled_arch(cc) < GGML_CUDA_CC_RUBIN;
+}

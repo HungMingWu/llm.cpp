@@ -207,6 +207,7 @@ bool amd_wmma_available(const int cc);
 bool volta_mma_available(const int cc);
 bool turing_mma_available(const int cc);
 bool ampere_mma_available(const int cc);
+bool blackwell_mma_available(const int cc);
 
 constexpr int get_mmq_y_host(const int cc) {
     return cc >= GGML_CUDA_CC_OFFSET_AMD ? (cc == GGML_CUDA_CC_RDNA1 ? 64 : 128) : (cc >= GGML_CUDA_CC_VOLTA ? 128 : 64);

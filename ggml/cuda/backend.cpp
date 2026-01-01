@@ -808,7 +808,7 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
 
             const int cc = ggml_cuda_info().devices[id].cc;
             const int warp_size = ggml_cuda_info().devices[id].warp_size;
-            use_mul_mat_q = use_mul_mat_q && utils::should_use_mmq(src0->type, cc, src1->ne[1]);
+            use_mul_mat_q = use_mul_mat_q && utils::should_use_mmq(src0->type, cc, src1->ne[1], /*n_experts=*/0);
             use_mul_mat_f = use_mul_mat_f && utils::should_use_mmf(src0->type, cc, warp_size, src0->ne, src0->nb, src1->ne[1], /*mul_mat_id=*/false);
             use_mul_mat_vec_f = use_mul_mat_vec_f && utils::should_use_mmvf(src0->type, cc, src0->ne, src0->nb, src1->ne[1]);
             any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16 || !fast_fp16_hardware_available(cc);
@@ -817,7 +817,7 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
     else {
         const int cc = ggml_cuda_info().devices[device].cc;
         const int warp_size = ggml_cuda_info().devices[device].warp_size;
-        use_mul_mat_q = use_mul_mat_q && utils::should_use_mmq(src0->type, cc, src1->ne[1]);
+        use_mul_mat_q = use_mul_mat_q && utils::should_use_mmq(src0->type, cc, src1->ne[1], /*n_experts=*/0);
         use_mul_mat_f = use_mul_mat_f && utils::should_use_mmf(src0->type, cc, warp_size, src0->ne, src0->nb, src1->ne[1], /*mul_mat_id=*/false);
         use_mul_mat_vec_f = use_mul_mat_vec_f && utils::should_use_mmvf(src0->type, cc, src0->ne, src0->nb, src1->ne[1]);
         any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16 || !fast_fp16_hardware_available(cc);

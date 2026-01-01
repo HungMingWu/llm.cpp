@@ -114,7 +114,23 @@ inline bool ggml_can_fuse_subgraph(const ggml_cgraph* cgraph,
     return ggml_can_fuse_subgraph(cgraph, start_idx, ops.size(), ops.begin(), outputs.begin(), outputs.size());
 }
 
-static bool ggml_cuda_should_use_topk_moe(const ggml_tensor* softmax, const ggml_tensor* weights, const ggml_tensor* clamp = nullptr) {
+static bool ggml_cuda_should_use_topk_moe(const ggml_tensor* softmax,
+    const ggml_tensor* weights,
+    const ggml_tensor* get_rows,
+    const ggml_tensor* argsort,
+    const ggml_tensor* clamp,
+    int n_expert) {
+    ggml_tensor* probs = get_rows->src[0];
+    if (probs->op != GGML_OP_RESHAPE) {
+        return false;
+    }
+    probs = probs->src[0];
+    ggml_tensor* selection_probs = argsort->src[0];
+
+    if (probs != selection_probs) {
+        return false;
+    }
+
     float scale = 1.0f;
     float max_bias = 0.0f;
 
@@ -134,7 +150,6 @@ static bool ggml_cuda_should_use_topk_moe(const ggml_tensor* softmax, const ggml
         return false;
     }
 
-    const int n_expert = softmax->ne[0];
     // n_expert must be a power of 2
     if ((n_expert & (n_expert - 1)) != 0 || n_expert > 512) {
         return false;
@@ -144,7 +159,7 @@ static bool ggml_cuda_should_use_topk_moe(const ggml_tensor* softmax, const ggml
         if (clamp->op != GGML_OP_CLAMP) {
             return false;
         }
-        const float max_val = std::bit_cast<float>(clamp->op_params[1]);
+        float max_val = std::bit_cast<float>(clamp->op_params[1]);
 
         if (max_val != INFINITY) {
             return false;
@@ -331,8 +346,11 @@ namespace fused
             ggml_can_fuse_subgraph(cgraph, node_idx, ops, { node_idx + 3, node_idx + 9 })) {
             ggml_tensor* softmax = cgraph->nodes[node_idx];
             ggml_tensor* weights = cgraph->nodes[node_idx + 9];
+            ggml_tensor* get_rows = cgraph->nodes[node_idx + 4];
+            ggml_tensor* argsort = cgraph->nodes[node_idx + 2];
+            int n_expert = cgraph->nodes[node_idx]->src[0]->ne[0];
 
-            if (ggml_cuda_should_use_topk_moe(softmax, weights)) {
+            if (ggml_cuda_should_use_topk_moe(softmax, weights, get_rows, argsort, nullptr, n_expert)) {
                 return true;
             }
         }
@@ -340,7 +358,11 @@ namespace fused
         if (is_equal(topk_moe_ops, ops) && ggml_can_fuse_subgraph(cgraph, node_idx, ops, { node_idx + 3, node_idx + 4 })) {
             ggml_tensor* softmax = cgraph->nodes[node_idx];
             ggml_tensor* weights = cgraph->nodes[node_idx + 4];
-            if (ggml_cuda_should_use_topk_moe(softmax, weights)) {
+            ggml_tensor* get_rows = cgraph->nodes[node_idx + 4];
+            ggml_tensor* argsort = cgraph->nodes[node_idx + 2];
+            int n_expert = cgraph->nodes[node_idx]->src[0]->ne[0];
+
+            if (ggml_cuda_should_use_topk_moe(softmax, weights, get_rows, argsort, nullptr, n_expert)) {
                 return true;
             }
         }
@@ -349,8 +371,11 @@ namespace fused
             ggml_can_fuse_subgraph(cgraph, node_idx, ops, { node_idx + 1, node_idx + 5 })) {
             ggml_tensor* softmax = cgraph->nodes[node_idx + 4];
             ggml_tensor* weights = cgraph->nodes[node_idx + 5];
+            ggml_tensor* get_rows = cgraph->nodes[node_idx + 2];
+            ggml_tensor* argsort = cgraph->nodes[node_idx + 0];
+            int n_expert = cgraph->nodes[node_idx]->src[0]->ne[0];
 
-            if (ggml_cuda_should_use_topk_moe(softmax, weights)) {
+            if (ggml_cuda_should_use_topk_moe(softmax, weights, get_rows, argsort, nullptr, n_expert)) {
                 return true;
             }
         }

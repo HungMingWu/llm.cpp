@@ -3,6 +3,7 @@ module;
 #include <string.h>
 
 module ggml:rpc.helper;
+import :rpc.buffer;
 import :rpc.ds;
 
 rpc_tensor serialize_tensor(const ggml_tensor* tensor) {
@@ -13,16 +14,12 @@ rpc_tensor serialize_tensor(const ggml_tensor* tensor) {
     }
     result.id = reinterpret_cast<uint64_t>(tensor);
     result.type = tensor->type;
-#if 0
-    if (tensor->buffer) {
-        ggml_backend_buffer_t buffer = tensor->buffer;
-        ggml_backend_rpc_buffer_context* ctx = (ggml_backend_rpc_buffer_context*)buffer->context;
-        result.buffer = ctx->remote_ptr;
+    if (auto rpc_buffer = dynamic_cast<rpc_backend_buffer*>(tensor->buffer)) {
+        result.buffer = rpc_buffer->remote_ptr;
     }
     else {
         result.buffer = 0;
     }
-#endif
     for (uint32_t i = 0; i < GGML_MAX_DIMS; i++) {
         result.ne[i] = tensor->ne[i];
         result.nb[i] = tensor->nb[i];
