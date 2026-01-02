@@ -22,6 +22,7 @@ export namespace chatllm
         tensor* init_tensor(ggml::tensor* tensor,
             ggml::type     type,
             int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3);
+        tensor* init_tensor(ggml::tensor* tensor, ggml::tensor* like);
         void change_type(ggml::tensor* tensor, ggml::type type);
 
         size_t element_size(const ggml::tensor* tensor);
@@ -287,6 +288,9 @@ export namespace chatllm
         static void write_tensor_data(ggml::tensor* tensor, const void* data, size_t offset, size_t size);
 
         static void write_tensor_data(ggml::tensor* tensor, const void* data);
+
+        static void tensor_memset(ggml::tensor* tensor, uint8_t value);
+        static void tensor_memset(ggml::tensor* tensor, uint8_t value, size_t offset, size_t size);
 
         void read_tensor_data_async(ggml::tensor* tensor, void* data, size_t offset, size_t size);
 

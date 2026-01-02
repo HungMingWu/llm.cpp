@@ -532,6 +532,16 @@ namespace chatllm
         ggml_backend_tensor_set(tensor, data, 0, tensor->nbytes());
     }
 
+    void Backend::tensor_memset(ggml::tensor* tensor, uint8_t value)
+    {
+        ggml_backend_tensor_memset(tensor, value, 0, ggml::nbytes(tensor));
+    }
+
+    void Backend::tensor_memset(ggml::tensor* tensor, uint8_t value, size_t offset, size_t size)
+    {
+        ggml_backend_tensor_memset(tensor, value, offset, size);
+    }
+
     void Backend::read_tensor_data_async(ggml::tensor* tensor, void* data, size_t offset, size_t size)
     {
         backend->get_tensor_async(tensor, data, offset, size);

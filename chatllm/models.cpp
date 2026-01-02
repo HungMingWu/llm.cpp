@@ -1086,7 +1086,7 @@ namespace chatllm
     bool ModelFactory::load(int model_type, int version, ModelLoader& loader, Result& result, const ModelObject::extra_args& args)
     {
         auto _loader = ModelLoadRegistry::get_loader(model_type);
-        CHATLLM_CHECK(_loader != nullptr) << "invalid model type " << model_type;
+        CHATLLM_CHECK(_loader != nullptr) << "invalid model type 0x" << std::hex << model_type;
         CHATLLM_CHECK(version == _loader->version) << "only support version " << _loader->version << " for now but got " << version;
         return _loader->load_model(loader, result, args);
     }

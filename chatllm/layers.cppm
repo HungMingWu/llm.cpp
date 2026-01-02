@@ -557,7 +557,7 @@ export namespace chatllm
         }
 
         Linear(InitContext* ctx, int in_features, int out_features, ggml::tensor* weight, bool use_bias = true)
-            : weight(weight != NULL ? weight : ggml::new_tensor_2d(ctx, ctx->dtype, in_features, out_features)),
+            : weight(weight != NULL ? weight : ggml::new_tensor_2d(ctx, ggml::type_fallback(ctx->dtype, in_features), in_features, out_features)),
             bias(use_bias ? ggml::new_tensor_1d(ctx, GGML_TYPE_F32, out_features) : nullptr) {
         }
 
@@ -591,7 +591,7 @@ export namespace chatllm
         }
 
         MultiLinear(InitContext* ctx, int in_features, int out_features, int multi, bool use_bias)
-            : weight(ggml::new_tensor_3d(ctx, ctx->dtype, in_features, out_features, multi)),
+            : weight(ggml::new_tensor_3d(ctx, ggml::type_fallback(ctx->dtype, in_features), in_features, out_features, multi)),
             bias(use_bias ? ggml::new_tensor_2d(ctx, ggml::type::GGML_TYPE_F32, out_features, multi) : nullptr)
         {
         }
@@ -2074,6 +2074,7 @@ export namespace chatllm
         Original = GGML_ROPE_TYPE_NEOX,          // II...IQQ...Q (i.e. Su's Paper)
         MROPE = GGML_ROPE_TYPE_MROPE,
         VISION = GGML_ROPE_TYPE_VISION,
+        IMROPE = GGML_ROPE_TYPE_IMROPE,        // interleaved MROPE
     };
 
     template <class BaseAttn> class RoPESelfAttention : public BaseAttn
