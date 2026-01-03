@@ -40,7 +40,7 @@ namespace chatllm::qwen
                 BaseHistoryEncoder* qa_encoder = nullptr,
                 BaseHistoryEncoder* completion_encoder = nullptr);
 
-            size_t load(tokenizer::DataReader* buffer, int n_vocab) override;
+            size_t load(tokenizer::DataReader& buffer, int n_vocab) override;
 
             void encode(const std::string& text, std::vector<int>& ids) const override;
 
@@ -53,7 +53,7 @@ namespace chatllm::qwen
             void encode(const std::string& text, std::vector<int>& ids, bool add_im_start, bool add_im_end, bool add_nl) const;
 
         protected:
-            virtual size_t do_load(tokenizer::DataReader* buffer, int n_vocab);
+            virtual size_t do_load(tokenizer::DataReader& buffer, int n_vocab);
 
         public:
             int im_start_token_id;
@@ -88,7 +88,7 @@ namespace chatllm::qwen
         {
         public:
             Tokenizer(const BaseConfig& config, BaseHistoryEncoder* encoder = nullptr);
-            size_t load(tokenizer::DataReader* buffer, int n_vocab) override;
+            size_t load(tokenizer::DataReader& buffer, int n_vocab) override;
         };
 
         class ConditionalGeneration : public BaseModelForConditionalGeneration
@@ -336,7 +336,7 @@ namespace chatllm::qwen
                 BaseHistoryEncoder* qa_encoder = nullptr,
                 BaseHistoryEncoder* completion_encoder = nullptr);
 
-            size_t load(tokenizer::DataReader* buffer, int n_vocab) override;
+            size_t load(tokenizer::DataReader& buffer, int n_vocab) override;
         public:
             int user_token_id;
             int assistant_token_id;
@@ -597,7 +597,7 @@ namespace chatllm::qwen
 
             Tokenizer(const BaseConfig& config, BaseHistoryEncoder* encoder);
 
-            size_t load(tokenizer::DataReader* buffer, int n_vocab) override;
+            size_t load(tokenizer::DataReader& buffer, int n_vocab) override;
 
             void inject_media(const std::string& media_type, std::vector<int>& ids, const int ids_to_inject_start, const int ids_to_inject_count);
         public:
@@ -718,7 +718,7 @@ namespace chatllm::qwen
         {
         public:
             Tokenizer(const BaseConfig& config);
-            size_t load(tokenizer::DataReader* buffer, int n_vocab) override;
+            size_t load(tokenizer::DataReader& buffer, int n_vocab) override;
 
             void encode_qa(const std::string& q, const std::string& a, std::vector<int>& ids) const override;
         public:

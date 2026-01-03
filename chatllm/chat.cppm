@@ -288,7 +288,7 @@ export namespace chatllm
 
         virtual ~BaseTokenizer() = default;
 
-        virtual size_t load(tokenizer::DataReader* buffer, int n_vocab) = 0;
+        virtual size_t load(tokenizer::DataReader& buffer, int n_vocab) = 0;
 
         virtual bool load_config(const json::JSON& config) { return true; }
 
@@ -688,9 +688,9 @@ export namespace chatllm
 
         void load_all_tensors(void);
 
-        tokenizer::DataReader* get_reader()
+        tokenizer::DataReader& get_reader()
         {
-            return _file.get();
+            return *_file;
         }
 
         void add_tensor_name_translation(const std::string& from_name, const std::string& to_name)

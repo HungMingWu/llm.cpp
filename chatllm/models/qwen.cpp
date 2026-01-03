@@ -32,7 +32,7 @@ namespace chatllm::qwen::v1
         sys_prompt = "You are a helpful assistant.";
     }
 
-    size_t Tokenizer::do_load(tokenizer::DataReader* buffer, int n_vocab)
+    size_t Tokenizer::do_load(tokenizer::DataReader& buffer, int n_vocab)
     {
         tp = new tokenizer::BPEProcessor2(
             {
@@ -43,7 +43,7 @@ namespace chatllm::qwen::v1
         return tp->Load(buffer, n_vocab);
     }
 
-    size_t Tokenizer::load(tokenizer::DataReader* buffer, int n_vocab)
+    size_t Tokenizer::load(tokenizer::DataReader& buffer, int n_vocab)
     {
         size_t size = do_load(buffer, n_vocab);
         tp->EnableReturnSpecialToken(true);
@@ -187,7 +187,7 @@ namespace chatllm::qwen::v2
     {
     }
 
-    size_t Tokenizer::load(tokenizer::DataReader* buffer, int n_vocab)
+    size_t Tokenizer::load(tokenizer::DataReader& buffer, int n_vocab)
     {
         size_t r = v1::Tokenizer::load(buffer, n_vocab);
 
@@ -768,7 +768,7 @@ namespace chatllm::qwen::ds_r1_distill
         sys_prompt = "";
     }
 
-    size_t Tokenizer::load(tokenizer::DataReader* buffer, int n_vocab)
+    size_t Tokenizer::load(tokenizer::DataReader& buffer, int n_vocab)
     {
         tp = new tokenizer::BPEProcessor2(
             {
@@ -1453,7 +1453,7 @@ namespace chatllm::qwen::v2_5_vl
     {
     }
 
-    size_t Tokenizer::load(tokenizer::DataReader* buffer, int n_vocab)
+    size_t Tokenizer::load(tokenizer::DataReader& buffer, int n_vocab)
     {
         size_t r = v2::Tokenizer::load(buffer, n_vocab);
 
@@ -1943,7 +1943,7 @@ namespace chatllm::qwen::v3_ranker
     {
     }
 
-    size_t Tokenizer::load(tokenizer::DataReader* buffer, int n_vocab)
+    size_t Tokenizer::load(tokenizer::DataReader& buffer, int n_vocab)
     {
         size_t size = v3_emb::Tokenizer::load(buffer, n_vocab);
 

@@ -432,9 +432,9 @@ static void build_special_token_cache(_vocab& vocab)
     }
 }
 
-size_t BPEProcessor1::Load(DataReader* data_reader, int n_vocab)
+size_t BPEProcessor1::Load(DataReader& data_reader, int n_vocab)
 {
-    Reader reader(*data_reader);
+    Reader reader(data_reader);
 
     vocab_.token_to_id.clear();
     vocab_.id_to_token.resize((size_t)n_vocab + 100);
@@ -472,9 +472,9 @@ BPEProcessor2::BPEProcessor2(std::vector<std::string> regex_exprs) :
     this->regex_exprs = regex_exprs;
 }
 
-size_t BPEProcessor2::Load(DataReader* data_reader, int n_vocab)
+size_t BPEProcessor2::Load(DataReader& data_reader, int n_vocab)
 {
-    Reader reader(*data_reader);
+    Reader reader(data_reader);
 
     vocab_.token_to_id.clear();
     vocab_.id_to_token.resize((size_t)n_vocab + 100);
@@ -901,9 +901,9 @@ UnigramProcessor::UnigramProcessor(int unk_tok_id) : Processor::Processor(), unk
 
 }
 
-size_t UnigramProcessor::Load(DataReader* data_reader, int n_vocab)
+size_t UnigramProcessor::Load(DataReader& data_reader, int n_vocab)
 {
-    Reader reader(*data_reader);
+    Reader reader(data_reader);
 
     vocab_.token_to_id.clear();
     vocab_.id_to_token.resize((size_t)n_vocab + 100);

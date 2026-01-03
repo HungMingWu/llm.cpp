@@ -137,7 +137,7 @@ namespace tokenizer
             vocab_.byte_fallback_ready = false;
         }
 
-        virtual size_t Load(DataReader* data_reader, int n_vocab) = 0;
+        virtual size_t Load(DataReader& data_reader, int n_vocab) = 0;
 
         virtual int PieceToId(std::string_view piece) const;
 
@@ -187,7 +187,7 @@ namespace tokenizer
     public:
         BPEProcessor1() : Processor::Processor() {}
 
-        size_t Load(DataReader* data_reader, int n_vocab) override;
+        size_t Load(DataReader& data_reader, int n_vocab) override;
 
     protected:
         int DoEncode(const std::string& input,
@@ -201,7 +201,7 @@ namespace tokenizer
 
         BPEProcessor2(std::vector<std::string> regex_exprs);
 
-        size_t Load(DataReader* data_reader, int n_vocab) override;
+        size_t Load(DataReader& data_reader, int n_vocab) override;
 
         const std::string IdToPiece(int id) const override;
 
@@ -231,7 +231,7 @@ namespace tokenizer
     public:
         UnigramProcessor(int unk_tok_id);
 
-        size_t Load(DataReader* data_reader, int n_vocab) override;
+        size_t Load(DataReader& data_reader, int n_vocab) override;
 
         int unk_tok_id;
 
