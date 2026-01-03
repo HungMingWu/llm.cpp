@@ -548,11 +548,11 @@ namespace chatllm
 
         for (; (remain > batch) && !aborted; p += batch, remain -= batch, past += batch)
         {
-            if (!run_model(p, batch, gen_config, past, lm_logits, 1))
+            if (!run_model(std::span{ p, (size_t)batch }, gen_config, past, lm_logits, 1))
                 return false;
         }
 
-        return run_model(p, remain, gen_config, past, lm_logits, 1);
+        return run_model(std::span{ p, (size_t)remain }, gen_config, past, lm_logits, 1);
     }
 
 
@@ -644,15 +644,7 @@ namespace chatllm
         return s;
     }
 
-    bool BaseModelForConditionalGeneration::run_model(const std::vector<int>& input_ids,
-        const GenerationConfig& gen_config,
-        int past,
-        std::vector<float>& output)
-    {
-        return run_model(input_ids.data(), (int)input_ids.size(), gen_config, past, output);
-    }
-
-    bool BaseModelForConditionalGeneration::run_model(const int* input_ids, const int ids_count,
+    bool BaseModelForConditionalGeneration::run_model(std::span<const int> input_ids,
         const GenerationConfig& gen_config,
         int past,
         std::vector<float>& output, const int batch_size,
@@ -661,9 +653,9 @@ namespace chatllm
         if (!initial_run)
         {
             initial_run = true;
-            int past = gen_config.max_length / transformer->get_reserved_batch_size() - ids_count;
+            int past = gen_config.max_length / transformer->get_reserved_batch_size() - input_ids.size();
             if (past < 0) past = 0;
-            if (!before_initial_run(ids_count, gen_config, past))
+            if (!before_initial_run(input_ids.size(), gen_config, past))
                 return false;
         }
 
@@ -673,7 +665,7 @@ namespace chatllm
         set_dbg_ctx(&ctx);
 
         ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Prolog);
-        ggml::tensor* input_ids_tensor = ggml::new_tensor_2d(&ctx, GGML_TYPE_I32, ids_count, batch_size);
+        ggml::tensor* input_ids_tensor = ggml::new_tensor_2d(&ctx, GGML_TYPE_I32, input_ids.size(), batch_size);
 
         ggml::tensor* r = transformer->forward(&ctx, input_ids_tensor, past);
 
@@ -697,7 +689,7 @@ namespace chatllm
 
         if (!ctx.allocate()) return false;
 
-        Backend::write_tensor_data(input_ids_tensor, input_ids);
+        Backend::write_tensor_data(input_ids_tensor, input_ids.data());
 
         if (gen_config.dump_dot.size() > 0)
         {

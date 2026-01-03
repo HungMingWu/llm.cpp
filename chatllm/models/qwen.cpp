@@ -2471,7 +2471,7 @@ namespace chatllm::qwen::v3_vl
 
     protected:
         bool generate_next_token(const std::vector<int>& input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) override;
-        bool run_model(const int* input_ids, const int ids_count,
+        bool run_model(std::span<const int> input_ids,
             const GenerationConfig& gen_config,
             int past,
             std::vector<float>& output,
@@ -2617,7 +2617,7 @@ namespace chatllm::qwen::v3_vl
         return r;
     }
 
-    bool ConditionalGeneration::run_model(const int* input_ids, const int ids_count,
+    bool ConditionalGeneration::run_model(std::span<const int> input_ids,
         const GenerationConfig& gen_config,
         int past,
         std::vector<float>& output, const int batch_size,
@@ -2626,9 +2626,9 @@ namespace chatllm::qwen::v3_vl
         if (!initial_run)
         {
             initial_run = true;
-            int past = gen_config.max_length / transformer->get_reserved_batch_size() - ids_count;
+            int past = gen_config.max_length / transformer->get_reserved_batch_size() - input_ids.size();
             if (past < 0) past = 0;
-            if (!before_initial_run(ids_count, gen_config, past))
+            if (!before_initial_run(input_ids.size(), gen_config, past))
                 return false;
         }
 
@@ -2638,8 +2638,8 @@ namespace chatllm::qwen::v3_vl
         set_dbg_ctx(&ctx);
 
         ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Prolog);
-        ggml::tensor* input_ids_tensor = ggml::new_tensor_2d(&ctx, GGML_TYPE_I32, ids_count, batch_size);
-        deepstack_ids_tensor = ggml::new_tensor_2d(&ctx, GGML_TYPE_I32, ids_count, batch_size);
+        ggml::tensor* input_ids_tensor = ggml::new_tensor_2d(&ctx, GGML_TYPE_I32, input_ids.size(), batch_size);
+        deepstack_ids_tensor = ggml::new_tensor_2d(&ctx, GGML_TYPE_I32, input_ids.size(), batch_size);
 
         ggml::tensor* r = transformer->forward(&ctx, input_ids_tensor, past);
 
@@ -2663,7 +2663,7 @@ namespace chatllm::qwen::v3_vl
 
         if (!ctx.allocate()) return false;
 
-        Backend::write_tensor_data(input_ids_tensor, input_ids);
+        Backend::write_tensor_data(input_ids_tensor, input_ids.data());
         Backend::write_tensor_data(deepstack_ids_tensor, deepstack_token_ids.data());
 
         if (gen_config.dump_dot.size() > 0)

@@ -447,12 +447,7 @@ namespace chatllm
             const GenerationConfig& gen_config,
             int past);
 
-        bool run_model(const std::vector<int>& input_ids,
-            const GenerationConfig& gen_config,
-            int past,
-            std::vector<float>& output);
-
-        virtual bool run_model(const int* input_ids, const int ids_count,
+        virtual bool run_model(std::span<const int> input_ids,
             const GenerationConfig& gen_config,
             int past,
             std::vector<float>& output,
