@@ -260,12 +260,12 @@ namespace chatllm
     }
 
     template <class Config, class Tokenizer>
-    Tokenizer* load_tokenizer(ModelLoader& loader, Config& config)
+    std::unique_ptr<Tokenizer> load_tokenizer(ModelLoader& loader, Config& config)
     {
         loader.seek(loader.offset_tokenizer, SEEK_SET);
 
         // load tokenizer
-        Tokenizer* tokenizer = new Tokenizer(config);
+        auto tokenizer = std::make_unique<Tokenizer>(config);
         tokenizer->load(loader.get_reader(), config.vocab_size);
         tokenizer->load_config(loader.meta_json);
         loader.load_all_tensors();
@@ -320,7 +320,7 @@ namespace chatllm
         load_config<Config>(loader, config, args);
 
         // load tokenizer
-        result.tokenizer = std::unique_ptr<BaseTokenizer>(load_tokenizer<Config, Tokenizer>(loader, config));
+        result.tokenizer = load_tokenizer<Config, Tokenizer>(loader, config);
 
 #if (0)
         // test tokenizer
