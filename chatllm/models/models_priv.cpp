@@ -492,8 +492,9 @@ namespace chatllm
                 {
                     if (keep_idx > (int)output_ids.size())
                         keep_idx = (int)output_ids.size();
-                    for (; next_output_idx < keep_idx; next_output_idx++)
-                        streamer->put({ output_ids[next_output_idx] });
+                    auto subspan = std::span{ output_ids }.subspan(next_output_idx, keep_idx - next_output_idx);
+                    streamer->put(subspan);
+					next_output_idx = keep_idx;
                 }
 
                 if ((gen_max_tokens > 0) && ((n_past + (int)curr_input_ids.size() >= gen_max_tokens)))

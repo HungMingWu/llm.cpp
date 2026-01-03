@@ -393,7 +393,7 @@ namespace chatllm
     {
     }
 
-    void BaseStreamer::put(const std::vector<int>& output_ids)
+    void BaseStreamer::put(std::span<const int> output_ids)
     {
         is_prompt = false;
 

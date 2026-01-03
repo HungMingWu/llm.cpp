@@ -505,7 +505,7 @@ export namespace chatllm
         };
         BaseStreamer(BaseTokenizer* tokenizer);
         virtual ~BaseStreamer() = default;
-        virtual void put(const std::vector<int>& output_ids);
+        virtual void put(std::span<const int> output_ids);
         virtual void put_chunk(bool first, const std::string& chunk) = 0;
         virtual void put_thought_chunk(bool first, const std::string& chunk) = 0;
         virtual void end_thought(void) = 0;
