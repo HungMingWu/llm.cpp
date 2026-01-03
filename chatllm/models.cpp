@@ -1072,7 +1072,7 @@ namespace chatllm
         ModelLoadRegistry::reg(model_type, this);
     }
 
-    AbstractModel* ModelFactory::load_model_again(ModelLoader& loader, const ModelObject::extra_args& args)
+    std::unique_ptr<AbstractModel> ModelFactory::load_model_again(ModelLoader& loader, const ModelObject::extra_args& args)
     {
         int model_type = loader.model_type;
         int version = loader.version;

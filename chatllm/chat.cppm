@@ -1276,7 +1276,7 @@ export namespace chatllm
         ModelObject(const std::string& path);
         ModelObject(const std::string& path, const extra_args& args);
 
-        AbstractModel* fork_model(const extra_args& args);
+        std::unique_ptr<AbstractModel> fork_model(const extra_args& args);
 
     public:
         std::unique_ptr<BaseTokenizer> tokenizer;
@@ -1296,7 +1296,7 @@ export namespace chatllm
 
         static bool load(ModelLoader& loader, Result& result, const ModelObject::extra_args& args);
 
-        static AbstractModel* load_model_again(ModelLoader& loader, const ModelObject::extra_args& args);
+        static std::unique_ptr<AbstractModel> load_model_again(ModelLoader& loader, const ModelObject::extra_args& args);
 
         static std::string load_info(ModelLoader& loader);
 

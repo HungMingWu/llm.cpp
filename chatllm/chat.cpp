@@ -1604,7 +1604,7 @@ namespace chatllm
         model = std::move(result.model);
     }
 
-    AbstractModel* ModelObject::fork_model(const extra_args& args)
+    std::unique_ptr<AbstractModel> ModelObject::fork_model(const extra_args& args)
     {
         if (!loaded) return nullptr;
         return ModelFactory::load_model_again(*loader, args);

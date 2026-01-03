@@ -274,7 +274,7 @@ namespace chatllm
     }
 
     template <class Config, class ConditionalGeneration>
-    ConditionalGeneration* load_model(ModelLoader& loader, Config& config, const ModelObject::extra_args& args)
+    std::unique_ptr<ConditionalGeneration> load_model(ModelLoader& loader, Config& config, const ModelObject::extra_args& args)
     {
         std::vector<int> layers;
         if (args.layer_spec.size() > 0)
@@ -288,7 +288,7 @@ namespace chatllm
         rt_config.additional = args.additional;
 
         // load model
-        ConditionalGeneration* model = new ConditionalGeneration(config, rt_config);
+        auto model = std::make_unique<ConditionalGeneration>(config, rt_config);
         model->set_type(loader.model_type);
         model->set_names(loader.model_name, loader.model_native_name);
         if (layers.size() > 0)
@@ -302,7 +302,7 @@ namespace chatllm
     }
 
     template <class Config, class ConditionalGeneration>
-    ConditionalGeneration* load_model(ModelLoader& loader, const ModelObject::extra_args& args)
+    std::unique_ptr<ConditionalGeneration> load_model(ModelLoader& loader, const ModelObject::extra_args& args)
     {
         Config config;
 
@@ -333,7 +333,7 @@ namespace chatllm
         exit(-1);
 #endif
         // load model
-        result.model = std::unique_ptr<AbstractModel>(load_model<Config, ConditionalGeneration>(loader, config, args));
+        result.model = load_model<Config, ConditionalGeneration>(loader, config, args);
 
         result.model->set_tokenizer(result.tokenizer.get());
 
@@ -344,7 +344,7 @@ namespace chatllm
     {
     public:
         BaseImplModelLoader(int model_type, int version);
-        virtual AbstractModel* load_model(ModelLoader& loader, const ModelObject::extra_args& args) = 0;
+        virtual std::unique_ptr<AbstractModel> load_model(ModelLoader& loader, const ModelObject::extra_args& args) = 0;
         virtual bool load_model(ModelLoader& loader, ModelFactory::Result& result, const ModelObject::extra_args& args) = 0;
         const int version;
     };
@@ -353,7 +353,7 @@ namespace chatllm
     {
     public:
         ImplModelLoader() : BaseImplModelLoader(model_type, ver) {}
-        AbstractModel* load_model(ModelLoader& loader, const ModelObject::extra_args& args) override
+        std::unique_ptr<AbstractModel> load_model(ModelLoader& loader, const ModelObject::extra_args& args) override
         {
             return chatllm::load_model<Config, ConditionalGeneration>(loader, args);
         }
