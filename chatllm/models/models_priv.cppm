@@ -416,7 +416,7 @@ namespace chatllm
         BaseModelForConditionalGeneration(ModelType model_type, BaseConfig config, const RuntimeConfig& runtime_config, size_t GRAPH_SIZE = 4096);
         virtual ~BaseModelForConditionalGeneration() = default;
 
-        void set_layer_ids(const std::vector<int>& ids) override;
+        void set_layer_ids(std::span<const int> ids) override;
         int get_max_length(void) override;
         void shift_memory(int keep) override;
         int64_t get_param_num(bool effective_only) const override;

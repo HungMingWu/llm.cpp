@@ -879,7 +879,7 @@ export namespace chatllm
 
         virtual bool load_more(const json::JSON& config) = 0;
 
-        virtual void set_layer_ids(const std::vector<int>& ids) = 0;
+        virtual void set_layer_ids(std::span<const int> ids) = 0;
 
         struct generate_result {
             std::vector<int> ids;
@@ -963,7 +963,7 @@ export namespace chatllm
 
         bool load_more(const json::JSON& config) override { return model->load_more(config); }
 
-        void set_layer_ids(const std::vector<int>& ids) override { return model->set_layer_ids(ids); }
+        void set_layer_ids(std::span<const int> ids) override { return model->set_layer_ids(ids); }
 
         generate_result generate(std::span<const int> input_ids, const GenerationConfig& gen_config,
             const bool continuous,
