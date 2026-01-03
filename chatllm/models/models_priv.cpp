@@ -317,22 +317,20 @@ namespace chatllm
     class SamplerFactory
     {
     public:
-        static Sampler* Create(const GenerationConfig& gen_config, int seed)
+        static std::unique_ptr<Sampler> Create(const GenerationConfig& gen_config, int seed)
         {
-            Sampler* r = nullptr;
-            if (gen_config.do_sample)
-            {
-                if (gen_config.sampling == "top_p")
-                    r = new TopPSampler(gen_config, gen_config.temperature, gen_config.top_k, gen_config.top_p);
-                else if (gen_config.sampling == "tfs")
-                    r = new FreeTailSampler(gen_config, gen_config.temperature, gen_config.top_k, gen_config.tfs_z);
-                else if (gen_config.sampling != "greedy")
-                    CHATLLM_CHECK(false) << "unknown sampling algorithm: " << gen_config.sampling;
-            }
-
-            if (nullptr == r)
-                r = new GreedySampler();
-
+             auto r = [&]() -> std::unique_ptr<Sampler>  {
+                if (gen_config.do_sample)
+                {
+                    if (gen_config.sampling == "top_p")
+                        return std::make_unique<TopPSampler>(gen_config, gen_config.temperature, gen_config.top_k, gen_config.top_p);
+                    else if (gen_config.sampling == "tfs")
+                        return std::make_unique<FreeTailSampler>(gen_config, gen_config.temperature, gen_config.top_k, gen_config.tfs_z);
+                    else if (gen_config.sampling != "greedy")
+                        CHATLLM_CHECK(false) << "unknown sampling algorithm: " << gen_config.sampling;
+                }
+                return std::make_unique<GreedySampler>();
+            }();
             r->seed(seed);
             return r;
         }
@@ -391,7 +389,7 @@ namespace chatllm
         //    printf("%d, ", input_ids[i]);
         //printf("\nn_past = %d, %d\n\n", n_past, continuous);
 
-        std::unique_ptr<Sampler> sampler = std::unique_ptr<Sampler>(SamplerFactory::Create(gen_config, get_seed()));
+        std::unique_ptr<Sampler> sampler = SamplerFactory::Create(gen_config, get_seed());
 
         aborted = false;
 
