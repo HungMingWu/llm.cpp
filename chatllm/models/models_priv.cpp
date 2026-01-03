@@ -541,18 +541,15 @@ namespace chatllm
     bool BaseModelForConditionalGeneration::generate_next_token(std::span<const int> input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits)
     {
         int batch = batch_input > 1 ? batch_input : 1;
-
-        const int* p = input_ids.data();
-        int remain = (int)input_ids.size();
         int past = n_past + n_past_offset;
 
-        for (; (remain > batch) && !aborted; p += batch, remain -= batch, past += batch)
+        for (auto chunk : input_ids | std::views::chunk(batch))
         {
-            if (!run_model(std::span{ p, (size_t)batch }, gen_config, past, lm_logits, 1))
+            if (!run_model(chunk, gen_config, past, lm_logits, 1))
                 return false;
+            past += batch;
         }
-
-        return run_model(std::span{ p, (size_t)remain }, gen_config, past, lm_logits, 1);
+        return true;
     }
 
 
