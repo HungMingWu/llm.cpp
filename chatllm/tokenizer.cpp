@@ -180,18 +180,22 @@ private:
 class Reader
 {
 public:
-    Reader(DataReader* data_reader)
-        : data_reader(data_reader), offset(data_reader->tell()) {
+    Reader(DataReader& data_reader)
+        : data_reader(data_reader), offset(data_reader.tell()) {
     }
+    Reader(const Reader&) = delete;
+    Reader(Reader&&) = delete;
+    Reader& operator=(const Reader&) = delete;
+    Reader& operator=(Reader&&) = delete;
 
     void read_raw(void* r, size_t size)
     {
-        data_reader->read_buffer(r, size);
+        data_reader.read_buffer(r, size);
     }
 
     template <typename T> T read_basic()
     {
-        return data_reader->read_basic<T>();
+        return data_reader.read_basic<T>();
     }
 
     uint32_t read_u32(void)
@@ -206,15 +210,16 @@ public:
 
     std::string read_string(int len)
     {
-        std::vector<char> chars(len);
-        data_reader->read_buffer(chars.data(), len);
-        return std::string(chars.data(), len);
+        std::string str;
+        str.resize(len);
+        data_reader.read_buffer(str.data(), len);
+        return str;
     }
 
-    size_t get_total_size(void) { return data_reader->tell() - offset; }
+    size_t get_total_size(void) { return data_reader.tell() - offset; }
 
 private:
-    DataReader* data_reader;
+    DataReader &data_reader;
     const size_t offset;
 };
 
@@ -429,7 +434,7 @@ static void build_special_token_cache(_vocab& vocab)
 
 size_t BPEProcessor1::Load(DataReader* data_reader, int n_vocab)
 {
-    Reader reader(data_reader);
+    Reader reader(*data_reader);
 
     vocab_.token_to_id.clear();
     vocab_.id_to_token.resize((size_t)n_vocab + 100);
@@ -469,7 +474,7 @@ BPEProcessor2::BPEProcessor2(std::vector<std::string> regex_exprs) :
 
 size_t BPEProcessor2::Load(DataReader* data_reader, int n_vocab)
 {
-    Reader reader(data_reader);
+    Reader reader(*data_reader);
 
     vocab_.token_to_id.clear();
     vocab_.id_to_token.resize((size_t)n_vocab + 100);
@@ -898,7 +903,7 @@ UnigramProcessor::UnigramProcessor(int unk_tok_id) : Processor::Processor(), unk
 
 size_t UnigramProcessor::Load(DataReader* data_reader, int n_vocab)
 {
-    Reader reader(data_reader);
+    Reader reader(*data_reader);
 
     vocab_.token_to_id.clear();
     vocab_.id_to_token.resize((size_t)n_vocab + 100);
