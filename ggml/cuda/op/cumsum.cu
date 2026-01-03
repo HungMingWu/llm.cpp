@@ -2,6 +2,10 @@
 #include "common.cuh"
 #include "convert.cuh"
 #include "cuda_func.h"
+#include "mdspan_helper.h"
+#include <cooperative_groups.h>
+#include <cooperative_groups/scan.h>
+#include <cooperative_groups/reduce.h>
 
 #define GGML_ABORT(...)
 
@@ -11,14 +15,10 @@
 
 template<typename T, int BLOCK_SIZE>
 static __global__ void cumsum_cub_kernel(
-    const T* __restrict__ src,
-    T* __restrict__ dst,
-    const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
-    const int64_t  s01, const int64_t  s02, const int64_t  s03,
-    const int64_t   s1, const int64_t   s2, const int64_t   s3) {
+    mdspan_stiride_t<const T, 4> src_data, mdspan_stiride_t<T, 4> dst_data) {
 #ifdef GGML_CUDA_USE_CUB
     using BlockScanT = cub::BlockScan<T, BLOCK_SIZE>;
-
+    auto block = cooperative_groups::this_thread_block();
     __shared__ typename BlockScanT::TempStorage temp_storage;
     __shared__ T block_carry;
 
@@ -30,26 +30,23 @@ static __global__ void cumsum_cub_kernel(
     const int64_t i2 = blockIdx.y;
     const int64_t i3 = blockIdx.z;
 
-    if (i1 >= ne01 || i2 >= ne02 || i3 >= ne03) {
+    if (i1 >= src_data.extent(2) || i2 >= src_data.extent(1) || i3 >= src_data.extent(0)) {
         return;
     }
-
-    const T* src_row = src + i1 * s01 + i2 * s02 + i3 * s03;
-    T* dst_row = dst + i1 * s1 + i2 * s2 + i3 * s3;
 
     if (tid == 0) {
         block_carry = 0;
     }
-    __syncthreads();
+    block.sync();
 
-    for (int64_t start = 0; start < ne00; start += TILE_SIZE) {
+    for (int64_t start = 0; start < src_data.extent(3); start += TILE_SIZE) {
         T items[UNROLL_FACTOR];
         T thread_sum = T(0);
 
 #pragma unroll
         for (int i = 0; i < UNROLL_FACTOR; i++) {
             int64_t idx = start + tid * UNROLL_FACTOR + i;
-            T val = (idx < ne00) ? src_row[idx] : T(0);
+            T val = (idx < src_data.extent(3)) ? src_data(i3, i2, i1, idx) : T(0);
             thread_sum += val;
             items[i] = thread_sum;
         }
@@ -58,19 +55,19 @@ static __global__ void cumsum_cub_kernel(
         T thread_prefix;
         T block_total;
         BlockScanT(temp_storage).InclusiveSum(thread_sum, thread_prefix, block_total);
-        __syncthreads();
+        block.sync();
 
         // Add offset to each item and store
         T thread_offset = thread_prefix - thread_sum + block_carry;
 #pragma unroll
         for (int i = 0; i < UNROLL_FACTOR; i++) {
             int64_t idx = start + tid * UNROLL_FACTOR + i;
-            if (idx < ne00) {
-                dst_row[idx] = items[i] + thread_offset;
+            if (idx < src_data.extent(3)) {
+                dst_data(i3, i2, i1, idx) = items[i] + thread_offset;
             }
         }
 
-        __syncthreads();
+        block.sync();
 
         // Update carry for next tile
         if (tid == 0) {
@@ -83,12 +80,9 @@ static __global__ void cumsum_cub_kernel(
 }
 
 // Fallback kernel implementation
-template<typename T>
+template <typename T>
 static __global__ void cumsum_kernel(
-    const T* src, T* dst,
-    const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
-    [[maybe_unused]] const int64_t  s00, const int64_t  s01, const int64_t  s02, const int64_t  s03,
-    [[maybe_unused]] const int64_t   s0, const int64_t   s1, const int64_t   s2, const int64_t   s3) {
+    mdspan_stiride_t<const T, 4> src_data, mdspan_stiride_t<T, 4> dst_data) {
 
     const int tid = threadIdx.x;
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
@@ -111,28 +105,28 @@ static __global__ void cumsum_kernel(
     const int64_t i3 = blockIdx.z;
     const int64_t i2 = blockIdx.y;
     const int64_t i1 = blockIdx.x;
-    if (i3 >= ne03 || i2 >= ne02 || i1 >= ne01) {
+    if (i3 >= src_data.extent(0) || i2 >= src_data.extent(1) || i1 >= src_data.extent(2)) {
         return;
     }
-
-    const T* src_row = src + i1 * s01 + i2 * s02 + i3 * s03;
-    T* dst_row = dst + i1 * s1 + i2 * s2 + i3 * s3;
 
     // register blocking: process 4 elements per thread to hide latency
     // and reduce synchronization overhead
     constexpr int num_unroll = 4;
     T             temp[num_unroll];
 
-    for (int64_t i = 0; i < ne00; i += num_unroll * blockDim.x) {
+    auto block = cooperative_groups::this_thread_block();
+    auto tile = cooperative_groups::tiled_partition<warp_size>(block);
+
+    for (int64_t i = 0; i < src_data.extent(3); i += num_unroll * blockDim.x) {
         int64_t idx = i + tid * num_unroll;
 
         // thread local sequential scan
-        temp[0] = (idx < ne00 ? src_row[idx] : T(0));
+        temp[0] = (idx < src_data.extent(3) ? src_data(i3, i2, i1, idx) : T(0));
 #pragma unroll
         for (int64_t j = 1; j < num_unroll; j++) {
             temp[j] = temp[j - 1];
-            if (idx + j < ne00) {
-                temp[j] += src_row[idx + j];
+            if (idx + j < src_data.extent(3)) {
+                temp[j] += src_data(i3, i2, i1, idx + j);
             }
             else {
                 temp[j] += 0;
@@ -140,21 +134,21 @@ static __global__ void cumsum_kernel(
         }
 
         // last emenent is sum of all values assigned to thread
-        float val = (idx < ne00) ? ggml_cuda_cast<float, T>(temp[num_unroll - 1]) : 0.0f;
+        float val = (idx < src_data.extent(3)) ? ggml_cuda_cast<float, T>(temp[num_unroll - 1]) : 0.0f;
 
         // Warp inclusive scan
-        val = warp_prefix_inclusive_sum<T, warp_size>(val);
+        val = cooperative_groups::inclusive_scan(tile, val, cooperative_groups::plus<float>());
         s_vals[tid] = val;
 
         if (lane == warp_size - 1) {
             s_warp_sums[warp] = val;
         }
-        __syncthreads();
+        block.sync();
 
         // Exclusive scan of warp sums (warp 0 only)
         if (warp == 0) {
             float w = (tid < warps_per_block) ? s_warp_sums[tid] : 0.0f;
-            float inc = warp_prefix_inclusive_sum<T, warp_size>(w);
+            float inc = cooperative_groups::inclusive_scan(tile, w, cooperative_groups::plus<float>());
             if (tid < warps_per_block) {
                 s_warp_sums[tid] = inc - w;   // exclusive sum
             }
@@ -162,7 +156,7 @@ static __global__ void cumsum_kernel(
                 *s_chunk_total = inc;          // total sum of this chunk
             }
         }
-        __syncthreads();
+        block.sync();
 
         // write back results
         float carry = *s_carry;
@@ -171,12 +165,12 @@ static __global__ void cumsum_kernel(
 
 #pragma unroll
         for (int32_t j = 0; j < num_unroll; j++) {
-            if (idx + j < ne00) {
-                dst_row[idx + j] = temp[j] + ggml_cuda_cast<T, float>(final_val_offset);
+            if (idx + j < src_data.extent(3)) {
+                dst_data(i3, i2, i1, idx + j) = temp[j] + ggml_cuda_cast<T, float>(final_val_offset);
             }
         }
 
-        __syncthreads();
+        block.sync();
 
         // Update carry for next chunk
         if (tid == 0) {
@@ -185,50 +179,37 @@ static __global__ void cumsum_kernel(
     }
 }
 
-template<typename T>
-static void cumsum_cuda(
-    const T* src, T* dst,
-    const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
-    const int64_t nb00, const int64_t nb01, const int64_t nb02, const int64_t nb03,
-    const int64_t  nb0, const int64_t nb1, const int64_t  nb2, const int64_t  nb3,
-    cudaStream_t stream) {
-    
+template <typename T>
+static void cumsum_cuda(const cumsum_context& ctx, cudaStream_t stream) {
     static constexpr size_t CUDA_CUMSUM_BLOCK_SIZE = 256;
     const size_t type_size = sizeof(T);
     bool use_cub = false;
 #ifdef GGML_CUDA_USE_CUB
     // Check if we can use CUB (data must be contiguous along innermost dimension)
-    const bool is_contiguous = (nb00 == type_size) && (nb0 == type_size);
+    const bool is_contiguous = (ctx.src0_nb[0] == type_size) && (ctx.dst_nb[0] == type_size);
 
     if (is_contiguous) {
         use_cub = true;
     }
 #endif // GGML_CUDA_USE_CUB
-    dim3 grid_dims(ne01, ne02, ne03);
-    const auto& info = ggml_cuda_info().devices[ggml_cuda_get_device()];
-    const int warp_size = info.warp_size;
-    const int num_warps = (ne00 + warp_size - 1) / warp_size;
-    int block_size = num_warps * warp_size;
-    block_size = std::min<int>(block_size, CUDA_CUMSUM_BLOCK_SIZE);
-    dim3 block_dims(block_size, 1, 1);
-    const int warps_per_block = block_size / warp_size;
-    const size_t shmem_size = (block_size + warps_per_block + 2) * sizeof(float);
+    dim3 grid_dims(ctx.src0_ne[1], ctx.src0_ne[2], ctx.src0_ne[3]);
+    auto src_data = make_strided_mdspan(static_cast<const T*>(ctx.src0_d), ctx.src0_ne, ctx.src0_nb);
+    auto dst_data = make_strided_mdspan(static_cast<T*>(ctx.dst_d), ctx.dst_ne, ctx.dst_nb);
 
-    if (use_cub && ne00 >= 1024) {
+    if (use_cub && ctx.src0_ne[0] >= 1024) {
         cumsum_cub_kernel<T, CUDA_CUMSUM_BLOCK_SIZE> << <grid_dims, CUDA_CUMSUM_BLOCK_SIZE, 0, stream >> > (
-            src, dst,
-            ne00, ne01, ne02, ne03,
-            nb01 / type_size, nb02 / type_size, nb03 / type_size,
-            nb1 / type_size, nb2 / type_size, nb3 / type_size
-            );
+            src_data, dst_data);
     }
     else {
-        cumsum_kernel << <grid_dims, block_dims, shmem_size, stream >> > (
-            src, dst,
-            ne00, ne01, ne02, ne03,
-            nb00 / type_size, nb01 / type_size, nb02 / type_size, nb03 / type_size,
-            nb0 / type_size, nb1 / type_size, nb2 / type_size, nb3 / type_size
-            );
+        const auto& info = ggml_cuda_info().devices[ggml_cuda_get_device()];
+        const int warp_size = info.warp_size;
+        const int num_warps = (ctx.src0_ne[0] + warp_size - 1) / warp_size;
+        int block_size = num_warps * warp_size;
+        block_size = std::min<int>(block_size, CUDA_CUMSUM_BLOCK_SIZE);
+        dim3 block_dims(block_size, 1, 1);
+        const int warps_per_block = block_size / warp_size;
+        const size_t shmem_size = (block_size + warps_per_block + 2) * sizeof(float);
+        cumsum_kernel << <grid_dims, block_dims, shmem_size, stream >> > (src_data, dst_data);
     }
 }
 
@@ -236,34 +217,16 @@ void cumsum_cuda(const cumsum_context& ctx, cudaStream_t  stream) {
     switch (ctx.src0_type) {
     case internal::GGML_TYPE_F32:
     {
-        cumsum_cuda(
-            (const float*)ctx.src0_d, (float*)ctx.dst_d,
-            ctx.src0_ne[0], ctx.src0_ne[1], ctx.src0_ne[2], ctx.src0_ne[3],
-            ctx.src0_nb[0], ctx.src0_nb[1], ctx.src0_nb[2], ctx.src0_nb[3],
-            ctx.dst_nb[0], ctx.dst_nb[1], ctx.dst_nb[2], ctx.dst_nb[3],
-            stream
-        );
+        cumsum_cuda<float>(ctx, stream);
     } break;
     // We do not support those on CPU for now anyway, so comment them out because they cause errors on some CI platforms
     /*case internal::GGML_TYPE_F16:
         {
-            cumsum_cuda(
-                (const half *)ctx.src0_d, (half *)ctx.dst_d,
-                ctx.src0_ne[0], ctx.src0_ne[1], ctx.src0_ne[2], ctx.src0_ne[3],
-                ctx.src0_nb[0], ctx.src0_nb[1], ctx.src0_nb[2], ctx.src0_nb[3],
-                ctx.dst_nb[0], ctx.dst_nb[1], ctx.dst_nb[2], ctx.dst_nb[3],
-                stream
-            );
+            cumsum_cuda<half>(ctx, stream);
         } break;
     case internal::GGML_TYPE_BF16:
         {
-            cumsum_cuda(
-                (const nv_bfloat16 *)ctx.src0_d, (nv_bfloat16 *)ctx.dst_d,
-                ctx.src0_ne[0], ctx.src0_ne[1], ctx.src0_ne[2], ctx.src0_ne[3],
-                ctx.src0_nb[0], ctx.src0_nb[1], ctx.src0_nb[2], ctx.src0_nb[3],
-                ctx.dst_nb[0], ctx.dst_nb[1], ctx.dst_nb[2], ctx.dst_nb[3],
-                stream
-            );
+            cumsum_cuda<nv_bfloat16>(ctx, stream);
         } break;*/
     default:
         GGML_ABORT("fatal error");
