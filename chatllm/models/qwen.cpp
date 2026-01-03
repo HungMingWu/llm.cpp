@@ -1528,7 +1528,7 @@ namespace chatllm::qwen::v2_5_vl
         void set_additional_args(const std::map<std::string, std::string>& args) override;
         void before_generate(const GenerationConfig& gen_config) override;
     protected:
-        bool generate_next_token(const std::vector<int>& input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) override;
+        bool generate_next_token(std::span<const int> input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) override;
     public:
         vit::VisualEmbeddingGeneration visual;
         const Config config;
@@ -1671,7 +1671,7 @@ namespace chatllm::qwen::v2_5_vl
         Backend::write_tensor_data(emb->weight, buf.data(), offset, buf.size());
     }
 
-    bool ConditionalGeneration::generate_next_token(const std::vector<int>& input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits)
+    bool ConditionalGeneration::generate_next_token(std::span<const int> input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits)
     {
         const int image_id_start = config.vocab_size;
         const int length = (int)input_ids.size();
@@ -2470,7 +2470,7 @@ namespace chatllm::qwen::v3_vl
         ggml::tensor* lm_layer_preprocess(HeterogeneousModel* model, ComputeContext* ctx, ggml::tensor* hidden_states, int layer_index);
 
     protected:
-        bool generate_next_token(const std::vector<int>& input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) override;
+        bool generate_next_token(std::span<const int> input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) override;
         bool run_model(std::span<const int> input_ids,
             const GenerationConfig& gen_config,
             int past,
@@ -2592,7 +2592,7 @@ namespace chatllm::qwen::v3_vl
         Backend::write_tensor_data(emb->weight, buf.data(), offset, buf.size());
     }
 
-    bool ConditionalGeneration::generate_next_token(const std::vector<int>& input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits)
+    bool ConditionalGeneration::generate_next_token(std::span<const int> input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits)
     {
         const int image_id_start = config.vocab_size;
         const int length = (int)input_ids.size();

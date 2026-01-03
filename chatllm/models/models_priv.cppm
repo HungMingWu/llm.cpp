@@ -427,7 +427,7 @@ namespace chatllm
 
         std::vector<float> text_embedding(const GenerationConfig& gen_config, const std::vector<int>& input_ids) override;
         float qa_rank(const GenerationConfig& gen_config, const std::vector<int>& input_ids) override;
-        bool generate_next_token(const std::vector<int>& input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) override;
+        bool generate_next_token(std::span<const int> input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) override;
         int save_session(FILE* f) const override;
         int load_session(FILE* f) override;
         int save_session(ModelSessionMemory& session) const override;

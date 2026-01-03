@@ -538,7 +538,7 @@ namespace chatllm
         return output[0];
     }
 
-    bool BaseModelForConditionalGeneration::generate_next_token(const std::vector<int>& input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits)
+    bool BaseModelForConditionalGeneration::generate_next_token(std::span<const int> input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits)
     {
         int batch = batch_input > 1 ? batch_input : 1;
 

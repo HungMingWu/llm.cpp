@@ -890,7 +890,7 @@ export namespace chatllm
             ModelPerfInfo* performance,
             BaseStreamer* streamer = nullptr) = 0;
 
-        virtual bool generate_next_token(const std::vector<int>& input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) { return true; };
+        virtual bool generate_next_token(std::span<const int> input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) { return true; };
 
         virtual void abort_generation(void) = 0;
 
@@ -973,7 +973,7 @@ export namespace chatllm
             return model->generate(input_ids, gen_config, continuous, performance, streamer);
         }
 
-        bool generate_next_token(const std::vector<int>& input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) override
+        bool generate_next_token(std::span<const int> input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) override
         {
             return model->generate_next_token(input_ids, gen_config, lm_logits);
         }
