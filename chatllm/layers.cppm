@@ -44,10 +44,6 @@ export namespace chatllm
 
         ggml::type type_fallback(ggml::type type, int64_t last_dim);
 
-        ggml::tensor* new_tensor_1d(ComputeContext* ctx, ggml::type type, int64_t ne0);
-        ggml::tensor* new_tensor_2d(ComputeContext* ctx, ggml::type type, int64_t ne0, int64_t ne1);
-        ggml::tensor* new_tensor_3d(ComputeContext* ctx, ggml::type type, int64_t ne0, int64_t ne1, int64_t ne2);
-        ggml::tensor* new_tensor_4d(ComputeContext* ctx, ggml::type type, int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3);
         ggml::tensor* new_tensor_like(ComputeContext* ctx, ggml::type type, ggml::tensor* a);
 
         ggml::tensor* new_zeros(ComputeContext* ctx, ggml::type type, int64_t ne0, int64_t ne1 = 1, int64_t ne2 = 1, int64_t ne3 = 1);
@@ -517,8 +513,8 @@ export namespace chatllm
 
         Embedding(InitContext* ctx, ggml::type dtype, int num_embeddings, int embedding_dim)
             : num_embeddings(num_embeddings), num_padded_embeddings(BlockParams::num_padding_embeddings),
-            weight(ggml::new_tensor_2d(ctx, ggml::type_fallback(dtype, embedding_dim), embedding_dim,
-                num_embeddings + BlockParams::num_padding_embeddings))
+            weight(ctx->new_tensor(ggml::type_fallback(dtype, embedding_dim), { num_embeddings + BlockParams::num_padding_embeddings,
+                embedding_dim }))
         {
             ggml::set_input(weight);
         }
@@ -552,13 +548,13 @@ export namespace chatllm
     public:
         Linear() : weight(nullptr), bias(nullptr) {}
         Linear(InitContext* ctx, int in_features, int out_features, bool use_bias = true)
-            : weight(ggml::new_tensor_2d(ctx, ggml::type_fallback(ctx->dtype, in_features), in_features, out_features)),
-            bias(use_bias ? ggml::new_tensor_1d(ctx, GGML_TYPE_F32, out_features) : nullptr) {
+            : weight(ctx->new_tensor(ggml::type_fallback(ctx->dtype, in_features), { out_features, in_features })),
+            bias(use_bias ? ctx->new_tensor(GGML_TYPE_F32, { out_features }) : nullptr) {
         }
 
         Linear(InitContext* ctx, int in_features, int out_features, ggml::tensor* weight, bool use_bias = true)
-            : weight(weight != NULL ? weight : ggml::new_tensor_2d(ctx, ggml::type_fallback(ctx->dtype, in_features), in_features, out_features)),
-            bias(use_bias ? ggml::new_tensor_1d(ctx, GGML_TYPE_F32, out_features) : nullptr) {
+            : weight(weight != NULL ? weight : ctx->new_tensor(ggml::type_fallback(ctx->dtype, in_features), { out_features, in_features })),
+            bias(use_bias ? ctx->new_tensor(GGML_TYPE_F32, { out_features }) : nullptr) {
         }
 
         int in_features() const { return (int)weight->ne[0]; }
@@ -591,8 +587,8 @@ export namespace chatllm
         }
 
         MultiLinear(InitContext* ctx, int in_features, int out_features, int multi, bool use_bias)
-            : weight(ggml::new_tensor_3d(ctx, ggml::type_fallback(ctx->dtype, in_features), in_features, out_features, multi)),
-            bias(use_bias ? ggml::new_tensor_2d(ctx, ggml::type::GGML_TYPE_F32, out_features, multi) : nullptr)
+            : weight(ctx->new_tensor(ggml::type_fallback(ctx->dtype, in_features), { multi, out_features, in_features })),
+            bias(use_bias ? ctx->new_tensor(ggml::type::GGML_TYPE_F32, { multi, out_features }) : nullptr)
         {
         }
 
@@ -624,8 +620,8 @@ export namespace chatllm
         }
 
         GroupNorm(InitContext* ctx, int num_groups, int normalized_shape, bool use_bias, float eps = 1e-5f)
-            : weight(ggml::new_tensor_1d(ctx, GGML_TYPE_F32, normalized_shape)),
-            bias(use_bias ? ggml::new_tensor_1d(ctx, GGML_TYPE_F32, normalized_shape) : nullptr),
+            : weight(ctx->new_tensor(GGML_TYPE_F32, { normalized_shape })),
+            bias(use_bias ? ctx->new_tensor(GGML_TYPE_F32, { normalized_shape }) : nullptr),
             eps(eps), num_groups(num_groups)
         {
             CHATLLM_CHECK((normalized_shape % num_groups) == 0);
@@ -702,9 +698,9 @@ export namespace chatllm
     public:
         RobertaEmbedding() : word_weight(nullptr), position_weight(nullptr) {}
         RobertaEmbedding(InitContext* ctx, int num_embeddings, int embedding_dim, int pos_max)
-            : word_weight(ggml::new_tensor_2d(ctx, ctx->dtype, embedding_dim, num_embeddings)),
-            position_weight(ggml::new_tensor_2d(ctx, ctx->dtype, embedding_dim, pos_max)),
-            indices(ggml::new_tensor_1d(ctx, GGML_TYPE_I32, pos_max)),
+            : word_weight(ctx->new_tensor(ctx->dtype, { num_embeddings, embedding_dim  })),
+            position_weight(ctx->new_tensor(ctx->dtype, { pos_max, embedding_dim })),
+            indices(ctx->new_tensor(GGML_TYPE_I32, { pos_max })),
             ln(ctx, embedding_dim)
         {
             const int pad_index = 2;
@@ -744,7 +740,7 @@ export namespace chatllm
         RMSNorm(InitContext* ctx, int normalized_shape) : RMSNorm(ctx, normalized_shape, false) {}
     protected:
         RMSNorm(InitContext* ctx, int normalized_shape, bool inplace)
-            : weight(ggml::new_tensor_1d(ctx, GGML_TYPE_F32, normalized_shape)),
+            : weight(ctx->new_tensor(GGML_TYPE_F32, { normalized_shape })),
             eps(BlockParams::Epsilon::rms_norm),
             inplace(inplace) {
         }
@@ -1402,7 +1398,7 @@ export namespace chatllm
             causal(true),
             last_attn_scores(nullptr),
             sinks(BlockParams::CoreAttentionUseSinks::get() > 0 ?
-                ggml::new_tensor_1d(ctx, ggml::type::GGML_TYPE_F32, BlockParams::CoreAttentionUseSinks::get())
+                ctx->new_tensor(ggml::type::GGML_TYPE_F32, { BlockParams::CoreAttentionUseSinks::get() })
                 : nullptr),
             pos_helper(helper ? helper : &def_pos_helper)
         {
@@ -1501,9 +1497,9 @@ export namespace chatllm
             v_hidden_size(v_hidden_size),
             cache_length(cache_length),
             k_cache(cache_length > 0 ?
-                ggml::new_tensor_2d(ctx, ggml::type_fallback(ctx->cache_dtype, k_hidden_size), k_hidden_size, cache_length) : nullptr),
+                ctx->new_tensor(ggml::type_fallback(ctx->cache_dtype, k_hidden_size), { cache_length, k_hidden_size  }) : nullptr),
             v_cache(cache_length > 0 ?
-                ggml::new_tensor_2d(ctx, ggml::type::GGML_TYPE_F16, cache_length, v_hidden_size) : nullptr)
+                ctx->new_tensor(ggml::type::GGML_TYPE_F16, { v_hidden_size, cache_length }) : nullptr)
         {
             if (cache_length > 0)
             {
@@ -1741,7 +1737,7 @@ export namespace chatllm
         BaseSlidingWindowAttentionRingCache(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int max_length, bool qkv_bias, bool o_bias)
             : BaseAttention(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, qkv_bias, o_bias, sliding_window_len),
             cache_offset(0),
-            indices(ggml::new_tensor_1d(ctx, GGML_TYPE_I32, sliding_window_len))
+            indices(ctx->new_tensor(GGML_TYPE_I32, { sliding_window_len }))
         {
             v_indices.resize(sliding_window_len);
 
@@ -1872,7 +1868,7 @@ export namespace chatllm
 
         BaseSlidingWindowAttentionFullCache(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length, bool qkv_bias, bool o_bias)
             : BaseAttention(ctx, hidden_size, num_attention_heads, num_kv_heads, head_dim, max_length, qkv_bias, o_bias, max_length),
-            indices(ggml::new_tensor_1d(ctx, GGML_TYPE_I32, 1)) // to ensure number of tensors are the same
+            indices(ctx->new_tensor(GGML_TYPE_I32, { 1 })) // to ensure number of tensors are the same
         {
         }
 
@@ -1938,7 +1934,7 @@ export namespace chatllm
 
         BaseSlidingWindowAttentionPartialCache(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length, bool qkv_bias, bool o_bias)
             : BaseAttention(ctx, hidden_size, num_attention_heads, num_kv_heads, head_dim, max_length, qkv_bias, o_bias, sliding_window_len + extra_len),
-            indices(ggml::new_tensor_1d(ctx, GGML_TYPE_I32, 1)), // to ensure number of tensors are the same
+            indices(ctx->new_tensor(GGML_TYPE_I32, { 1 })), // to ensure number of tensors are the same
             cache_offset(0)
         {
         }
@@ -2629,14 +2625,14 @@ export namespace chatllm
         Llama31SelfAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int max_length)
             : RoPESelfAttention(ctx, hidden_size, num_attention_heads, max_length, false, false)
         {
-            freq_factors = ggml::new_tensor_1d(ctx, GGML_TYPE_F32, hidden_size / num_attention_heads / 2);
+            freq_factors = ctx->new_tensor(GGML_TYPE_F32, { hidden_size / num_attention_heads / 2 });
             ctx->get_allocator()->alloc(freq_factors);
         }
 
         Llama31SelfAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int max_length)
             : RoPESelfAttention(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, false, false)
         {
-            freq_factors = ggml::new_tensor_1d(ctx, GGML_TYPE_F32, hidden_size / num_attention_heads / 2);
+            freq_factors = ctx->new_tensor(GGML_TYPE_F32, { hidden_size / num_attention_heads / 2 });
             ctx->get_allocator()->alloc(freq_factors);
         }
     };

@@ -563,7 +563,7 @@ namespace chatllm::qwen::audio_tower
         ForwardContext ctx(&backend_context);
 
         ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Prolog);
-        ggml::tensor* media_emb = ggml::new_tensor_2d(&ctx, ggml::type::GGML_TYPE_F32, config.max_source_positions * 2, config.feature_size);
+        ggml::tensor* media_emb = ctx.new_tensor(ggml::type::GGML_TYPE_F32, { config.feature_size, config.max_source_positions * 2 });
 
         set_dbg_ctx(&ctx);
 
@@ -572,7 +572,7 @@ namespace chatllm::qwen::audio_tower
         if (ggml::type_of(r) != dtype)
         {
             ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Epilog);
-            ggml::tensor* t = ggml::new_tensor_4d(&ctx, dtype, ggml::get_dim(r, 0), ggml::get_dim(r, 1), ggml::get_dim(r, 2), ggml::get_dim(r, 3));
+            ggml::tensor* t = ggml::new_tensor_like(&ctx, dtype, r);
             r = ggml::cpy(&ctx, r, t);
         }
 
@@ -876,7 +876,7 @@ namespace chatllm::qwen::vit
 
     ggml::tensor* TensorPosHelper::allocate_pos_tensor(InitContext* ctx)
     {
-        ggml::tensor* r = ggml::new_tensor_1d(ctx, GGML_TYPE_I32, max_length);
+        ggml::tensor* r = ctx->new_tensor(GGML_TYPE_I32, { max_length });
         ctx->get_allocator()->alloc(r);
         return r;
     }
@@ -1116,7 +1116,7 @@ namespace chatllm::qwen::vit
         : TensorPosHelperPrelude(new TensorPosHelper2D(max_length)),
         RoPESelfAttention<BaseCachelessAttention>(ctx, hidden_size, num_attention_heads, num_attention_heads, max_length, use_bias, use_bias),
         full_attention(ViTParams::is_full_attention()),
-        mask(full_attention ? nullptr : ggml::new_tensor_2d(ctx, GGML_TYPE_F32, max_length, max_length))
+        mask(full_attention ? nullptr : ctx->new_tensor(GGML_TYPE_F32, { max_length, max_length }))
     {
         TensorPosHelperPrelude::done();
 
@@ -1196,8 +1196,8 @@ namespace chatllm::qwen::vit
             (Block*)(new MultiModalProjectorV2(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Epilog), config, lm_hidden_size))
             :
             new MultiModalProjector(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Epilog), config, lm_hidden_size)),
-        window_id(ggml::new_tensor_1d(ctx, ggml::type::GGML_TYPE_I32, config.max_pixels / config.patch_size / config.patch_size)),
-        reverse_id(ggml::new_tensor_1d(ctx, ggml::type::GGML_TYPE_I32, config.max_pixels / config.patch_size / config.patch_size)),
+        window_id(ctx->new_tensor(ggml::type::GGML_TYPE_I32, { config.max_pixels / config.patch_size / config.patch_size })),
+        reverse_id(ctx->new_tensor(ggml::type::GGML_TYPE_I32, { config.max_pixels / config.patch_size / config.patch_size })),
         loaded(false),
         is_v2(config.is_ver_2_0)
     {
@@ -1404,7 +1404,7 @@ namespace chatllm::qwen::vit
         ForwardContext ctx(&backend_context);
 
         ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Prolog);
-        ggml::tensor* media_emb = ggml::new_tensor_4d(&ctx, ggml::type::GGML_TYPE_F32, vis_config.patch_size, vis_config.patch_size, 3, image.grid_width * image.grid_height);
+        ggml::tensor* media_emb = ctx.new_tensor(ggml::type::GGML_TYPE_F32, { image.grid_width * image.grid_height, 3,  vis_config.patch_size, vis_config.patch_size });
 
         chatllm::set_dbg_ctx(&ctx);
 
@@ -1413,7 +1413,7 @@ namespace chatllm::qwen::vit
         if (ggml::type_of(r) != dtype)
         {
             ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Epilog);
-            ggml::tensor* t = ggml::new_tensor_4d(&ctx, dtype, ggml::get_dim(r, 0), ggml::get_dim(r, 1), ggml::get_dim(r, 2), ggml::get_dim(r, 3));
+            ggml::tensor* t = ggml::new_tensor_like(&ctx, dtype, r);
             r = ggml::cpy(&ctx, r, t);
         }
 
@@ -1493,7 +1493,7 @@ namespace chatllm::qwen::v2_5_vl
 
         ggml::tensor* allocate_pos_tensor(InitContext* ctx) override
         {
-            ggml::tensor* r = ggml::new_tensor_1d(ctx, GGML_TYPE_I32, max_length);
+            ggml::tensor* r = ctx->new_tensor(GGML_TYPE_I32, { max_length });
             ctx->get_allocator()->alloc(r);
             return r;
         }
@@ -1988,7 +1988,7 @@ namespace chatllm::qwen::v3_ranker
         dynamic_cast<HeterogeneousModel*>(transformer)->set_final_steps(std::make_unique<FinalSteps>());
 
         FinalSteps* steps = dynamic_cast<FinalSteps*>(dynamic_cast<HeterogeneousModel*>(transformer)->get_final_steps());
-        steps->yes_no_ids = ggml::new_tensor_1d(&w_ctx_, ggml::type::GGML_TYPE_I32, 2);
+        steps->yes_no_ids = w_ctx_.new_tensor(ggml::type::GGML_TYPE_I32, { 2 });
         w_ctx_.get_allocator()->alloc(steps->yes_no_ids);
         yes_no_ids = steps->yes_no_ids;
     }
@@ -2024,7 +2024,7 @@ namespace chatllm::qwen::v3_vl::vit
             max_patches(config.max_patches), ref_w((int)std::sqrt(config.num_position_embeddings)), ref_h(ref_w),
             proj0(ctx, 3, config.hidden_size, config.patch_size, config.patch_size, 0, 1, 1, false),
             proj1(ctx, 3, config.hidden_size, config.patch_size, config.patch_size, 0, 1, 1, false),
-            proj_bias(ggml::new_tensor_1d(ctx, ggml::type::GGML_TYPE_F32, config.hidden_size)),
+            proj_bias(ctx->new_tensor(ggml::type::GGML_TYPE_F32, { config.hidden_size })),
             pos_emb(ctx, ggml::type::GGML_TYPE_F32, config.num_position_embeddings, config.hidden_size)
         {
             CHATLLM_CHECK(config.temporal_patch_size == 2);
@@ -2401,7 +2401,7 @@ namespace chatllm::qwen::v3_vl::vit
         {
             ggml::tensor* media_emb = nullptr;
             const auto make_graph = [this, &media_emb, &image](ComputeContext* ctx) -> ggml::tensor* {
-                media_emb = ggml::new_tensor_4d(ctx, ggml::type::GGML_TYPE_F32, vis_config.patch_size, vis_config.patch_size, 3, image.grid_width * image.grid_height);
+                media_emb = ctx->new_tensor(ggml::type::GGML_TYPE_F32, { image.grid_width * image.grid_height, 3, vis_config.patch_size,  vis_config.patch_size });
                 auto r = vis_model->forward(ctx, media_emb, image.grid_height, image.grid_width);
                 return r;
                 };
@@ -2638,8 +2638,8 @@ namespace chatllm::qwen::v3_vl
         set_dbg_ctx(&ctx);
 
         ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Prolog);
-        ggml::tensor* input_ids_tensor = ggml::new_tensor_2d(&ctx, GGML_TYPE_I32, input_ids.size(), batch_size);
-        deepstack_ids_tensor = ggml::new_tensor_2d(&ctx, GGML_TYPE_I32, input_ids.size(), batch_size);
+        ggml::tensor* input_ids_tensor = ctx.new_tensor(GGML_TYPE_I32, { batch_size, (int64_t)input_ids.size() });
+        deepstack_ids_tensor = ctx.new_tensor(GGML_TYPE_I32, { batch_size, (int64_t)input_ids.size() });
 
         ggml::tensor* r = transformer->forward(&ctx, input_ids_tensor, past);
 

@@ -135,37 +135,9 @@ namespace chatllm
         return a->view_src != nullptr;
     }
 
-    ggml::tensor* ggml::new_tensor_1d(ComputeContext* ctx, ggml::type type, int64_t ne0)
-    {
-        ggml::tensor* tensor = ctx->get_ctx()->create(type, { ne0 });
-        ctx->cb_new_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::new_tensor_2d(ComputeContext* ctx, ggml::type type, int64_t ne0, int64_t ne1)
-    {
-        ggml::tensor* tensor = ctx->get_ctx()->create(type, { ne0, ne1 });
-        ctx->cb_new_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::new_tensor_3d(ComputeContext* ctx, ggml::type type, int64_t ne0, int64_t ne1, int64_t ne2)
-    {
-        ggml::tensor* tensor = ctx->get_ctx()->create(type, { ne0, ne1, ne2 });
-        ctx->cb_new_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::new_tensor_4d(ComputeContext* ctx, ggml::type type, int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3)
-    {
-        ggml::tensor* tensor = ctx->get_ctx()->create(type, { ne0, ne1, ne2, ne3 });
-        ctx->cb_new_tensor(tensor);
-        return tensor;
-    }
-
     ggml::tensor* ggml::new_tensor_like(ComputeContext* ctx, ggml::type type, ggml::tensor* a)
     {
-        return ggml::new_tensor_4d(ctx, type, ggml::get_dim(a, 0), ggml::get_dim(a, 1), ggml::get_dim(a, 2), ggml::get_dim(a, 3));
+        return ctx->new_tensor(type, { ggml::get_dim(a, 3), ggml::get_dim(a, 2), ggml::get_dim(a, 1), ggml::get_dim(a, 0) });
     }
 
     ggml::tensor* ggml::new_zeros(ComputeContext* ctx, ggml::type type, int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3)
@@ -173,7 +145,7 @@ namespace chatllm
         // TODO: optimize (waiting for a proper operator)
         if (ctx->is_using_gpu())
         {
-            ggml::tensor* r = ggml::new_tensor_4d(ctx, type, ne0, ne1, ne2, ne3);
+            ggml::tensor* r = ctx->new_tensor(type, { ne3, ne2, ne1, ne0 });
             r = ggml::scale(ctx, r, 0.0f, true);
             return r;
         }
@@ -646,7 +618,7 @@ namespace chatllm
 
         if (repeat <= 1) return a;
 
-        ggml::tensor* b = ggml::new_tensor_4d(ctx, ggml::type_of(a), repeat * a->ne[0], a->ne[1], a->ne[2], a->ne[3]);
+        ggml::tensor* b = ctx->new_tensor(ggml::type_of(a), { a->ne[3],  a->ne[2], a->ne[1],  repeat * a->ne[0] });
         ggml::tensor* r = ggml::repeat(ctx, a, b);
         r = reshape_4d(ctx, r, a->ne[0], repeat, a->ne[1], a->ne[2]);
         r = permute(ctx, r, 1, 0, 2, 3);
@@ -1182,8 +1154,8 @@ namespace chatllm
 
     ConvBase::ConvBase(InitContext* ctx, int64_t w_ne0, int64_t w_ne1, int64_t w_ne2, int64_t w_ne3,
         int64_t bias_dim)
-        : weight(ggml::new_tensor_4d(ctx, ggml::type_fallback(ctx->dtype, w_ne0), w_ne0, w_ne1, w_ne2, w_ne3)),
-        bias(bias_dim > 0 ? ggml::new_tensor_1d(ctx, GGML_TYPE_F32, bias_dim) : nullptr)
+        : weight(ctx->new_tensor(ggml::type_fallback(ctx->dtype, w_ne0), { w_ne3, w_ne2, w_ne1, w_ne0 })),
+        bias(bias_dim > 0 ? ctx->new_tensor(GGML_TYPE_F32, { bias_dim }) : nullptr)
     {
     }
 
@@ -1346,7 +1318,7 @@ namespace chatllm
             {
                 CHATLLM_CHECK(ggml::get_dim(input, 3) == 1);
                 auto view = ggml::reshape_4d(ctx, input, 1, ggml::get_dim(input, 0), ggml::get_dim(input, 1), ggml::get_dim(input, 2));
-                auto zeros = ggml::new_tensor_4d(ctx, ggml::type_of(view), stride - 1, ggml::get_dim(input, 0), ggml::get_dim(input, 1), ggml::get_dim(input, 2));
+                auto zeros = ctx->new_tensor(ggml::type_of(view), { ggml::get_dim(input, 2), ggml::get_dim(input, 1), ggml::get_dim(input, 0), stride - 1 });
                 zeros = ggml::scale(ctx, zeros, 0.0, true);
                 fract_input = ggml::concat(ctx, view, zeros, 0); // [stride, w[0], w[1], w[2]]
 
@@ -1555,8 +1527,8 @@ namespace chatllm
     }
 
     FIR2::FIR2(InitContext* ctx, int dim, int hidden_size)
-        : weight(ggml::new_tensor_2d(ctx, GGML_TYPE_F32, 2, dim)),
-        x0(ggml::new_tensor_1d(ctx, GGML_TYPE_F32, hidden_size)),
+        : weight(ctx->new_tensor(GGML_TYPE_F32, { dim, 2  })),
+        x0(ctx->new_tensor(GGML_TYPE_F32, { hidden_size })),
         dim(dim)
     {
         ctx->get_allocator()->alloc(x0);
@@ -1648,7 +1620,7 @@ namespace chatllm
     void MiniCPMMeanPooling::set_max_length(InitContext* ctx, int max_length)
     {
         std::vector<float> v_pos(max_length);
-        pos = ggml::new_tensor_1d(ctx, GGML_TYPE_F32, max_length);
+        pos = ctx->new_tensor(GGML_TYPE_F32, { max_length });
         ctx->get_allocator()->alloc(pos);
         fill_pos_vector(ctx, v_pos, pos, 1, max_length);
     }
@@ -1921,7 +1893,7 @@ namespace chatllm
 
     ggml::tensor* BaseTensorPosHelper::allocate_pos_tensor(InitContext* ctx)
     {
-        ggml::tensor* r = ggml::new_tensor_1d(ctx, GGML_TYPE_I32, max_length);
+        ggml::tensor* r = ctx->new_tensor(GGML_TYPE_I32, { max_length });
         v_pos.resize(max_length);
         ctx->get_allocator()->alloc(r);
         return r;
@@ -2209,7 +2181,7 @@ namespace chatllm
 
     ALiBiSelfAttention::ALiBiSelfAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int max_length)
         : BaseAttention(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, false, false),
-        mask(ggml::new_tensor_2d(ctx, GGML_TYPE_F32, max_length, max_length))
+        mask(ctx->new_tensor(GGML_TYPE_F32, { max_length, max_length }))
     {
         bias_max = 8.0f;
         scale = 1.0f / sqrtf(float(hidden_size / num_attention_heads));
@@ -2250,7 +2222,7 @@ namespace chatllm
         seq_length(0),
         use_dynamic_ntk(false),
         use_logn_attn(false),
-        logn_list(ggml::new_tensor_1d(ctx, GGML_TYPE_F32, max_length))
+        logn_list(ctx->new_tensor(GGML_TYPE_F32, { max_length }))
     {
         ctx->get_allocator()->alloc(logn_list);
         logn_list_data.resize(max_length);
@@ -2394,7 +2366,7 @@ namespace chatllm
         if (freq_factors == nullptr)
         {
             rope_dim = factor_len * 2;
-            freq_factors = ggml::new_tensor_1d(ctx, GGML_TYPE_F32, factor_len);
+            freq_factors = ctx->new_tensor(GGML_TYPE_F32, { factor_len });
             ctx->get_allocator()->alloc(freq_factors);
         }
 
@@ -2475,9 +2447,9 @@ namespace chatllm
         num_local_experts(num_local_experts), num_experts_per_tok(num_experts_per_tok),
         gate(ctx, hidden_size, num_local_experts, gate_use_bias),
         mover(new CPUMover(ctx, ctx->user_options.moe_on_cpu)),
-        gate_score_correction_bias(gate_score_use_bias ? ggml::new_tensor_1d(ctx, GGML_TYPE_F32, num_local_experts) : nullptr),
-        group_indices(grouped_max ? ggml::new_tensor_2d(ctx, GGML_TYPE_I32, 1, num_experts_per_tok) : nullptr),
-        router_scale(router_scale ? ggml::new_tensor_1d(ctx, GGML_TYPE_F32, num_local_experts) : nullptr),
+        gate_score_correction_bias(gate_score_use_bias ? ctx->new_tensor(GGML_TYPE_F32, { num_local_experts }) : nullptr),
+        group_indices(grouped_max ? ctx->new_tensor(GGML_TYPE_I32, { num_experts_per_tok, 1  }) : nullptr),
+        router_scale(router_scale ? ctx->new_tensor(GGML_TYPE_F32, { num_local_experts }) : nullptr),
         norm_topk_prob(true),
         score_func(ScoreFunc::Softmax),
         routed_scaling_factor(-1.0f),

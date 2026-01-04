@@ -622,7 +622,7 @@ namespace chatllm
 
         ForwardContext ctx(&backend_context);
 
-        ggml::tensor* input_ids_tensor = ggml::new_tensor_1d(&ctx, GGML_TYPE_I32, ids_count);
+        ggml::tensor* input_ids_tensor = ctx.new_tensor(GGML_TYPE_I32, { ids_count });
 
         ggml::tensor* r = transformer->forward(&ctx, input_ids_tensor, past);
 
@@ -660,7 +660,7 @@ namespace chatllm
         set_dbg_ctx(&ctx);
 
         ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Prolog);
-        ggml::tensor* input_ids_tensor = ggml::new_tensor_2d(&ctx, GGML_TYPE_I32, input_ids.size(), batch_size);
+        ggml::tensor* input_ids_tensor = ctx.new_tensor(GGML_TYPE_I32, { batch_size, (int64_t)input_ids.size() });
 
         ggml::tensor* r = transformer->forward(&ctx, input_ids_tensor, past);
 

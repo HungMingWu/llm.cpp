@@ -1,9 +1,11 @@
 module;
+#include <algorithm>
 #include <cstring>
 #include <format>
 #include <map>
 #include <memory>
 #include <set>
+#include <vector>
 #include <stdarg.h>
 
 #include "basics.h"
@@ -865,6 +867,25 @@ namespace chatllm
     ggml_cgraph* ComputeContext::get_cgraph(void)
     {
         return nullptr;
+    }
+
+    ggml::tensor* ComputeContext::new_tensor(ggml::type type, std::initializer_list<int64_t> ne)
+    {
+		std::vector<int64_t> reverse_ne{ ne.begin(), ne.end() };
+        std::ranges::reverse(reverse_ne);
+        ggml::tensor* tensor = [&]() {
+            if (reverse_ne.size() == 1)
+                return get_ctx()->create(type, { reverse_ne[0] });
+            else if (reverse_ne.size() == 2)
+                return get_ctx()->create(type, { reverse_ne[0], reverse_ne[1] });
+            else if (reverse_ne.size() == 3)
+                return get_ctx()->create(type, { reverse_ne[0], reverse_ne[1], reverse_ne[2] });
+            else if (reverse_ne.size() == 4)
+                return get_ctx()->create(type, { reverse_ne[0], reverse_ne[1], reverse_ne[2], reverse_ne[3] });
+            std::unreachable();
+        }();
+        cb_new_tensor(tensor);
+        return tensor;
     }
 
     void ComputeContext::cb_new_tensor(ggml::tensor* tensor)
