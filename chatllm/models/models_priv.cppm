@@ -506,7 +506,7 @@ namespace chatllm
     class TensorGraphEvaluator
     {
     public:
-        TensorGraphEvaluator(const RuntimeConfig& runtime_config, const std::string model_id = "main", size_t GRAPH_SIZE = 4096);
+        TensorGraphEvaluator(const RuntimeConfig& runtime_config, const std::string model_id = "main");
         virtual bool evaluate(const GenerationConfig& gen_config,
             std::function<ggml::tensor* (ComputeContext* ctx)> make_graph,
             std::function<void(ComputeContext* ctx)> write_input_data,
@@ -524,7 +524,6 @@ namespace chatllm
         }
     protected:
         BackendContext backend_context;
-        const size_t GRAPH_SIZE;
         std::string model_gpu_layers;
         const int n_threads;
     };

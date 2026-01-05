@@ -2351,9 +2351,9 @@ namespace chatllm::qwen::v3_vl::vit
     class VisualEmbeddingGeneration
     {
     public:
-        VisualEmbeddingGeneration(const RuntimeConfig& runtime_config, int max_llm_tokens, size_t GRAPH_SIZE = 4096) :
+        VisualEmbeddingGeneration(const RuntimeConfig& runtime_config, int max_llm_tokens) :
             max_llm_tokens(max_llm_tokens),
-            eval(runtime_config, "vis", GRAPH_SIZE),
+            eval(runtime_config, "vis"),
             _ctx(eval.get_backend_context())
         {
             _ctx.cache_dtype = runtime_config.cache_type;

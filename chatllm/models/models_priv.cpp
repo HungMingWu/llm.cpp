@@ -953,9 +953,8 @@ namespace chatllm
         return transformer_outputs;
     }
 
-    TensorGraphEvaluator::TensorGraphEvaluator(const RuntimeConfig& runtime_config, const std::string model_id, size_t GRAPH_SIZE)
-        : GRAPH_SIZE(GRAPH_SIZE),
-        n_threads(runtime_config.n_threads)
+    TensorGraphEvaluator::TensorGraphEvaluator(const RuntimeConfig& runtime_config, const std::string model_id)
+        : n_threads(runtime_config.n_threads)
     {
         model_gpu_layers = BackendContext::get_ngl_of_model(runtime_config.model_gpu_layers, model_id);
         backend_context.init(model_gpu_layers, 1, n_threads);
