@@ -410,6 +410,7 @@ export namespace chatllm
         UserOptions user_options;
 
         ggml::tensor* new_tensor(ggml::type type, std::initializer_list<int64_t> ne);
+        ggml::tensor* reshape(ggml::tensor* a, std::initializer_list<int64_t> ne);
     protected:
         virtual ggml_backend_sched* get_sched(void);
 

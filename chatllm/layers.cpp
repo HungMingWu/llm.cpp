@@ -531,36 +531,6 @@ namespace chatllm
         return tensor;
     }
 
-    ggml::tensor* ggml::reshape_1d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0)
-    {
-        ggml::tensor* tensor = ggml_reshape(ctx->get_ctx(), a, { ne0 });
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::reshape_2d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1)
-    {
-        ggml::tensor* tensor = ggml_reshape(ctx->get_ctx(), a, { ne0, ne1 });
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::reshape_3d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1, int64_t ne2)
-    {
-        ggml::tensor* tensor = ggml_reshape(ctx->get_ctx(), a, { ne0, ne1, ne2 });
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::reshape_4d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3)
-    {
-        if (!ggml::is_contiguous(a))
-            a = ggml::cont(ctx, a);
-        ggml::tensor* tensor = ggml_reshape(ctx->get_ctx(), a, { ne0, ne1, ne2, ne3 });
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
     ggml::tensor* ggml::reshape(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3)
     {
         int64_t ne[GGML_MAX_DIMS] = { ne0, ne1, ne2, ne3 };
@@ -583,7 +553,7 @@ namespace chatllm
         {
             ne[neg_item] = ggml::nelements(a) / n;
         }
-        return ggml::reshape_4d(ctx, a, ne[0], ne[1], ne[2], ne[3]);
+        return ctx->reshape(a, { ne[3], ne[2], ne[1], ne[0] });
     }
 
     ggml::tensor* ggml::flatten(ComputeContext* ctx, ggml::tensor* a)
@@ -620,10 +590,10 @@ namespace chatllm
 
         ggml::tensor* b = ctx->new_tensor(ggml::type_of(a), { a->ne[3],  a->ne[2], a->ne[1],  repeat * a->ne[0] });
         ggml::tensor* r = ggml::repeat(ctx, a, b);
-        r = reshape_4d(ctx, r, a->ne[0], repeat, a->ne[1], a->ne[2]);
+        r = ctx->reshape(r, { a->ne[2], a->ne[1], repeat, a->ne[0] });
         r = permute(ctx, r, 1, 0, 2, 3);
         r = cont(ctx, r);
-        r = reshape_3d(ctx, r, a->ne[0] * repeat, a->ne[1], a->ne[2]);
+        r = ctx->reshape(r, { a->ne[2], a->ne[1], a->ne[0] * repeat });
 
         return r;
     }
@@ -1317,7 +1287,7 @@ namespace chatllm
             if (stride > 1)
             {
                 CHATLLM_CHECK(ggml::get_dim(input, 3) == 1);
-                auto view = ggml::reshape_4d(ctx, input, 1, ggml::get_dim(input, 0), ggml::get_dim(input, 1), ggml::get_dim(input, 2));
+                auto view = ctx->reshape(input, { ggml::get_dim(input, 2), ggml::get_dim(input, 1), ggml::get_dim(input, 0), 1 });
                 auto zeros = ctx->new_tensor(ggml::type_of(view), { ggml::get_dim(input, 2), ggml::get_dim(input, 1), ggml::get_dim(input, 0), stride - 1 });
                 zeros = ggml::scale(ctx, zeros, 0.0, true);
                 fract_input = ggml::concat(ctx, view, zeros, 0); // [stride, w[0], w[1], w[2]]
@@ -1543,7 +1513,7 @@ namespace chatllm
             ggml::build_forward_expand(ctx, last_x);
         }
 
-        last_x = ggml::reshape_4d(ctx, last_x, input->ne[0], input->ne[1], input->ne[2], input->ne[3]);
+        last_x = ctx->reshape(last_x, { input->ne[3], input->ne[2], input->ne[1], input->ne[0] });
 
         CHATLLM_CHECK(input->ne[1] == dim) << "ne[1] must == dim: " << input->ne[1] << ", " << dim;
 
@@ -1825,9 +1795,8 @@ namespace chatllm
         ggml::tensor* context_layer = ggml::mul_mat(ctx, value_layer, attn_probs); // [heads, qlen, head_size]
         context_layer = ggml::permute(ctx, context_layer, 0, 2, 1, 3);
         context_layer = ggml::cont(ctx, context_layer);
-        last_attn_scores = ggml::reshape_3d(ctx,
-            context_layer,
-            hidden_size, qlen, ggml::get_dim(context_layer, 3));
+        last_attn_scores = ctx->reshape(context_layer,
+            { ggml::get_dim(context_layer, 3), qlen, hidden_size });
 
         return last_attn_scores;
     }
@@ -1874,11 +1843,11 @@ namespace chatllm
         const int batch_size = ggml::get_dim(k, 2);
 
         // [qlen, heads, head_size]
-        ggml::tensor* key_layer = ggml::reshape_4d(ctx, k, head_size, num_kv_heads, qlen, batch_size);
+        ggml::tensor* key_layer = ctx->reshape(k, { batch_size, qlen, num_kv_heads, head_size });
         key_layer = apply_pos_embedding_k(ctx, key_layer, hidden_size, qlen, pos);
 
         // [qlen, heads, head_size]
-        ggml::tensor* query_layer = ggml::reshape_4d(ctx, q, head_size, num_attention_heads, qlen, batch_size);
+        ggml::tensor* query_layer = ctx->reshape(q, { batch_size, qlen, num_attention_heads, head_size });
         query_layer = apply_pos_embedding_q(ctx, query_layer, hidden_size, qlen, pos);
 
         ggml::tensor* attn_scores = cross_attention_after_pe(ctx, hidden_size, n_past, qlen, query_layer, key_layer, v);
@@ -2172,8 +2141,8 @@ namespace chatllm
     {
         const int head_size = hidden_size / num_attention_heads;
 
-        // [qlen, hidden_size] -> [heads, head_size, qlen]
-        ggml::tensor* r = ggml::reshape_3d(ctx, raw_v, head_size, num_kv_heads, qlen);  // -> [qlen, heads, head_size]
+        // [qlen, hidden_size] -> [qlen, head_size, heads]
+        ggml::tensor* r = ctx->reshape(raw_v, { qlen, num_kv_heads, head_size });  // -> [qlen, heads, head_size]
         r = ggml::permute(ctx, r, 1, 2, 0, 3);   // [heads, head_size, qlen]
         r = ggml::cont(ctx, r);
         return r;
@@ -2517,15 +2486,15 @@ namespace chatllm
         }
 
         ggml::tensor* weights = ggml::get_rows(ctx,
-            ggml::reshape_3d(ctx, probs, 1, n_expert, qlen), selected_experts); // [1, num_experts_per_tok, qlen]
+            ctx->reshape(probs, { qlen, n_expert, 1 }), selected_experts); // [qlen, num_experts_per_tok, 1]
 
         if (norm_topk_prob) {
-            weights = ggml::reshape_2d(ctx, weights, num_experts_per_tok, qlen);
+            weights = ctx->reshape(weights, { qlen, num_experts_per_tok });
 
             ggml::tensor* weights_sum = ggml::sum_rows(ctx, weights); // [1, n_tokens]
 
             weights = ggml::div(ctx, weights, weights_sum); // [num_experts_per_tok, n_tokens]
-            weights = ggml::reshape_3d(ctx, weights, 1, num_experts_per_tok, qlen);
+            weights = ctx->reshape(weights, { qlen, num_experts_per_tok, 1 });
 
             if (always_scaling && (routed_scaling_factor > 0))
             {
@@ -2548,14 +2517,15 @@ namespace chatllm
         if (group_indices)
         {
             const int experts_per_group = n_expert / num_experts_per_tok;
-            ggml::tensor* grouped_scores = ggml::reshape_4d(ctx, corrected_score, experts_per_group, num_experts_per_tok,
-                ggml::get_dim(corrected_score, 1), ggml::get_dim(corrected_score, 2));
+            ggml::tensor* grouped_scores = ctx->reshape(corrected_score, { ggml::get_dim(corrected_score, 2),
+                ggml::get_dim(corrected_score, 1), num_experts_per_tok, experts_per_group });
             selected_experts = ggml::top_k(ctx, grouped_scores, 1);
 
             selected_experts = ggml::map_custom(ctx, { selected_experts }, ggml_custom_group_index_boost{ experts_per_group });
 
-            selected_experts = ggml::reshape_3d(ctx, selected_experts, ggml::get_dim(selected_experts, 0) * ggml::get_dim(selected_experts, 1),
-                ggml::get_dim(corrected_score, 1), ggml::get_dim(corrected_score, 2));
+            selected_experts = ctx->reshape(selected_experts, { ggml::get_dim(corrected_score, 2),
+                ggml::get_dim(corrected_score, 1),
+                ggml::get_dim(selected_experts, 0) * ggml::get_dim(selected_experts, 1) });
         }
         else
         {
@@ -2576,7 +2546,7 @@ namespace chatllm
         const int64_t hidden_size = hidden_states->ne[0];
         const int64_t qlen = hidden_states->ne[1];
 
-        hidden_states = ggml::reshape_3d(ctx, hidden_states, hidden_size, 1, qlen);
+        hidden_states = ctx->reshape(hidden_states, { qlen, 1, hidden_size });
         if (pre_weighting)
         {
             hidden_states = ggml::mul(ctx, hidden_states, weights, false);
@@ -2667,20 +2637,21 @@ namespace chatllm
 
         ggml::tensor* selected_experts = nullptr;
 
-        ggml::tensor* grouped_scores = ggml::reshape_4d(ctx, corrected_score, experts_per_group, n_group,
-            ggml::get_dim(corrected_score, 1), ggml::get_dim(corrected_score, 2));
+        ggml::tensor* grouped_scores = ctx->reshape(corrected_score, { ggml::get_dim(corrected_score, 2),
+            ggml::get_dim(corrected_score, 1), n_group, experts_per_group });
         selected_experts = ggml::top_k(ctx, grouped_scores, topk_group);
 
         ggml::tensor* selected_experts_i64 = ggml::cast_int_to_i64(ctx, selected_experts);
 
         CHATLLM_CHECK(ggml::get_dim(grouped_scores, 3) == 1);
-        grouped_scores = ggml::reshape_4d(ctx, grouped_scores, 1, ggml::get_dim(grouped_scores, 0), ggml::get_dim(grouped_scores, 1), ggml::get_dim(grouped_scores, 2));
+        grouped_scores = ctx->reshape(grouped_scores, { ggml::get_dim(grouped_scores, 2),
+            ggml::get_dim(grouped_scores, 1), ggml::get_dim(grouped_scores, 0), 1 });
         ggml::tensor* selected_group_scores = ggml::scale(ctx, grouped_scores, 0.0f, false);
         grouped_scores = ggml::get_rows(ctx, grouped_scores, selected_experts);
         selected_group_scores = ggml::set_rows(ctx, selected_group_scores, selected_experts_i64, grouped_scores);
 
-        selected_group_scores = ggml::reshape_3d(ctx, selected_group_scores,
-            ggml::get_dim(corrected_score, 0), ggml::get_dim(corrected_score, 1), ggml::get_dim(corrected_score, 2));
+        selected_group_scores = ctx->reshape(selected_group_scores,
+            { ggml::get_dim(corrected_score, 2), ggml::get_dim(corrected_score, 1), ggml::get_dim(corrected_score, 0) });
 
         selected_experts = ggml::top_k(ctx, selected_group_scores, num_experts_per_tok);
 

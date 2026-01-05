@@ -922,7 +922,7 @@ namespace chatllm
         ggml::tensor* transformer_outputs = model->final_layernorm->forward(ctx, hidden_states);
 
         // now, this is continous
-        transformer_outputs = ggml::reshape_2d(ctx, transformer_outputs, ggml::get_dim(transformer_outputs, 0), batch);
+        transformer_outputs = ctx->reshape(transformer_outputs, { batch, ggml::get_dim(transformer_outputs, 0) });
 
         model->last_hidden_state = transformer_outputs;
         if (model->skip_lm_head)

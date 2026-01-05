@@ -893,7 +893,7 @@ namespace chatllm::qwen::vit
         ggml::tensor* x0 = proj0.forward(ctx, input0);
         ggml::tensor* x1 = proj1.forward(ctx, input1);
         ggml::tensor* x = ggml::add(ctx, x0, x1, false);
-        x = ggml::reshape_2d(ctx, x, ggml::get_dim(x, 2), grid_h * grid_w);
+        x = ctx->reshape(x, { grid_h * grid_w, ggml::get_dim(x, 2) });
         return x;
     }
 
@@ -2018,9 +2018,9 @@ namespace chatllm::qwen::v3_ranker
     ggml::tensor* FinalSteps::forward(HeterogeneousModel* model, ComputeContext* ctx, ggml::tensor* input_ids, ggml::tensor* hidden_states)
     {
         ggml::tensor* logits = LMFinalSteps::forward(model, ctx, input_ids, hidden_states);
-        logits = ggml::reshape_2d(ctx, logits, 1, ggml::get_dim(logits, 0));
+        logits = ctx->reshape(logits, { ggml::get_dim(logits, 0), 1 });
         logits = ggml::get_rows(ctx, logits, yes_no_ids);
-        logits = ggml::reshape_1d(ctx, logits, 2);
+        logits = ctx->reshape(logits, { 2 });
         logits = ggml::soft_max(ctx, logits, false);
         logits = ggml::view_1d(ctx, logits, 1, 0);
         return logits;
@@ -2079,9 +2079,9 @@ namespace chatllm::qwen::v3_vl::vit
             ggml::tensor* x0 = proj0.forward(ctx, input0);
             ggml::tensor* x1 = proj1.forward(ctx, input1);
             ggml::tensor* x = ggml::add(ctx, x0, x1, false);
-            auto bias_view = ggml::reshape_3d(ctx, proj_bias, 1, 1, ggml::get_dim(proj_bias, 0));
+            auto bias_view = ctx->reshape(proj_bias, { ggml::get_dim(proj_bias, 0), 1, 1 });
             x = ggml::add(ctx, x, bias_view, false);
-            x = ggml::reshape_2d(ctx, x, ggml::get_dim(x, 2), grid_h * grid_w);
+            x = ctx->reshape(x, { grid_h * grid_w, ggml::get_dim(x, 2) });
 
             {
                 //input: ggml[dim, w, h]
@@ -2094,11 +2094,11 @@ namespace chatllm::qwen::v3_vl::vit
 
                 if ((ref_w == grid_w) && (ref_h == grid_h))
                 {
-                    interp = ggml::reshape_3d(ctx, pos_emb, hidden_size, ref_w, ref_h);
+                    interp = ctx->reshape(pos_emb, { ref_h, ref_w, hidden_size });
                 }
                 else
                 {
-                    auto permuted = ggml::reshape_3d(ctx, pos_emb, hidden_size, ref_w, ref_h);
+                    auto permuted = ctx->reshape(pos_emb, { ref_h, ref_w, hidden_size });
                     permuted = ggml::permute(ctx, permuted, 2, 0, 1);
                     interp = ggml::interpolate(ctx, permuted, ggml::InterpolateMode::Bicubic,
                         grid_w, grid_h, hidden_size, 1);
@@ -2111,7 +2111,7 @@ namespace chatllm::qwen::v3_vl::vit
                 interp = ggml::reshape(ctx, interp, hidden_size * merge_size, grid_w / merge_size, merge_size, grid_h / merge_size);
                 interp = ggml::permute(ctx, interp, 0, 2, 1, 3); // -> [dim * 2, 2, w / 2, h / 2]
                 interp = ggml::cont(ctx, interp);
-                interp = ggml::reshape_2d(ctx, interp, hidden_size, grid_h * grid_w);
+                interp = ctx->reshape(interp, { grid_h * grid_w, hidden_size });
 
                 x = ggml::add(ctx, x, interp, false);
             }

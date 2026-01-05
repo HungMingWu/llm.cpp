@@ -853,6 +853,28 @@ namespace chatllm
         return tensor;
     }
 
+    ggml::tensor* ComputeContext::reshape(ggml::tensor* a, std::initializer_list<int64_t> ne)
+    {
+        std::vector<int64_t> reverse_ne{ ne.begin(), ne.end() };
+        std::ranges::reverse(reverse_ne);
+        ggml::tensor* tensor = [&]() {
+            if (reverse_ne.size() == 1)
+                return ggml_reshape(get_ctx(), a, { reverse_ne[0] });
+            else if (reverse_ne.size() == 2)
+                return ggml_reshape(get_ctx(), a, { reverse_ne[0], reverse_ne[1] });
+            else if (reverse_ne.size() == 3)
+				return ggml_reshape(get_ctx(), a, { reverse_ne[0], reverse_ne[1], reverse_ne[2] });
+            else if (reverse_ne.size() == 4) {
+                if (!ggml::is_contiguous(a))
+                    a = ggml::cont(this, a);
+                return ggml_reshape(get_ctx(), a, { reverse_ne[0], reverse_ne[1], reverse_ne[2], reverse_ne[3] });
+            }
+            std::unreachable();
+        }();
+        cb_new_tensor(tensor);
+        return tensor;
+    }
+
     void ComputeContext::cb_new_tensor(ggml::tensor* tensor)
     {
         if (get_backend())

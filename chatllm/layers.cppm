@@ -104,10 +104,6 @@ export namespace chatllm
         ggml::tensor* view_3d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1, int64_t ne2, size_t nb1, size_t nb2, size_t offset);
         ggml::tensor* view_4d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, size_t nb1, size_t nb2, size_t nb3, size_t offset);
 
-        ggml::tensor* reshape_1d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0);
-        ggml::tensor* reshape_2d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1);
-        ggml::tensor* reshape_3d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1, int64_t ne2);
-        ggml::tensor* reshape_4d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3);
         ggml::tensor* reshape(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1 = 1, int64_t ne2 = 1, int64_t ne3 = 1);
         ggml::tensor* flatten(ComputeContext* ctx, ggml::tensor* a);
 
@@ -1825,7 +1821,7 @@ export namespace chatllm
                 ggml::row_size(k_cache), 0);
             ggml::tensor* key_layer = ggml::get_rows(ctx, k_cache_view, indices_view);
 
-            key_layer = ggml::reshape_3d(ctx, key_layer, head_size, num_kv_heads, total);  // [qlen, heads, head_size]
+            key_layer = ctx->reshape(key_layer, { total, num_kv_heads, head_size });  // [qlen, heads, head_size]
             key_layer = ggml::permute(ctx, key_layer, 0, 2, 1, 3);                         // [heads, qlen, head_size]
             if (ggml::is_quantized(key_layer))
                 key_layer = ggml::cont(ctx, key_layer);
@@ -1846,7 +1842,7 @@ export namespace chatllm
                 v_hidden_size * ggml::element_size(v_cache), 0);
             ggml::tensor* value_layer = ggml::get_rows(ctx, v_cache_view, indices_view);
 
-            value_layer = ggml::reshape_3d(ctx, value_layer, head_size, num_kv_heads, total);  // [qlen, heads, head_size]
+            value_layer = ctx->reshape(value_layer, { total, num_kv_heads, head_size });  // [qlen, heads, head_size]
             value_layer = ggml::permute(ctx, value_layer, 1, 2, 0, 3);                         // [heads, head_size, klen]
             value_layer = ggml::cont(ctx, value_layer);
 
@@ -1892,7 +1888,7 @@ export namespace chatllm
             ggml::tensor* key_layer = nullptr;
 
             key_layer = ggml::view_1d(ctx, k_cache, len * k_hidden_size, offset * ggml::row_size(k_cache));
-            key_layer = ggml::reshape_3d(ctx, key_layer, head_size, num_kv_heads, len);  // [qlen, heads, head_size]
+            key_layer = ctx->reshape(key_layer, { len, num_kv_heads, head_size });  // [qlen, heads, head_size]
             key_layer = ggml::permute(ctx, key_layer, 0, 2, 1, 3);                       // [heads, qlen, head_size]
             if (ggml::is_quantized(key_layer))
                 key_layer = ggml::cont(ctx, key_layer);
@@ -2030,7 +2026,7 @@ export namespace chatllm
             ggml::tensor* key_layer = nullptr;
 
             key_layer = ggml::view_1d(ctx, k_cache, len * k_hidden_size, offset * ggml::row_size(k_cache));
-            key_layer = ggml::reshape_3d(ctx, key_layer, head_size, num_kv_heads, len);  // [qlen, heads, head_size]
+            key_layer = ctx->reshape(key_layer, { len, num_kv_heads, head_size });  // [qlen, heads, head_size]
             key_layer = ggml::permute(ctx, key_layer, 0, 2, 1, 3);                       // [heads, qlen, head_size]
             if (ggml::is_quantized(key_layer))
                 key_layer = ggml::cont(ctx, key_layer);
