@@ -51,29 +51,10 @@ namespace chatllm
         va_end(args);
     }
 
-    void* BackendBuffer::get_base(void)
+    void buf_assign_to(ggml_backend_buffer& buf, ggml::tensor* tensor, size_t offset)
     {
-        return buf->get_base();
-    }
-
-    size_t BackendBuffer::get_size(void) const
-    {
-        return buf->get_size();
-    }
-
-    bool BackendBuffer::is_host(void)
-    {
-        return buf->is_host();
-    }
-
-    void BackendBuffer::assign_to(ggml::tensor* tensor, size_t offset)
-    {
-        uint8_t* data = (uint8_t*)get_base() + offset;
-        buf->alloc(tensor, data);
-    }
-
-    BackendBuffer::BackendBuffer(std::unique_ptr<ggml_backend_buffer> buf) : buf(std::move(buf))
-    {
+        uint8_t* data = (uint8_t*)buf.get_base() + offset;
+        buf.alloc(tensor, data);
     }
 
     void BackendBufAllocator::show_info(void)
@@ -100,20 +81,20 @@ namespace chatllm
         ggml::log(GGML_LOG_LEVEL_INFO, "\tMatrix = %s, Others = %s\n", get_allocator(Usage::Matrix)->get_name(), get_allocator(Usage::Others)->get_name());
     }
 
-    BackendBuffer* LayerBufAllocator::alloc(size_t size, Usage usage)
+    ggml_backend_buffer* LayerBufAllocator::alloc(size_t size, Usage usage)
     {
         total[usage] += size;
-        auto r = new BackendBuffer(get_allocator(usage)->alloc_buffer(size));
-        buffers.emplace_back(r);
-        return r;
+        auto buf = get_allocator(usage)->alloc_buffer(size);
+        buffers.push_back(std::move(buf));
+        return buffers.back().get();
     }
 
     bool LayerBufAllocator::alloc(ggml::tensor* tensor, Usage usage)
     {
-        BackendBuffer* buf = alloc(get_alloc_size(tensor), usage);
+        ggml_backend_buffer* buf = alloc(get_alloc_size(tensor), usage);
         if (nullptr == buf) return false;
 
-        buf->assign_to(tensor);
+        buf_assign_to(*buf, tensor);
         return true;
     }
 

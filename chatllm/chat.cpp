@@ -1154,7 +1154,7 @@ namespace chatllm
         ggml::change_type(&tensor, target_type);
         size_t alloc_size = std::max(override_buffer_size, alloc->get_alloc_size(&tensor, usage));
         data = alloc->alloc(alloc_size, usage);
-        data->assign_to(&tensor);
+        buf_assign_to(*data, &tensor);
         this->alloc = alloc;
 
         if (reader)
@@ -1328,7 +1328,7 @@ namespace chatllm
 
     void TensorInfo::assign_to(ggml::tensor* tensor)
     {
-        data->assign_to(tensor);
+       buf_assign_to(*data, tensor);
     }
 
     void ModelLoader::load_all_tensors(void)

@@ -87,20 +87,9 @@ export namespace chatllm
 
     class LayerBufAllocator;
 
-    class BackendBuffer
-    {
-    public:
-        friend LayerBufAllocator;
-        void* get_base(void);
-        size_t get_size(void) const;
-        bool is_host(void);
-        void assign_to(ggml::tensor* tensor, size_t offset = 0);
-    protected:
-        BackendBuffer(std::unique_ptr<ggml_backend_buffer> buf);
-        std::unique_ptr<ggml_backend_buffer> buf;
-    };
-
     class Backend;
+
+    void buf_assign_to(ggml_backend_buffer& buf, ggml::tensor* tensor, size_t offset = 0);
 
     class BackendBufAllocator
     {
@@ -114,7 +103,7 @@ export namespace chatllm
 
         BackendBufAllocator(Backend* backend) : total(), backend(backend) {}
 
-        virtual BackendBuffer* alloc(size_t size, Usage usage = Usage::Others) = 0;
+        virtual ggml_backend_buffer* alloc(size_t size, Usage usage = Usage::Others) = 0;
         virtual bool alloc(ggml::tensor* tensor) = 0;
         virtual bool alloc(ggml::tensor* tensor, Usage usage) = 0;
         virtual size_t get_alloc_size(ggml::tensor* tensor) = 0;
@@ -147,7 +136,7 @@ export namespace chatllm
         LayerBufAllocator(ggml_backend_allocator alloc, Backend* backend);
         LayerBufAllocator(ggml_backend_allocator alloc_matrix, ggml_backend_allocator alloc_others, Backend* backend);
 
-        BackendBuffer* alloc(size_t size, Usage usage = Usage::Others) override;
+        ggml_backend_buffer* alloc(size_t size, Usage usage = Usage::Others) override;
         bool alloc(ggml::tensor* tensor) override;
         bool alloc(ggml::tensor* tensor, Usage usage) override;
         size_t get_alloc_size(ggml::tensor* tensor) override;
@@ -173,7 +162,7 @@ export namespace chatllm
     protected:
         ggml_backend_allocator alloc_matrix;
         ggml_backend_allocator alloc_others;
-        std::vector<std::unique_ptr<BackendBuffer>> buffers;
+        std::vector<std::unique_ptr<ggml_backend_buffer>> buffers;
     };
 
     class LayerAllocatorManager
