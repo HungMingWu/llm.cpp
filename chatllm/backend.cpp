@@ -780,11 +780,6 @@ namespace chatllm
         delete buf_output;
     }
 
-    bool BackendContext::reserve_memory(ggml_cgraph* gf)
-    {
-        return sched->reserve(gf);
-    }
-
     bool BackendContext::alloc_graph(ggml_cgraph* gf)
     {
         return sched->alloc_graph(*gf);

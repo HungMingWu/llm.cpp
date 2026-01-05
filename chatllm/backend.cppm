@@ -343,8 +343,6 @@ export namespace chatllm
 
         ~BackendContext();
 
-        bool reserve_memory(ggml_cgraph* gf);
-
         bool alloc_graph(ggml_cgraph* gf);
 
         void compute_graph(ggml_cgraph* gf);
