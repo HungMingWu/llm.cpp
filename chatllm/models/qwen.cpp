@@ -513,9 +513,9 @@ namespace chatllm::qwen::audio_tower
         return loaded;
     }
 
-    AudioEmbeddingGeneration::AudioEmbeddingGeneration(const RuntimeConfig& runtime_config, size_t GRAPH_SIZE)
+    AudioEmbeddingGeneration::AudioEmbeddingGeneration(const RuntimeConfig& runtime_config)
         :
-        GRAPH_SIZE(GRAPH_SIZE), _ctx(&backend_context),
+        _ctx(&backend_context),
         n_threads(runtime_config.n_threads)
     {
         _ctx.cache_dtype = runtime_config.cache_type;

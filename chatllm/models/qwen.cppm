@@ -220,7 +220,7 @@ namespace chatllm::qwen
         class AudioEmbeddingGeneration
         {
         public:
-            AudioEmbeddingGeneration(const RuntimeConfig& runtime_config, size_t GRAPH_SIZE = 4096);
+            AudioEmbeddingGeneration(const RuntimeConfig& runtime_config6);
 
             bool load(ModelLoader& loader);
 
@@ -233,7 +233,6 @@ namespace chatllm::qwen
         protected:
             std::unique_ptr<AudioTransformer> model;
             BackendContext backend_context;
-            const size_t GRAPH_SIZE;
             InitContext _ctx; // weight context
             std::string model_gpu_layers;
             const int n_threads;
