@@ -208,6 +208,7 @@ namespace chatllm
         MODEL_TYPE_QWEN3_Embedding = 0x10000109,
         MODEL_TYPE_QWEN3_ReRanker = 0x1000010A,
         MODEL_TYPE_MAYA1 = 0x1000010B,
+        MODEL_TYPE_GLM_ASR = 0x1000010D,
 
         MODEL_TYPE_LLAMA_MULTI = 0x20000001,
 
@@ -393,16 +394,20 @@ namespace chatllm
         case MODEL_TYPE_BCE_Embedding:
         case MODEL_TYPE_BGE_M3:
         case MODEL_TYPE_MiniCPM_Embedding_Light:
+        case MODEL_TYPE_QWEN3_Embedding:
             return ModelPurpose::TextEmbedding;
         case MODEL_TYPE_BCE_ReRanker:
         case MODEL_TYPE_BGE_ReRanker_M3:
         case MODEL_TYPE_MiniCPM_ReRanker_Light:
+        case MODEL_TYPE_QWEN3_ReRanker:
             return ModelPurpose::Ranker;
         case MODEL_TYPE_ORPHEUS_TTS:
         case MODEL_TYPE_OUTE_TTS_LLAMA:
         case MODEL_TYPE_OUTE_TTS_QWEN3:
         case MODEL_TYPE_MAYA1:
             return ModelPurpose::TTS;
+        case MODEL_TYPE_GLM_ASR:
+            return ModelPurpose::ASR;
         default:
             return ModelPurpose::Chat;
         }

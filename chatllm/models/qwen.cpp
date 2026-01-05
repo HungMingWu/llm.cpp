@@ -407,14 +407,48 @@ namespace chatllm::qwen::audio_tower
         causal = false;
     }
 
-    AudioTransformer::AudioTransformer(InitContext* ctx, const Config& config, int lm_hidden_size)
-        : embed_positions(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Prolog),
+    AudioEmbedding::AudioEmbedding(InitContext* ctx, const Config& config) :
+        embed_positions(ctx,
             ggml::type::GGML_TYPE_F32,
             config.max_source_positions, config.d_model),
-        conv1(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Prolog),
+        conv1(ctx,
             config.num_mel_bins, config.d_model, 3, 1, 1),
-        conv2(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Prolog),
-            config.d_model, config.d_model, 3, 2, 1),
+        conv2(ctx,
+            config.d_model, config.d_model, 3, 2, 1)
+    {
+    }
+
+    int64_t AudioEmbedding::get_param_num(bool effective_only) const
+    {
+        int64_t r = 0;
+        r += embed_positions.get_param_num(effective_only);
+        r += conv1.get_param_num(effective_only);
+        r += conv2.get_param_num(effective_only);
+        return r;
+    }
+
+    void AudioEmbedding::load(const std::string& path, TensorLoader* loader)
+    {
+        embed_positions.load(path + "embed_positions.", loader);
+        conv1.load(path + "conv1.", loader);
+        conv2.load(path + "conv2.", loader);
+    }
+
+    ggml::tensor* AudioEmbedding::forward(ComputeContext* ctx, ggml::tensor* input)
+    {
+        auto output = conv1.forward(ctx, input);
+        output = ggml::act(ctx, ActFunc::GELU, output);
+        output = conv2.forward(ctx, output);
+        output = ggml::act(ctx, ActFunc::GELU, output);
+        output = ggml::permute(ctx, output, 1, 0, 2, 3);
+        output = ggml::cont(ctx, output);
+        output = ggml::add(ctx, output, embed_positions.weight, false);
+
+        return output;
+    }
+
+    AudioTransformer::AudioTransformer(InitContext* ctx, const Config& config, int lm_hidden_size)
+        : embed(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Prolog), config),
         layer_norm(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Epilog), config.d_model),
         multi_modal_projector(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Epilog),
             config.d_model, lm_hidden_size),
@@ -434,10 +468,8 @@ namespace chatllm::qwen::audio_tower
     int64_t AudioTransformer::get_param_num(bool effective_only) const
     {
         int64_t r = 0;
-        r += embed_positions.get_param_num(effective_only);
+        r += embed.get_param_num(effective_only);
         r += layer_norm.get_param_num(effective_only);
-        r += conv1.get_param_num(effective_only);
-        r += conv2.get_param_num(effective_only);
         r += multi_modal_projector.get_param_num(effective_only);
         for (size_t i = 0; i < layers.size(); i++)
             r += layers[i]->get_param_num(effective_only);
@@ -448,11 +480,9 @@ namespace chatllm::qwen::audio_tower
     {
         if (!loader->has_tensor(path + "embed_positions.weight")) return;
 
-        embed_positions.load(path + "embed_positions.", loader);
+        embed.load(path, loader);
         layer_norm.load(path + "layer_norm.", loader);
         multi_modal_projector.load("multi_modal_projector.linear.", loader);
-        conv1.load(path + "conv1.", loader);
-        conv2.load(path + "conv2.", loader);
 
         for (size_t i = 0; i < layers.size(); i++)
         {
@@ -464,13 +494,7 @@ namespace chatllm::qwen::audio_tower
 
     ggml::tensor* AudioTransformer::forward(ComputeContext* ctx, ggml::tensor* input)
     {
-        auto output = conv1.forward(ctx, input);
-        output = ggml::act(ctx, ActFunc::GELU, output);
-        output = conv2.forward(ctx, output);
-        output = ggml::act(ctx, ActFunc::GELU, output);
-        output = ggml::permute(ctx, output, 1, 0, 2, 3);
-        output = ggml::cont(ctx, output);
-        output = ggml::add(ctx, output, embed_positions.weight, false);
+        auto output = embed.forward(ctx, input);
 
         for (size_t i = 0; i < layers.size(); i++)
         {
@@ -572,7 +596,7 @@ namespace chatllm::qwen::audio_tower
         if (ggml::type_of(r) != dtype)
         {
             ctx.move_to_layer(LayerAllocatorManager::MiscLayer::Epilog);
-            ggml::tensor* t = ggml::new_tensor_like(&ctx, dtype, r);
+            ggml::tensor* t = ctx.new_tensor(dtype, { ggml::get_dim(r, 3), ggml::get_dim(r, 2), ggml::get_dim(r, 1), ggml::get_dim(r, 0) });
             r = ggml::cpy(&ctx, r, t);
         }
 
@@ -613,11 +637,7 @@ namespace chatllm::qwen::v2_audio
 
     void Tokenizer::inject_audio_ids(std::vector<int>& ids, const int  ids_to_inject_start, const int ids_to_inject_count)
     {
-        if (audio_bos_token_id < 0)
-        {
-            audio_bos_token_id = tp->PieceToId("<|audio_bos|>");
-            audio_eos_token_id = tp->PieceToId("<|audio_eos|>");
-        }
+        CHATLLM_CHECK(audio_bos_token_id >= 0) << "audio_bos_token_id not found";
         ids.push_back(audio_bos_token_id);
         for (int i = 0; i < ids_to_inject_count; i++)
             ids.push_back(i + ids_to_inject_start);
@@ -633,9 +653,33 @@ namespace chatllm::qwen::v2_audio
         pad_arg = nullptr;
     }
 
+    void ConditionalGeneration::set_tokenizer(BaseTokenizer* tokenizer)
+    {
+        Base::set_tokenizer(tokenizer);
+        Tokenizer* tok = dynamic_cast<Tokenizer*>(tokenizer);
+        tok->audio_bos_token_id = audio_bos_token_id;
+        tok->audio_eos_token_id = audio_eos_token_id;
+    }
+
     bool ConditionalGeneration::load_more(const json::JSON& config)
     {
         Base::load_more(config);
+
+        auto tok_cfg = config["tokenizer_config.json"]["added_tokens_decoder"];
+        if (!tok_cfg.IsObject()) return false;
+        for (auto& kv : tok_cfg.ObjectRange())
+        {
+            auto t = kv.second["content"].ToString();
+            if (t == "<|audio_bos|>")
+            {
+                audio_bos_token_id = (int)std::atoi(kv.first.c_str());
+            }
+            else if (t == "<|audio_eos|>")
+            {
+                audio_eos_token_id = (int)std::atoi(kv.first.c_str());
+            }
+        }
+
         bool r = audio.load_more(this->config.dtype, this->config.hidden_size, config);
         if (r)
         {
