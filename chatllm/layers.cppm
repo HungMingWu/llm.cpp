@@ -324,7 +324,7 @@ export namespace chatllm
         }
 
         virtual size_t get_cache_size(void) const { return 0; }
-        virtual void   set_cache_buffer(ggml_backend_buffer* buf) {}
+        virtual void   set_cache_buffer(ggml_backend_buffer& buf) {}
         virtual size_t read_cache_data(std::span<std::byte> buffer) const { return 0; }
         virtual size_t write_cache_data(std::span<const std::byte> buffer) { return 0; }
 
@@ -966,7 +966,7 @@ export namespace chatllm
             return attention.get_cache_size();
         }
 
-        void  set_cache_buffer(ggml_backend_buffer* buffer) override
+        void  set_cache_buffer(ggml_backend_buffer& buffer) override
         {
             return attention.set_cache_buffer(buffer);
         }
@@ -1521,18 +1521,18 @@ export namespace chatllm
             return r;
         }
 
-        void  set_cache_buffer(ggml_backend_buffer* buffer) override
+        void  set_cache_buffer(ggml_backend_buffer& buffer) override
         {
             size_t offset = 0;
 
             if (k_cache)
             {
-                buf_assign_to(*buffer, k_cache, offset);
+                buf_assign_to(buffer, k_cache, offset);
                 offset += ggml::nbytes(k_cache);
             }
             if (v_cache)
             {
-                buf_assign_to(*buffer, v_cache, offset);
+                buf_assign_to(buffer, v_cache, offset);
             }
         }
 
@@ -2220,7 +2220,7 @@ export namespace chatllm
             return attention.get_cache_size();
         }
 
-        void  set_cache_buffer(ggml_backend_buffer* buffer) override
+        void  set_cache_buffer(ggml_backend_buffer& buffer) override
         {
             return attention.set_cache_buffer(buffer);
         }
