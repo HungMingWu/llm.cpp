@@ -1112,7 +1112,7 @@ namespace chatllm
     }
 
     TensorInfo::TensorInfo(ggml::type type, int n_dim, const int64_t* ne, size_t _offset, const char* name)
-        : _offset(_offset), data(nullptr), original_type(ggml::type::GGML_TYPE_F32)
+        : _offset(_offset), original_type(ggml::type::GGML_TYPE_F32)
     {
         ggml::init_tensor(&tensor, type, n_dim, ne);
         usage = ggml::n_dims(&tensor) > 1 ? BackendBufAllocator::Usage::Matrix : BackendBufAllocator::Usage::Others;
@@ -1121,8 +1121,6 @@ namespace chatllm
 
     TensorInfo::~TensorInfo()
     {
-        // data is freed by allocator
-        data = nullptr;
     }
 
     size_t TensorInfo::aligned_data_start(size_t offset)
@@ -1153,7 +1151,7 @@ namespace chatllm
         this->original_type = ggml::type_of(tensor);
         ggml::change_type(&tensor, target_type);
         size_t alloc_size = std::max(override_buffer_size, alloc->get_alloc_size(&tensor, usage));
-        data = alloc->alloc(alloc_size, usage);
+        data = &alloc->alloc(alloc_size, usage);
         buf_assign_to(*data, &tensor);
         this->alloc = alloc;
 

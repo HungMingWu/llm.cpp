@@ -103,7 +103,7 @@ export namespace chatllm
 
         BackendBufAllocator(Backend* backend) : total(), backend(backend) {}
 
-        virtual ggml_backend_buffer* alloc(size_t size, Usage usage = Usage::Others) = 0;
+        virtual ggml_backend_buffer& alloc(size_t size, Usage usage = Usage::Others) = 0;
         virtual bool alloc(ggml::tensor* tensor) = 0;
         virtual bool alloc(ggml::tensor* tensor, Usage usage) = 0;
         virtual size_t get_alloc_size(ggml::tensor* tensor) = 0;
@@ -136,7 +136,7 @@ export namespace chatllm
         LayerBufAllocator(ggml_backend_allocator alloc, Backend* backend);
         LayerBufAllocator(ggml_backend_allocator alloc_matrix, ggml_backend_allocator alloc_others, Backend* backend);
 
-        ggml_backend_buffer* alloc(size_t size, Usage usage = Usage::Others) override;
+        ggml_backend_buffer& alloc(size_t size, Usage usage = Usage::Others) override;
         bool alloc(ggml::tensor* tensor) override;
         bool alloc(ggml::tensor* tensor, Usage usage) override;
         size_t get_alloc_size(ggml::tensor* tensor) override;

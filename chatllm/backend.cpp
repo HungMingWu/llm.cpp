@@ -81,20 +81,19 @@ namespace chatllm
         ggml::log(GGML_LOG_LEVEL_INFO, "\tMatrix = %s, Others = %s\n", get_allocator(Usage::Matrix)->get_name(), get_allocator(Usage::Others)->get_name());
     }
 
-    ggml_backend_buffer* LayerBufAllocator::alloc(size_t size, Usage usage)
+    ggml_backend_buffer& LayerBufAllocator::alloc(size_t size, Usage usage)
     {
         total[usage] += size;
         auto buf = get_allocator(usage)->alloc_buffer(size);
         buffers.push_back(std::move(buf));
-        return buffers.back().get();
+        return *buffers.back();
     }
 
     bool LayerBufAllocator::alloc(ggml::tensor* tensor, Usage usage)
     {
-        ggml_backend_buffer* buf = alloc(get_alloc_size(tensor), usage);
-        if (nullptr == buf) return false;
+        ggml_backend_buffer& buf = alloc(get_alloc_size(tensor), usage);
 
-        buf_assign_to(*buf, tensor);
+        buf_assign_to(buf, tensor);
         return true;
     }
 

@@ -721,8 +721,8 @@ namespace chatllm
             cache_size += layer->get_cache_size();
 
             auto allocator = ctx->get_allocator();
-            auto buf = allocator->alloc(layer->get_cache_size(), BackendBufAllocator::Usage::Matrix);
-            layer->set_cache_buffer(buf);
+            auto& buf = allocator->alloc(layer->get_cache_size(), BackendBufAllocator::Usage::Matrix);
+            layer->set_cache_buffer(&buf);
         }
     }
 

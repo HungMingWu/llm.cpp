@@ -639,7 +639,7 @@ export namespace chatllm
         ggml::tensor tensor;
         const size_t _offset;
         BackendBufAllocator::Usage usage;
-        ggml_backend_buffer* data;
+        ggml_backend_buffer *data = nullptr; // non owning, use std::optional<ggml_backend_buffe&> if it exist
         LayerBufAllocator* alloc;
         ggml::type original_type;
     };
