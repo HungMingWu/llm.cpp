@@ -613,43 +613,12 @@ namespace chatllm
 
     }
 
-    bool BaseModelForConditionalGeneration::before_initial_run(const int ids_count,
-        const GenerationConfig& gen_config,
-        int past)
-    {
-        //printf("before_initial_run 1\n");
-        //backend_context.show_buffer_sizes();
-
-        ForwardContext ctx(&backend_context);
-
-        ggml::tensor* input_ids_tensor = ctx.new_tensor(GGML_TYPE_I32, { ids_count });
-
-        ggml::tensor* r = transformer->forward(&ctx, input_ids_tensor, past);
-
-        if (logit_scale > 0)
-            r = ggml::scale(&ctx, r, logit_scale, false);
-
-        ggml::build_forward_expand(&ctx, r);
-
-        return true;
-    }
-
     bool BaseModelForConditionalGeneration::run_model(std::span<const int> input_ids,
         const GenerationConfig& gen_config,
         int past,
         std::vector<float>& output, const int batch_size,
         std::function<ggml::tensor* (ComputeContext*, ggml::tensor*)> func_epilog)
     {
-#if 1
-        if (!initial_run)
-        {
-            initial_run = true;
-            int past = gen_config.max_length / transformer->get_reserved_batch_size() - input_ids.size();
-            if (past < 0) past = 0;
-            if (!before_initial_run(input_ids.size(), gen_config, past))
-                return false;
-        }
-#endif
         ForwardContext ctx(&backend_context);
         ctx.user_options = w_ctx_.user_options;
 

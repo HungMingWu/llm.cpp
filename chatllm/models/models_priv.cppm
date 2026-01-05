@@ -448,9 +448,6 @@ namespace chatllm
         virtual void do_build_graph(ForwardContext& ctc, const std::vector<int>& input_ids,
             const GenerationConfig& gen_config,
             int past);
-        virtual bool before_initial_run(const int ids_count,
-            const GenerationConfig& gen_config,
-            int past);
 
         virtual bool run_model(std::span<const int> input_ids,
             const GenerationConfig& gen_config,
@@ -477,7 +474,6 @@ namespace chatllm
         BackendContext backend_context;
         InitContext w_ctx_; // weight context
         BaseConfig config_;
-        bool initial_run = false;
     };
 
     template <class Embedding>
