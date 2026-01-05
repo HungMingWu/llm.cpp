@@ -967,11 +967,6 @@ namespace chatllm
         return backend_context->alloc_graph(get_cgraph());
     }
 
-    bool ComputeContext::reserve_memory(void)
-    {
-        return backend_context->reserve_memory(get_cgraph());
-    }
-
     void ComputeContext::reset(void)
     {
         backend_context->reset();

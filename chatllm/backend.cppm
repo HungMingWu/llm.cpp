@@ -421,8 +421,6 @@ export namespace chatllm
 
         virtual bool allocate(void);
 
-        virtual bool reserve_memory(void);
-
         virtual void reset(void);
 
         virtual bool is_using_gpu(void) const { return backend_context->is_using_gpu(); }

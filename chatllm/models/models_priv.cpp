@@ -631,12 +631,7 @@ namespace chatllm
 
         ggml::build_forward_expand(&ctx, r);
 
-        bool s = ctx.reserve_memory();
-
-        //printf("before_initial_run 2\n");
-        //backend_context.show_buffer_sizes();
-
-        return s;
+        return true;
     }
 
     bool BaseModelForConditionalGeneration::run_model(std::span<const int> input_ids,
@@ -645,6 +640,7 @@ namespace chatllm
         std::vector<float>& output, const int batch_size,
         std::function<ggml::tensor* (ComputeContext*, ggml::tensor*)> func_epilog)
     {
+#if 1
         if (!initial_run)
         {
             initial_run = true;
@@ -653,7 +649,7 @@ namespace chatllm
             if (!before_initial_run(input_ids.size(), gen_config, past))
                 return false;
         }
-
+#endif
         ForwardContext ctx(&backend_context);
         ctx.user_options = w_ctx_.user_options;
 
