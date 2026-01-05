@@ -942,9 +942,9 @@ namespace chatllm
         return backend_context->layer_allocators.get_allocator(tensor);
     }
 
-    void ComputeContext::register_tensor_allocator(ggml::tensor* tensor, BackendBufAllocator* allocator)
+    void ComputeContext::register_tensor_allocator(ggml::tensor* tensor, LayerBufAllocator* allocator)
     {
-        backend_context->layer_allocators.register_tensor_allocator(tensor, dynamic_cast<LayerBufAllocator*>(allocator));
+        backend_context->layer_allocators.register_tensor_allocator(tensor, allocator);
     }
 
     Backend* ComputeContext::get_backend(void)

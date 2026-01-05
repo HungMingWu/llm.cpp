@@ -411,7 +411,7 @@ export namespace chatllm
 
         BackendBufAllocator* get_allocator(void);
         BackendBufAllocator* get_allocator(ggml::tensor* tensor);
-        void register_tensor_allocator(ggml::tensor* tensor, BackendBufAllocator* allocator);
+        void register_tensor_allocator(ggml::tensor* tensor, LayerBufAllocator* allocator);
 
         virtual Backend* get_backend(void);
 
