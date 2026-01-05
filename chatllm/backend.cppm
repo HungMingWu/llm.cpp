@@ -407,8 +407,8 @@ export namespace chatllm
         virtual void move_to_layer(int layer_id);
         virtual void backend_cpu_override(bool flag);
 
-        BackendBufAllocator* get_allocator(void);
-        BackendBufAllocator* get_allocator(ggml::tensor* tensor);
+        LayerBufAllocator* get_allocator(void);
+        LayerBufAllocator* get_allocator(ggml::tensor* tensor);
         void register_tensor_allocator(ggml::tensor* tensor, LayerBufAllocator* allocator);
 
         virtual Backend* get_backend(void);

@@ -927,12 +927,12 @@ namespace chatllm
         backend_context->layer_allocators.override_to_cpu_only(flag);
     }
 
-    BackendBufAllocator* ComputeContext::get_allocator(void)
+    LayerBufAllocator* ComputeContext::get_allocator(void)
     {
         return backend_context->layer_allocators.get_allocator();
     }
 
-    BackendBufAllocator* ComputeContext::get_allocator(ggml::tensor* tensor)
+    LayerBufAllocator* ComputeContext::get_allocator(ggml::tensor* tensor)
     {
         return backend_context->layer_allocators.get_allocator(tensor);
     }
@@ -944,7 +944,7 @@ namespace chatllm
 
     Backend* ComputeContext::get_backend(void)
     {
-        return dynamic_cast<LayerBufAllocator*>(get_allocator())->get_backend();
+        return get_allocator()->get_backend();
     }
 
     void ComputeContext::compute(void)
