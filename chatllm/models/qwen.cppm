@@ -560,7 +560,7 @@ namespace chatllm::qwen
         class VisualEmbeddingGeneration
         {
         public:
-            VisualEmbeddingGeneration(const RuntimeConfig& runtime_config, int max_patches, size_t GRAPH_SIZE = 4096);
+            VisualEmbeddingGeneration(const RuntimeConfig& runtime_config, int max_patches);
             bool load(ModelLoader& loader);
             bool load_more(ggml::type dtype, int lm_hidden_size, const json::JSON& config);
             void generate(const GenerationConfig& gen_config, BaseTokenizer* tok, ggml::type dtype, std::vector<uint8_t>& buf);
@@ -571,7 +571,6 @@ namespace chatllm::qwen
             std::unique_ptr<VisionTransformer> vis_model;
         protected:
             BackendContext backend_context;
-            const size_t GRAPH_SIZE;
             InitContext _ctx; // weight context
             std::string model_gpu_layers;
             const int n_threads;

@@ -1343,9 +1343,9 @@ namespace chatllm::qwen::vit
         return loaded;
     }
 
-    VisualEmbeddingGeneration::VisualEmbeddingGeneration(const RuntimeConfig& runtime_config, int max_patches, size_t GRAPH_SIZE)
+    VisualEmbeddingGeneration::VisualEmbeddingGeneration(const RuntimeConfig& runtime_config, int max_patches)
         :
-        GRAPH_SIZE(GRAPH_SIZE), _ctx(&backend_context),
+        _ctx(&backend_context),
         n_threads(runtime_config.n_threads),
         vis_config(),
         max_patches(max_patches)
