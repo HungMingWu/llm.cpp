@@ -858,8 +858,8 @@ namespace chatllm
         return _loaded;
     }
 
-    BaseMediaProjectedEmbeddingGeneration::BaseMediaProjectedEmbeddingGeneration(const RuntimeConfig& runtime_config, size_t GRAPH_SIZE)
-        : GRAPH_SIZE(GRAPH_SIZE), _ctx(&backend_context),
+    BaseMediaProjectedEmbeddingGeneration::BaseMediaProjectedEmbeddingGeneration(const RuntimeConfig& runtime_config)
+        : _ctx(&backend_context),
         n_threads(runtime_config.n_threads),
         max_embedding_num(-1)
     {

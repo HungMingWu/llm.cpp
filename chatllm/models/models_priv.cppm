@@ -531,7 +531,7 @@ namespace chatllm
     class BaseMediaProjectedEmbeddingGeneration
     {
     public:
-        BaseMediaProjectedEmbeddingGeneration(const RuntimeConfig& runtime_config, size_t GRAPH_SIZE = 4096);
+        BaseMediaProjectedEmbeddingGeneration(const RuntimeConfig& runtime_config);
         virtual bool load(ModelLoader& loader);
         virtual bool load_more(ggml::type dtype, int lm_hidden_size, const json::JSON& config);
         virtual void generate(const GenerationConfig& gen_config, BaseTokenizer* tok, ggml::type dtype, std::vector<uint8_t>& buf);
@@ -542,7 +542,6 @@ namespace chatllm
     protected:
         std::unique_ptr<DynamicBlock> model;
         BackendContext backend_context;
-        const size_t GRAPH_SIZE;
         InitContext _ctx; // weight context
         std::string model_gpu_layers;
         const int n_threads;
