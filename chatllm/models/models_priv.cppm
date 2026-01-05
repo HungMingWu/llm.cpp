@@ -418,7 +418,7 @@ namespace chatllm
     class BaseModelForConditionalGeneration : public BaseModel
     {
     public:
-        BaseModelForConditionalGeneration(ModelType model_type, BaseConfig config, const RuntimeConfig& runtime_config, size_t GRAPH_SIZE = 4096);
+        BaseModelForConditionalGeneration(ModelType model_type, BaseConfig config, const RuntimeConfig& runtime_config);
         virtual ~BaseModelForConditionalGeneration() = default;
 
         void set_layer_ids(std::span<const int> ids) override;
@@ -467,7 +467,6 @@ namespace chatllm
 
     protected:
         HeterogeneousModel* transformer;
-        const size_t GRAPH_SIZE;
         int batch_input;
         float logit_scale;
         std::vector<int> layer_ids;

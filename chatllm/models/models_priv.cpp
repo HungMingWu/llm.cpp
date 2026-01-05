@@ -336,10 +336,9 @@ namespace chatllm
         }
     };
 
-    BaseModelForConditionalGeneration::BaseModelForConditionalGeneration(ModelType model_type, BaseConfig config, const RuntimeConfig& runtime_config, size_t GRAPH_SIZE)
+    BaseModelForConditionalGeneration::BaseModelForConditionalGeneration(ModelType model_type, BaseConfig config, const RuntimeConfig& runtime_config)
         : BaseModel(model_type, get_model_purpose(model_type)),
         transformer(nullptr),
-        GRAPH_SIZE(GRAPH_SIZE),
         batch_input(runtime_config.batch_input_size), logit_scale(-1.0f),
         w_ctx_(&backend_context),
         config_(config)

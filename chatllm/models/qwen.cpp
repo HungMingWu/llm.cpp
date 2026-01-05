@@ -206,7 +206,7 @@ namespace chatllm::qwen::v2
     }
 
     ConditionalGeneration::ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config, ModelType type, bool tie_embeddings)
-        : BaseModelForConditionalGeneration(type, config, runtime_config, 4096 * 2),
+        : BaseModelForConditionalGeneration(type, config, runtime_config),
         config(config), tie_embeddings(tie_embeddings)
     {
         w_ctx_.dtype = config.dtype;
@@ -264,7 +264,7 @@ namespace chatllm::qwen::v2_moe
         GenericConditionalGeneration() = default;
 
         GenericConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config)
-            : BaseModelForConditionalGeneration(MODEL_TYPE_QWEN2MoE, config, runtime_config, 4096 * 4),
+            : BaseModelForConditionalGeneration(MODEL_TYPE_QWEN2MoE, config, runtime_config),
             config(config)
         {
             w_ctx_.dtype = config.dtype;
@@ -1845,7 +1845,7 @@ namespace chatllm::qwen::v3
     typedef QWen3MoEBlock<128, 8> QWen3MoEBlock128_8;
 
     ConditionalGeneration::ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config, ModelType type, const bool skip_lm_head, int extra_tensors)
-        : BaseModelForConditionalGeneration(type, config, runtime_config, 4096 * 4),
+        : BaseModelForConditionalGeneration(type, config, runtime_config),
         config(config)
     {
         w_ctx_.dtype = config.dtype;
