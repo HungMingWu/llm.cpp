@@ -91,21 +91,13 @@ export namespace chatllm
     {
     public:
         friend LayerBufAllocator;
-
         void* get_base(void);
-
         size_t get_size(void) const;
-
         bool is_host(void);
-
-        ~BackendBuffer();
-
         void assign_to(ggml::tensor* tensor, size_t offset = 0);
-
     protected:
-        BackendBuffer(ggml_backend_buffer* buf);
-
-        ggml_backend_buffer* buf;
+        BackendBuffer(std::unique_ptr<ggml_backend_buffer> buf);
+        std::unique_ptr<ggml_backend_buffer> buf;
     };
 
     class Backend;

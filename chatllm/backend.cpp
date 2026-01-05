@@ -66,19 +66,13 @@ namespace chatllm
         return buf->is_host();
     }
 
-    BackendBuffer::~BackendBuffer()
-    {
-        delete buf;
-    }
-
     void BackendBuffer::assign_to(ggml::tensor* tensor, size_t offset)
     {
         uint8_t* data = (uint8_t*)get_base() + offset;
         buf->alloc(tensor, data);
     }
 
-    BackendBuffer::BackendBuffer(ggml_backend_buffer* buf)
-        : buf(buf)
+    BackendBuffer::BackendBuffer(std::unique_ptr<ggml_backend_buffer> buf) : buf(std::move(buf))
     {
     }
 
@@ -109,11 +103,7 @@ namespace chatllm
     BackendBuffer* LayerBufAllocator::alloc(size_t size, Usage usage)
     {
         total[usage] += size;
-        std::unique_ptr<ggml_backend_buffer> buf = get_allocator(usage)->alloc_buffer(size);
-
-        CHATLLM_CHECK(buf) << __FUNCTION__ << "() failed to allocate buffer of size " << size;
-
-        auto r = new BackendBuffer(buf.release());
+        auto r = new BackendBuffer(get_allocator(usage)->alloc_buffer(size));
         buffers.emplace_back(r);
         return r;
     }
