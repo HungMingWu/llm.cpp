@@ -564,7 +564,7 @@ namespace chatllm::qwen::audio_tower
         config.sampling_rate = (int)pp_cfg["sampling_rate"].ToInt();
 
         _ctx.dtype = dtype;
-        backend_context.init(model_gpu_layers, config.encoder_layers, GRAPH_SIZE, n_threads);
+        backend_context.init(model_gpu_layers, config.encoder_layers, n_threads);
 
         model.reset(new AudioTransformer(&_ctx, config, lm_hidden_size));
 
@@ -1426,7 +1426,7 @@ namespace chatllm::qwen::vit
         }
 
         _ctx.dtype = dtype;
-        backend_context.init(model_gpu_layers, vis_config.num_hidden_layers, GRAPH_SIZE, n_threads);
+        backend_context.init(model_gpu_layers, vis_config.num_hidden_layers, n_threads);
 
         vis_model.reset(new VisionTransformer(&_ctx, vis_config, lm_hidden_size));
         return true;

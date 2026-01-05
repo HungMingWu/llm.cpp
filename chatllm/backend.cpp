@@ -631,19 +631,19 @@ namespace chatllm
         return gpu_cfgs;
     }
 
-    void BackendContext::init(const std::map<std::string, std::string>& model_n_gpu_layers, const std::string& model_id, const int n_layers, const size_t graph_max_nodes_num, const int n_threads, const std::string fallback_id)
+    void BackendContext::init(const std::map<std::string, std::string>& model_n_gpu_layers, const std::string& model_id, const int n_layers, const int n_threads, const std::string fallback_id)
     {
-        init(get_ngl_of_model(model_n_gpu_layers, model_id, fallback_id), n_layers, graph_max_nodes_num, n_threads);
+        init(get_ngl_of_model(model_n_gpu_layers, model_id, fallback_id), n_layers, n_threads);
     }
 
-    void BackendContext::init(const std::string& gpu_cfgs, const int n_layers, const size_t graph_max_nodes_num, const int n_threads)
+    void BackendContext::init(const std::string& gpu_cfgs, const int n_layers, const int n_threads)
     {
         std::vector<BackendContext::gpu_cfg> cfgs;
         parse_gpu_layers(cfgs, gpu_cfgs);
-        init(cfgs, n_layers, graph_max_nodes_num, n_threads);
+        init(cfgs, n_layers, n_threads);
     }
 
-    void BackendContext::init(const std::vector<gpu_cfg>& gpu_cfgs, const int n_layers, const size_t graph_max_nodes_num, const int n_threads)
+    void BackendContext::init(const std::vector<gpu_cfg>& gpu_cfgs, const int n_layers, const int n_threads)
     {
         int prolog_id = -1;
         int epilog_id = -1;

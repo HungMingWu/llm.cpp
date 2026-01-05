@@ -584,7 +584,7 @@ namespace chatllm
     void BaseModelForConditionalGeneration::prepare(const RuntimeConfig& rt_config)
     {
         w_ctx_.user_options.moe_on_cpu = rt_config.moe_on_cpu;
-        backend_context.init(rt_config.model_gpu_layers, "main", config_.num_hidden_layers, GRAPH_SIZE, rt_config.n_threads);
+        backend_context.init(rt_config.model_gpu_layers, "main", config_.num_hidden_layers, rt_config.n_threads);
     }
 
     LayerAllocatorManager* BaseModelForConditionalGeneration::get_alloc_manager(void)
@@ -959,7 +959,7 @@ namespace chatllm
         n_threads(runtime_config.n_threads)
     {
         model_gpu_layers = BackendContext::get_ngl_of_model(runtime_config.model_gpu_layers, model_id);
-        backend_context.init(model_gpu_layers, 1, GRAPH_SIZE, n_threads);
+        backend_context.init(model_gpu_layers, 1, n_threads);
     }
 
     bool TensorGraphEvaluator::evaluate(const GenerationConfig& gen_config,
