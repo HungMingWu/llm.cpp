@@ -295,7 +295,7 @@ namespace chatllm
         if (layers.size() > 0)
             model->set_layer_ids(layers);
 
-        loader.push_allocator_manager(&model->get_alloc_manager());
+        loader.push_allocator_manager(model->get_alloc_manager());
         model->load_more(loader.meta_json);
         model->load(loader);
 
@@ -514,11 +514,11 @@ namespace chatllm
             std::vector<int64_t>& result_shape,
             std::vector<uint8_t>& result_buf); // result is appended
 
-        LayerAllocatorManager* get_layer_allocators(void)
+        LayerAllocatorManager& get_layer_allocators()
         {
-            return &backend_context.layer_allocators;
+            return backend_context.layer_allocators;
         }
-        BackendContext* get_backend_context(void)
+        BackendContext* get_backend_context()
         {
             return &backend_context;
         }

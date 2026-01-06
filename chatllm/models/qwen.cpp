@@ -526,7 +526,7 @@ namespace chatllm::qwen::audio_tower
     {
         if (model.get())
         {
-            loader.push_allocator_manager(&backend_context.layer_allocators);
+            loader.push_allocator_manager(backend_context.layer_allocators);
             model->load("audio.", &loader);
             loader.pop_allocator_manager();
             return model->is_loaded();
@@ -1358,7 +1358,7 @@ namespace chatllm::qwen::vit
     {
         if (vis_model.get())
         {
-            loader.push_allocator_manager(&backend_context.layer_allocators);
+            loader.push_allocator_manager(backend_context.layer_allocators);
             vis_model->load("visual.", &loader);
             loader.pop_allocator_manager();
             return vis_model->is_loaded();

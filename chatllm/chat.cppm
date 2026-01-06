@@ -675,8 +675,8 @@ export namespace chatllm
             return s;
         }
 
-        void push_allocator_manager(LayerAllocatorManager* alloc_manager);
-        void pop_allocator_manager(void);
+        void push_allocator_manager(LayerAllocatorManager& alloc_manager);
+        void pop_allocator_manager();
 
         void read_tensor(const std::string& name, ggml::tensor* tensor, bool partial = false) override;
         void read_tensor(const std::string& name,
@@ -741,8 +741,8 @@ export namespace chatllm
         int version;
         std::map<std::string, TensorInfo> tensor_dict;
     protected:
-        LayerAllocatorManager* alloc_manager(void);
-        std::vector<LayerAllocatorManager*>alloc_managers;
+        LayerAllocatorManager& alloc_manager();
+        std::vector<std::reference_wrapper<LayerAllocatorManager>>alloc_managers;
         std::vector<std::pair<std::string, std::string>> name_translation;
 
     public:
