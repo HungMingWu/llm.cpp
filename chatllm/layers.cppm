@@ -88,12 +88,6 @@ export namespace chatllm
         ggml::tensor* sum_rows(ComputeContext* ctx, ggml::tensor* a);
         ggml::tensor* mean(ComputeContext* ctx, ggml::tensor* a);
 
-        ggml::tensor* sin(ComputeContext* ctx, ggml::tensor* a);
-        ggml::tensor* cos(ComputeContext* ctx, ggml::tensor* a);
-        ggml::tensor* square(ComputeContext* ctx, ggml::tensor* a);
-        ggml::tensor* sqrt(ComputeContext* ctx, ggml::tensor* a);
-        ggml::tensor* log(ComputeContext* ctx, ggml::tensor* a);
-        ggml::tensor* tanh(ComputeContext* ctx, ggml::tensor* a);
         ggml::tensor* randn_inplace(ComputeContext* ctx, ggml::tensor* a); // standard normal distribution
         ggml::tensor* randn(ComputeContext* ctx, ggml::type type, int64_t ne0, int64_t ne1 = 1, int64_t ne2 = 1, int64_t ne3 = 1);
 

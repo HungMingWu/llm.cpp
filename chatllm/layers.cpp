@@ -775,48 +775,6 @@ namespace chatllm
         return ggml::map_custom(ctx, { a }, ggml_custom_int_div(b));
     }
 
-    ggml::tensor* ggml::sin(ComputeContext* ctx, ggml::tensor* a)
-    {
-        ggml::tensor* tensor = ggml_sin(ctx->get_ctx(), a);
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::cos(ComputeContext* ctx, ggml::tensor* a)
-    {
-        ggml::tensor* tensor = ggml_cos(ctx->get_ctx(), a);
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::square(ComputeContext* ctx, ggml::tensor* a)
-    {
-        ggml::tensor* tensor = ggml_sqr(ctx->get_ctx(), a, false);
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::sqrt(ComputeContext* ctx, ggml::tensor* a)
-    {
-        ggml::tensor* tensor = ggml_sqrt(ctx->get_ctx(), a);
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::log(ComputeContext* ctx, ggml::tensor* a)
-    {
-        ggml::tensor* tensor = ggml_log(ctx->get_ctx(), a);
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
-    ggml::tensor* ggml::tanh(ComputeContext* ctx, ggml::tensor* a)
-    {
-        ggml::tensor* tensor = ggml_tanh(ctx->get_ctx(), a, false);
-        ctx->cb_op_tensor(tensor);
-        return tensor;
-    }
-
     ggml::tensor* ggml::randn_inplace(ComputeContext* ctx, ggml::tensor* a)
     {
         ggml::tensor* tensor = ggml::map_custom_inplace(ctx, { a }, ggml_compute_forward_randn);
@@ -1317,17 +1275,17 @@ namespace chatllm
         switch (op)
         {
         case Op::Sin:
-            return ggml::sin(ctx, input);
+            return ctx->sin(input);
         case Op::Cos:
-            return ggml::cos(ctx, input);
+            return ctx->cos(input);
         case Op::Square:
-            return ggml::square(ctx, input);
+            return ctx->square(input);
         case Op::Sqrt:
-            return ggml::sqrt(ctx, input);
+            return ctx->sqrt(input);
         case Op::Log:
-            return ggml::log(ctx, input);
+            return ctx->log(input);
         case Op::Tanh:
-            return ggml::tanh(ctx, input);
+            return ctx->tanh(input);
         default:
             CHATLLM_CHECK(false) << "not implemented unary op: " << op;
             return nullptr;

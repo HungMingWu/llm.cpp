@@ -875,6 +875,48 @@ namespace chatllm
         return tensor;
     }
 
+    ggml::tensor* ComputeContext::sin(ggml::tensor* a)
+    {
+        ggml::tensor* tensor = ggml_sin(get_ctx(), a);
+        cb_op_tensor(tensor);
+        return tensor;
+    }
+
+    ggml::tensor* ComputeContext::cos(ggml::tensor* a)
+    {
+        ggml::tensor* tensor = ggml_cos(get_ctx(), a);
+        cb_op_tensor(tensor);
+        return tensor;
+    }
+
+    ggml::tensor* ComputeContext::square(ggml::tensor* a)
+    {
+        ggml::tensor* tensor = ggml_sqr(get_ctx(), a, false);
+        cb_op_tensor(tensor);
+        return tensor;
+    }
+
+    ggml::tensor* ComputeContext::sqrt(ggml::tensor* a)
+    {
+        ggml::tensor* tensor = ggml_sqrt(get_ctx(), a);
+        cb_op_tensor(tensor);
+        return tensor;
+    }
+
+    ggml::tensor* ComputeContext::log(ggml::tensor* a)
+    {
+        ggml::tensor* tensor = ggml_log(get_ctx(), a);
+        cb_op_tensor(tensor);
+        return tensor;
+    }
+
+    ggml::tensor* ComputeContext::tanh(ggml::tensor* a)
+    {
+        ggml::tensor* tensor = ggml_tanh(get_ctx(), a, false);
+        cb_op_tensor(tensor);
+        return tensor;
+    }
+
     void ComputeContext::cb_new_tensor(ggml::tensor* tensor)
     {
         if (get_backend())

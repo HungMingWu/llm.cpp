@@ -410,6 +410,12 @@ export namespace chatllm
 
         ggml::tensor* new_tensor(ggml::type type, std::initializer_list<int64_t> ne);
         ggml::tensor* reshape(ggml::tensor* a, std::initializer_list<int64_t> ne);
+        ggml::tensor* sin(ggml::tensor* a);
+        ggml::tensor* cos(ggml::tensor* a);
+        ggml::tensor* square(ggml::tensor* a);
+        ggml::tensor* sqrt(ggml::tensor* a);
+        ggml::tensor* log(ggml::tensor* a);
+        ggml::tensor* tanh(ggml::tensor* a);
     protected:
         virtual ggml_backend_sched* get_sched(void);
 
