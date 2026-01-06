@@ -194,9 +194,6 @@ export namespace chatllm
         // r ggml-shape: [hidden, merge_kernel_size[0], merge_kernel_size[1], new_width, new_height]
         ggml::tensor* merge_patch(ComputeContext* ctx, ggml::tensor* x, const merge_patch_param* param);
 
-        void mul_mat_set_prec(ggml::tensor* a, ggml::prec prec);
-        bool is_contiguous(const ggml::tensor* a);
-
         struct ggml_cgraph* new_graph_custom(ComputeContext* ctx, size_t size, bool grads);
         void build_forward_expand(ComputeContext* ctx, ggml::tensor* tensor);
     };

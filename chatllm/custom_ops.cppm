@@ -897,7 +897,7 @@ struct ggml_custom_merge_patch {
     task_vector operator()(ggml_tensor* dst)
     {
         const struct ggml_tensor* a = dst->src[0];
-        CHATLLM_CHECK(ggml::is_contiguous(a));
+        CHATLLM_CHECK(ggml_is_contiguous(a));
         CHATLLM_CHECK(ggml::get_dim(a, 3) == 1);
         CHATLLM_CHECK(ggml::get_dim(a, 2) == 1);
 

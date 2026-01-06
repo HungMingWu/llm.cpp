@@ -865,7 +865,7 @@ namespace chatllm
             else if (reverse_ne.size() == 3)
 				return ggml_reshape(get_ctx(), a, { reverse_ne[0], reverse_ne[1], reverse_ne[2] });
             else if (reverse_ne.size() == 4) {
-                if (!ggml::is_contiguous(a))
+                if (!ggml_is_contiguous(a))
                     a = ggml::cont(this, a);
                 return ggml_reshape(get_ctx(), a, { reverse_ne[0], reverse_ne[1], reverse_ne[2], reverse_ne[3] });
             }

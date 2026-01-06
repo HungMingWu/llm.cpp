@@ -454,7 +454,7 @@ namespace chatllm
 
     ggml::tensor* ggml::avg_pool_1d(ComputeContext* ctx, ggml::tensor* a, int kernel_size, int stride, int padding)
     {
-        if (!ggml::is_contiguous(a))
+        if (!ggml_is_contiguous(a))
             a = ggml::cont(ctx, a);
         ggml::tensor* tensor = ggml_pool_1d(ctx->get_ctx(), a, GGML_OP_POOL_AVG, kernel_size, stride, padding);
         ctx->cb_op_tensor(tensor);
@@ -553,7 +553,7 @@ namespace chatllm
 
     ggml::tensor* ggml::flatten(ComputeContext* ctx, ggml::tensor* a)
     {
-        CHATLLM_CHECK(ggml::is_contiguous(a));
+        CHATLLM_CHECK(ggml_is_contiguous(a));
         ggml::tensor* r = ggml::reshape(ctx, a, ggml::nelements(a));
         return r;
     }
@@ -658,7 +658,7 @@ namespace chatllm
 
     ggml::tensor* ggml::norm_p2(ComputeContext* ctx, ggml::tensor* a, float eps)
     {
-        if (!ggml::is_contiguous(a))
+        if (!ggml_is_contiguous(a))
             a = ggml::cont(ctx, a);
         ggml::tensor* tensor = ggml_l2_norm(ctx->get_ctx(), a, eps);
         ctx->cb_op_tensor(tensor);
@@ -966,16 +966,6 @@ namespace chatllm
     void ggml::build_forward_expand(ComputeContext* ctx, ggml::tensor* tensor)
     {
         ctx->get_cgraph()->build_forward_expand(tensor);
-    }
-
-    void ggml::mul_mat_set_prec(ggml::tensor* a, ggml::prec prec)
-    {
-        ggml_mul_mat_set_prec(a, prec);
-    }
-
-    bool ggml::is_contiguous(const ggml::tensor* k)
-    {
-        return ggml_is_contiguous(k);
     }
 
     int64_t ggml::nrows(const ggml::tensor* tensor)
@@ -1370,7 +1360,7 @@ namespace chatllm
     {
         // input: [seqlen, in_features]
         ggml::tensor* output = ggml::mul_mat(ctx, weight, input); // [seqlen, out_features]
-        ggml::mul_mat_set_prec(output, prec);
+        ggml_mul_mat_set_prec(output, prec);
         if (bias)
         {
             output = ggml::add(ctx, output, bias, true);
@@ -1430,7 +1420,7 @@ namespace chatllm
 
     ggml::tensor* RMSNorm::forward(ComputeContext* ctx, ggml::tensor* input)
     {
-        if (!ggml::is_contiguous(input) && !inplace)
+        if (!ggml_is_contiguous(input) && !inplace)
         {
             input = ggml::cont(ctx, input);
         }
@@ -1740,7 +1730,7 @@ namespace chatllm
         ggml::tensor* attn_scores = ggml::mul_mat(ctx, key_layer, query_layer); // [heads, qlen, klen]
 
         // default to F32 here
-        ggml::mul_mat_set_prec(attn_scores, GGML_PREC_F32);
+        ggml_mul_mat_set_prec(attn_scores, GGML_PREC_F32);
 
         // attn_probs = soft_max(attn_masked)
         ggml::tensor* attn_probs = attn_scores_to_probs(ctx, hidden_size, n_past, qlen, attn_scores);

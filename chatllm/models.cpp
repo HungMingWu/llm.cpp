@@ -189,7 +189,7 @@ namespace chatllm
         if (nullptr == dbg_ctx) return;
         if (tensor == nullptr) return;
 
-        if (!ggml::is_contiguous(tensor))
+        if (!ggml_is_contiguous(tensor))
         {
             tensor = ggml::cont(dbg_ctx, tensor);
             ggml::build_forward_expand(dbg_ctx, tensor);
