@@ -517,6 +517,11 @@ namespace audio
             printf("%3d = %+10.8f + I  %+10.8f\n", (int)i, out[2 * i], out[2 * i + 1]);
     }
 
+    int64_t mel_len(const int64_t n_samples, const int hop_length)
+    {
+        return n_samples / hop_length;
+    }
+
     void test_mel(void)
     {
         mel_filter_bank filters;
