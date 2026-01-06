@@ -920,7 +920,7 @@ namespace chatllm
 
     static std::string shape_to_string(ggml::tensor* tensor)
     {
-        int n_dims = ggml::n_dims(tensor);
+        int n_dims = ggml_n_dims(tensor);
         std::ostringstream oss;
         oss << '[';
         for (int i = n_dims - 1; i >= 0; i--)
@@ -933,7 +933,7 @@ namespace chatllm
 
     static std::string strides_to_string(ggml::tensor* tensor)
     {
-        int n_dims = ggml::n_dims(tensor);
+        int n_dims = ggml_n_dims(tensor);
         std::ostringstream oss;
         oss << '[';
         for (int i = n_dims - 1; i >= 0; i--)
@@ -947,7 +947,7 @@ namespace chatllm
     std::string to_string(ggml::tensor* tensor, bool with_data)
     {
         std::ostringstream oss;
-        int n_dims = ggml::n_dims(tensor);
+        int n_dims = ggml_n_dims(tensor);
         oss << "ggml::tensor(";
 
         if (with_data)
@@ -1115,7 +1115,7 @@ namespace chatllm
         : _offset(_offset), original_type(ggml::type::GGML_TYPE_F32)
     {
         ggml::init_tensor(&tensor, type, n_dim, ne);
-        usage = ggml::n_dims(&tensor) > 1 ? BackendBufAllocator::Usage::Matrix : BackendBufAllocator::Usage::Others;
+        usage = ggml_n_dims(&tensor) > 1 ? BackendBufAllocator::Usage::Matrix : BackendBufAllocator::Usage::Others;
         ggml::set_name(&tensor, name);
     }
 
@@ -1408,7 +1408,7 @@ namespace chatllm
 
         // read and check tensor shape
         {
-            int ndim = ggml::n_dims(&t.tensor);
+            int ndim = ggml_n_dims(&t.tensor);
 
             if (ndim == 1)
             {
@@ -1436,8 +1436,8 @@ namespace chatllm
 
         // read and check tensor shape
         {
-            int ndim = ggml::n_dims(&t.tensor);
-            int n_dims = ggml::n_dims(tensor);
+            int ndim = ggml_n_dims(&t.tensor);
+            int n_dims = ggml_n_dims(tensor);
 
             // a quick fix
             if ((n_dims == 1) && (ndim == 2) && (tensor->ne[1] == 1))

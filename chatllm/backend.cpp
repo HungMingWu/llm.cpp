@@ -120,7 +120,7 @@ namespace chatllm
 
     BackendBufAllocator::Usage LayerBufAllocator::detect_usage(ggml::tensor* tensor)
     {
-        int dims = ggml::n_dims(tensor);
+        int dims = ggml_n_dims(tensor);
         return dims >= 2 ? Usage::Matrix : Usage::Others;
     }
 

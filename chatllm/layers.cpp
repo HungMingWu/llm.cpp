@@ -256,11 +256,6 @@ namespace chatllm
         return GGML_MAX_DIMS;
     }
 
-    int ggml::n_dims(const ggml::tensor* tensor)
-    {
-        return ggml_n_dims(tensor);
-    }
-
     int ggml::get_dim(const ggml::tensor* tensor, int dim)
     {
         return (int)tensor->ne[dim];
@@ -1350,10 +1345,10 @@ namespace chatllm
 
         if (ggml::type::GGML_TYPE_I32 == ggml::type_of(input))
         {
-            CHATLLM_CHECK(ggml::n_dims(input) <= 3);
+            CHATLLM_CHECK(ggml_n_dims(input) <= 3);
 
             // ggml won't be happy if we flatten a already 1-dim tensor: it won't assigned backend if this is the very first op in the graph
-            ggml::tensor* flattend = ggml::n_dims(input) > 1 ? ggml::flatten(ctx, input) : input;
+            ggml::tensor* flattend = ggml_n_dims(input) > 1 ? ggml::flatten(ctx, input) : input;
             output = ggml::get_rows(ctx, weight, flattend);
             output = ggml::reshape(ctx, output, ggml::get_dim(output, 0),
                 ggml::get_dim(input, 0), ggml::get_dim(input, 1), ggml::get_dim(input, 2));
