@@ -586,9 +586,9 @@ namespace chatllm
         backend_context.init(rt_config.model_gpu_layers, "main", config_.num_hidden_layers, rt_config.n_threads);
     }
 
-    LayerAllocatorManager* BaseModelForConditionalGeneration::get_alloc_manager(void)
+    LayerAllocatorManager& BaseModelForConditionalGeneration::get_alloc_manager()
     {
-        return &backend_context.layer_allocators;
+        return backend_context.layer_allocators;
     }
 
     void BaseModelForConditionalGeneration::load(ModelLoader& loader)

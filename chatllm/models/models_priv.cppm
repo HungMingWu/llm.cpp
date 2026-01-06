@@ -295,7 +295,7 @@ namespace chatllm
         if (layers.size() > 0)
             model->set_layer_ids(layers);
 
-        loader.push_allocator_manager(model->get_alloc_manager());
+        loader.push_allocator_manager(&model->get_alloc_manager());
         model->load_more(loader.meta_json);
         model->load(loader);
 
@@ -438,7 +438,7 @@ namespace chatllm
         int save_session(ModelSessionMemory& session) const override;
         int load_session(ModelSessionMemory& session) override;
         void prepare(const RuntimeConfig& rt_config);
-        LayerAllocatorManager* get_alloc_manager(void) override;
+        LayerAllocatorManager& get_alloc_manager() override;
 
         void load(ModelLoader& loader) override;
 

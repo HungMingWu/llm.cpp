@@ -951,7 +951,7 @@ export namespace chatllm
 
         virtual void set_additional_args(const std::map<std::string, std::string>& args) {}
 
-        virtual LayerAllocatorManager* get_alloc_manager(void) = 0;
+        virtual LayerAllocatorManager& get_alloc_manager() = 0;
     };
 
     class ModelProxy : public AbstractModel
@@ -1067,7 +1067,7 @@ export namespace chatllm
 
         ChunkInterceptor* get_interceptor(void) override { return model->get_interceptor(); }
 
-        LayerAllocatorManager* get_alloc_manager(void) override
+        LayerAllocatorManager& get_alloc_manager() override
         {
             return model->get_alloc_manager();
         }
