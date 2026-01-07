@@ -930,7 +930,7 @@ static void _ggml_log_callback(enum ggml_log_level level, std::string_view text)
 
 void chat(Args& args, chatllm::Pipeline& pipeline, TextStreamer& streamer)
 {
-    streamer.set_tokenizer(pipeline.tokenizer);
+    streamer.set_tokenizer(&pipeline.tokenizer());
 
     if (args.system.size() > 0)
         pipeline.set_system_prompt(args.system);
@@ -942,12 +942,12 @@ void chat(Args& args, chatllm::Pipeline& pipeline, TextStreamer& streamer)
 
         pipeline.set_extending_method(args.extending);
 
-        pipeline.tokenizer->set_chat_format(args.format);
+        pipeline.tokenizer().set_chat_format(args.format);
     }
 
     if (args.tokenize)
     {
-        auto ids = pipeline.tokenizer->encode(args.prompt);
+        auto ids = pipeline.tokenizer().encode(args.prompt);
         streamer.cout << "ID: ";
         for (auto x : ids)
             streamer.cout << x << ", ";
@@ -1666,7 +1666,7 @@ static int start_chat(Chat * chat, Args & args, chatllm::Pipeline & pipeline)
 
         pipeline.set_extending_method(args.extending);
 
-        pipeline.tokenizer->set_chat_format(args.format);
+        pipeline.tokenizer().set_chat_format(args.format);
     }
 
     pipeline.set_additional_args(args.additional);

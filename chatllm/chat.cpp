@@ -1676,7 +1676,10 @@ namespace chatllm
         extending(ExtendingMethod::Restart),
         modelobj(path, args)
     {
-        tokenizer = modelobj.tokenizer.get();
+    }
+
+    BaseTokenizer& Pipeline::tokenizer() {
+        return *modelobj.tokenizer;
     }
 
     AbstractModel& Pipeline::model() {
@@ -1686,7 +1689,7 @@ namespace chatllm
     std::string Pipeline::chat_with_restart(const Messages& history, const GenerationConfig& gen_config,
         BaseStreamer* streamer)
     {
-        bool continuous = tokenizer->get_chat_format() == ChatFormat::CHAT;
+        bool continuous = tokenizer().get_chat_format() == ChatFormat::CHAT;
         if (initializing)
         {
             continuous = false;
@@ -1694,7 +1697,7 @@ namespace chatllm
         }
         else;
 
-        std::vector<int> input_ids = tokenizer->encode_history(history, gen_config.max_context_length, continuous, true, gen_config.reversed_role);
+        std::vector<int> input_ids = tokenizer().encode_history(history, gen_config.max_context_length, continuous, true, gen_config.reversed_role);
         add_ai_prefix(input_ids, gen_config, streamer);
 
         AbstractModel::generate_result result = model().generate(input_ids, gen_config, continuous, &performance, streamer);
@@ -1703,7 +1706,7 @@ namespace chatllm
             if (continuous)
             {
                 streamer->putln("\nRUN OUT OF CONTEXT. Let me forget something and try again ...\n");
-                input_ids = tokenizer->encode_history(history, gen_config.max_context_length, false, true, gen_config.reversed_role);
+                input_ids = tokenizer().encode_history(history, gen_config.max_context_length, false, true, gen_config.reversed_role);
                 add_ai_prefix(input_ids, gen_config, streamer);
                 result = model().generate(input_ids, gen_config, false, &performance, streamer);
             }
@@ -1711,14 +1714,14 @@ namespace chatllm
                 streamer->putln("\nRUN OUT OF CONTEXT. I have to stop now.\n");
         }
 
-        std::string output = tokenizer->decode(result.ids);
+        std::string output = tokenizer().decode(result.ids);
         return output;
     }
 
     std::string Pipeline::chat_without_extending(const Messages& history, const GenerationConfig& gen_config,
         BaseStreamer* streamer)
     {
-        bool continuous = tokenizer->get_chat_format() == ChatFormat::CHAT;
+        bool continuous = tokenizer().get_chat_format() == ChatFormat::CHAT;
         if (initializing)
         {
             continuous = false;
@@ -1726,7 +1729,7 @@ namespace chatllm
         }
         else;
 
-        std::vector<int> input_ids = tokenizer->encode_history(history, gen_config.max_context_length, continuous, true, gen_config.reversed_role);
+        std::vector<int> input_ids = tokenizer().encode_history(history, gen_config.max_context_length, continuous, true, gen_config.reversed_role);
         add_ai_prefix(input_ids, gen_config, streamer);
 
         AbstractModel::generate_result result = model().generate(input_ids, gen_config, continuous, &performance, streamer);
@@ -1735,7 +1738,7 @@ namespace chatllm
             streamer->putln("\nRUN OUT OF CONTEXT. I have to stop now.\n");
         }
 
-        std::string output = tokenizer->decode(result.ids);
+        std::string output = tokenizer().decode(result.ids);
         return output;
     }
 
@@ -1750,7 +1753,7 @@ namespace chatllm
         }
         else;
 
-        std::vector<int> input_ids = tokenizer->encode_history(history, gen_config.max_context_length, continuous, true, gen_config.reversed_role);
+        std::vector<int> input_ids = tokenizer().encode_history(history, gen_config.max_context_length, continuous, true, gen_config.reversed_role);
         add_ai_prefix(input_ids, gen_config, streamer);
 
         AbstractModel::generate_result result = model().generate(input_ids, gen_config, continuous, &performance, streamer);
@@ -1769,20 +1772,20 @@ namespace chatllm
             output_ids.insert(output_ids.end(), result.ids.begin(), result.ids.end());
         }
 
-        std::string output = tokenizer->decode(output_ids);
+        std::string output = tokenizer().decode(output_ids);
         return output;
     }
 
     void Pipeline::eval_sys_prompt(const GenerationConfig& gen_config)
     {
-        std::vector<int> input_ids = tokenizer->encode_sys_prompt();
+        std::vector<int> input_ids = tokenizer().encode_sys_prompt();
 
         GenerationConfig copy(gen_config);
         copy.max_new_tokens = 1;
         model().generate(input_ids, copy, false, &performance, nullptr);
 
         // just in case that chatting is continued
-        tokenizer->set_skip_sys_prompt(true);
+        tokenizer().set_skip_sys_prompt(true);
         initializing = false;
         return;
     }
@@ -1836,7 +1839,7 @@ namespace chatllm
     {
         if (gen_config.ai_prefix.size() > 0)
         {
-            tokenizer->encode(gen_config.ai_prefix, input_ids);
+            tokenizer().encode(gen_config.ai_prefix, input_ids);
             if (streamer)
                 streamer->call_put_chunk(true, gen_config.ai_prefix);
         }
@@ -1848,11 +1851,11 @@ namespace chatllm
         bool continuous = true;
         std::vector<int> input_ids;
 
-        input_ids = tokenizer->encode_history(history, gen_config.max_length, false, false);
+        input_ids = tokenizer().encode_history(history, gen_config.max_length, false, false);
         rewind((int)input_ids.size());
         input_ids.clear();
 
-        tokenizer->encode_external_text_completion(external, input_ids);
+        tokenizer().encode_external_text_completion(external, input_ids);
         if (streamer)
             streamer->call_put_chunk(false, external);
 
@@ -1864,14 +1867,14 @@ namespace chatllm
             if (continuous)
             {
                 streamer->putln("\nRUN OUT OF CONTEXT. Let me forget something and try again ...\n");
-                input_ids = tokenizer->encode_history(history, gen_config.max_context_length, false, false);
+                input_ids = tokenizer().encode_history(history, gen_config.max_context_length, false, false);
                 result = model().generate(input_ids, gen_config, false, &performance, streamer);
             }
             else
                 streamer->putln("\nRUN OUT OF CONTEXT. I have to stop now.\n");
         }
 
-        std::string output = tokenizer->decode(result.ids);
+        std::string output = tokenizer().decode(result.ids);
         return output;
     }
 
@@ -1913,14 +1916,14 @@ namespace chatllm
     std::vector<int> Pipeline::text_tokenize(const std::string& input, const GenerationConfig& gen_config)
     {
         std::vector<int> result;
-        tokenizer->encode(input, result);
+        tokenizer().encode(input, result);
         return result;
     }
 
     std::vector<float> Pipeline::text_embedding(const std::string& input, const GenerationConfig& gen_config, BaseTokenizer::EmbeddingPurpose purpose)
     {
         if (!modelobj.loaded) return {};
-        std::vector<int> input_ids = tokenizer->encode_embedding(input, purpose);
+        std::vector<int> input_ids = tokenizer().encode_embedding(input, purpose);
         return model().text_embedding(gen_config, input_ids);
     }
 
@@ -1928,7 +1931,7 @@ namespace chatllm
     {
         if (!modelobj.loaded) return false;
         std::vector<int> input_ids;
-        tokenizer->encode(input, input_ids);
+        tokenizer().encode(input, input_ids);
         model().speech_synthesis(gen_config, input_ids, audio, sample_rate, channels);
         return true;
     }
@@ -2027,7 +2030,7 @@ namespace chatllm
         if (r == 0)
         {
             initializing = false;
-            tokenizer->set_skip_sys_prompt(true);
+            tokenizer().set_skip_sys_prompt(true);
             if (n_past != nullptr)
                 *n_past = model().get_n_past();
         }
@@ -2039,14 +2042,14 @@ namespace chatllm
     {
         if (!modelobj.loaded) return -1.0f;
         std::vector<int> input_ids;
-        tokenizer->encode_qa(q, a, input_ids);
+        tokenizer().encode_qa(q, a, input_ids);
         return model().qa_rank(gen_config, input_ids);
     }
 
     void Pipeline::set_system_prompt(const std::string& prompt)
     {
         if (!modelobj.loaded) return;
-        tokenizer->set_system_prompt(prompt);
+        tokenizer().set_system_prompt(prompt);
     }
 
     void Pipeline::set_extending_method(ExtendingMethod method)
@@ -2057,7 +2060,7 @@ namespace chatllm
     void Pipeline::set_additional_args(const std::map<std::string, std::string>& args)
     {
         if (!modelobj.loaded) return;
-        tokenizer->set_additional_args(args);
+        tokenizer().set_additional_args(args);
         model().set_additional_args(args);
     }
 
@@ -2124,18 +2127,18 @@ namespace chatllm
         if (rewrite_model.get() == nullptr)
         {
             rewrite_model = std::unique_ptr<AbstractModel>(modelobj.fork_model(ModelObject::extra_args()));
-            rewrite_model->set_tokenizer(tokenizer);
+            rewrite_model->set_tokenizer(&tokenizer());
         }
 
         Messages history("", "");
         history.push_back(prompt, MsgRole::User);
 
-        std::vector<int> input_ids = tokenizer->encode_history(history, gen_config.max_context_length, false);
+        std::vector<int> input_ids = tokenizer().encode_history(history, gen_config.max_context_length, false);
         AbstractModel::generate_result result = rewrite_model->generate(input_ids, gen_config, false, &performance, nullptr);
 
         if (!result.completed) return "";
 
-        return tokenizer->decode(result.ids);
+        return tokenizer().decode(result.ids);
     }
 
     void RAGPipeline::before_chat(Messages& history, const GenerationConfig& gen_config, BaseStreamer* streamer)
@@ -2563,7 +2566,7 @@ namespace chatllm
         : Pipeline(path, args)
     {
         for (int i = 0; i < num_beams; i++)
-            beams.emplace_back(tokenizer->get_vocab_size(), 0, tokenizer);
+            beams.emplace_back(tokenizer().get_vocab_size(), 0, &tokenizer());
     }
 
     static std::vector<int> topk_sampling(std::span<const float> logits, int top_k)
@@ -2603,7 +2606,7 @@ namespace chatllm
 
     void BeamSearchPipeline::do_chat0(Messages& history, const GenerationConfig& gen_config, BaseStreamer* streamer)
     {
-        std::vector<int> input_ids = tokenizer->encode_history(history, gen_config.max_context_length, false, true, gen_config.reversed_role);
+        std::vector<int> input_ids = tokenizer().encode_history(history, gen_config.max_context_length, false, true, gen_config.reversed_role);
 
         for (auto& beam : beams)
         {
@@ -2673,7 +2676,7 @@ namespace chatllm
             std::vector<std::vector<int>> selected_traces;
             for (int i = 0; i < (int)selected_ids.size(); i++)
             {
-                int beam_id = selected_ids[i] / tokenizer->get_vocab_size();
+                int beam_id = selected_ids[i] / tokenizer().get_vocab_size();
                 beam_id = remaining_beams[beam_id];
 
                 selected_traces.push_back({});
@@ -2685,7 +2688,7 @@ namespace chatllm
             std::vector<int> candidates;
             for (int i = 0; i < (int)remaining_beams.size(); i++)
             {
-                int beam_id = selected_ids[i] / tokenizer->get_vocab_size();
+                int beam_id = selected_ids[i] / tokenizer().get_vocab_size();
                 beam_id = remaining_beams[beam_id];
                 if (updated_beams.find(beam_id) != updated_beams.end())
                 {
@@ -2695,7 +2698,7 @@ namespace chatllm
 
                 updated_beams.emplace(beam_id);
 
-                int tok_id = selected_ids[i] % tokenizer->get_vocab_size();
+                int tok_id = selected_ids[i] % tokenizer().get_vocab_size();
                 beams[beam_id].add(tok_id, beams[beam_id].scores[tok_id]);
             }
 
@@ -2708,9 +2711,9 @@ namespace chatllm
 
                 const int selection = candidates[candidate_id++];
 
-                int beam_id = selected_ids[selection] / tokenizer->get_vocab_size();
+                int beam_id = selected_ids[selection] / tokenizer().get_vocab_size();
                 beam_id = remaining_beams[beam_id];
-                int tok_id = selected_ids[selection] % tokenizer->get_vocab_size();
+                int tok_id = selected_ids[selection] % tokenizer().get_vocab_size();
 
                 beams[i].clear(selected_traces[selection]);
                 beams[i].add(tok_id, beams[beam_id].scores[tok_id]);
@@ -2722,9 +2725,9 @@ namespace chatllm
             {
                 if (updated_beams.find(i) != updated_beams.end()) continue;
 
-                int beam_id = selected_ids[selection] / tokenizer->get_vocab_size();
+                int beam_id = selected_ids[selection] / tokenizer().get_vocab_size();
                 beam_id = remaining_beams[beam_id];
-                int tok_id = selected_ids[selection] % tokenizer->get_vocab_size();
+                int tok_id = selected_ids[selection] % tokenizer().get_vocab_size();
 
                 if (beams[i].score > beams[beam_id].scores[tok_id]) continue;
 
@@ -2756,7 +2759,7 @@ namespace chatllm
                 {
                     auto beam = beams[id];
                     std::ostringstream oss;
-                    oss << beam.score << "," << tokenizer->decode(beam.trace);
+                    oss << beam.score << "," << tokenizer().decode(beam.trace);
                     streamer->putln(oss.str(), BaseStreamer::TextType::BEAM_SEARCH);
                 }
             }

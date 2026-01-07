@@ -1362,7 +1362,7 @@ export namespace chatllm
         };
 
     public:
-        BaseTokenizer* tokenizer;
+        BaseTokenizer& tokenizer();
         AbstractModel& model();
         ModelPerfInfo performance;
 
