@@ -2508,7 +2508,7 @@ namespace chatllm::qwen::v3_vl
         bool load_more(const json::JSON& config) override;
         void load(ModelLoader& loader) override;
         void set_additional_args(const std::map<std::string, std::string>& args) override;
-        int64_t get_param_num(bool effective_only) const;
+        int64_t get_param_num(bool effective_only) const override;
         void before_generate(const GenerationConfig& gen_config) override;
 
         ggml::tensor* lm_layer_preprocess(HeterogeneousModel* model, ComputeContext* ctx, ggml::tensor* hidden_states, int layer_index);
