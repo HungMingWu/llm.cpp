@@ -1439,16 +1439,21 @@ export namespace chatllm
     {
     public:
         VectorStores(DistanceStrategy vec_cmp, const std::map<std::string, std::vector<std::string>>& vector_stores);
-        ~VectorStores();
+        ~VectorStores() = default;
+		VectorStores(const VectorStores&) = delete;
+		VectorStores(VectorStores&&) = delete;
+		VectorStores& operator=(const VectorStores&) = delete;
+		VectorStores& operator=(VectorStores&&) = delete;
 
         bool select(const std::string& name);
 
+        // The following function return type maybe chanaged to std::optional<CVectorStore&>
         CVectorStore* get(const std::string& name);
         CVectorStore* get();
 
     protected:
-        std::map<std::string, CVectorStore*> stores;
-        CVectorStore* def_store;
+        std::map<std::string, CVectorStore> stores;
+        CVectorStore* def_store = nullptr;
     };
 
     class RAGPipeline : public Pipeline

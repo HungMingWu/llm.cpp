@@ -2472,26 +2472,18 @@ namespace chatllm
     }
 
     VectorStores::VectorStores(DistanceStrategy vec_cmp, const std::map<std::string, std::vector<std::string>>& vector_stores)
-        : def_store(nullptr)
     {
-        for (auto x : vector_stores)
+        for (const auto &[key, strVec] : vector_stores)
         {
-            auto p = new CVectorStore(vec_cmp, x.second);
-            if (nullptr == def_store) def_store = p;
-
-            stores.insert(std::pair(x.first, p));
+            auto [it, _] = stores.try_emplace(key, vec_cmp, strVec);
+            if (nullptr == def_store) def_store = &it->second;
         }
-    }
-
-    VectorStores::~VectorStores()
-    {
-        for (auto x : stores) delete x.second;
     }
 
     CVectorStore* VectorStores::get(const std::string& name)
     {
         auto vs = stores.find(name);
-        return vs == stores.end() ? nullptr : vs->second;
+        return vs == stores.end() ? nullptr : &vs->second;
     }
 
     bool VectorStores::select(const std::string& name)
