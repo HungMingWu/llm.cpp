@@ -1676,8 +1676,11 @@ namespace chatllm
         extending(ExtendingMethod::Restart),
         modelobj(path, args)
     {
-        model = modelobj.model.get();
         tokenizer = modelobj.tokenizer.get();
+    }
+
+    AbstractModel& Pipeline::model() {
+        return *modelobj.model;
     }
 
     std::string Pipeline::chat_with_restart(const Messages& history, const GenerationConfig& gen_config,
@@ -1694,7 +1697,7 @@ namespace chatllm
         std::vector<int> input_ids = tokenizer->encode_history(history, gen_config.max_context_length, continuous, true, gen_config.reversed_role);
         add_ai_prefix(input_ids, gen_config, streamer);
 
-        AbstractModel::generate_result result = model->generate(input_ids, gen_config, continuous, &performance, streamer);
+        AbstractModel::generate_result result = model().generate(input_ids, gen_config, continuous, &performance, streamer);
         if (!result.completed)
         {
             if (continuous)
@@ -1702,7 +1705,7 @@ namespace chatllm
                 streamer->putln("\nRUN OUT OF CONTEXT. Let me forget something and try again ...\n");
                 input_ids = tokenizer->encode_history(history, gen_config.max_context_length, false, true, gen_config.reversed_role);
                 add_ai_prefix(input_ids, gen_config, streamer);
-                result = model->generate(input_ids, gen_config, false, &performance, streamer);
+                result = model().generate(input_ids, gen_config, false, &performance, streamer);
             }
             else
                 streamer->putln("\nRUN OUT OF CONTEXT. I have to stop now.\n");
@@ -1726,7 +1729,7 @@ namespace chatllm
         std::vector<int> input_ids = tokenizer->encode_history(history, gen_config.max_context_length, continuous, true, gen_config.reversed_role);
         add_ai_prefix(input_ids, gen_config, streamer);
 
-        AbstractModel::generate_result result = model->generate(input_ids, gen_config, continuous, &performance, streamer);
+        AbstractModel::generate_result result = model().generate(input_ids, gen_config, continuous, &performance, streamer);
         if (!result.completed)
         {
             streamer->putln("\nRUN OUT OF CONTEXT. I have to stop now.\n");
@@ -1750,19 +1753,19 @@ namespace chatllm
         std::vector<int> input_ids = tokenizer->encode_history(history, gen_config.max_context_length, continuous, true, gen_config.reversed_role);
         add_ai_prefix(input_ids, gen_config, streamer);
 
-        AbstractModel::generate_result result = model->generate(input_ids, gen_config, continuous, &performance, streamer);
+        AbstractModel::generate_result result = model().generate(input_ids, gen_config, continuous, &performance, streamer);
         std::vector<int> output_ids = std::move(result).ids;
 
         while (!result.completed)
         {
             streamer->putln("\nRUN OUT OF CONTEXT. Try to forget something and continue ...\n");
-            model->shift_memory(gen_config.max_context_length);
+            model().shift_memory(gen_config.max_context_length);
             if (output_ids.size() > 0)
                 input_ids = { output_ids[output_ids.size() - 1] };
             else
                 input_ids.clear();
 
-            result = model->generate(input_ids, gen_config, true, &performance,  streamer);
+            result = model().generate(input_ids, gen_config, true, &performance,  streamer);
             output_ids.insert(output_ids.end(), result.ids.begin(), result.ids.end());
         }
 
@@ -1776,7 +1779,7 @@ namespace chatllm
 
         GenerationConfig copy(gen_config);
         copy.max_new_tokens = 1;
-        model->generate(input_ids, copy, false, &performance, nullptr);
+        model().generate(input_ids, copy, false, &performance, nullptr);
 
         // just in case that chatting is continued
         tokenizer->set_skip_sys_prompt(true);
@@ -1791,7 +1794,7 @@ namespace chatllm
 
         if (modelobj.loaded && streamer)
         {
-            ChunkInterceptor* interceptor = model->get_interceptor();
+            ChunkInterceptor* interceptor = model().get_interceptor();
             if (interceptor)
             {
                 streamer->set_interceptor(interceptor);
@@ -1855,14 +1858,14 @@ namespace chatllm
 
         history[history.size() - 1].content.push_back(external);
 
-        AbstractModel::generate_result result = model->generate(input_ids, gen_config, continuous, &performance, streamer);
+        AbstractModel::generate_result result = model().generate(input_ids, gen_config, continuous, &performance, streamer);
         if (!result.completed)
         {
             if (continuous)
             {
                 streamer->putln("\nRUN OUT OF CONTEXT. Let me forget something and try again ...\n");
                 input_ids = tokenizer->encode_history(history, gen_config.max_context_length, false, false);
-                result = model->generate(input_ids, gen_config, false, &performance, streamer);
+                result = model().generate(input_ids, gen_config, false, &performance, streamer);
             }
             else
                 streamer->putln("\nRUN OUT OF CONTEXT. I have to stop now.\n");
@@ -1882,7 +1885,7 @@ namespace chatllm
 
         if (modelobj.loaded && streamer)
         {
-            ChunkInterceptor* interceptor = model->get_interceptor();
+            ChunkInterceptor* interceptor = model().get_interceptor();
             if (interceptor)
             {
                 streamer->set_interceptor(interceptor);
@@ -1904,7 +1907,7 @@ namespace chatllm
     void Pipeline::abort_generation(void)
     {
         if (modelobj.loaded)
-            modelobj.model->abort_generation();
+            model().abort_generation();
     }
 
     std::vector<int> Pipeline::text_tokenize(const std::string& input, const GenerationConfig& gen_config)
@@ -1918,7 +1921,7 @@ namespace chatllm
     {
         if (!modelobj.loaded) return {};
         std::vector<int> input_ids = tokenizer->encode_embedding(input, purpose);
-        return model->text_embedding(gen_config, input_ids);
+        return model().text_embedding(gen_config, input_ids);
     }
 
     bool Pipeline::speech_synthesis(const std::string& input, const GenerationConfig& gen_config, std::vector<int16_t>& audio, int& sample_rate, int& channels)
@@ -1926,14 +1929,14 @@ namespace chatllm
         if (!modelobj.loaded) return false;
         std::vector<int> input_ids;
         tokenizer->encode(input, input_ids);
-        model->speech_synthesis(gen_config, input_ids, audio, sample_rate, channels);
+        model().speech_synthesis(gen_config, input_ids, audio, sample_rate, channels);
         return true;
     }
 
     int Pipeline::get_text_embedding_dim(void)
     {
         if (!modelobj.loaded) return 0;
-        return model->get_text_embedding_dim();
+        return model().get_text_embedding_dim();
     }
 
     std::string Pipeline::get_additional_description(void) const
@@ -1949,14 +1952,14 @@ namespace chatllm
     void Pipeline::rewind(int n_past)
     {
         if (!modelobj.loaded) return;
-        if (model->get_n_past() > n_past)
-            model->set_n_past(n_past);
+        if (model().get_n_past() > n_past)
+            model().set_n_past(n_past);
     }
 
     int Pipeline::get_cursor(void)
     {
         if (!modelobj.loaded) return -1;
-        return initializing ? 0 : model->get_n_past();
+        return initializing ? 0 : model().get_n_past();
     }
 
     int Pipeline::set_cursor(int pos)
@@ -1983,7 +1986,7 @@ namespace chatllm
             s.save(f);
         }
 
-        model->save_session(f);
+        model().save_session(f);
 
         fclose(f);
         return 0;
@@ -2016,7 +2019,7 @@ namespace chatllm
                 }
             }
 
-            r = model->load_session(f);
+            r = model().load_session(f);
             if (r != 0) goto exit;
         }
     exit:
@@ -2026,7 +2029,7 @@ namespace chatllm
             initializing = false;
             tokenizer->set_skip_sys_prompt(true);
             if (n_past != nullptr)
-                *n_past = model->get_n_past();
+                *n_past = model().get_n_past();
         }
         history.move_cursor_to_end();
         return r;
@@ -2037,7 +2040,7 @@ namespace chatllm
         if (!modelobj.loaded) return -1.0f;
         std::vector<int> input_ids;
         tokenizer->encode_qa(q, a, input_ids);
-        return model->qa_rank(gen_config, input_ids);
+        return model().qa_rank(gen_config, input_ids);
     }
 
     void Pipeline::set_system_prompt(const std::string& prompt)
@@ -2055,7 +2058,7 @@ namespace chatllm
     {
         if (!modelobj.loaded) return;
         tokenizer->set_additional_args(args);
-        model->set_additional_args(args);
+        model().set_additional_args(args);
     }
 
     void Pipeline::before_chat(Messages& history, const GenerationConfig& gen_config, BaseStreamer* streamer)
@@ -2607,11 +2610,11 @@ namespace chatllm
             beam.clear({});
             beam.set_max_length(gen_config.max_length);
         }
-        model->set_n_past(0);
+        model().set_n_past(0);
 
         std::vector<float> lm_logits;
-        model->generate_next_token(input_ids, gen_config, lm_logits);
-        model->set_n_past((int)input_ids.size());
+        model().generate_next_token(input_ids, gen_config, lm_logits);
+        model().set_n_past((int)input_ids.size());
 
         log_soft_max(lm_logits);
 
@@ -2620,7 +2623,7 @@ namespace chatllm
         for (int i = 0; i < (int)beams.size(); i++)
         {
             beams[i].add(selected_ids[i], lm_logits[selected_ids[i]]);
-            model->save_session(beams[i].session);
+            model().save_session(beams[i].session);
         }
     }
 
@@ -2643,10 +2646,10 @@ namespace chatllm
                 completed = false;
                 std::vector<int> input_ids = { beam.get_last_token() };
 
-                model->load_session(beam.session);
-                model->generate_next_token(input_ids, gen_config, beam.scores);
-                model->set_n_past(model->get_n_past() + (int)input_ids.size());
-                model->save_session(beam.session);
+                model().load_session(beam.session);
+                model().generate_next_token(input_ids, gen_config, beam.scores);
+                model().set_n_past(model().get_n_past() + (int)input_ids.size());
+                model().save_session(beam.session);
 
                 beam.refresh_scores();
             }

@@ -1363,7 +1363,7 @@ export namespace chatllm
 
     public:
         BaseTokenizer* tokenizer;
-        AbstractModel* model;
+        AbstractModel& model();
         ModelPerfInfo performance;
 
     protected:

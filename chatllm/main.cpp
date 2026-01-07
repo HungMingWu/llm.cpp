@@ -683,7 +683,7 @@ static void run_file(Args& args, chatllm::Pipeline& pipeline, TextStreamer& stre
     }
 
     f.close();
-    streamer.cout << std::endl << pipeline.model->get_n_past() << " tokens are processed/generated. Bye" << std::endl;
+    streamer.cout << std::endl << pipeline.model().get_n_past() << " tokens are processed/generated. Bye" << std::endl;
 
     show_stat(pipeline, streamer);
 }
@@ -695,11 +695,11 @@ static void show_banner(chatllm::Pipeline& pipeline, bool show, chatllm::BaseStr
     if (!show) return;
     if (pipeline.is_loaded())
     {
-#define MODEL_INFO()     "You are served by " << std::left << std::setw(28) << pipeline.model->type_name() + ","
-#define SHOW_NATIVE()    if (pipeline.model->native_name().size() > 0) { oss << "(" << pipeline.model->native_name() << ")"; }
+#define MODEL_INFO()     "You are served by " << std::left << std::setw(28) << pipeline.model().type_name() + ","
+#define SHOW_NATIVE()    if (pipeline.model().native_name().size() > 0) { oss << "(" << pipeline.model().native_name() << ")"; }
 
-        const int64_t total_param_num = pipeline.model->get_param_num(false);
-        const int64_t total_effective_param_num = pipeline.model->get_param_num(true);
+        const int64_t total_param_num = pipeline.model().get_param_num(false);
+        const int64_t total_effective_param_num = pipeline.model().get_param_num(true);
 
         oss << R"(    ________          __  __    __    __  ___ )"; SHOW_NATIVE(); oss << '\n'
             << R"(   / ____/ /_  ____ _/ /_/ /   / /   /  |/  /_________  ____  )" << '\n'
@@ -937,8 +937,8 @@ void chat(Args& args, chatllm::Pipeline& pipeline, TextStreamer& streamer)
 
     if (pipeline.is_loaded())
     {
-        pipeline.model->seed(args.seed);
-        args.max_length = pipeline.model->get_max_length();
+        pipeline.model().seed(args.seed);
+        args.max_length = pipeline.model().get_max_length();
 
         pipeline.set_extending_method(args.extending);
 
@@ -983,7 +983,7 @@ void chat(Args& args, chatllm::Pipeline& pipeline, TextStreamer& streamer)
 
     if (pipeline.is_loaded())
     {
-        switch (pipeline.model->get_purpose())
+        switch (pipeline.model().get_purpose())
         {
         case chatllm::ModelPurpose::TextEmbedding:
             run_text_embedding(args, pipeline, streamer, gen_config);
@@ -1217,7 +1217,7 @@ static int init_vector_store(Args& args)
 {
     DEF_ExtraArgs(pipe_args, args);
     chatllm::Pipeline pipeline(args.embedding_model_path, pipe_args);
-    args.max_length = pipeline.model->get_max_length();
+    args.max_length = pipeline.model().get_max_length();
 
     DEF_GenerationConfig(gen_config, args);
     std::vector<float> r;
@@ -1622,19 +1622,19 @@ int chatllm_multimedia_msg_append(struct chatllm_obj* obj, const char* type, con
 static void emit_model_info(Chat * chat, const Args & args, chatllm::Pipeline & pipeline)
 {
     auto o = json::JSON::Make(json::JSON::Class::Object);
-    o["name"] = pipeline.model->type_name();
-    auto native_name = pipeline.model->native_name();
-    if (pipeline.model->native_name().size() > 0)
-        o["native_name"] = pipeline.model->native_name();
-    o["purpose"] = chatllm::to_string(pipeline.model->get_purpose());
-    o["param_num"] = pipeline.model->get_param_num(false);
-    o["active_param_num"] = pipeline.model->get_param_num(true);
-    o["context_length"] = pipeline.model->get_max_length();
+    o["name"] = pipeline.model().type_name();
+    auto native_name = pipeline.model().native_name();
+    if (pipeline.model().native_name().size() > 0)
+        o["native_name"] = pipeline.model().native_name();
+    o["purpose"] = chatllm::to_string(pipeline.model().get_purpose());
+    o["param_num"] = pipeline.model().get_param_num(false);
+    o["active_param_num"] = pipeline.model().get_param_num(true);
+    o["context_length"] = pipeline.model().get_max_length();
     o["training_context_length"] = pipeline.get_loader()->basic_config.max_length;
-    if (pipeline.model->get_text_embedding_dim() > 0)
-        o["embedding_dim"] = pipeline.model->get_text_embedding_dim();
+    if (pipeline.model().get_text_embedding_dim() > 0)
+        o["embedding_dim"] = pipeline.model().get_text_embedding_dim();
 
-    std::string s = chatllm::format_model_capabilities(pipeline.model->get_type());
+    std::string s = chatllm::format_model_capabilities(pipeline.model().get_type());
     auto cap = json::JSON::Make(json::JSON::Class::Array);
     size_t pos = 0;
     int i = 0;
@@ -1661,8 +1661,8 @@ static int start_chat(Chat * chat, Args & args, chatllm::Pipeline & pipeline)
 
     if (pipeline.is_loaded())
     {
-        pipeline.model->seed(args.seed);
-        args.max_length = pipeline.model->get_max_length();
+        pipeline.model().seed(args.seed);
+        args.max_length = pipeline.model().get_max_length();
 
         pipeline.set_extending_method(args.extending);
 
