@@ -653,12 +653,12 @@ namespace chatllm::qwen::v2_audio
         pad_arg = nullptr;
     }
 
-    void ConditionalGeneration::set_tokenizer(BaseTokenizer* tokenizer)
+    void ConditionalGeneration::set_tokenizer(BaseTokenizer& tokenizer)
     {
         Base::set_tokenizer(tokenizer);
-        Tokenizer* tok = dynamic_cast<Tokenizer*>(tokenizer);
-        tok->audio_bos_token_id = audio_bos_token_id;
-        tok->audio_eos_token_id = audio_eos_token_id;
+        Tokenizer& tok = static_cast<Tokenizer&>(tokenizer);
+        tok.audio_bos_token_id = audio_bos_token_id;
+        tok.audio_eos_token_id = audio_eos_token_id;
     }
 
     bool ConditionalGeneration::load_more(const json::JSON& config)
@@ -2037,14 +2037,14 @@ namespace chatllm::qwen::v3_ranker
         yes_no_ids = steps->yes_no_ids;
     }
 
-    void ConditionalGeneration::set_tokenizer(BaseTokenizer* tokenizer)
+    void ConditionalGeneration::set_tokenizer(BaseTokenizer& tokenizer)
     {
         v3::ConditionalGeneration::set_tokenizer(tokenizer);
 
-        Tokenizer* tok = dynamic_cast<Tokenizer*>(tokenizer);
+        Tokenizer& tok = static_cast<Tokenizer&>(tokenizer);
         int ids[2];
-        ids[0] = tok->yes_token_id;
-        ids[1] = tok->no_token_id;
+        ids[0] = tok.yes_token_id;
+        ids[1] = tok.no_token_id;
         Backend::write_tensor_data(yes_no_ids, ids, 0, sizeof(ids));
     }
 }

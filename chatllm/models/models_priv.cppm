@@ -336,7 +336,7 @@ namespace chatllm
         // load model
         result.model = load_model<Config, ConditionalGeneration>(loader, config, args);
 
-        result.model->set_tokenizer(result.tokenizer.get());
+        result.model->set_tokenizer(*result.tokenizer);
 
         return true;
     }

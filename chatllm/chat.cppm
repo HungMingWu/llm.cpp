@@ -361,7 +361,7 @@ export namespace chatllm
     class BaseHistoryEncoder
     {
     public:
-        BaseHistoryEncoder() : skip_sys_prompt(false), tokenizer(nullptr) {}
+        virtual ~BaseHistoryEncoder() = default;
 
         virtual void append_sys_prompt(std::vector<int>& ids) const;
         virtual void append_user(int round_idx, const std::string& user, std::vector<int>& ids) const;
@@ -374,14 +374,14 @@ export namespace chatllm
 
         virtual void append_message(const Message& msg, std::vector<int>& ids) const;
 
-        virtual void set_tokenizer(BaseTokenizer* tokenizer)
+        virtual void set_tokenizer(BaseTokenizer& tokenizer)
         {
-            this->tokenizer = tokenizer;
+            this->tokenizer = &tokenizer;
         }
     public:
-        bool skip_sys_prompt;
+        bool skip_sys_prompt = false;
     protected:
-        BaseTokenizer* tokenizer;
+        BaseTokenizer* tokenizer = nullptr;
     };
 
     class InitContext : public ComputeContext
@@ -517,9 +517,9 @@ export namespace chatllm
         // this prepend interceptor to the interceptor chain if not already exists
         virtual void set_interceptor(ChunkInterceptor* interceptor);
 
-        virtual void set_tokenizer(BaseTokenizer* tokenizer)
+        virtual void set_tokenizer(BaseTokenizer& tokenizer)
         {
-            this->tokenizer = tokenizer;
+            this->tokenizer = &tokenizer;
         }
 
         // used for RAG
@@ -925,7 +925,7 @@ export namespace chatllm
 
         virtual void load(ModelLoader& loader) = 0;
 
-        virtual void set_tokenizer(BaseTokenizer* tokenizer) = 0;
+        virtual void set_tokenizer(BaseTokenizer& tokenizer) = 0;
 
         virtual void set_ctx(int n_ctx) = 0;
 
@@ -1043,7 +1043,7 @@ export namespace chatllm
 
         void load(ModelLoader& loader) override { return model->load(loader); }
 
-        void set_tokenizer(BaseTokenizer* tokenizer) override { model->set_tokenizer(tokenizer); }
+        void set_tokenizer(BaseTokenizer& tokenizer) override { model->set_tokenizer(tokenizer); }
 
         void set_ctx(int n_ctx) override { model->set_ctx(n_ctx); }
 
@@ -1181,9 +1181,9 @@ export namespace chatllm
             native_name_ = native_name;
         }
 
-        void set_tokenizer(BaseTokenizer* tokenizer) override
+        void set_tokenizer(BaseTokenizer& tokenizer) override
         {
-            this->tokenizer = tokenizer;
+            this->tokenizer = &tokenizer;
         }
 
         void set_ctx(int n_ctx) override {}

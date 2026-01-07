@@ -605,18 +605,18 @@ namespace chatllm
         vocab_size(config.vocab_size)
     {
         if (chat_encoder)
-            chat_encoder->set_tokenizer(this);
+            chat_encoder->set_tokenizer(*this);
         if (completion_encoder)
-            completion_encoder->set_tokenizer(this);
+            completion_encoder->set_tokenizer(*this);
         if (qa_encoder)
-            qa_encoder->set_tokenizer(this);
+            qa_encoder->set_tokenizer(*this);
     }
 
     void BaseTokenizer::set_chat_encoder(BaseHistoryEncoder* encoder)
     {
         chat_encoder = encoder;
         if (encoder)
-            encoder->set_tokenizer(this);
+            encoder->set_tokenizer(*this);
     }
 
     int BaseTokenizer::get_image_total_emb_vectors(void)
@@ -2127,7 +2127,7 @@ namespace chatllm
         if (rewrite_model.get() == nullptr)
         {
             rewrite_model = std::unique_ptr<AbstractModel>(modelobj.fork_model(ModelObject::extra_args()));
-            rewrite_model->set_tokenizer(&tokenizer());
+            rewrite_model->set_tokenizer(tokenizer());
         }
 
         Messages history("", "");

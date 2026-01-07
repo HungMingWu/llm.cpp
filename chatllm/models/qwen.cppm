@@ -287,7 +287,8 @@ namespace chatllm::qwen
 
             void before_generate(const GenerationConfig& gen_config) override;
 
-            void set_tokenizer(BaseTokenizer* tokenizer) override;
+            // Parameter should be v2_audio::Tokenizer
+            void set_tokenizer(BaseTokenizer& tokenizer) override;
         public:
             audio_tower::AudioEmbeddingGeneration audio;
         private:
@@ -748,7 +749,8 @@ namespace chatllm::qwen
         public:
             ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config);
 
-            void set_tokenizer(BaseTokenizer* tokenizer) override;
+            // Parameter should be v3_ranker::Tokenizer
+            void set_tokenizer(BaseTokenizer& tokenizer) override;
         protected:
             ggml::tensor* yes_no_ids = nullptr;
         };

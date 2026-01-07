@@ -44,16 +44,15 @@ namespace chatllm
         encode("user", ids);
     }
 
-    void HistoryEncoderImStartImEnd::set_tokenizer(BaseTokenizer* tokenizer)
+    void HistoryEncoderImStartImEnd::set_tokenizer(BaseTokenizer& tokenizer)
     {
         im_start_token_id = -1;
         im_end_token_id = -1;
         nl_token_id = -1;
         BaseHistoryEncoder::set_tokenizer(tokenizer);
-        if (nullptr == tokenizer) return;
 
         std::vector<int> ids;
-        tokenizer->tp->Encode("<|im_start|><|im_end|>\n", &ids);
+        tokenizer.tp->Encode("<|im_start|><|im_end|>\n", &ids);
 
         if (ids.size() == 3)
         {

@@ -930,7 +930,7 @@ static void _ggml_log_callback(enum ggml_log_level level, std::string_view text)
 
 void chat(Args& args, chatllm::Pipeline& pipeline, TextStreamer& streamer)
 {
-    streamer.set_tokenizer(&pipeline.tokenizer());
+    streamer.set_tokenizer(pipeline.tokenizer());
 
     if (args.system.size() > 0)
         pipeline.set_system_prompt(args.system);
