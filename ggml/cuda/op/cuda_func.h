@@ -231,7 +231,7 @@ struct count_equal_context {
     const size_t dst_size;
     const int64_t ne;
 };
-void count_equal_cuda(const count_equal_context* ctx, cudaStream_t stream);
+void count_equal_cuda(const count_equal_context& ctx, cudaStream_t stream);
 
 // binbcast.cu
 struct bin_bcast_context {

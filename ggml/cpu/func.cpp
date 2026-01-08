@@ -1589,27 +1589,25 @@ static void ggml_compute_forward_count_equal_i32(
 	GGML_ASSERT(ggml_is_scalar(dst));
 	GGML_ASSERT(dst->type == GGML_TYPE_I64);
 
-	std::atomic<int64_t> sum_thread{ 0 };
+	std::atomic_ref<int64_t> dst_data(*(int64_t*)dst->data);
+	dst_data = 0;
 	auto src0_data = make_strided_mdspan(static_cast<const int32_t*>(src0->data), src0->ne, src0->nb);
 	auto src1_data = make_strided_mdspan(static_cast<const int32_t*>(src1->data), src1->ne, src1->nb);
 
 	for (int64_t i03 = 0; i03 < src0_data.extent(0); ++i03) {
 		for (int64_t i02 = 0; i02 < src0_data.extent(1); ++i02) {
 			for (int64_t i01 = 0; i01 < src0_data.extent(2); ++i01) {
-				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=, &sum_thread] {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
 					int64_t sum = 0;
 					for (int64_t i00 = 0; i00 < src0_data.extent(3); ++i00) {
 						sum += src0_data[i03, i02, i01, i00] == src1_data[i03, i02, i01, i00];
 					}
-					sum_thread += sum;
+					dst_data += sum;
 				});
 				scope.spawn(std::move(sender));
 			}
 		}
 	}
-
-	stdexec::sync_wait(scope.on_empty());
-	*((int64_t*)dst->data) = sum_thread.load();
 }
 
 static void ggml_compute_forward_count_equal(
