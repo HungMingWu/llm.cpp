@@ -517,8 +517,9 @@ namespace chatllm
         return { std::move(output_ids), completed };
     }
 
-    std::vector<float>BaseModelForConditionalGeneration:: text_embedding(const GenerationConfig& gen_config, const std::vector<int>& input_ids)
+    std::vector<float> BaseModelForConditionalGeneration::embedding(const GenerationConfig& gen_config, const std::vector<int>& input_ids)
     {
+        before_generate(gen_config);
         std::vector<float> embedding;
         auto r = run_model(input_ids, gen_config, 0, embedding);
         if (!r) ggml::log(GGML_LOG_LEVEL_ERROR, "Out of memory");
@@ -528,6 +529,7 @@ namespace chatllm
     float BaseModelForConditionalGeneration::qa_rank(const GenerationConfig& gen_config, const std::vector<int>& input_ids)
     {
         std::vector<float> output;
+        before_generate(gen_config);
         auto r = run_model(input_ids, gen_config, 0, output);
         if (!r) ggml::log(GGML_LOG_LEVEL_ERROR, "Out of memory");
         CHATLLM_CHECK(output.size() == 1) << "ouput must be scaler";

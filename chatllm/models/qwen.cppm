@@ -249,7 +249,6 @@ namespace chatllm::qwen
         {
         public:
             void append_user(int round_idx, const Content& user, std::vector<int>& ids) const override;
-
         public:
             const audio_tower::Config* aud_config = nullptr;
             bool aud_loaded = false;
@@ -603,6 +602,7 @@ namespace chatllm::qwen
         public:
             void append_user(int round_idx, const Content& user, std::vector<int>& ids) const override;
 
+            virtual void append_content(const Content& user, std::vector<int>& ids) const;
         public:
             const vit::BaseConfig* vis_config = nullptr;
             bool vit_loaded = false;
@@ -724,7 +724,7 @@ namespace chatllm::qwen
                 ModelType type = ModelType::MODEL_TYPE_QWEN3_Embedding, const bool skip_lm_head = true, int extra_tensors = 0);
 
             void set_additional_args(const std::map<std::string, std::string>& args) override;
-            int get_text_embedding_dim(void) const override;
+            int get_embedding_dim(void) const override;
         };
     }
 

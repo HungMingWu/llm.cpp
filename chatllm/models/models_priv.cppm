@@ -9,12 +9,20 @@ module;
 #include "../basics.h"
 #include "../tokenizer.h"
 
-#define MAKE_TYPE_TAG(v)            (((uint32_t)(v) >> 1) << 24)
-#define MODEL_TYPE_TAG_ChatImageIn                              MAKE_TYPE_TAG(ChatModelAccessPoint::Text + ChatModelAccessPoint::ImageInput)
-#define MODEL_TYPE_TAG_ChatAudioIn                              MAKE_TYPE_TAG(ChatModelAccessPoint::Text + ChatModelAccessPoint::AudioInput)
-#define MODEL_TYPE_TAG_ChatImageInVideoIn                       MAKE_TYPE_TAG(ChatModelAccessPoint::Text + ChatModelAccessPoint::ImageInput + ChatModelAccessPoint::VideoInput)
-#define MODEL_TYPE_TAG_ChatImageInVideoInAudioInAudioOut        MAKE_TYPE_TAG(ChatModelAccessPoint::Text + ChatModelAccessPoint::ImageInput + ChatModelAccessPoint::VideoInput + ChatModelAccessPoint::AudioInput + ChatModelAccessPoint::AudioOutput)
-#define MODEL_TYPE_TAG_ChatImageInImageOut                      MAKE_TYPE_TAG(ChatModelAccessPoint::Text + ChatModelAccessPoint::ImageInput + ChatModelAccessPoint::ImageOutput)
+#define MAKE_PURPOSE_TAG(v)                 (((uint32_t)(v))      << 20)
+#define MAKE_TYPE_TAG(purpose, v)           ((purpose) == 0 ? (((uint32_t)(v) >> 1) << 24) : MAKE_PURPOSE_TAG(purpose) | ((uint32_t)(v) << 23))
+
+#define GET_PURPOSE_TAG(v)                  (((v) >> 20) & 0x7)
+
+#define MODEL_TYPE_TAG_ChatImageIn                              MAKE_TYPE_TAG(ModelPurpose::Chat, ChatModelAccessPoint::Text + ChatModelAccessPoint::ImageInput)
+#define MODEL_TYPE_TAG_ChatAudioIn                              MAKE_TYPE_TAG(ModelPurpose::Chat, ChatModelAccessPoint::Text + ChatModelAccessPoint::AudioInput)
+#define MODEL_TYPE_TAG_ChatImageInVideoIn                       MAKE_TYPE_TAG(ModelPurpose::Chat, ChatModelAccessPoint::Text + ChatModelAccessPoint::ImageInput + ChatModelAccessPoint::VideoInput)
+#define MODEL_TYPE_TAG_ChatImageInVideoInAudioInAudioOut        MAKE_TYPE_TAG(ModelPurpose::Chat, ChatModelAccessPoint::Text + ChatModelAccessPoint::ImageInput + ChatModelAccessPoint::VideoInput + ChatModelAccessPoint::AudioInput + ChatModelAccessPoint::AudioOutput)
+#define MODEL_TYPE_TAG_ChatImageInImageOut                      MAKE_TYPE_TAG(ModelPurpose::Chat, ChatModelAccessPoint::Text + ChatModelAccessPoint::ImageInput + ChatModelAccessPoint::ImageOutput)
+
+#define MODEL_TYPE_TAG_EmbText                                  MAKE_TYPE_TAG(ModelPurpose::Emb,    ChatModelAccessPoint::Text)
+#define MODEL_TYPE_TAG_EmbTextImage                             MAKE_TYPE_TAG(ModelPurpose::Emb,    ChatModelAccessPoint::Text + ChatModelAccessPoint::ImageInput)
+#define MODEL_TYPE_TAG_RankTextImage                            MAKE_TYPE_TAG(ModelPurpose::Ranker, ChatModelAccessPoint::Text + ChatModelAccessPoint::ImageInput)
 
 module chatllm:models.base;
 import :chat;
@@ -212,19 +220,23 @@ namespace chatllm
 
         MODEL_TYPE_LLAMA_MULTI = 0x20000001,
 
-        MODEL_TYPE_LLAMA4 = MODEL_TYPE_TAG_ChatImageIn + 0x0000001,
-        MODEL_TYPE_GEMMA3Vis = MODEL_TYPE_TAG_ChatImageIn + 0x0000011,
-        MODEL_TYPE_DOTS_OCR = MODEL_TYPE_TAG_ChatImageIn + 0x0000020,
-        MODEL_TYPE_MISTRAL3 = MODEL_TYPE_TAG_ChatImageIn + 0x0000030,
+        MODEL_TYPE_LLAMA4 = MODEL_TYPE_TAG_ChatImageIn + 0x00001,
+        MODEL_TYPE_GEMMA3Vis = MODEL_TYPE_TAG_ChatImageIn + 0x00011,
+        MODEL_TYPE_DOTS_OCR = MODEL_TYPE_TAG_ChatImageIn + 0x00020,
+        MODEL_TYPE_MISTRAL3 = MODEL_TYPE_TAG_ChatImageIn + 0x00030,
 
-        MODEL_TYPE_QWEN2_AUDIO = MODEL_TYPE_TAG_ChatAudioIn + 0x0000001,
+        MODEL_TYPE_QWEN2_AUDIO = MODEL_TYPE_TAG_ChatAudioIn + 0x00001,
 
-        MODEL_TYPE_QWEN2_5_VL = MODEL_TYPE_TAG_ChatImageInVideoIn + 0x0000001,
-        MODEL_TYPE_GLM4V = MODEL_TYPE_TAG_ChatImageInVideoIn + 0x0000040,
-        MODEL_TYPE_KIMI_VL = MODEL_TYPE_TAG_ChatImageInVideoIn + 0x0000100,
-        MODEL_TYPE_SMOL_VLM = MODEL_TYPE_TAG_ChatImageInVideoIn + 0x0000200,
+        MODEL_TYPE_QWEN2_5_VL = MODEL_TYPE_TAG_ChatImageInVideoIn + 0x00001,
+        MODEL_TYPE_GLM4V = MODEL_TYPE_TAG_ChatImageInVideoIn + 0x00040,
+        MODEL_TYPE_KIMI_VL = MODEL_TYPE_TAG_ChatImageInVideoIn + 0x00100,
+        MODEL_TYPE_SMOL_VLM = MODEL_TYPE_TAG_ChatImageInVideoIn + 0x00200,
 
-        MODEL_TYPE_JANUS_PRO = MODEL_TYPE_TAG_ChatImageInImageOut + 0x0000001,
+        MODEL_TYPE_JANUS_PRO = MODEL_TYPE_TAG_ChatImageInImageOut + 0x00001,
+
+        MODEL_TYPE_QWEN3_VL_Embedding = MODEL_TYPE_TAG_EmbTextImage + 0x00001,
+
+        MODEL_TYPE_QWEN3_VL_ReRanker = MODEL_TYPE_TAG_RankTextImage + 0x00001,
     };
 
     struct RuntimeConfig
@@ -395,7 +407,7 @@ namespace chatllm
         case MODEL_TYPE_BGE_M3:
         case MODEL_TYPE_MiniCPM_Embedding_Light:
         case MODEL_TYPE_QWEN3_Embedding:
-            return ModelPurpose::TextEmbedding;
+            return ModelPurpose::Emb;
         case MODEL_TYPE_BCE_ReRanker:
         case MODEL_TYPE_BGE_ReRanker_M3:
         case MODEL_TYPE_MiniCPM_ReRanker_Light:
@@ -409,7 +421,7 @@ namespace chatllm
         case MODEL_TYPE_GLM_ASR:
             return ModelPurpose::ASR;
         default:
-            return ModelPurpose::Chat;
+            return (ModelPurpose)(GET_PURPOSE_TAG(model_type));
         }
     }
 
@@ -430,7 +442,7 @@ namespace chatllm
             ModelPerfInfo* performance,
             BaseStreamer* streamer = nullptr) override;
 
-        std::vector<float> text_embedding(const GenerationConfig& gen_config, const std::vector<int>& input_ids) override;
+        std::vector<float> embedding(const GenerationConfig& gen_config, const std::vector<int>& input_ids) override;
         float qa_rank(const GenerationConfig& gen_config, const std::vector<int>& input_ids) override;
         bool generate_next_token(std::span<const int> input_ids, const GenerationConfig& gen_config, std::vector<float>& lm_logits) override;
         int save_session(FILE* f) const override;

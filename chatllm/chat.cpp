@@ -83,6 +83,12 @@ namespace chatllm
 
     void Content::push_back(const std::string& content)
     {
+        if (nullptr == owner)
+        {
+            push_back(content, ContentPiece::Type::Text);
+            return;
+        }
+
         if (owner->get_opening().empty() || owner->get_closing().empty())
         {
             push_back(content, ContentPiece::Type::Text);
@@ -154,21 +160,21 @@ namespace chatllm
 
     void Content::push_back(const ContentPiece& piece)
     {
-        pieces.push_back(piece);
+        push_back(piece.content, piece.type);
     }
 
     void Content::push_back(const Content& content)
     {
         for (const auto& piece : content.pieces)
-            pieces.push_back(piece);
+            push_back(piece);
     }
 
     void Content::push_back(const std::string& s, ContentPiece::Type type)
     {
-        if (pieces.size() > 0)
+        if ((pieces.size() > 0) && (type == ContentPiece::Type::Text))
         {
             auto& last = pieces.back();
-            if ((last.type == type) && (type == ContentPiece::Type::Text))
+            if (last.type == type)
             {
                 last.content += s;
                 return;
@@ -669,6 +675,18 @@ namespace chatllm
         std::vector<int> ids;
         encode(text, ids);
         return ids;
+    }
+
+    void BaseTokenizer::encode_qa(const Content& q, const Content& a, std::vector<int>& ids) const
+    {
+        CHATLLM_CHECK(q.is_simple_text() && a.is_simple_text());
+        encode_qa(q.to_string(), a.to_string(), ids);
+    }
+
+    std::vector<int> BaseTokenizer::encode_embedding(const Content& input, EmbeddingPurpose purpose) const
+    {
+        CHATLLM_CHECK(input.is_simple_text());
+        return encode_embedding(input.to_string(), purpose);
     }
 
     std::vector<int> BaseTokenizer::encode(const std::string& text) const
@@ -1920,11 +1938,11 @@ namespace chatllm
         return result;
     }
 
-    std::vector<float> Pipeline::text_embedding(const std::string& input, const GenerationConfig& gen_config, BaseTokenizer::EmbeddingPurpose purpose)
+    std::vector<float> Pipeline::embedding(const Content& input, const GenerationConfig& gen_config, BaseTokenizer::EmbeddingPurpose purpose)
     {
         if (!modelobj.loaded) return {};
         std::vector<int> input_ids = tokenizer().encode_embedding(input, purpose);
-        return model().text_embedding(gen_config, input_ids);
+        return model().embedding(gen_config, input_ids);
     }
 
     bool Pipeline::speech_synthesis(const std::string& input, const GenerationConfig& gen_config, std::vector<int16_t>& audio, int& sample_rate, int& channels)
@@ -1936,10 +1954,10 @@ namespace chatllm
         return true;
     }
 
-    int Pipeline::get_text_embedding_dim(void)
+    int Pipeline::get_embedding_dim(void)
     {
         if (!modelobj.loaded) return 0;
-        return model().get_text_embedding_dim();
+        return model().get_embedding_dim();
     }
 
     std::string Pipeline::get_additional_description(void) const
@@ -2038,7 +2056,7 @@ namespace chatllm
         return r;
     }
 
-    float Pipeline::qa_rank(const std::string& q, const std::string& a, const GenerationConfig& gen_config)
+    float Pipeline::qa_rank(const Content& q, const Content& a, const GenerationConfig& gen_config)
     {
         if (!modelobj.loaded) return -1.0f;
         std::vector<int> input_ids;
@@ -2084,8 +2102,8 @@ namespace chatllm
         rag_post_extending(0),
         rerank_rewrite(false),
         vs(vec_cmp, vector_stores),
-        embedding(embedding_model),
-        reranker(reranker_model.size() > 0 ? new ModelObject(reranker_model) : nullptr),
+        model_embedding(embedding_model),
+        model_reranker(reranker_model.size() > 0 ? new ModelObject(reranker_model) : nullptr),
         rewrite_model(nullptr)
     {
     }
@@ -2101,8 +2119,8 @@ namespace chatllm
             std::vector<int> input_ids;
             std::string c, m;
             vs.get()->GetRecord(candidates[i], c, m);
-            reranker->tokenizer->encode_qa(query, c, input_ids);
-            scores.push_back(reranker->model->qa_rank(gen_config, input_ids));
+            model_reranker->tokenizer->encode_qa(query, c, input_ids);
+            scores.push_back(model_reranker->model->qa_rank(gen_config, input_ids));
         }
 
         utils::ordering(scores, order, true);
@@ -2173,11 +2191,11 @@ namespace chatllm
             }
         }
 
-        std::vector<float> query_emb = text_embedding(rewritten_query, gen_config, BaseTokenizer::EmbeddingPurpose::Query);
+        std::vector<float> query_emb = embedding(Content(nullptr, rewritten_query), gen_config, BaseTokenizer::EmbeddingPurpose::Query);
 
         vs.get()->Query(query_emb, selected, retrieve_top_n);
 
-        if (reranker != nullptr)
+        if (model_reranker != nullptr)
             rerank(rerank_rewrite ? rewritten_query : query, selected, gen_config, rerank_top_n);
 
         std::vector<std::string> augments;
@@ -2244,14 +2262,14 @@ namespace chatllm
     {
         std::ostringstream oss;
 
-        int64_t total_param_num = embedding.model->get_param_num(false);
+        int64_t total_param_num = model_embedding.model->get_param_num(false);
 
-        oss << "Augmented by " << embedding.model->type_name() << " (" << std::fixed << std::setprecision(1) << (double)total_param_num / 1000000000. << "B)";
+        oss << "Augmented by " << model_embedding.model->type_name() << " (" << std::fixed << std::setprecision(1) << (double)total_param_num / 1000000000. << "B)";
 
-        if (reranker != nullptr)
+        if (model_reranker != nullptr)
         {
-            total_param_num = reranker->model->get_param_num(false);
-            oss << " and " << reranker->model->type_name() << " (" << std::fixed << std::setprecision(1) << (double)total_param_num / 1000000000. << "B)";
+            total_param_num = model_reranker->model->get_param_num(false);
+            oss << " and " << model_reranker->model->type_name() << " (" << std::fixed << std::setprecision(1) << (double)total_param_num / 1000000000. << "B)";
         }
 
         oss << ".";
