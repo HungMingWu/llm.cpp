@@ -1971,8 +1971,9 @@ namespace chatllm::qwen::v3_emb
     }
 
     ConditionalGeneration::ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config, ModelType type, const bool skip_lm_head, int extra_tensors)
-        : v3::ConditionalGeneration(config, runtime_config, type, skip_lm_head, extra_tensors)
+        : PreludeCacheDisable(), v3::ConditionalGeneration(config, runtime_config, type, skip_lm_head, extra_tensors)
     {
+        delete disabler;
         dynamic_cast<HeterogeneousModel*>(transformer)->set_final_steps(std::make_unique<EmbeddingLastTokenFinalSteps>());
     }
 
@@ -2760,11 +2761,22 @@ namespace chatllm::qwen::v3_vl_emb
 {
     typedef v3_vl::Config Config;
 
+    class ChatHistoryEncoder : public v3_vl::ChatHistoryEncoder
+    {
+    public:
+        void append_ai_opening(int round_idx, std::vector<int>& ids) const override
+        {
+            ids.push_back(tokenizer->eos_token_id);
+        }
+    };
+
+    static ChatHistoryEncoder _chat_encoder;
+
     class Tokenizer : public v3_vl::Tokenizer
     {
     public:
         Tokenizer(const BaseConfig& config) :
-            v3_vl::Tokenizer::Tokenizer(config)
+            v3_vl::Tokenizer::Tokenizer(config, &_chat_encoder)
         {
             sys_prompt = "Represent the user's input.";
         }
@@ -2780,7 +2792,7 @@ namespace chatllm::qwen::v3_vl_emb
         }
     };
 
-    class ConditionalGeneration : public v3_vl::ConditionalGeneration
+    class ConditionalGeneration : public PreludeCacheDisable, public v3_vl::ConditionalGeneration
     {
     public:
         ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config,
@@ -2792,9 +2804,11 @@ namespace chatllm::qwen::v3_vl_emb
         std::vector<float> embedding(const GenerationConfig& gen_config, const std::vector<int>& input_ids) override;
     };
 
-    ConditionalGeneration::ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config, ModelType type)
-        : v3_vl::ConditionalGeneration(config, runtime_config, type)
+    ConditionalGeneration::ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config, ModelType type) :
+        PreludeCacheDisable(),
+        v3_vl::ConditionalGeneration(config, runtime_config, type)
     {
+        delete disabler;
         dynamic_cast<HeterogeneousModel*>(transformer)->set_final_steps(std::make_unique<EmbeddingLastTokenFinalSteps>());
     }
 
@@ -2867,7 +2881,7 @@ namespace chatllm::qwen::v3_vl_ranker
         ids.insert(ids.end(), x.begin(), x.end());
     }
 
-    class ConditionalGeneration : public v3_vl::ConditionalGeneration
+    class ConditionalGeneration : public PreludeCacheDisable, public v3_vl::ConditionalGeneration
     {
     public:
         ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config,
@@ -2881,9 +2895,12 @@ namespace chatllm::qwen::v3_vl_ranker
         ggml::tensor* yes_no_ids = nullptr;
     };
 
-    ConditionalGeneration::ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config, ModelType type)
-        : v3_vl::ConditionalGeneration(config, runtime_config, ModelType::MODEL_TYPE_QWEN3_VL_ReRanker, false, 1)
+    ConditionalGeneration::ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config, ModelType type) :
+        PreludeCacheDisable(),
+        v3_vl::ConditionalGeneration(config, runtime_config, ModelType::MODEL_TYPE_QWEN3_VL_ReRanker, false, 1)
     {
+        delete disabler;
+
         dynamic_cast<HeterogeneousModel*>(transformer)->set_final_steps(std::make_unique<v3_ranker::FinalSteps>());
 
         v3_ranker::FinalSteps* steps = dynamic_cast<v3_ranker::FinalSteps*>(dynamic_cast<HeterogeneousModel*>(transformer)->get_final_steps());

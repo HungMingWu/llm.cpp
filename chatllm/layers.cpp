@@ -981,6 +981,7 @@ namespace chatllm
     int  BlockParams::num_padding_embeddings = 0;
     bool BlockParams::OverrideKProjBiased::active = false;
     bool BlockParams::OverrideKProjBiased::biased = false;
+    bool BlockParams::DisableCache::disabled = false;
     int  BlockParams::CoreAttentionUseSinks::size = 0;
     int  BlockParams::MoE::num_experts = 0;
     int  BlockParams::MoE::experts_per_tok = 0;
@@ -994,6 +995,19 @@ namespace chatllm
     BlockParams::OverrideKProjBiased::~OverrideKProjBiased()
     {
         OverrideKProjBiased::active = false;
+    }
+
+    BlockParams::DisableCache::DisableCache()
+    {
+        DisableCache::disabled = true;
+    }
+    BlockParams::DisableCache::~DisableCache()
+    {
+        DisableCache::disabled = false;
+    }
+    bool BlockParams::DisableCache::is_disabled(void)
+    {
+        return DisableCache::disabled;
     }
 
     bool BlockParams::OverrideKProjBiased::get(bool biased)
@@ -1924,6 +1938,12 @@ namespace chatllm
         ggml::tensor* k, ggml::tensor* v)
     {
         // important: storing RoPE-ed version of K in the KV cache!
+        if (cache_length < 1)
+        {
+            raw_k = k;
+            raw_v = v;
+            return;
+        }
 
         int batch = ggml::get_dim(v, 2);
         CHATLLM_CHECK((batch <= reserved_batch_size) && ((reserved_batch_size % batch) == 0));
@@ -1973,6 +1993,12 @@ namespace chatllm
 
     ggml::tensor* KVCacheAttention::get_k_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen)
     {
+        if (cache_length < 1)
+        {
+            ggml::tensor* r = ggml::permute(ctx, raw_k, 0, 2, 1, 3);
+            return r;
+        }
+
         ggml::tensor* key_layer = nullptr;
 
         const int head_size = k_hidden_size / num_kv_heads;
@@ -1992,6 +2018,17 @@ namespace chatllm
 
     ggml::tensor* KVCacheAttention::get_v_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen)
     {
+        if (cache_length < 1)
+        {
+            const int head_size = hidden_size / num_attention_heads;
+
+            // [qlen, hidden_size] -> [heads, head_size, qlen]
+            ggml::tensor* r = ctx->reshape(raw_v, { qlen, num_kv_heads, head_size });  // -> [qlen, heads, head_size]
+            r = ggml::permute(ctx, r, 1, 2, 0, 3);   // [heads, head_size, qlen]
+            r = ggml::cont(ctx, r);
+            return r;
+        }
+
         const int max_length = cache_length / reserved_batch_size;
         const int head_size = v_hidden_size / num_kv_heads;
 
