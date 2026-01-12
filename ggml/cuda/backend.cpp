@@ -1328,11 +1328,12 @@ void ggml_backend_cuda::synchronize()
     CUDA_CHECK(cudaStreamSynchronize(stream()));
 }
 
-void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
-    [[maybe_unused]] std::vector<void*>& ggml_cuda_cpy_fn_ptrs, bool& graph_evaluated_or_captured, bool& use_cuda_graph,
-    bool& cuda_graph_update_required) {
+void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bool use_cuda_graph, const bool cuda_graph_update_required)
+{
+    bool graph_evaluated_or_captured = false;
+
     // flag used to determine whether it is an integrated_gpu
-    [[maybe_unused]] const bool integrated = ggml_cuda_info().devices[device].integrated;
+    const bool integrated = ggml_cuda_info().devices[device].integrated;
 
     ggml_cuda_stream_context& stream_ctx = stream_context();
     bool                         is_concurrent_event_active = false;
@@ -1423,6 +1424,9 @@ void ggml_backend_cuda::evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
                         cgraph->nodes[start_pos + i] = const_cast<ggml_tensor*>(event.original_order[i]);
                     }
                 }
+            }
+            else {
+                stream_ctx.concurrent_events.clear();
             }
 
             for (size_t i = 0; i < cgraph->nodes.size(); i++) {
@@ -1829,80 +1833,34 @@ enum ggml_status ggml_backend_cuda::graph_compute_impl(ggml_cgraph* cgraph)
 {
     ggml_cuda_set_device(device);
 
-    // vector of pointers to CUDA cpy kernels, which are required to identify
-    // kernel parameters which need updated in the graph for each token
-    std::vector<void*> ggml_cuda_cpy_fn_ptrs;
+    bool use_cuda_graph = false;
+    bool cuda_graph_update_required = false;
 
-    auto [use_cuda_graph, cuda_graph_update_required] = [&]() -> std::pair<bool, bool> {
-        if constexpr (not use_cuda_graph_v) {
-			return { false, false };
-        }
-        static const bool disable_cuda_graphs_due_to_env = (getenv("GGML_CUDA_DISABLE_GRAPHS") != nullptr);
+#ifdef USE_CUDA_GRAPH
+    use_cuda_graph = ggml_cuda_graph_set_enabled(cuda_ctx);
 
-        // Objects required for CUDA Graph
-        bool use_cuda_graph = true;
-        bool cuda_graph_update_required = false;
+    if (cuda_ctx->cuda_graph->is_enabled()) {
+        cuda_graph_update_required = ggml_cuda_graph_update_required(cuda_ctx, cgraph);
+        use_cuda_graph = ggml_cuda_graph_check_compability(cgraph);
 
-        if (cuda_graph.graph == nullptr) {
-            if (ggml_cuda_info().devices[device].cc < GGML_CUDA_CC_AMPERE) {
-                    cuda_graph.disable_due_to_gpu_arch = true;
-#ifndef NDEBUG
-                    GGML_LOG_DEBUG("{}: disabling CUDA graphs due to GPU architecture", __func__);
-#endif
-            }
-        }
+        cuda_ctx->cuda_graph->record_update(use_cuda_graph, cuda_graph_update_required);
+    }
+#endif // USE_CUDA_GRAPH
 
-        // Disable CUDA graphs in presence of env var, old GPU, use-case which is changing too rapidly,
-        // or previous graph capture failure.
-        // Also disable for multi-gpu for now. TO DO investigate
-        if (disable_cuda_graphs_due_to_env
-            || cuda_graph.disable_due_to_gpu_arch
-            || cuda_graph.disable_due_to_too_many_updates
-            || cuda_graph.disable_due_to_failed_graph_capture) {
-            use_cuda_graph = false;
-        }
-        return { use_cuda_graph, cuda_graph_update_required };
+    if (use_cuda_graph && cuda_graph_update_required) {
+        // TODO
 #if 0
-        if (use_cuda_graph) {
-            cuda_graph_update_required = is_cuda_graph_update_required(cuda_ctx, cgraph);
+        // Start CUDA graph capture
+        {
+            std::lock_guard<std::mutex> lock(ggml_cuda_lock);
+            ggml_cuda_lock_counter.fetch_add(1, std::memory_order_relaxed);
+        }
 
-            use_cuda_graph = check_node_graph_compatibility_and_refresh_copy_ops(cuda_ctx, cgraph,
-                ggml_cuda_cpy_fn_ptrs, use_cuda_graph);
-
-            // Disable CUDA graphs (from the next token) if the use-case is demanding too many consecutive graph updates.
-            if (use_cuda_graph && cuda_graph_update_required) {
-                cuda_ctx->cuda_graph->number_consecutive_updates++;
-            }
-            else {
-                cuda_ctx->cuda_graph->number_consecutive_updates = 0;
-            }
-
-            if (cuda_ctx->cuda_graph->number_consecutive_updates >= 4) {
-                cuda_ctx->cuda_graph->disable_due_to_too_many_updates = true;
-#ifndef NDEBUG
-                GGML_LOG_DEBUG("{}: disabling CUDA graphs due to too many consecutive updates", __func__);
+        CUDA_CHECK(cudaStreamBeginCapture(cuda_ctx->stream(), cudaStreamCaptureModeRelaxed));
 #endif
-            }
-        }
-        if (use_cuda_graph && cuda_graph_update_required) {
-            // Start CUDA graph capture
-            {
-                std::lock_guard<std::mutex> lock(ggml_cuda_lock);
-                ggml_cuda_lock_counter.fetch_add(1, std::memory_order_relaxed);
-            }
+    }
 
-            CUDA_CHECK(cudaStreamBeginCapture(cuda_ctx->stream(), cudaStreamCaptureModeRelaxed));
-        }
-
-        if (!use_cuda_graph) {
-            cuda_ctx->cuda_graph->use_cpy_indirection = false;
-        }
-#endif
-    }();
-
-    bool graph_evaluated_or_captured = false;
-
-    evaluate_and_capture_cuda_graph(cgraph, ggml_cuda_cpy_fn_ptrs, graph_evaluated_or_captured, use_cuda_graph, cuda_graph_update_required);
+    graph_evaluate_and_capture(cgraph, use_cuda_graph, cuda_graph_update_required);
 
     return GGML_STATUS_SUCCESS;
 }
@@ -2092,7 +2050,7 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         op::diag_mask_inf(stream(), dst);
         break;
     case GGML_OP_SOFT_MAX:
-        op::soft_max(stream(), dst);
+        op::soft_max(pool(), stream(), dst);
         break;
     case GGML_OP_SOFT_MAX_BACK:
         op::soft_max_back(stream(), dst);
@@ -2128,6 +2086,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     case GGML_OP_SUM:
         op::sum(pool(), stream(), dst);
         break;
+    case GGML_OP_CUMSUM:
+        op::cumsum(pool(), stream(), dst);
+        break;
     case GGML_OP_SUM_ROWS:
         op::sum_rows(stream(), dst);
         break;
@@ -2136,6 +2097,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         break;
     case GGML_OP_SSM_CONV:
         op::ssm_conv(stream(), dst);
+        break;
+    case GGML_OP_TOP_K:
+        op::top_k(pool(), stream(), dst);
         break;
     case GGML_OP_SSM_SCAN:
         op::ssm_scan(stream(), dst);
@@ -2148,9 +2112,6 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         break;
     case GGML_OP_CROSS_ENTROPY_LOSS:
         op::cross_entropy_loss(pool(), stream(), dst);
-        break;
-    case GGML_OP_CUMSUM:
-        op::cumsum(stream(), dst);
         break;
     case GGML_OP_TRI:
         op::tri(stream(), dst);
@@ -2221,7 +2182,29 @@ ggml_backend_cuda::~ggml_backend_cuda()
     }
 }
 
+bool ggml_backend_cuda::graph_set_enabled() {
+#ifdef USE_CUDA_GRAPH
+
+    if (cuda_ctx->cuda_graph == nullptr) {
+        cuda_ctx->cuda_graph.reset(new ggml_cuda_graph());
+    }
+
+    if (cuda_ctx->cuda_graph->graph == nullptr) {
+        if (ggml_cuda_info().devices[cuda_ctx->device].cc < GGML_CUDA_CC_AMPERE) {
+            cuda_ctx->cuda_graph->disable_due_to_gpu_arch = true;
+            GGML_LOG_DEBUG("%s: disabling CUDA graphs due to GPU architecture\n", __func__);
+        }
+    }
+
+    return cuda_ctx->cuda_graph->is_enabled();
+#else
+    return false;
+#endif // USE_CUDA_GRAPH
+}
+
 void ggml_backend_cuda::graph_optimize(ggml_cgraph* cgraph) {
+    const bool use_cuda_graph = graph_set_enabled();
+
     static bool enable_graph_optimization = [] {
         const char* env = getenv("GGML_CUDA_GRAPH_OPT");
         return env != nullptr && atoi(env) == 1;
@@ -2231,11 +2214,12 @@ void ggml_backend_cuda::graph_optimize(ggml_cgraph* cgraph) {
         return;
     }
 
-    GGML_ASSERT(ggml_backend_cuda_get_device_count() == 1 && "compute graph optimization is only supported on single GPU in the CUDA backend");
-    GGML_LOG_DEBUG("Optimizing CUDA graph with {} nodes\n", cgraph->nodes.size());
-
     ggml_cuda_stream_context& stream_context = this->stream_context();
     stream_context.reset();
+
+    if (!use_cuda_graph || ggml_backend_cuda_get_device_count() != 1) {
+        return;
+    }
 
     // number of out-degrees for a particular node
     std::unordered_map<const ggml_tensor*, int> fan_out;
@@ -2296,6 +2280,12 @@ void ggml_backend_cuda::graph_optimize(ggml_cgraph* cgraph) {
     for (const auto& [root_node, count] : fan_out) {
         if (count >= min_fan_out && count <= max_fan_out) {
             const int root_node_idx = node_indices[root_node];
+
+            // only optimize for attn_norm
+            // TODO: make this more generic
+            if (!root_node->name.starts_with("attn_norm")) {
+                continue;
+            }
 
             bool is_part_of_event = false;
             for (const auto& [start, end] : concurrent_node_ranges) {

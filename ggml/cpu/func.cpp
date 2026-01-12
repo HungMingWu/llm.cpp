@@ -5904,52 +5904,47 @@ void ggml_compute_forward_solve_tri(
 	}
 }
 
-struct cmp_top_k {
-	const float* data;
-	bool operator()(int32_t a, int32_t b) const {
-		return data[a] > data[b];
-	}
-};
-
 static void ggml_compute_forward_top_k_f32(
-	const ggml_compute_params* params,
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
 
 	GGML_ASSERT(dst->nb[0] == sizeof(float));
 
-	const int ith = params->ith;
-	const int nth = params->nth;
-
 	const int64_t nr = ggml_nrows(src0);
 
 	const int top_k = dst->ne[0];
 
-	int32_t* tmp = nullptr;// (int32_t*)params->wdata + (src0->ne[0] + CACHE_LINE_SIZE_F32) * ith;
+	auto src_data = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
+	auto dst_data = make_strided_mdspan(static_cast<int32_t*>(dst->data), dst->ne, dst->nb);
 
-	for (int64_t i = ith; i < nr; i += nth) {
-		const float* src_data = (float*)((char*)src0->data + i * src0->nb[1]);
+	for (auto [i3, i2, i1] : make_cartesian_product(src_data.extent(0), src_data.extent(1), src_data.extent(2))) {
+		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+			std::vector<int32_t> tmp(src0->ne[0]);
+			for (int64_t j = 0; j < src0->ne[0]; j++) {
+				tmp[j] = j;
+			}
+			std::partial_sort(tmp.begin(), tmp.begin() + top_k, tmp.end(), [=](int32_t a, int32_t b) -> bool {
+				return src_data[i3, i2, i1, a] > src_data[i3, i2, i1, b];
+			});
 
-		for (int64_t j = 0; j < src0->ne[0]; j++) {
-			tmp[j] = j;
-		}
+			for (int64_t i0 = 0; i0 < top_k; i0++) 
+				dst_data[i3, i2, i1, i0] = tmp[i0];
 
-		std::partial_sort(tmp, tmp + top_k, tmp + src0->ne[0], cmp_top_k{ src_data });
-
-		int32_t* dst_data = (int32_t*)((char*)dst->data + i * dst->nb[1]);
-
-		std::copy(tmp, tmp + top_k, dst_data);
-
-		// emphasize that the order is not important
-		if (top_k > 1) {
-			std::swap(dst_data[0], dst_data[1]);
-		}
+			// emphasize that the order is not important
+			if (top_k > 1) {
+				std::swap(dst_data[i3, i2, i1, 0], dst_data[i3, i2, i1, 1]);
+			}
+		});
+		scope.spawn(std::move(sender));
 	}
 }
 
 void ggml_compute_forward_top_k(
-	const ggml_compute_params* params,
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
@@ -5957,7 +5952,7 @@ void ggml_compute_forward_top_k(
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_top_k_f32(params, dst);
+		ggml_compute_forward_top_k_f32(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -6228,7 +6223,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_TOP_K:
 	{
-		ggml_compute_forward_top_k(params, tensor);
+		ggml_compute_forward_top_k(pool, scope, tensor);
 	} break;
 	case GGML_OP_LEAKY_RELU:
 	{

@@ -158,6 +158,31 @@ namespace utils
         }
 
         if (amd_wmma_available(cc)) {
+            if (GGML_CUDA_CC_IS_RDNA3(cc)) {
+                // High expert counts are almost always better on MMQ due to
+                //     the synchronization overhead in the cuBLAS/hipBLAS path:
+                // https://github.com/ggml-org/llama.cpp/pull/18202
+                if (n_experts >= 64) {
+                    return true;
+                }
+
+                // For some quantization types MMQ can have lower peak TOPS than hipBLAS
+                //     so it's only faster for sufficiently small batch sizes:
+                switch (type) {
+                case GGML_TYPE_Q2_K:
+                    return ne11 <= 128;
+                case GGML_TYPE_Q6_K:
+                    return ne11 <= (GGML_CUDA_CC_IS_RDNA3_0(cc) ? 128 : 256);
+                case GGML_TYPE_IQ2_XS:
+                case GGML_TYPE_IQ2_S:
+                    return GGML_CUDA_CC_IS_RDNA3_5(cc) || ne11 <= 128;
+                default:
+                    return true;
+                }
+            }
+
+            // For RDNA4 MMQ is consistently faster than dequantization + hipBLAS:
+            // https://github.com/ggml-org/llama.cpp/pull/18537#issuecomment-3706422301
             return true;
         }
 

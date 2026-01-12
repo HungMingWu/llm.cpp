@@ -7,6 +7,16 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fconstexpr-steps=33554432")
 endif()
 
+if (CMAKE_CROSSCOMPILING OR DEFINED ENV{SOURCE_DATE_EPOCH})
+    message(STATUS "Setting GGML_NATIVE_DEFAULT to OFF")
+    set(GGML_NATIVE_DEFAULT OFF)
+else()
+    set(GGML_NATIVE_DEFAULT ON)
+endif()
+
+#general
+option(GGML_NATIVE "ggml: optimize the build for the current system" ${GGML_NATIVE_DEFAULT})
+
 option(GGML_CUDA                            "ggml: use CUDA"                                  ON)
 option(GGML_CUDA_FA                         "ggml: compile ggml FlashAttention CUDA kernels"  ON)
 option(GGML_LLAMAFILE                       "ggml: use LLAMAFILE"                             OFF)

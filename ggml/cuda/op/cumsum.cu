@@ -10,7 +10,7 @@
 #define GGML_ABORT(...)
 
 #ifdef GGML_CUDA_USE_CUB
-#   include <cub/block/block_scan.cuh>
+#   include <cub/cub.cuh>
 #endif // GGML_CUDA_USE_CUB
 
 template<typename T, int BLOCK_SIZE>
@@ -179,6 +179,31 @@ static __global__ void cumsum_kernel(
     }
 }
 
+#ifdef GGML_CUDA_USE_CUB
+template <typename T>
+static void cumsum_cub(ggml_cuda_pool& pool,
+    const T* src,
+    T* dst,
+    int64_t          ne,
+    cudaStream_t     stream) {
+    size_t tmp_size = 0;
+
+    // Query how much temp storage CUDA UnBound (CUB) needs
+    cub::DeviceScan::InclusiveSum(nullptr,   // d_temp_storage (null = just query size)
+        tmp_size,  // reference to size (will be set by CUB)
+        src,       // input pointer
+        dst,       // output pointer
+        ne,        // number of elements
+        stream     // CUDA stream to use
+    );
+
+    ggml_cuda_pool_alloc<uint8_t> tmp_alloc(pool, tmp_size);
+
+    // Perform the inclusive scan
+    cub::DeviceScan::InclusiveSum((void*)tmp_alloc.get(), tmp_size, src, dst, ne, stream);
+}
+#endif // GGML_CUDA_USE_CUB
+
 template <typename T>
 static void cumsum_cuda(const cumsum_context& ctx, cudaStream_t stream) {
     static constexpr size_t CUDA_CUMSUM_BLOCK_SIZE = 256;
@@ -190,6 +215,16 @@ static void cumsum_cuda(const cumsum_context& ctx, cudaStream_t stream) {
 
     if (is_contiguous) {
         use_cub = true;
+        const int64_t nrows = ctx.src0_ne[1] * ctx.src0_ne[2] * ctx.src0_ne[3];
+        // TODO: Compare with DeviceSegmentedScan::InclusiveSegmentedSum for nrows > 1 once InclusiveSegmentedSum is released
+        // Heuristics were determined as part of https://github.com/ggml-org/llama.cpp/pull/17004
+        if (((nrows == 1) && (ctx.src0_ne[0] > 1024)) || (ctx.src0_ne[0] / nrows > 4096)) {
+            for (int i = 0; i < nrows; i++) {
+                cumsum_cub(ctx.pool, static_cast<const T*>(ctx.src0_d) + i * ctx.src0_ne[0], 
+                    static_cast<T*>(ctx.dst_d) + i * ctx.src0_ne[0], ctx.src0_ne[0], stream);
+            }
+            return;
+        }
     }
 #endif // GGML_CUDA_USE_CUB
     dim3 grid_dims(ctx.src0_ne[1], ctx.src0_ne[2], ctx.src0_ne[3]);

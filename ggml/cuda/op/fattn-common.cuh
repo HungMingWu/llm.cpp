@@ -12,10 +12,12 @@ static constexpr int64_t FATTN_KQ_STRIDE = 256;
 #define GGML_PAD1(x, n) (((x) + (n) - 1) & ~((n) - 1))
 
 // log(2) = 0.6931, by adding this to the KQ maximum used for the softmax the numerical range representable
-//     by the VKQ accumulators is effectively being shifted up by a factor of 8.
+//     by the VKQ accumulators is effectively being shifted up by a factor of 2.
 // This reduces issues with numerical overflow but also causes larger values to be flushed to zero.
 // However, as the output from FlashAttention will usually be used as an input for a matrix multiplication this should be negligible.
-#define FATTN_KQ_MAX_OFFSET 0.6931f
+// Still, the value range should be shifted as much as necessary but as little as possible.
+// The macro on the following line shifts it by a factor of 2**3=8, as was needed to fix https://github.com/ggml-org/llama.cpp/issues/18606 .
+#define FATTN_KQ_MAX_OFFSET (3.0f*0.6931f)
 
 using fattn_kernel_t = void (*)(
     flash_attn_ext_context ctx,
@@ -928,7 +930,9 @@ void launch_fattn(
         blocks_num.y = 1;
         blocks_num.z = 1;
 
-        dst_tmp_meta.alloc(blocks_num.x * ncols * (2 * 2 + DV) * sizeof(float));
+        if (ntiles_total % blocks_num.x != 0) { // Fixup is only needed if the SMs work on fractional tiles.
+            dst_tmp_meta.alloc((size_t(blocks_num.x) * ncols * (2 + DV / 2)));
+        }
     }
     else {
         const int ntiles_KQ = (ctx.K.ne1 + nbatch_fa - 1) / nbatch_fa; // Max. number of parallel blocks limited by tensor size

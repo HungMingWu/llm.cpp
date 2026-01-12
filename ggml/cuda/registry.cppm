@@ -42,6 +42,7 @@ public:
     std::string name;
     std::string description;
     std::string pci_bus_id;
+    int op_offload_min_batch_size;
     using ggml_backend_device::ggml_backend_device;
     const char* get_name() override { return name.c_str(); }
     const char* get_description() override { return description.c_str(); }
@@ -96,9 +97,7 @@ public:
 
     bool offload_op(const ggml_tensor* op) override
     {
-        const int min_batch_size = 32;
-
-        return get_op_batch_size(op) >= min_batch_size;
+        return get_op_batch_size(op) >= op_offload_min_batch_size;
     }
 
     ggml_backend_event* event_new() override
@@ -136,6 +135,7 @@ public:
     backend_cuda_reg(int api_version, void* context)
         : ggml_backend_reg(api_version, context)
     {
+        const int min_batch_size = getenv("GGML_OP_OFFLOAD_MIN_BATCH") ? atoi(getenv("GGML_OP_OFFLOAD_MIN_BATCH")) : 32;
         for (int i = 0; i < ggml_cuda_info().device_count; i++) {
             cudaDeviceProp prop;
             CUDA_CHECK(cudaGetDeviceProperties(&prop, i));
@@ -149,6 +149,7 @@ public:
                 dev->name = GGML_CUDA_NAME + std::to_string(i);
                 dev->description = prop.name;
                 dev->pci_bus_id = std::format("{:04x}:{:02x}:{:02x}.0", prop.pciDomainID, prop.pciBusID, prop.pciDeviceID);
+                dev->op_offload_min_batch_size = min_batch_size;
                 devices.push_back(dev);
             }
         }
@@ -173,14 +174,12 @@ public:
         if (strcmp(name, "ggml_backend_unregister_host_buffer") == 0) {
             return (void*)ggml_backend_cuda_unregister_host_buffer;
         }
-        if (strcmp(name, "ggml_backend_get_features") == 0) {
-            return (void*)ggml_backend_cuda_get_features;
-        }
 		return nullptr;
 #else
 		return nullptr;
 #endif
 	}
+    std::span<const ggml_backend_feature> get_features() override;
 };
 
 export

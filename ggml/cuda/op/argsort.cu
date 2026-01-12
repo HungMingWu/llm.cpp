@@ -1,9 +1,9 @@
+#include <assert.h>
 #include <algorithm>
 #include "cuda_func.h"
 #include "common.cuh"
 #include "mdspan_helper.h"
 
-#define GGML_ASSERT(...)
 #define GGML_ABORT(...)
 
 // Bitonic sort implementation
@@ -87,7 +87,7 @@ void argsort_f32_i32_cuda_bitonic(const float* x,
     const size_t shared_mem = ncols_pad * sizeof(int);
 
     // FIXME: this limit could be raised by ~2-4x on Ampere or newer
-    GGML_ASSERT(shared_mem <= ggml_cuda_info().devices[ggml_cuda_get_device()].smpb);
+    assert(shared_mem <= ggml_cuda_info().devices[ggml_cuda_get_device()].smpb);
 
     std::mdspan x_data(x, nrows, ncols);
     std::mdspan dst_data(dst, nrows, ncols);

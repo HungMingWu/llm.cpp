@@ -100,6 +100,7 @@ target_sources(libggml
       op/ssm-conv.cu
       op/ssm-scan.cu
       op/sumrows.cu
+      op/top-k.cu
       op/tri.cu
       op/tsembd.cu
       op/unary.cu

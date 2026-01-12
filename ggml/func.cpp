@@ -4,6 +4,7 @@ module;
 #include <stdint.h>
 #include <string.h>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -247,7 +248,7 @@ static graph_copy ggml_backend_graph_copy(ggml_backend* backend, ggml_cgraph* gr
     };
 }
 
-bool ggml_backend_compare_graph_backend(ggml_backend* backend1, ggml_backend* backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback, ggml_tensor* test_node) {
+bool ggml_backend_compare_graph_backend(ggml_backend* backend1, ggml_backend* backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback, std::span<ggml_tensor*> test_nodes) {
     graph_copy copy = ggml_backend_graph_copy(backend2, graph);
     assert(copy.buffer);
 
@@ -261,22 +262,21 @@ bool ggml_backend_compare_graph_backend(ggml_backend* backend1, ggml_backend* ba
         return graph;
     };
 
-    if (test_node != nullptr) {
-        // Compute the whole graph and only test the output for a specific tensor
+    if (!test_nodes.empty()) {
+        // Compute the whole graph and only test the output for specific tensors
         backend1->graph_compute(g1);
         backend2->graph_compute(g2);
 
-        int test_node_idx = -1;
+        bool verified = false;
         for (size_t i = 0; i < g1->nodes.size(); i++) {
-            ggml_tensor* t1 = g1->nodes[i];
-            if (t1 == test_node) {
-                test_node_idx = i;
-                break;
+            for (auto test_node : test_nodes) {
+                if (g1->nodes[i] == test_node) {
+                    callback(g1->nodes[i], g2->nodes[i]);
+                    verified = true;
+                }
             }
         }
-        GGML_ASSERT(test_node_idx != -1);
-
-        return callback(g1->nodes[test_node_idx], g2->nodes[test_node_idx]);
+        GGML_ASSERT(verified);
     }
     else {
         // clang's views::zip have bug, keep old style here
@@ -300,8 +300,8 @@ bool ggml_backend_compare_graph_backend(ggml_backend* backend1, ggml_backend* ba
                 return false;
             }
         }
-        return true;
     }
+    return true;
 }
 
 ggml_tensor* ggml_dup_tensor_layout(ggml_context* ctx, const ggml_tensor* tensor) {

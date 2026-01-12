@@ -101,16 +101,6 @@ static ggml_cuda_device_info ggml_cuda_init() {
     GGML_ASSERT(info.device_count <= GGML_CUDA_MAX_DEVICES);
 
     int64_t total_vram = 0;
-#ifdef GGML_CUDA_FORCE_MMQ
-    GGML_LOG_INFO("{}: GGML_CUDA_FORCE_MMQ:    yes", __func__);
-#else
-    GGML_LOG_INFO("{}: GGML_CUDA_FORCE_MMQ:    no", __func__);
-#endif // GGML_CUDA_FORCE_MMQ
-#ifdef GGML_CUDA_FORCE_CUBLAS
-    GGML_LOG_INFO("{}: GGML_CUDA_FORCE_CUBLAS: yes", __func__);
-#else
-    GGML_LOG_INFO("{}: GGML_CUDA_FORCE_CUBLAS: no", __func__);
-#endif // GGML_CUDA_FORCE_CUBLAS
     GGML_LOG_INFO("{}: found {} " GGML_CUDA_NAME " devices:", __func__, info.device_count);
 
     std::vector<std::pair<int, std::string>> turing_devices_without_mma;
@@ -141,6 +131,14 @@ static ggml_cuda_device_info ggml_cuda_init() {
         info.devices[id].nsm = prop.multiProcessorCount;
         info.devices[id].smpb = prop.sharedMemPerBlock;
         info.devices[id].warp_size = prop.warpSize;
+
+#ifndef GGML_USE_MUSA
+        int supports_coop_launch = 0;
+        CUDA_CHECK(cudaDeviceGetAttribute(&supports_coop_launch, cudaDevAttrCooperativeLaunch, id));
+        info.devices[id].supports_cooperative_launch = !!supports_coop_launch;
+#else
+        info.devices[id].supports_cooperative_launch = false;
+#endif // !(GGML_USE_MUSA)
 #if defined(GGML_USE_HIP)
         info.devices[id].smpbo = prop.sharedMemPerBlock;
 

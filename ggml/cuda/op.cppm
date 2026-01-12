@@ -750,20 +750,7 @@ namespace op
         silu_back_f32_cuda(src0_d, src1_d, dst_d, src0->nelements(), stream);
     }
 
-    void cumsum(cudaStream_t stream, ggml_tensor* dst) {
-        const ggml_tensor* src0 = dst->src[0];
-        GGML_ASSERT(src0->type == dst->type);
-        cumsum_context ctx {
-            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
-            .src0_d = src0->data,
-            .dst_d = dst->data,
-            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
-            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
-            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
-            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] }
-        };
-        cumsum_cuda(ctx, stream);
-    }
+    void cumsum(ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst);
 
     void tri(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
@@ -1293,87 +1280,7 @@ namespace op
         diag_mask_inf_f32_cuda(src0_d, dst_d, ne00, nrows0, ne01, n_past, stream);
     }
 
-    void soft_max(cudaStream_t stream, ggml_tensor* dst) {
-        const ggml_tensor* src0 = dst->src[0];
-        const ggml_tensor* src1 = dst->src[1];
-        const ggml_tensor* src2 = dst->src[2];
-
-        const float* src0_d = (const float*)src0->data;
-        float* dst_d = (float*)dst->data;
-
-        GGML_ASSERT(src0->type == GGML_TYPE_F32);
-        GGML_ASSERT(dst->type == GGML_TYPE_F32);
-
-        GGML_ASSERT(!src1 || src1->type == GGML_TYPE_F16 || src1->type == GGML_TYPE_F32); // src1 contains mask and it is optional
-
-        const int64_t nrows_x = ggml_nrows(src0);
-        const int64_t nrows_y = src0->ne[1];
-
-        const int64_t ne00 = src0->ne[0];
-
-        float scale = std::bit_cast<float>(dst->op_params[0]);
-        float max_bias = std::bit_cast<float>(dst->op_params[1]);
-
-        const bool use_f16 = (src1 && src1->type == GGML_TYPE_F16);
-
-        const uint32_t n_head = src0->ne[2];
-        const uint32_t n_head_log2 = 1u << (uint32_t)floorf(log2f((float)n_head));
-
-        const float m0 = powf(2.0f, -(max_bias) / n_head_log2);
-        const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
-
-        softmax_context ctx{
-            .src0_d = src0_d,
-            .dst_d = dst_d,
-			.ne00 = ne00,
-			.nrows_x = nrows_x,
-			.nrows_y = nrows_y,
-			.scale = scale,
-			.max_bias = max_bias,
-            .use_f16 = use_f16,
-            .params = {
-                .nheads = src0->ne[2],
-                .n_head_log2 = n_head_log2,
-                .ncols = ne00,
-                .nrows_x = nrows_x,
-                .nrows_y = nrows_y,
-                .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3]	},
-                .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3]	},
-                .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3]	},
-                .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3]	},
-                .scale = scale,
-                .max_bias = max_bias,
-                .m0 = m0,
-                .m1 = m1
-            }
-        };
-        if (src1) {
-            ctx.src1_d = src1->data;
-            ctx.params.src1_ne[0] = src1->ne[0];
-            ctx.params.src1_ne[1] = src1->ne[1];
-            ctx.params.src1_ne[2] = src1->ne[2];
-            ctx.params.src1_ne[3] = src1->ne[3];
-            ctx.params.src1_nb[0] = src1->nb[0];
-            ctx.params.src1_nb[1] = src1->nb[1];
-            ctx.params.src1_nb[2] = src1->nb[2];
-            ctx.params.src1_nb[3] = src1->nb[3];
-        }
-        else {
-            ctx.src1_d = nullptr;
-        }
-        if (src2) {
-            ctx.src2_d = (const float*)src2->data;
-            ctx.params.src2_ne[0] = src2->ne[0];
-            ctx.params.src2_ne[1] = src2->ne[1];
-            ctx.params.src2_ne[2] = src2->ne[2];
-            ctx.params.src2_ne[3] = src2->ne[3];
-        }
-        else {
-            ctx.src2_d = nullptr;
-            ctx.params.src2_ne[0] = ctx.params.src2_ne[1] = ctx.params.src2_ne[2] = ctx.params.src2_ne[3] = 0;
-        }
-        soft_max_f32_cuda(ctx, stream);
-    }
+    void soft_max(ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst);
 
     void soft_max_back(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0]; // grad
@@ -1974,6 +1881,8 @@ namespace op
         };
         ssm_conv_f32_cuda(ctx, stream);
     }
+
+    void top_k(ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst);
 
     void ssm_scan(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];  // s

@@ -423,6 +423,7 @@ struct soft_max_params {
 };
 
 struct softmax_context {
+    ggml_cuda_pool& pool;
     const float* src0_d;
     const void* src1_d;
 	const float* src2_d; // optional
@@ -922,6 +923,7 @@ void tri_cuda(const tri_context& ctx, cudaStream_t  stream);
 
 // cumsum.cu
 struct cumsum_context {
+    ggml_cuda_pool& pool;
     internal::ggml_type src0_type;
     const void* src0_d;
     void* dst_d;
@@ -931,3 +933,14 @@ struct cumsum_context {
     size_t dst_nb[4];
 };
 void cumsum_cuda(const cumsum_context& ctx, cudaStream_t  stream);
+
+// top-k.cu
+struct top_k_context {
+    ggml_cuda_pool& pool;
+    const float* src0_d;
+    int* dst_d;
+    const int64_t nrows;
+    const int64_t ncols;
+    const int64_t k;
+};
+void top_k_cuda(const top_k_context& ctx, cudaStream_t  stream);

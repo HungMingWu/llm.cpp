@@ -168,7 +168,7 @@ export {
 		 return ggml_op_name(t->op);
 	 }
 
-	 bool ggml_backend_compare_graph_backend(ggml_backend* backend1, ggml_backend* backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback, ggml_tensor* test_node);
+	 bool ggml_backend_compare_graph_backend(ggml_backend* backend1, ggml_backend* backend2, ggml_cgraph* graph, ggml_backend_eval_callback callback, std::span<ggml_tensor*> test_nodess);
 
 	 bool ggml_quantize_requires_imatrix(enum ggml_type type);
 

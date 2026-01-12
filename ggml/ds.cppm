@@ -289,6 +289,12 @@ export {
     struct ggml_context;
     struct ggml_backend_device;
 
+    // Get a list of feature flags supported by the backend (returns a NULL-terminated array)
+    struct ggml_backend_feature {
+        std::string_view name;
+        std::string_view value;
+    };
+
     // Use for reflection later
     struct ggml_backend_reg {
         int api_version; // initialize to GGML_BACKEND_API_VERSION
@@ -299,6 +305,7 @@ export {
         virtual std::string_view get_name() = 0;
         virtual ggml_backend_device* get_device(size_t index) = 0;
         virtual size_t get_device_count() { return 1; }
+        virtual std::span<const ggml_backend_feature> get_features() { return {}; }
         // (optional) get a pointer to a function in the backend
         // backends can add custom functions that are not part of the standard ggml-backend interface
         virtual void* get_proc_address(std::string_view name) { return nullptr; }
@@ -319,7 +326,7 @@ export {
         virtual const char* get_name() = 0;
         // device description: short informative description of the device, could be the model name
         virtual const char* get_description() = 0;
-        // device memory in bytes
+        // device memory in bytes: 0 bytes to indicate no memory to report
         virtual void get_memory(size_t* free, size_t* total) = 0;
         // device type
         virtual enum ggml_backend_dev_type get_type() = 0;

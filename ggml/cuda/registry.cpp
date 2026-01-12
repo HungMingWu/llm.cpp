@@ -1,5 +1,7 @@
 module;
 #include <bit>
+#include <span>
+#include <vector>
 #include "cuda_config.h"
 #include "common.h"
 #include "vendors/cuda.h"
@@ -97,6 +99,64 @@ static bool ggml_backend_cuda_get_available_uma_memory(long* available_memory_kb
     return true;
 }
 #endif // defined(__linux__)
+
+std::span<const ggml_backend_feature> backend_cuda_reg::get_features()
+{
+    static std::vector<ggml_backend_feature> features = []() {
+        std::vector<ggml_backend_feature> features;
+#define _STRINGIFY(...) #__VA_ARGS__
+#define STRINGIFY(...) _STRINGIFY(__VA_ARGS__)
+
+#ifdef __CUDA_ARCH_LIST__
+        features.push_back({ "ARCHS", STRINGIFY(__CUDA_ARCH_LIST__) });
+#endif
+
+#ifdef GGML_CUDA_FORCE_MMQ
+        features.push_back({ "FORCE_MMQ", "1" });
+#endif
+
+#ifdef GGML_CUDA_FORCE_CUBLAS
+        features.push_back({ "FORCE_CUBLAS", "1" });
+#endif
+
+#ifndef GGML_USE_VMM
+        features.push_back({ "NO_VMM", "1" });
+#endif
+
+#ifdef GGML_CUDA_NO_PEER_COPY
+        features.push_back({ "NO_PEER_COPY", "1" });
+#endif
+
+#ifdef GGML_CUDA_USE_GRAPHS
+        features.push_back({ "USE_GRAPHS", "1" });
+#endif
+
+#ifdef GGML_CUDA_PEER_MAX_BATCH_SIZE
+        features.push_back({ "PEER_MAX_BATCH_SIZE", STRINGIFY(GGML_CUDA_PEER_MAX_BATCH_SIZE) });
+#endif
+
+#ifdef GGML_CUDA_FA_ALL_QUANTS
+        features.push_back({ "FA_ALL_QUANTS", "1" });
+#endif
+
+        {
+            const auto& info = ggml_cuda_info();
+            for (int id = 0; id < info.device_count; ++id) {
+                if (blackwell_mma_available(info.devices[id].cc)) {
+                    features.push_back({ "BLACKWELL_NATIVE_FP4", "1" });
+                    break;
+                }
+            }
+        }
+
+#undef _STRINGIFY
+#undef STRINGIFY
+
+        return features;
+    }();
+
+    return features;
+}
 
 void ggml_backend_cuda_device::get_memory(size_t* free, size_t* total)
 {
@@ -453,6 +513,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_POOL_2D:
     case GGML_OP_ACC:
         return true;
+    case GGML_OP_TOP_K:
     case GGML_OP_SUM:
         return ggml_is_contiguous_rows(op->src[0]);
     case GGML_OP_ARGSORT:

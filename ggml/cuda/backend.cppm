@@ -280,8 +280,8 @@ export
         void set_tensor_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
         void get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
     private:
-        void evaluate_and_capture_cuda_graph(ggml_cgraph* cgraph,
-            std::vector<void*>&, bool&, bool&, bool&);
+        bool graph_set_enabled();
+        void graph_evaluate_and_capture(ggml_cgraph* cgraph, const bool use_cuda_graph, const bool cuda_graph_update_required);
     public:
         int device;
         std::string name;
