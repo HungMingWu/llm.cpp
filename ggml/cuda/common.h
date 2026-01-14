@@ -110,6 +110,13 @@ int ggml_backend_cuda_get_device_count();
 
 #define CUDA_CHECK(err) CUDA_CHECK_GEN(err, cudaSuccess, cudaGetErrorString)
 
+static const char* cu_get_error_str(CUresult err) {
+    const char* err_str;
+    cuGetErrorString(err, &err_str);
+    return err_str;
+}
+#define CU_CHECK(err) CUDA_CHECK_GEN(err, CUDA_SUCCESS, cu_get_error_str)
+
 #if CUDART_VERSION >= 12000 || defined(GGML_USE_MUSA)
 static const char* cublas_get_error_str(const cublasStatus_t err) {
     return cublasGetStatusString(err);

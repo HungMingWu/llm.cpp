@@ -21,6 +21,10 @@ if (NOT GGML_CUDA_FA)
     target_compile_definitions(libggml PRIVATE GGML_CUDA_NO_FA)
 endif()
 
+if (GGML_CUDA_NO_VMM)
+    target_compile_definitions(libggml PRIVATE GGML_CUDA_NO_VMM)
+endif()
+
 target_sources(libggml
   PUBLIC
     FILE_SET primary_cuda_interface

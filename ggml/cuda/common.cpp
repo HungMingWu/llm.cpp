@@ -107,19 +107,19 @@ static ggml_cuda_device_info ggml_cuda_init() {
     for (int id = 0; id < info.device_count; ++id) {
         int device_vmm = 0;
 
-#if defined(GGML_USE_VMM)
-        CUdevice device;
-        CU_CHECK(cuDeviceGet(&device, id));
-        CU_CHECK(cuDeviceGetAttribute(&device_vmm, CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED, device));
+        if constexpr (ggml_use_vmm_v) {
+            CUdevice device;
+            CU_CHECK(cuDeviceGet(&device, id));
+            CU_CHECK(cuDeviceGetAttribute(&device_vmm, CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED, device));
 
-        if (device_vmm) {
-            CUmemAllocationProp alloc_prop = {};
-            alloc_prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
-            alloc_prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-            alloc_prop.location.id = id;
-            CU_CHECK(cuMemGetAllocationGranularity(&info.devices[id].vmm_granularity, &alloc_prop, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED));
+            if (device_vmm) {
+                CUmemAllocationProp alloc_prop = {};
+                alloc_prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+                alloc_prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+                alloc_prop.location.id = id;
+                CU_CHECK(cuMemGetAllocationGranularity(&info.devices[id].vmm_granularity, &alloc_prop, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED));
+            }
         }
-#endif // defined(GGML_USE_VMM)
         info.devices[id].vmm = !!device_vmm;
 
         cudaDeviceProp prop;

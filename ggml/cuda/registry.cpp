@@ -119,9 +119,9 @@ std::span<const ggml_backend_feature> backend_cuda_reg::get_features()
         features.push_back({ "FORCE_CUBLAS", "1" });
 #endif
 
-#ifndef GGML_USE_VMM
-        features.push_back({ "NO_VMM", "1" });
-#endif
+        if constexpr (not ggml_use_vmm_v) {
+            features.push_back({ "NO_VMM", "1" });
+        }
 
 #ifdef GGML_CUDA_NO_PEER_COPY
         features.push_back({ "NO_PEER_COPY", "1" });

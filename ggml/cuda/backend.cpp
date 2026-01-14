@@ -375,7 +375,6 @@ void ggml_cuda_op_mul_mat_vec_q(
 }
 
 // pool with virtual memory
-#if !defined(GGML_USE_HIP) && !defined(GGML_CUDA_NO_VMM)
 struct ggml_cuda_pool_vmm : public ggml_cuda_pool {
     static const size_t CUDA_POOL_VMM_MAX_SIZE = 1ull << 35; // 32 GB
 
@@ -469,7 +468,6 @@ struct ggml_cuda_pool_vmm : public ggml_cuda_pool {
         GGML_ASSERT(ptr == (void*)(pool_addr + pool_used));
     }
 };
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_CUDA_NO_VMM)
 
 // buffer pool for cuda (legacy)
 struct ggml_cuda_pool_leg : public ggml_cuda_pool {
@@ -569,12 +567,12 @@ struct ggml_cuda_pool_leg : public ggml_cuda_pool {
 };
 
 std::unique_ptr<ggml_cuda_pool> ggml_backend_cuda::new_pool_for_device(int device, [[maybe_unused]] int stream_no) {
-#if !defined(GGML_USE_HIP) && !defined(GGML_CUDA_NO_VMM)
-    if (ggml_cuda_info().devices[device].vmm) {
-        return std::unique_ptr<ggml_cuda_pool>(new ggml_cuda_pool_vmm(device));
+    if constexpr (ggml_use_vmm_v) {
+        if (ggml_cuda_info().devices[device].vmm) {
+            return std::make_unique<ggml_cuda_pool_vmm>(device);
+        }
     }
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_CUDA_NO_VMM)
-    return std::unique_ptr<ggml_cuda_pool>(new ggml_cuda_pool_leg(device));
+    return std::make_unique<ggml_cuda_pool_leg>(device);
 }
 
 template <ggml_type type>

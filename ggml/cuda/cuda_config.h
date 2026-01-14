@@ -94,3 +94,9 @@ static constexpr bool flash_attn_available_v = true;
 #else
 static constexpr bool flash_attn_available_v = false;
 #endif // !defined(GGML_CUDA_NO_FA) && !(defined(GGML_USE_MUSA) && __MUSA_ARCH__ < 220)
+
+#if (!defined(GGML_USE_HIP) && !defined(GGML_CUDA_NO_VMM)) || (defined(GGML_USE_HIP) && !defined(GGML_HIP_NO_VMM))
+static constexpr bool ggml_use_vmm_v = true;
+#else
+static constexpr bool ggml_use_vmm_v = false;
+#endif // (!defined(GGML_USE_HIP) && !defined(GGML_CUDA_NO_VMM)) || (defined(GGML_USE_HIP) && !defined(GGML_HIP_NO_VMM))

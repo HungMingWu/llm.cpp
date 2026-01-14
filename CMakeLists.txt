@@ -18,6 +18,7 @@ endif()
 option(GGML_NATIVE "ggml: optimize the build for the current system" ${GGML_NATIVE_DEFAULT})
 
 option(GGML_CUDA                            "ggml: use CUDA"                                  ON)
+option(GGML_CUDA_NO_VMM                     "ggml: do not try to use CUDA VMM"                OFF)
 option(GGML_CUDA_FA                         "ggml: compile ggml FlashAttention CUDA kernels"  ON)
 option(GGML_LLAMAFILE                       "ggml: use LLAMAFILE"                             OFF)
 add_subdirectory(ggml)
