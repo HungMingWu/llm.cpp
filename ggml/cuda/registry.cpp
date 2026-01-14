@@ -115,9 +115,9 @@ std::span<const ggml_backend_feature> backend_cuda_reg::get_features()
         features.push_back({ "FORCE_MMQ", "1" });
 #endif
 
-#ifdef GGML_CUDA_FORCE_CUBLAS
-        features.push_back({ "FORCE_CUBLAS", "1" });
-#endif
+        if constexpr (not force_enable_cuda_blas_v) {
+            features.push_back({ "FORCE_CUBLAS", "1" });
+        }
 
         if constexpr (not ggml_use_vmm_v) {
             features.push_back({ "NO_VMM", "1" });

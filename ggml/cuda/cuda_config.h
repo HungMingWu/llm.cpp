@@ -18,7 +18,7 @@ static constexpr bool use_musa_v = true;
 static constexpr bool use_musa_v = false;
 #endif
 
-#ifdef GGML_CUDA_FORCE_CUBLAS
+#if defined(GGML_CUDA_FORCE_CUBLAS)
 constexpr bool force_enable_cuda_blas_v = true;
 #else
 constexpr bool force_enable_cuda_blas_v = false;
