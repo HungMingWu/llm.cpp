@@ -24,10 +24,10 @@ constexpr bool force_enable_cuda_blas_v = true;
 constexpr bool force_enable_cuda_blas_v = false;
 #endif
 
-#ifdef GGML_CUDA_FORCE_MMQ
-constexpr bool force_enable_cuda_mmq_v = true;
+#if defined(GGML_CUDA_FORCE_MMQ)
+constexpr bool ggml_cuda_force_mmq_v = true;
 #else
-constexpr bool force_enable_cuda_mmq_v = false;
+constexpr bool ggml_cuda_force_mmq_v = false;
 #endif
 
 #ifdef GGML_CUDA_USE_CUB

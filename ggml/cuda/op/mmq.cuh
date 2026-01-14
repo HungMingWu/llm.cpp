@@ -167,11 +167,7 @@ static constexpr __device__ int get_mmq_x_max_device() {
     }
     else {
 #if __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
-#ifdef GGML_CUDA_FORCE_MMQ
-        return 128;
-#else // GGML_CUDA_FORCE_MMQ
-        return MMQ_DP4A_MAX_BATCH_SIZE;
-#endif // GGML_CUDA_FORCE_MMQ
+        return ggml_cuda_force_mmq_v ? 128 : MMQ_DP4A_MAX_BATCH_SIZE;
 #else // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
         return 64;
 #endif // __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA

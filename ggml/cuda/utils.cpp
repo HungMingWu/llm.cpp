@@ -130,9 +130,7 @@ namespace utils
             return false;
         }
 
-#ifdef GGML_CUDA_FORCE_MMQ
-        return true;
-#endif //GGML_CUDA_FORCE_MMQ
+        if constexpr (ggml_cuda_force_mmq_v) return true;
 
         if (GGML_CUDA_CC_IS_NVIDIA(cc)) {
             return !fp16_mma_hardware_available(cc) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;

@@ -111,9 +111,9 @@ std::span<const ggml_backend_feature> backend_cuda_reg::get_features()
         features.push_back({ "ARCHS", STRINGIFY(__CUDA_ARCH_LIST__) });
 #endif
 
-#ifdef GGML_CUDA_FORCE_MMQ
-        features.push_back({ "FORCE_MMQ", "1" });
-#endif
+        if constexpr (not ggml_cuda_force_mmq_v) {
+            features.push_back({ "FORCE_MMQ", "1" });
+        }
 
         if constexpr (not force_enable_cuda_blas_v) {
             features.push_back({ "FORCE_CUBLAS", "1" });

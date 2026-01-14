@@ -17,17 +17,13 @@ else()
     set(CUDA_USE_CUB FALSE)
 endif()
 
-if (NOT GGML_CUDA_FA)
-    target_compile_definitions(libggml PRIVATE GGML_CUDA_NO_FA)
-endif()
-
-if (GGML_CUDA_FORCE_CUBLAS)
-    target_compile_definitions(libggml PRIVATE GGML_CUDA_FORCE_CUBLAS)
-endif()
-
-if (GGML_CUDA_NO_VMM)
-    target_compile_definitions(libggml PRIVATE GGML_CUDA_NO_VMM)
-endif()
+target_compile_definitions(libggml
+  PRIVATE
+    $<$<BOOL:GGML_CUDA_FORCE_MMQ>:GGML_CUDA_FORCE_MMQ>
+    $<$<BOOL:GGML_CUDA_FORCE_CUBLAS>:GGML_CUDA_FORCE_CUBLAS>
+    $<$<BOOL:GGML_CUDA_NO_VMM>:GGML_CUDA_NO_VMM>
+    $<$<NOT:$<BOOL:GGML_CUDA_FA>>:GGML_CUDA_NO_FA>
+)
 
 target_sources(libggml
   PUBLIC
