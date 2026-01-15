@@ -5,6 +5,28 @@ module;
 module ggml;
 import :cuda.buffer_type;
 
+bool cuda_backend_buffer::cpy_tensor(const ggml_tensor* src, ggml_tensor* dst)
+{
+	cuda_backend_buffer* cuda_buf_src = dynamic_cast<cuda_backend_buffer*>(src->buffer);
+	cuda_backend_buffer* cuda_buf_dst = dynamic_cast<cuda_backend_buffer*>(dst->buffer);
+	if (cuda_buf_src && cuda_buf_dst) {
+		if (cuda_buf_src->device == cuda_buf_dst->device) {
+			CUDA_CHECK(cudaMemcpyAsync(dst->data, src->data, src->nbytes(), cudaMemcpyDeviceToDevice, cudaStreamPerThread));
+		}
+		else {
+			if constexpr (ggml_cuda_no_peer_copy_v) {
+				return false;
+			}
+			else {
+				CUDA_CHECK(cudaMemcpyPeerAsync(dst->data, cuda_buf_dst->device, src->data, cuda_buf_src->device, src->nbytes(), cudaStreamPerThread));
+			}
+		}
+		CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
+		return true;
+	}
+	return false;
+}
+
 ggml_tensor_extra_gpu::~ggml_tensor_extra_gpu()
 {
 	for (int id = 0; id < GGML_CUDA_MAX_DEVICES; ++id) {

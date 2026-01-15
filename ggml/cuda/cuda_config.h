@@ -30,6 +30,12 @@ constexpr bool ggml_cuda_force_mmq_v = true;
 constexpr bool ggml_cuda_force_mmq_v = false;
 #endif
 
+#if defined(GGML_CUDA_NO_PEER_COPY)
+constexpr bool ggml_cuda_no_peer_copy_v = true;
+#else
+constexpr bool ggml_cuda_no_peer_copy_v = false;
+#endif
+
 #ifdef GGML_CUDA_USE_CUB
 constexpr bool enable_cuda_cub_v = true;
 #else

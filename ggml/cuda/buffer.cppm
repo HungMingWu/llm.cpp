@@ -156,28 +156,7 @@ public:
 		CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
 	}
 
-	bool cpy_tensor(const ggml_tensor* src, ggml_tensor* dst) override
-	{
-#if 0
-		if (ggml_backend_buffer_is_cuda(src->buffer)) {
-			ggml_backend_cuda_buffer_context* src_ctx = (ggml_backend_cuda_buffer_context*)src->buffer->context;
-			ggml_backend_cuda_buffer_context* dst_ctx = (ggml_backend_cuda_buffer_context*)dst->buffer->context;
-			if (src_ctx->device == dst_ctx->device) {
-				CUDA_CHECK(cudaMemcpyAsync(dst->data, src->data, ggml_nbytes(src), cudaMemcpyDeviceToDevice, cudaStreamPerThread));
-			}
-			else {
-#ifdef GGML_CUDA_NO_PEER_COPY
-				return false;
-#else
-				CUDA_CHECK(cudaMemcpyPeerAsync(dst->data, dst_ctx->device, src->data, src_ctx->device, ggml_nbytes(src), cudaStreamPerThread));
-#endif
-			}
-			CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
-			return true;
-		}
-#endif
-		return false;
-	}
+	bool cpy_tensor(const ggml_tensor* src, ggml_tensor* dst) override;
 };
 
 struct ggml_tensor_extra_gpu {

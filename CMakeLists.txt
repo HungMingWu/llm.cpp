@@ -20,6 +20,7 @@ option(GGML_NATIVE "ggml: optimize the build for the current system" ${GGML_NATI
 option(GGML_CUDA                            "ggml: use CUDA"                                  ON)
 option(GGML_CUDA_FORCE_MMQ                  "ggml: use mmq kernels instead of cuBLAS"         OFF)
 option(GGML_CUDA_FORCE_CUBLAS               "ggml: always use cuBLAS instead of mmq kernels"  OFF)
+option(GGML_CUDA_NO_PEER_COPY               "ggml: do not use peer to peer copies"            OFF)
 option(GGML_CUDA_NO_VMM                     "ggml: do not try to use CUDA VMM"                OFF)
 option(GGML_CUDA_FA                         "ggml: compile ggml FlashAttention CUDA kernels"  ON)
 option(GGML_LLAMAFILE                       "ggml: use LLAMAFILE"                             OFF)

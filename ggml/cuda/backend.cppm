@@ -26,14 +26,6 @@ struct ggml_cuda_graph {
     bool disable_due_to_failed_graph_capture = false;
 };
 
-bool ggml_backend_is_cuda(ggml_backend* backend) {
-#if 0
-    return backend != NULL && ggml_guid_matches(backend->guid, ggml_backend_cuda_guid());
-#else
-    return false;
-#endif
-}
-
 bool ggml_backend_buffer_is_cuda(ggml_backend_buffer* buffer) {
     if (auto buft = dynamic_cast<cuda_backend_buffer*>(buffer))
         return true;

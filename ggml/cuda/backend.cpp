@@ -1264,60 +1264,57 @@ void ggml_backend_cuda::get_tensor_async_impl(const ggml_tensor* tensor, void* d
 
 bool ggml_backend_cuda::cpy_tensor_async(ggml_backend* backend_src, const ggml_tensor* src, ggml_tensor* dst)
 {
-#if 0
     ggml_backend_buffer* buf_src = src->view_src ? src->view_src->buffer : src->buffer;
     ggml_backend_buffer* buf_dst = dst->view_src ? dst->view_src->buffer : dst->buffer;
 
-    if (!ggml_backend_is_cuda(backend_src) || !ggml_backend_is_cuda(this)) {
-        return false;
-    }
+    ggml_backend_cuda* cuda_backend_src = dynamic_cast<ggml_backend_cuda*>(backend_src);
+    if (!cuda_backend_src) return false;
 
     if (!ggml_backend_buffer_is_cuda(src->buffer) || !ggml_backend_buffer_is_cuda(dst->buffer)) {
         return false;
     }
 
     // device -> device copy
-    ggml_backend_cuda_context* cuda_ctx_src = (ggml_backend_cuda_context*)backend_src->context;
+    cuda_backend_buffer* cuda_buf_src = dynamic_cast<cuda_backend_buffer*>(buf_src);
+    cuda_backend_buffer* cuda_buf_dst = dynamic_cast<cuda_backend_buffer*>(buf_dst);
 
-    ggml_backend_cuda_buffer_context* buf_ctx_src = (ggml_backend_cuda_buffer_context*)buf_src->context;
-    ggml_backend_cuda_buffer_context* buf_ctx_dst = (ggml_backend_cuda_buffer_context*)buf_dst->context;
-
-    if (cuda_ctx_src->device != buf_ctx_src->device || device != buf_ctx_dst->device) {
+    if (cuda_backend_src->device != cuda_buf_src->device || this->device != cuda_buf_dst->device) {
 #ifndef NDEBUG
         GGML_LOG_DEBUG("{}: backend and buffer devices do not match", __func__);
 #endif
         return false;
     }
 
-    if (backend_src != this) {
+    if (cuda_backend_src != this) {
         // copy on src stream
-        if (cuda_ctx_src->device == device) {
-            CUDA_CHECK(cudaMemcpyAsync(dst->data, src->data, dst->nbytes(), cudaMemcpyDeviceToDevice, cuda_ctx_src->stream()));
+        if (cuda_backend_src->device == device) {
+            CUDA_CHECK(cudaMemcpyAsync(dst->data, src->data, dst->nbytes(), cudaMemcpyDeviceToDevice, cuda_backend_src->stream()));
         }
         else {
-#ifdef GGML_CUDA_NO_PEER_COPY
-            return false;
-#else
-            CUDA_CHECK(cudaMemcpyPeerAsync(dst->data, device, src->data, cuda_ctx_src->device, ggml_nbytes(dst), cuda_ctx_src->stream()));
-#endif
+            if constexpr (ggml_cuda_no_peer_copy_v) {
+                return false;
+            }
+            else {
+                CUDA_CHECK(cudaMemcpyPeerAsync(dst->data, device, src->data, cuda_backend_src->device, dst->nbytes(), cuda_backend_src->stream()));
+            }
         }
 
         // record event on src stream after the copy
-        if (!cuda_ctx_src->copy_event) {
-            ggml_cuda_set_device(cuda_ctx_src->device);
-            CUDA_CHECK(cudaEventCreateWithFlags(&cuda_ctx_src->copy_event, cudaEventDisableTiming));
+        if (!cuda_backend_src->copy_event) {
+            ggml_cuda_set_device(cuda_backend_src->device);
+            CUDA_CHECK(cudaEventCreateWithFlags(&cuda_backend_src->copy_event, cudaEventDisableTiming));
         }
 
-        CUDA_CHECK(cudaEventRecord(cuda_ctx_src->copy_event, cuda_ctx_src->stream()));
+        CUDA_CHECK(cudaEventRecord(cuda_backend_src->copy_event, cuda_backend_src->stream()));
 
         // wait on dst stream for the copy to complete
-        CUDA_CHECK(cudaStreamWaitEvent(stream(), cuda_ctx_src->copy_event, 0));
+        CUDA_CHECK(cudaStreamWaitEvent(stream(), cuda_backend_src->copy_event, 0));
     }
     else {
         // src and dst are on the same backend
-        CUDA_CHECK(cudaMemcpyAsync(dst->data, src->data, ggml_nbytes(dst), cudaMemcpyDeviceToDevice, cuda_ctx_src->stream()));
+        CUDA_CHECK(cudaMemcpyAsync(dst->data, src->data, dst->nbytes(), cudaMemcpyDeviceToDevice, cuda_backend_src->stream()));
     }
-#endif
+
     return true;
 }
 
@@ -1870,7 +1867,7 @@ void ggml_backend_cuda::event_record(ggml_backend_event* event)
 
 void ggml_backend_cuda::event_wait(ggml_backend_event* event)
 {
-    if (ggml_backend_is_cuda(this)) {
+    if (true) {
         CUDA_CHECK(cudaStreamWaitEvent(stream(), (cudaEvent_t)event->context, 0));
     }
     else {

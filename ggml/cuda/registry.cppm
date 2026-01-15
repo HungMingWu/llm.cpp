@@ -58,11 +58,7 @@ public:
         get_memory(&props->memory_free, &props->memory_total);
 
         bool host_buffer = getenv("GGML_CUDA_NO_PINNED") == nullptr;
-#ifdef GGML_CUDA_NO_PEER_COPY
-        bool events = false;
-#else
-        bool events = true;
-#endif
+        const bool events = !ggml_cuda_no_peer_copy_v;
 
         props->caps = {
             /* .async                 = */ true,
@@ -102,19 +98,21 @@ public:
 
     ggml_backend_event* event_new() override
     {
-#ifdef GGML_CUDA_NO_PEER_COPY
-        return nullptr;
-#else
-        ggml_cuda_set_device(device);
+        if constexpr (ggml_cuda_no_peer_copy_v) {
+            return nullptr;
+        }
+        else {
+            ggml_cuda_set_device(device);
 
-        cudaEvent_t event;
-        CUDA_CHECK(cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
+            cudaEvent_t event;
+            CUDA_CHECK(cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
 
-        return new ggml_backend_event{
-            /* .device  = */ this,
-            /* .context = */ event,
-        };
-#endif
+            return new ggml_backend_event{
+                /* .device  = */ this,
+                /* .context = */ event,
+            };
+        }
+
     }
 
     void event_free(ggml_backend_event* event) override

@@ -123,9 +123,9 @@ std::span<const ggml_backend_feature> backend_cuda_reg::get_features()
             features.push_back({ "NO_VMM", "1" });
         }
 
-#ifdef GGML_CUDA_NO_PEER_COPY
-        features.push_back({ "NO_PEER_COPY", "1" });
-#endif
+        if constexpr (ggml_cuda_no_peer_copy_v) {
+            features.push_back({ "NO_PEER_COPY", "1" });
+        }
 
 #ifdef GGML_CUDA_USE_GRAPHS
         features.push_back({ "USE_GRAPHS", "1" });
