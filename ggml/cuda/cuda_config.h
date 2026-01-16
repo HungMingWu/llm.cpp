@@ -36,6 +36,8 @@ constexpr bool ggml_cuda_no_peer_copy_v = true;
 constexpr bool ggml_cuda_no_peer_copy_v = false;
 #endif
 
+constexpr int ggml_cuda_peer_max_batch_size_v = GGML_CUDA_PEER_MAX_BATCH_SIZE;
+
 #if defined(GGML_CUDA_FA_ALL_QUANTS)
 constexpr bool ggml_cuda_fa_all_quants_v = true;
 #else

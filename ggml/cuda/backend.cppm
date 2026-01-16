@@ -33,14 +33,10 @@ bool ggml_backend_buffer_is_cuda(ggml_backend_buffer* buffer) {
         return false;
 }
 
-#ifndef GGML_CUDA_PEER_MAX_BATCH_SIZE
-#define GGML_CUDA_PEER_MAX_BATCH_SIZE 128
-#endif // GGML_CUDA_PEER_MAX_BATCH_SIZE
-
 void ggml_cuda_set_peer_access(const int n_tokens, int main_device) {
     static bool peer_access_enabled = false;
 
-    const bool enable_peer_access = n_tokens <= GGML_CUDA_PEER_MAX_BATCH_SIZE;
+    const bool enable_peer_access = n_tokens <= ggml_cuda_peer_max_batch_size_v;
 
     if (peer_access_enabled == enable_peer_access) {
         return;

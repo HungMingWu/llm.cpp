@@ -25,6 +25,7 @@ target_compile_definitions(libggml
     $<$<NOT:$<BOOL:GGML_CUDA_NO_PEER_COPY>>:GGML_CUDA_NO_PEER_COPY>
     $<$<NOT:$<BOOL:GGML_CUDA_FA>>:GGML_CUDA_NO_FA>
     $<$<NOT:$<BOOL:GGML_CUDA_FA_ALL_QUANTS>>:GGML_CUDA_FA_ALL_QUANTS>
+    GGML_CUDA_PEER_MAX_BATCH_SIZE=${GGML_CUDA_PEER_MAX_BATCH_SIZE}
 )
 
 target_sources(libggml

@@ -1,6 +1,7 @@
 module;
 #include <bit>
 #include <span>
+#include <string>
 #include <vector>
 #include "cuda_config.h"
 #include "common.h"
@@ -131,9 +132,7 @@ std::span<const ggml_backend_feature> backend_cuda_reg::get_features()
         features.push_back({ "USE_GRAPHS", "1" });
 #endif
 
-#ifdef GGML_CUDA_PEER_MAX_BATCH_SIZE
-        features.push_back({ "PEER_MAX_BATCH_SIZE", STRINGIFY(GGML_CUDA_PEER_MAX_BATCH_SIZE) });
-#endif
+        features.push_back({ "PEER_MAX_BATCH_SIZE", std::to_string(ggml_cuda_peer_max_batch_size_v) });
 
         if constexpr (ggml_cuda_fa_all_quants_v) {
             features.push_back({ "FA_ALL_QUANTS", "1" });
