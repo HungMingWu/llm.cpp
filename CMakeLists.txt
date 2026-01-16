@@ -23,6 +23,7 @@ option(GGML_CUDA_FORCE_CUBLAS               "ggml: always use cuBLAS instead of 
 option(GGML_CUDA_NO_PEER_COPY               "ggml: do not use peer to peer copies"            OFF)
 option(GGML_CUDA_NO_VMM                     "ggml: do not try to use CUDA VMM"                OFF)
 option(GGML_CUDA_FA                         "ggml: compile ggml FlashAttention CUDA kernels"  ON)
+option(GGML_CUDA_FA_ALL_QUANTS              "ggml: compile all quants for FlashAttention"     OFF)
 option(GGML_LLAMAFILE                       "ggml: use LLAMAFILE"                             OFF)
 add_subdirectory(ggml)
 #add_subdirectory(table) # gen table if required

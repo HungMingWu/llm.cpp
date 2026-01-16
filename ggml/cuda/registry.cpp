@@ -135,9 +135,9 @@ std::span<const ggml_backend_feature> backend_cuda_reg::get_features()
         features.push_back({ "PEER_MAX_BATCH_SIZE", STRINGIFY(GGML_CUDA_PEER_MAX_BATCH_SIZE) });
 #endif
 
-#ifdef GGML_CUDA_FA_ALL_QUANTS
-        features.push_back({ "FA_ALL_QUANTS", "1" });
-#endif
+        if constexpr (ggml_cuda_fa_all_quants_v) {
+            features.push_back({ "FA_ALL_QUANTS", "1" });
+        }
 
         {
             const auto& info = ggml_cuda_info();

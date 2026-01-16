@@ -24,6 +24,7 @@ target_compile_definitions(libggml
     $<$<BOOL:GGML_CUDA_NO_VMM>:GGML_CUDA_NO_VMM>
     $<$<NOT:$<BOOL:GGML_CUDA_NO_PEER_COPY>>:GGML_CUDA_NO_PEER_COPY>
     $<$<NOT:$<BOOL:GGML_CUDA_FA>>:GGML_CUDA_NO_FA>
+    $<$<NOT:$<BOOL:GGML_CUDA_FA_ALL_QUANTS>>:GGML_CUDA_FA_ALL_QUANTS>
 )
 
 target_sources(libggml

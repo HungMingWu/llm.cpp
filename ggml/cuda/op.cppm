@@ -1612,11 +1612,11 @@ namespace op
             return BEST_FATTN_KERNEL_NONE;
         }
 
-#ifndef GGML_CUDA_FA_ALL_QUANTS
-        if (K->type != V->type) {
-            return BEST_FATTN_KERNEL_NONE;
+        if constexpr (not ggml_cuda_fa_all_quants_v) {
+            if (K->type != V->type) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
         }
-#endif // GGML_CUDA_FA_ALL_QUANTS
 
         switch (K->type) {
         case GGML_TYPE_F32:
@@ -1625,9 +1625,9 @@ namespace op
         case GGML_TYPE_Q4_1:
         case GGML_TYPE_Q5_0:
         case GGML_TYPE_Q5_1:
-#ifndef GGML_CUDA_FA_ALL_QUANTS
-            return BEST_FATTN_KERNEL_NONE;
-#endif // GGML_CUDA_FA_ALL_QUANTS
+            if constexpr (not ggml_cuda_fa_all_quants_v) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
         case GGML_TYPE_Q4_0:
         case GGML_TYPE_Q8_0:
             break;
