@@ -19,35 +19,35 @@ static constexpr bool use_musa_v = false;
 #endif
 
 #if defined(GGML_CUDA_FORCE_CUBLAS)
-constexpr bool force_enable_cuda_blas_v = true;
+static constexpr bool force_enable_cuda_blas_v = true;
 #else
-constexpr bool force_enable_cuda_blas_v = false;
+static constexpr bool force_enable_cuda_blas_v = false;
 #endif
 
 #if defined(GGML_CUDA_FORCE_MMQ)
-constexpr bool ggml_cuda_force_mmq_v = true;
+static constexpr bool ggml_cuda_force_mmq_v = true;
 #else
-constexpr bool ggml_cuda_force_mmq_v = false;
+static constexpr bool ggml_cuda_force_mmq_v = false;
 #endif
 
 #if defined(GGML_CUDA_NO_PEER_COPY)
-constexpr bool ggml_cuda_no_peer_copy_v = true;
+static constexpr bool ggml_cuda_no_peer_copy_v = true;
 #else
-constexpr bool ggml_cuda_no_peer_copy_v = false;
+static constexpr bool ggml_cuda_no_peer_copy_v = false;
 #endif
 
-constexpr int ggml_cuda_peer_max_batch_size_v = GGML_CUDA_PEER_MAX_BATCH_SIZE;
+static constexpr int ggml_cuda_peer_max_batch_size_v = GGML_CUDA_PEER_MAX_BATCH_SIZE;
 
 #if defined(GGML_CUDA_FA_ALL_QUANTS)
-constexpr bool ggml_cuda_fa_all_quants_v = true;
+static constexpr bool ggml_cuda_fa_all_quants_v = true;
 #else
-constexpr bool ggml_cuda_fa_all_quants_v = false;
+static constexpr bool ggml_cuda_fa_all_quants_v = false;
 #endif
 
 #ifdef GGML_CUDA_USE_CUB
-constexpr bool enable_cuda_cub_v = true;
+static constexpr bool enable_cuda_cub_v = true;
 #else
-constexpr bool enable_cuda_cub_v = false;
+static constexpr bool enable_cuda_cub_v = false;
 #endif
 
 #if defined(GGML_USE_HIP) && (defined(RDNA2) || defined(RDNA3) || defined(RDNA4) || defined(__gfx906__) || defined(CDNA))
