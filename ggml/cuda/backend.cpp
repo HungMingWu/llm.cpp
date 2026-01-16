@@ -10,7 +10,6 @@ module;
 #include "block.h"
 #include "common.h"
 #include "cuda_pool.h"
-#include "config.h"
 #include "op/convert.cuh"
 #include "op/cuda_func.h"
 #include "cuda_config.h"

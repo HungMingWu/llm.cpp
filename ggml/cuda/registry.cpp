@@ -128,9 +128,9 @@ std::span<const ggml_backend_feature> backend_cuda_reg::get_features()
             features.push_back({ "NO_PEER_COPY", "1" });
         }
 
-#ifdef GGML_CUDA_USE_GRAPHS
-        features.push_back({ "USE_GRAPHS", "1" });
-#endif
+        if constexpr (ggml_cuda_use_graphs_v) {
+            features.push_back({ "USE_GRAPHS", "1" });
+        }
 
         features.push_back({ "PEER_MAX_BATCH_SIZE", std::to_string(ggml_cuda_peer_max_batch_size_v) });
 

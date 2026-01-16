@@ -1,8 +1,25 @@
 #pragma once
-#include "config.h"
 #include "vendors/constant.h"
 
-static constexpr bool use_cuda_graph_v = ggml_cuda_use_graphs_v | ggml_hip_graphs_v;
+#if defined(GGML_CUDA_USE_GRAPHS)
+static constexpr bool ggml_cuda_use_graphs_v = true;
+#else
+static constexpr bool ggml_cuda_use_graphs_v = false;
+#endif
+
+#if defined(GGML_HIP_GRAPHS)
+static constexpr bool ggml_hip_graphs_v = true;
+#else
+static constexpr bool ggml_hip_graphs_v = false;
+#endif
+
+#if defined(GGML_MUSA_GRAPHS)
+static constexpr bool ggml_musa_graphs_v = true;
+#else
+static constexpr bool ggml_musa_graphs_v = false;
+#endif
+
+static constexpr bool use_cuda_graph_v = ggml_cuda_use_graphs_v | ggml_hip_graphs_v | ggml_musa_graphs_v;
 
 // GGML_USE_HIP comes from CMake definition
 #ifdef GGML_USE_HIP
