@@ -14,7 +14,7 @@ namespace internal {
     enum ggml_type : int;
 }
 
-export module ggml:cuda.backend;
+module ggml:cuda.backend;
 import :ds;
 import :tensor;
 import :cuda.buffer;
@@ -275,105 +275,102 @@ struct ggml_cuda_stream_context {
     }
 };
 
-export
+class ggml_backend_cuda;
+using quantize_cuda_t = void (*)(
+    const float* x, const int32_t* ids, void* vy,
+    internal::ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
+    int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, cudaStream_t stream);
+using ggml_cuda_op_mul_mat_t = void(*)(
+    ggml_backend_cuda& ctx,
+    ggml_tensor* dst, 
+    const char* src0_dd_i, 
+    const float* src1_ddf_i,
+    const char* src1_ddq_i, 
+    float* dst_dd_i, 
+    const int64_t row_low, 
+    const int64_t row_high, 
+    const int64_t src1_ncols,
+    const int64_t src1_padded_row_size, 
+    cudaStream_t stream);
+class ggml_backend_cuda : public ggml_backend
 {
-    class ggml_backend_cuda;
-    using quantize_cuda_t = void (*)(
-        const float* x, const int32_t* ids, void* vy,
-        internal::ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
-        int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, cudaStream_t stream);
-    using ggml_cuda_op_mul_mat_t = void(*)(
-        ggml_backend_cuda& ctx,
-        ggml_tensor* dst, 
-        const char* src0_dd_i, 
-        const float* src1_ddf_i,
-        const char* src1_ddq_i, 
-        float* dst_dd_i, 
-        const int64_t row_low, 
-        const int64_t row_high, 
-        const int64_t src1_ncols,
-        const int64_t src1_padded_row_size, 
-        cudaStream_t stream);
-	class ggml_backend_cuda : public ggml_backend
+protected:
+    void set_tensor_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
+    void get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
+private:
+    bool graph_set_enabled();
+    void graph_evaluate_and_capture(ggml_cgraph* cgraph, const bool use_cuda_graph, const bool cuda_graph_update_required);
+public:
+    int device;
+    std::string name;
+    cudaEvent_t copy_event = nullptr;
+    cudaStream_t streams[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = { { nullptr } };
+
+    cublasHandle_t cublas_handles[GGML_CUDA_MAX_DEVICES] = { nullptr };
+
+	ggml_cuda_graph cuda_graph;
+    int curr_stream_no = 0;
+
+    ggml_cuda_stream_context concurrent_stream_context;
+
+    cudaStream_t stream(int device, int stream) {
+        if (streams[device][stream] == nullptr) {
+            ggml_cuda_set_device(device);
+            CUDA_CHECK(cudaStreamCreateWithFlags(&streams[device][stream], cudaStreamNonBlocking));
+        }
+        return streams[device][stream];
+    }
+
+    cudaStream_t stream() { return stream(device, curr_stream_no); }
+    ggml_cuda_stream_context& stream_context() { return concurrent_stream_context; }
+
+    // pool
+    std::unique_ptr<ggml_cuda_pool> pools[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS];
+
+    static std::unique_ptr<ggml_cuda_pool> new_pool_for_device(int device, int stream_no);
+
+    ggml_cuda_pool& pool(int device) {
+        if (pools[device][curr_stream_no] == nullptr) {
+            pools[device][curr_stream_no] = new_pool_for_device(device, curr_stream_no);
+        }
+        return *pools[device][curr_stream_no];
+    }
+
+    ggml_cuda_pool& pool() {
+        return pool(device);
+    }
+
+    cublasHandle_t cublas_handle(int device) {
+        if (cublas_handles[device] == nullptr) {
+            ggml_cuda_set_device(device);
+            CUBLAS_CHECK(cublasCreate(&cublas_handles[device]));
+            CUBLAS_CHECK(cublasSetMathMode(cublas_handles[device], CUBLAS_TF32_TENSOR_OP_MATH));
+        }
+        return cublas_handles[device];
+    }
+
+    cublasHandle_t cublas_handle() {
+        return cublas_handle(device);
+    }
+
+    void op_mul_mat(
+        ggml_tensor* dst,
+        ggml_cuda_op_mul_mat_t op,
+        quantize_cuda_t quantize_src1);
+    void mul_mat(ggml_tensor* dst);
+    bool compute_forward(ggml_tensor* dst);
+protected:
+    enum ggml_status graph_compute_impl(ggml_cgraph* cgraph) override;
+public:
+    using ggml_backend::ggml_backend;
+    ~ggml_backend_cuda() override;
+	const char* get_name() override
 	{
-    protected:
-        void set_tensor_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
-        void get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
-    private:
-        bool graph_set_enabled();
-        void graph_evaluate_and_capture(ggml_cgraph* cgraph, const bool use_cuda_graph, const bool cuda_graph_update_required);
-    public:
-        int device;
-        std::string name;
-        cudaEvent_t copy_event = nullptr;
-        cudaStream_t streams[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = { { nullptr } };
-
-        cublasHandle_t cublas_handles[GGML_CUDA_MAX_DEVICES] = { nullptr };
-
-		ggml_cuda_graph cuda_graph;
-        int curr_stream_no = 0;
-
-        ggml_cuda_stream_context concurrent_stream_context;
-
-        cudaStream_t stream(int device, int stream) {
-            if (streams[device][stream] == nullptr) {
-                ggml_cuda_set_device(device);
-                CUDA_CHECK(cudaStreamCreateWithFlags(&streams[device][stream], cudaStreamNonBlocking));
-            }
-            return streams[device][stream];
-        }
-
-        cudaStream_t stream() { return stream(device, curr_stream_no); }
-        ggml_cuda_stream_context& stream_context() { return concurrent_stream_context; }
-
-        // pool
-        std::unique_ptr<ggml_cuda_pool> pools[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS];
-
-        static std::unique_ptr<ggml_cuda_pool> new_pool_for_device(int device, int stream_no);
-
-        ggml_cuda_pool& pool(int device) {
-            if (pools[device][curr_stream_no] == nullptr) {
-                pools[device][curr_stream_no] = new_pool_for_device(device, curr_stream_no);
-            }
-            return *pools[device][curr_stream_no];
-        }
-
-        ggml_cuda_pool& pool() {
-            return pool(device);
-        }
-
-        cublasHandle_t cublas_handle(int device) {
-            if (cublas_handles[device] == nullptr) {
-                ggml_cuda_set_device(device);
-                CUBLAS_CHECK(cublasCreate(&cublas_handles[device]));
-                CUBLAS_CHECK(cublasSetMathMode(cublas_handles[device], CUBLAS_TF32_TENSOR_OP_MATH));
-            }
-            return cublas_handles[device];
-        }
-
-        cublasHandle_t cublas_handle() {
-            return cublas_handle(device);
-        }
-
-        void op_mul_mat(
-            ggml_tensor* dst,
-            ggml_cuda_op_mul_mat_t op,
-            quantize_cuda_t quantize_src1);
-        void mul_mat(ggml_tensor* dst);
-        bool compute_forward(ggml_tensor* dst);
-    protected:
-        enum ggml_status graph_compute_impl(ggml_cgraph* cgraph) override;
-    public:
-        using ggml_backend::ggml_backend;
-        ~ggml_backend_cuda() override;
-		const char* get_name() override
-		{
-			return name.c_str();
-		}
-        bool cpy_tensor_async(ggml_backend* backend_src, const ggml_tensor* src, ggml_tensor* dst) override;
-        void synchronize() override;
-        void event_record(ggml_backend_event* event) override;
-        void event_wait(ggml_backend_event* event) override;
-        void graph_optimize(ggml_cgraph* cgraph) override;
-	};
-}
+		return name.c_str();
+	}
+    bool cpy_tensor_async(ggml_backend* backend_src, const ggml_tensor* src, ggml_tensor* dst) override;
+    void synchronize() override;
+    void event_record(ggml_backend_event* event) override;
+    void event_wait(ggml_backend_event* event) override;
+    void graph_optimize(ggml_cgraph* cgraph) override;
+};
