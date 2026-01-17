@@ -8,9 +8,8 @@ module;
 #include "vendors/cuda.h"
 #define GGML_ASSERT(...)
 #define GGML_ABORT(...)
-#define GGML_BACKEND_API_VERSION 2
 
-export module ggml:cuda.registry;
+module ggml:cuda.registry;
 import :ds;
 import :log;
 import :tensor;
@@ -28,10 +27,6 @@ static int64_t get_op_batch_size(const ggml_tensor* op) {
     default:
         return ggml_nrows(op);
     }
-}
-
-export {
-    std::unique_ptr<ggml_backend> ggml_backend_cuda_init(int device);
 }
 
 class ggml_backend_cuda_device : public ggml_backend_device {
@@ -66,10 +61,7 @@ public:
         };
     }
 
-    std::unique_ptr<ggml_backend> init_backend(const char*) override
-    {
-        return ggml_backend_cuda_init(device);
-    }
+    std::unique_ptr<ggml_backend> init_backend(const char*) override;
 
     ggml_backend_buffer_type* get_buffer_type() override;
 
@@ -175,15 +167,4 @@ public:
     std::span<const ggml_backend_feature> get_features() override;
 };
 
-export
-{
-	ggml_backend_reg_t ggml_backend_cuda_reg() {
-        static backend_cuda_reg ggml_backend_cuda_reg = {
-            /* .api_version = */ GGML_BACKEND_API_VERSION,
-            /* .context     = */ nullptr,
-        };
-        return &ggml_backend_cuda_reg;
-	}
-
-    std::unique_ptr<ggml_backend> ggml_backend_cuda_init(int device);
-}
+ggml_backend_reg_t ggml_backend_cuda_reg();

@@ -9,6 +9,7 @@ module;
 #define GGML_ASSERT(x) assert(x)
 
 module ggml;
+import :cuda.buffer_type;
 import :cuda.fused;
 import :cuda.utils;
 

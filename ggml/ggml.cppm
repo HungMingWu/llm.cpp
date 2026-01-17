@@ -21,5 +21,5 @@ export import :cpu.registry;
 export import :cpu.to_float; // remove later
 export import :cpu.traits;
 #ifdef GGML_USE_CUDA
-export import :cuda.registry;
+export import :cuda;
 #endif
