@@ -35,13 +35,13 @@ target_sources(libggml
     TYPE CXX_MODULES
     FILES
       cuda.cppm
-      buffer_type.cppm
   PRIVATE
     FILE_SET cuda_hidden_interface
     TYPE CXX_MODULES
     FILES
       backend.cppm
       buffer.cppm
+      buffer_type.cppm
       op.cppm
       fused.cppm
       registry.cppm
