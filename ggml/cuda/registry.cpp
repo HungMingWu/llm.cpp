@@ -1,5 +1,6 @@
 module;
 #include <bit>
+#include <format>
 #include <memory>
 #include <span>
 #include <string>
@@ -114,14 +115,33 @@ ggml_backend_reg_t ggml_backend_cuda_reg() {
     return &ggml_backend_cuda_reg;
 }
 
-std::unique_ptr<ggml_backend> ggml_backend_cuda_device::init_backend(const char*)
+backend_cuda_reg::backend_cuda_reg(int api_version, void* context)
+    : ggml_backend_reg(api_version, context)
 {
-    return ggml_backend_cuda_init(device);
+    const int min_batch_size = getenv("GGML_OP_OFFLOAD_MIN_BATCH") ? atoi(getenv("GGML_OP_OFFLOAD_MIN_BATCH")) : 32;
+    for (int i = 0; i < ggml_cuda_info().device_count; i++) {
+        cudaDeviceProp prop;
+        CUDA_CHECK(cudaGetDeviceProperties(&prop, i));
+        if (prop.major < 3) {
+            GGML_LOG_INFO("{}: skipping device {} {} with compute capability {}.{} (minimum is 3.0)",
+                __func__, i, prop.name, prop.major, prop.minor);
+            continue;
+        }
+        else {
+            ggml_backend_cuda_device* dev = new ggml_backend_cuda_device(this);
+            dev->device = i;
+            dev->name = GGML_CUDA_NAME + std::to_string(i);
+            dev->description = prop.name;
+            dev->pci_bus_id = std::format("{:04x}:{:02x}:{:02x}.0", prop.pciDomainID, prop.pciBusID, prop.pciDeviceID);
+            dev->op_offload_min_batch_size = min_batch_size;
+            devices.push_back(dev);
+        }
+    }
 }
 
-ggml_backend_buffer_type* ggml_backend_cuda_device::get_buffer_type()
+std::string_view backend_cuda_reg::get_name()
 {
-    return ggml_backend_cuda_buffer_type(device);
+    return GGML_CUDA_NAME;
 }
 
 std::span<const ggml_backend_feature> backend_cuda_reg::get_features()

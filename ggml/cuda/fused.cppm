@@ -6,7 +6,7 @@ module ggml:cuda.fused;
 import :ds;
 
 namespace fused
-{;
+{
 	bool should_mul_mat_vec_f(const ggml_tensor* tensor);
 	bool should_mul_mat_vec_q(const ggml_tensor* tensor);
 
