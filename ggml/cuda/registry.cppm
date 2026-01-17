@@ -14,7 +14,6 @@ export module ggml:cuda.registry;
 import :ds;
 import :log;
 import :tensor;
-import :cuda.buffer;
 import :cuda.buffer_type;
 
 static int64_t get_op_batch_size(const ggml_tensor* op) {
@@ -72,10 +71,7 @@ public:
         return ggml_backend_cuda_init(device);
     }
 
-    ggml_backend_buffer_type* get_buffer_type() override
-    {
-        return ggml_backend_cuda_buffer_type(device);
-    }
+    ggml_backend_buffer_type* get_buffer_type() override;
 
     ggml_backend_buffer_type* get_host_buffer_type() override
     {

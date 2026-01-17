@@ -6,6 +6,7 @@ module;
 
 module ggml;
 import :host_buffer;
+import :cuda.buffer;
 import :cuda.buffer_type;
 
 static void* ggml_cuda_host_malloc(size_t size) {

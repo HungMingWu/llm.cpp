@@ -34,7 +34,6 @@ target_sources(libggml
     FILE_SET primary_cuda_interface
     TYPE CXX_MODULES
     FILES
-      buffer.cppm
       buffer_type.cppm
       registry.cppm
   PRIVATE
@@ -42,6 +41,7 @@ target_sources(libggml
     TYPE CXX_MODULES
     FILES
       backend.cppm
+      buffer.cppm
       op.cppm
       fused.cppm
       utils.cppm

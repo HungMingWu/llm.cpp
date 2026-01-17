@@ -3,6 +3,7 @@ module;
 #define GGML_ASSERT(...)
 
 module ggml;
+import :cuda.buffer;
 import :cuda.buffer_type;
 
 bool cuda_backend_buffer::cpy_tensor(const ggml_tensor* src, ggml_tensor* dst)

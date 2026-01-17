@@ -103,6 +103,11 @@ static bool ggml_backend_cuda_get_available_uma_memory(long* available_memory_kb
 }
 #endif // defined(__linux__)
 
+ggml_backend_buffer_type* ggml_backend_cuda_device::get_buffer_type()
+{
+    return ggml_backend_cuda_buffer_type(device);
+}
+
 std::span<const ggml_backend_feature> backend_cuda_reg::get_features()
 {
     static std::vector<ggml_backend_feature> features = []() {

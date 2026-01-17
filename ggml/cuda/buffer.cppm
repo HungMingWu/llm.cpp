@@ -9,7 +9,7 @@ module;
 
 #define GGML_ASSERT(...)
 
-export module ggml:cuda.buffer;
+module ggml:cuda.buffer;
 import :cuda.buffer_type;
 import :ds;
 import :tensor;
@@ -182,8 +182,6 @@ public:
 	void get_tensor(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
 };
 
-export
-{
 	ggml_backend_buffer_type* ggml_backend_cuda_buffer_type(int device) {
 		if (device >= ggml_backend_cuda_get_device_count()) {
 			return nullptr;
@@ -209,4 +207,3 @@ export
 	cuda_split_backend_buffer_type* to_split_buffer_type(ggml_backend_buffer_type* buft) {
 		return dynamic_cast<cuda_split_backend_buffer_type*>(buft);
 	};
-}
