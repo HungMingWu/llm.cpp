@@ -6,36 +6,36 @@ template <typename T> __global__ void divide_by_count(T* result, size_t count) {
     *result /= static_cast<T>(count);
 }
 
-void mean_cuda(ggml_cuda_pool& pool, const float* src0_d, float* dst_d, const int64_t ncols, const int64_t nrows, cudaStream_t stream) {
+void mean_cuda(const mean_context& ctx, cudaStream_t stream) {
     // Special case for reducing vectors
-#ifdef USE_CUDA_GRAPH
-    cudaStreamCaptureStatus iscapturing;
-    CUDA_CHECK(cudaStreamIsCapturing(stream, &iscapturing));
-#endif // USE_CUDA_GRAPH
-    if ((nrows == 1) &&
-#ifdef USE_CUDA_GRAPH
-        // CUDA_GRAPHS_DISABLED
-        ((ncols > 65536) &&
-            ((ctx.cuda_graph->instance == nullptr) && (iscapturing == cudaStreamCaptureStatusNone) ||
-                ctx.cuda_graph->is_enabled())) ||
-        // CUDA_GRAPHS ENABLED
-        ((ncols > 32768) &&
-            !((ctx.cuda_graph->instance == nullptr) && (iscapturing == cudaStreamCaptureStatusNone) ||
-                ctx.cuda_graph->is_enabled()))) {
-#else
-        (ncols > 65536)) {
-#endif // USE_CUDA_GRAPH
+    const bool is_special_case = [=]() {
+        if (ctx.nrows != 1) return false;
+        if constexpr (use_cuda_graph_v) {
+            cudaStreamCaptureStatus iscapturing;
+            CUDA_CHECK(cudaStreamIsCapturing(stream, &iscapturing));
+
+            const bool cuda_graph_enabled = !ctx.cuda_graph_exists && iscapturing == cudaStreamCaptureStatusNone || ctx.cuda_graph_enable;
+
+            if (ctx.ncols > 65536 && cuda_graph_enabled) return true; // CUDA_GRAPHS_DISABLED
+            if (ctx.ncols > 32768 && !cuda_graph_enabled) return true;  // CUDA_GRAPHS ENABLED
+            return false;
+        }
+        else {
+            return ctx.ncols > 65536;
+        }
+    }();
+    if (is_special_case) {
         // Single row - use device-wide reduction
         size_t           tmp_size = 0;
 
-        DeviceReduce::Sum(nullptr, tmp_size, src0_d, dst_d, ncols, stream);
+        DeviceReduce::Sum(nullptr, tmp_size, ctx.src0_d, ctx.dst_d, ctx.ncols, stream);
 
-        ggml_cuda_pool_alloc<uint8_t> tmp_alloc(pool, tmp_size);
-        DeviceReduce::Sum(tmp_alloc.ptr, tmp_size, src0_d, dst_d, ncols, stream);
+        ggml_cuda_pool_alloc<uint8_t> tmp_alloc(ctx.pool, tmp_size);
+        DeviceReduce::Sum(tmp_alloc.ptr, tmp_size, ctx.src0_d, ctx.dst_d, ctx.ncols, stream);
 
         // Divide by ncols
-        divide_by_count<float> << <1, 1, 0, stream >> > (dst_d, ncols);
+        divide_by_count<float> << <1, 1, 0, stream >> > (ctx.dst_d, ctx.ncols);
         return;
     }
-    mean_fallback(src0_d, dst_d, ncols, nrows, stream);
+    mean_fallback(ctx, stream);
 }

@@ -526,4 +526,20 @@ namespace op {
         soft_max_f32_cuda(ctx, stream);
     }
 
+    void mean(ggml_cuda_pool& pool, cudaStream_t stream, bool cuda_graph_exists, bool cuda_graph_enable, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+        GGML_ASSERT(ggml_is_contiguous(src0));
+        mean_context ctx{
+            .pool = pool,
+            .src0_d = (const float*)src0->data,
+            .dst_d = (float*)dst->data,
+            .ncols = src0->ne[0],
+            .nrows = ggml_nrows(src0),
+            .cuda_graph_exists = cuda_graph_exists,
+            .cuda_graph_enable = cuda_graph_enable
+        };
+        mean_cuda(ctx, stream);
+    }
 }

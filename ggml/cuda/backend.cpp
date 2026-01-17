@@ -1,9 +1,11 @@
 module;
 #include <assert.h>
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -21,6 +23,13 @@ module ggml;
 import :cuda.backend;
 import :cuda.fused;
 import :cuda.op;
+
+// destroying a cuBLAS handle while a graph is being captured in a different thread can result in a CUDA error
+// this lock is used to ensure that no cuBLAS handle is destroyed while a graph is being captured
+
+static std::mutex ggml_cuda_lock;
+static std::condition_variable ggml_cuda_lock_cv;
+static std::atomic<int> ggml_cuda_lock_counter;
 
 static void ggml_cuda_op_mul_mat_q(
     ggml_backend_cuda& ctx,
@@ -1322,6 +1331,33 @@ void ggml_backend_cuda::synchronize()
     CUDA_CHECK(cudaStreamSynchronize(stream()));
 }
 
+static void ggml_cuda_graph_update_executable(ggml_cuda_graph& cuda_graph) {
+#if CUDART_VERSION >= 12000
+    cudaGraphExecUpdateResultInfo result_info;
+    cudaError_t stat = cudaGraphExecUpdate(cuda_graph.instance, cuda_graph.graph, &result_info);
+#else
+    cudaGraphNode_t errorNode;
+    cudaGraphExecUpdateResult result_info;
+    cudaError_t stat = cudaGraphExecUpdate(cuda_graph.instance, cuda_graph.graph, &errorNode, &result_info);
+#endif // CUDART_VERSION >= 12000
+
+    if (stat == cudaErrorGraphExecUpdateFailure) {
+#ifndef NDEBUG
+        GGML_LOG_DEBUG("{}: CUDA graph update failed", __func__);
+#endif
+
+        // The pre-existing graph exec cannot be updated due to violated constraints
+        // so instead clear error and re-instantiate
+        (void)cudaGetLastError();
+        CUDA_CHECK(cudaGraphExecDestroy(cuda_graph.instance));
+        cuda_graph.instance = nullptr;
+        CUDA_CHECK(cudaGraphInstantiate(&cuda_graph.instance, cuda_graph.graph, NULL, NULL, 0));
+    }
+    else {
+        GGML_ASSERT(stat == cudaSuccess);
+    }
+}
+
 void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bool use_cuda_graph, const bool cuda_graph_update_required)
 {
     bool graph_evaluated_or_captured = false;
@@ -1782,14 +1818,13 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
         }
 
         if constexpr (use_cuda_graph_v) {
-#ifdef USE_CUDA_GRAPH
             if (use_cuda_graph && cuda_graph_update_required) { // End CUDA graph capture
-                if (cuda_ctx->cuda_graph->graph != nullptr) {
-                    CUDA_CHECK(cudaGraphDestroy(cuda_ctx->cuda_graph->graph));
-                    cuda_ctx->cuda_graph->graph = nullptr;
+                if (cuda_graph->graph != nullptr) {
+                    CUDA_CHECK(cudaGraphDestroy(cuda_graph->graph));
+                    cuda_graph->graph = nullptr;
                 }
 
-                CUDA_CHECK(cudaStreamEndCapture(cuda_ctx->stream(), &cuda_ctx->cuda_graph->graph));
+                CUDA_CHECK(cudaStreamEndCapture(stream(), &cuda_graph->graph));
                 graph_evaluated_or_captured = true; // CUDA graph has been captured
 
                 std::lock_guard<std::mutex> lock(ggml_cuda_lock);
@@ -1800,27 +1835,200 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
             else {
                 graph_evaluated_or_captured = true; // ggml graph has been directly evaluated
             }
-        }
-
-        if (use_cuda_graph) {
-            if (cuda_ctx->cuda_graph->instance == nullptr) { // Create executable graph from captured graph.
-                CUDA_CHECK(cudaGraphInstantiate(&cuda_ctx->cuda_graph->instance, cuda_ctx->cuda_graph->graph, NULL, NULL, 0));
-            }
-
-            // Perform update to graph (if required for this token), and change copy parameter (required for every token)
-            maintain_cuda_graph(cuda_ctx, ggml_cuda_cpy_fn_ptrs, cuda_graph_update_required);
-
-            // Update graph executable
-            update_cuda_graph_executable(cuda_ctx);
-
-            // Launch graph
-            CUDA_CHECK(cudaGraphLaunch(cuda_ctx->cuda_graph->instance, cuda_ctx->stream()));
-#endif  // USE_CUDA_GRAPH
-        }
-        else {
+        } else {
             graph_evaluated_or_captured = true;
         }
     }
+
+    if constexpr (use_cuda_graph_v) {
+        if (use_cuda_graph) {
+            if (cuda_graph->instance == nullptr) { // Create executable graph from captured graph.
+                CUDA_CHECK(cudaGraphInstantiate(&cuda_graph->instance, cuda_graph->graph, NULL, NULL, 0));
+            }
+            if (cuda_graph_update_required) { // Update graph executable
+                ggml_cuda_graph_update_executable(*cuda_graph);
+            }
+            // Launch graph
+            CUDA_CHECK(cudaGraphLaunch(cuda_graph->instance, stream()));
+        }
+    }
+}
+
+static bool ggml_cuda_graph_set_enabled(int device, std::unique_ptr<ggml_cuda_graph>& cuda_graph) {
+    if constexpr (use_cuda_graph_v) {
+        if (cuda_graph == nullptr) {
+            cuda_graph.reset(new ggml_cuda_graph());
+        }
+
+        if (cuda_graph->graph == nullptr) {
+            if (ggml_cuda_info().devices[device].cc < GGML_CUDA_CC_AMPERE) {
+                cuda_graph->disable_due_to_gpu_arch = true;
+                GGML_LOG_DEBUG("{}: disabling CUDA graphs due to GPU architecture\n", __func__);
+            }
+        }
+        return cuda_graph->is_enabled();
+    }
+    else {
+        return false;
+    }
+}
+
+static bool ggml_cuda_graph_node_properties_match(ggml_tensor* node, ggml_cuda_graph_node_properties* props) {
+    if (node->data != props->node_address &&
+        node->op != GGML_OP_VIEW) {
+        return false;
+    }
+
+    if (node->op != props->node_op) {
+        return false;
+    }
+
+    for (int i = 0; i < GGML_MAX_DIMS; i++) {
+        if (node->ne[i] != props->ne[i]) {
+            return false;
+        }
+        if (node->nb[i] != props->nb[i]) {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < GGML_MAX_SRC; i++) {
+        if (node->src[i] &&
+            node->src[i]->data != props->src_address[i] &&
+            node->op != GGML_OP_VIEW
+            ) {
+            return false;
+        }
+    }
+
+    if ((node->op == GGML_OP_SCALE || node->op == GGML_OP_GLU) &&
+        memcmp(props->op_params, node->op_params, GGML_MAX_OP_PARAMS) != 0) {
+        return false;
+    }
+
+    return true;
+}
+
+static void ggml_cuda_graph_node_set_properties(ggml_cuda_graph_node_properties* props, ggml_tensor* node) {
+    props->node_address = node->data;
+    props->node_op = node->op;
+    for (int i = 0; i < GGML_MAX_DIMS; i++) {
+        props->ne[i] = node->ne[i];
+        props->nb[i] = node->nb[i];
+    }
+    for (int i = 0; i < GGML_MAX_SRC; i++) {
+        props->src_address[i] = node->src[i] ? node->src[i]->data : nullptr;
+    }
+    memcpy(props->op_params, node->op_params, GGML_MAX_OP_PARAMS);
+}
+
+static bool ggml_cuda_graph_update_required(ggml_cuda_graph* cuda_graph, ggml_cgraph* cgraph) {
+    bool res = false;
+
+    if (cuda_graph->instance == nullptr) {
+        res = true;
+    }
+
+    // Check if the graph size has changed
+    if (cuda_graph->props.size() != (size_t)cgraph->nodes.size() + cgraph->leafs.size()) {
+        res = true;
+        cuda_graph->props.resize(cgraph->nodes.size() + cgraph->leafs.size());
+    }
+
+    // Loop over nodes in GGML graph to determine if CUDA graph update is required
+    // and store properties to allow this comparison for the next token
+    for (int i = 0; i < cgraph->nodes.size(); i++) {
+        bool props_match = true;
+        if (!res) {
+            props_match = ggml_cuda_graph_node_properties_match(cgraph->nodes[i], &cuda_graph->props[i]);
+        }
+        if (!props_match) {
+            res = true;
+        }
+        ggml_cuda_graph_node_set_properties(&cuda_graph->props[i], cgraph->nodes[i]);
+    }
+
+    for (int i = 0; i < cgraph->leafs.size(); i++) {
+        bool props_match = true;
+        if (!res) {
+            props_match = ggml_cuda_graph_node_properties_match(cgraph->leafs[i], &cuda_graph->props[cgraph->nodes.size() + i]);
+        }
+        if (!props_match) {
+            res = true;
+        }
+        ggml_cuda_graph_node_set_properties(&cuda_graph->props[cgraph->nodes.size() + i], cgraph->leafs[i]);
+    }
+
+    return res;
+}
+
+static bool ggml_cuda_graph_check_compability(ggml_cgraph* cgraph) {
+
+    bool use_cuda_graph = true;
+    // Loop over nodes in GGML graph to obtain info needed for CUDA graph
+
+    const std::string gemma3n_per_layer_proj_src0_name = "inp_per_layer_selected";
+    const std::string gemma3n_per_layer_proj_src1_name = "per_layer_proj";
+    const std::string ffn_moe_gate_bias_prefix = "ffn_moe_gate_biased";
+    const std::string ffn_moe_up_bias_prefix = "ffn_moe_up_biased";
+    const std::string ffn_moe_down_bias_prefix = "ffn_moe_down_biased";
+    const std::string nemotron_h_block_out_prefix = "nemotron_h_block_out";
+    const std::string mamba2_y_add_d_prefix = "mamba2_y_add_d";
+
+    for (int i = 0; i < cgraph->nodes.size(); i++) {
+        ggml_tensor* node = cgraph->nodes[i];
+
+        if (ggml_is_empty(node) || node->op == GGML_OP_RESHAPE || node->op == GGML_OP_TRANSPOSE || node->op == GGML_OP_VIEW || node->op == GGML_OP_PERMUTE || node->op == GGML_OP_NONE) {
+            continue;
+        }
+
+        const bool is_cuda_split_buffer_type = [=]() {
+            if (!node->src[0]) return false;
+            if (!node->src[0]->buffer) return false;
+            auto type = node->src[0]->buffer->get_type();
+            return dynamic_cast<cuda_split_backend_buffer_type*>(type) != nullptr;
+
+        }();
+        if (is_cuda_split_buffer_type) {
+            use_cuda_graph = false; // Split buffers are not supported by CUDA graph capture
+#ifndef NDEBUG
+            GGML_LOG_DEBUG("%s: disabling CUDA graphs due to split buffer\n", __func__);
+#endif
+        }
+
+        if (node->op == GGML_OP_MUL_MAT_ID && node->ne[2] != 1) {
+            use_cuda_graph = false; // This node type is not supported by CUDA graph capture
+#ifndef NDEBUG
+            GGML_LOG_DEBUG("%s: disabling CUDA graphs due to unsupported node type\n", __func__);
+#endif
+        }
+
+        if (node->op == GGML_OP_ADD &&
+            node->src[1] && node->src[1]->ne[1] > 1 &&
+            (node->src[0] ? node->src[0]->name != gemma3n_per_layer_proj_src0_name : true) &&
+            (node->src[1] ? node->src[1]->name != gemma3n_per_layer_proj_src1_name : true) &&
+            !node->name.starts_with(ffn_moe_gate_bias_prefix) &&
+            !node->name.starts_with(ffn_moe_up_bias_prefix) &&
+            !node->name.starts_with(ffn_moe_down_bias_prefix) &&
+            !node->name.starts_with(nemotron_h_block_out_prefix) &&
+            !node->name.starts_with(mamba2_y_add_d_prefix)) {
+            // disable CUDA graphs for batch size > 1 for now while excluding the matrix-matrix addition as part of Gemma3n's `project_per_layer_input` operation
+            // by means of matching node names. See
+            // https://github.com/ggml-org/llama.cpp/blob/f9a31eea06a859e34cecb88b4d020c7f03d86cc4/src/llama-model.cpp#L10199-L10241 and
+            // https://github.com/huggingface/transformers/blob/bda75b4011239d065de84aa3e744b67ebfa7b245/src/transformers/models/gemma3n/modeling_gemma3n.py#L1773,
+            // Generally, changes in batch size or context size can cause changes to the grid size of some kernels.
+            use_cuda_graph = false;
+#ifndef NDEBUG
+            GGML_LOG_DEBUG("%s: disabling CUDA graphs due to batch size > 1 [%s] [%ld %ld %ld %ld]\n", __func__, node->name, node->ne[0], node->ne[1], node->ne[2], node->ne[3]);
+#endif
+        }
+
+        if (!use_cuda_graph) {
+            break;
+        }
+    }
+
+    return use_cuda_graph;
 }
 
 enum ggml_status ggml_backend_cuda::graph_compute_impl(ggml_cgraph* cgraph)
@@ -1830,28 +2038,25 @@ enum ggml_status ggml_backend_cuda::graph_compute_impl(ggml_cgraph* cgraph)
     bool use_cuda_graph = false;
     bool cuda_graph_update_required = false;
 
-#ifdef USE_CUDA_GRAPH
-    use_cuda_graph = ggml_cuda_graph_set_enabled(cuda_ctx);
+    if constexpr (use_cuda_graph_v) {
+        use_cuda_graph = ggml_cuda_graph_set_enabled(device, cuda_graph);
 
-    if (cuda_ctx->cuda_graph->is_enabled()) {
-        cuda_graph_update_required = ggml_cuda_graph_update_required(cuda_ctx, cgraph);
-        use_cuda_graph = ggml_cuda_graph_check_compability(cgraph);
+        if (cuda_graph->is_enabled()) {
+            cuda_graph_update_required = ggml_cuda_graph_update_required(cuda_graph.get(), cgraph);
+            use_cuda_graph = ggml_cuda_graph_check_compability(cgraph);
 
-        cuda_ctx->cuda_graph->record_update(use_cuda_graph, cuda_graph_update_required);
+            cuda_graph->record_update(use_cuda_graph, cuda_graph_update_required);
+        }
     }
-#endif // USE_CUDA_GRAPH
 
     if (use_cuda_graph && cuda_graph_update_required) {
-        // TODO
-#if 0
         // Start CUDA graph capture
         {
             std::lock_guard<std::mutex> lock(ggml_cuda_lock);
             ggml_cuda_lock_counter.fetch_add(1, std::memory_order_relaxed);
         }
 
-        CUDA_CHECK(cudaStreamBeginCapture(cuda_ctx->stream(), cudaStreamCaptureModeRelaxed));
-#endif
+        CUDA_CHECK(cudaStreamBeginCapture(stream(), cudaStreamCaptureModeRelaxed));
     }
 
     graph_evaluate_and_capture(cgraph, use_cuda_graph, cuda_graph_update_required);
@@ -2086,9 +2291,26 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     case GGML_OP_SUM_ROWS:
         op::sum_rows(stream(), dst);
         break;
-    case GGML_OP_MEAN:
-        op::mean(pool(), stream(), dst);
+    case GGML_OP_MEAN: {
+        const bool cuda_graph_exists = [=]() {
+            if constexpr (use_cuda_graph_v) {
+                return cuda_graph->instance != nullptr;
+            }
+            else {
+                return false;
+            }
+        }();
+        const bool cuda_graph_enable = [=]() {
+            if constexpr (use_cuda_graph_v) {
+                return cuda_graph->is_enabled();
+            }
+            else {
+                return false;
+            }
+        }();
+        op::mean(pool(), stream(), cuda_graph_exists, cuda_graph_enable, dst);
         break;
+    }
     case GGML_OP_SSM_CONV:
         op::ssm_conv(stream(), dst);
         break;
@@ -2149,13 +2371,6 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     return true;
 }
 
-// destroying a cuBLAS handle while a graph is being captured in a different thread can result in a CUDA error
-// this lock is used to ensure that no cuBLAS handle is destroyed while a graph is being captured
-
-static std::mutex ggml_cuda_lock;
-static std::condition_variable ggml_cuda_lock_cv;
-static std::atomic<int> ggml_cuda_lock_counter;
-
 ggml_backend_cuda::~ggml_backend_cuda()
 {
     std::unique_lock<std::mutex> lock(ggml_cuda_lock);
@@ -2179,18 +2394,18 @@ ggml_backend_cuda::~ggml_backend_cuda()
 bool ggml_backend_cuda::graph_set_enabled() {
 #ifdef USE_CUDA_GRAPH
 
-    if (cuda_ctx->cuda_graph == nullptr) {
-        cuda_ctx->cuda_graph.reset(new ggml_cuda_graph());
+    if (cuda_graph == nullptr) {
+        cuda_graph.reset(new ggml_cuda_graph());
     }
 
-    if (cuda_ctx->cuda_graph->graph == nullptr) {
-        if (ggml_cuda_info().devices[cuda_ctx->device].cc < GGML_CUDA_CC_AMPERE) {
-            cuda_ctx->cuda_graph->disable_due_to_gpu_arch = true;
+    if (cuda_graph->graph == nullptr) {
+        if (ggml_cuda_info().devices[device].cc < GGML_CUDA_CC_AMPERE) {
+            cuda_graph->disable_due_to_gpu_arch = true;
             GGML_LOG_DEBUG("%s: disabling CUDA graphs due to GPU architecture\n", __func__);
         }
     }
 
-    return cuda_ctx->cuda_graph->is_enabled();
+    return cuda_graph->is_enabled();
 #else
     return false;
 #endif // USE_CUDA_GRAPH

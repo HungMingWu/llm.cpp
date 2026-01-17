@@ -43,8 +43,9 @@ target_sources(libggml
       buffer.cppm
       buffer_type.cppm
       device.cppm
-      op.cppm
       fused.cppm
+      graph.cppm
+      op.cppm
       registry.cppm
       utils.cppm
   PRIVATE
