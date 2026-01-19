@@ -693,10 +693,37 @@ namespace chatllm
         Accessor layers;
     };
 
+    class LMFinalStepsDisabler;
+
     class LMFinalSteps : public ModelFinalSteps
     {
     public:
+        friend LMFinalStepsDisabler;
         ggml::tensor* forward(HeterogeneousModel* model, ComputeContext* ctx, ggml::tensor* input_ids, ggml::tensor* hidden_states) override;
+        void set_read_last_n(int n);
+        void set_do_orderring(bool flag);   // descending
+        ggml::tensor* get_orderring_result(void);
+    protected:
+        bool do_orderring = false;
+        int last_n = 1;
+        ggml::tensor* order = nullptr;
+        bool disable_head = false;
+    };
+
+    class LMFinalStepsDisabler
+    {
+    public:
+        LMFinalStepsDisabler(LMFinalSteps* target, bool active = true) : target(target), state(target->disable_head)
+        {
+            target->disable_head = active;
+        }
+        ~LMFinalStepsDisabler()
+        {
+            target->disable_head = state;
+        }
+    private:
+        LMFinalSteps* target;
+        bool state;
     };
 
     class EmbeddingPoolingFinalSteps : public ModelFinalSteps

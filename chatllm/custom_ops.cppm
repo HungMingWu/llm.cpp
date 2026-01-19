@@ -1053,3 +1053,58 @@ task_vector ggml_custom_int_to_i64(ggml_tensor* dst)
         std::unreachable();
     }
 }
+
+static task_vector ggml_custom_logsumexp_f32(ggml_tensor* dst, const ggml_tensor* src0)
+{
+    const int64_t nr = ggml::nrows(dst);
+    const int64_t ir0 = 0;
+    const int64_t ir1 = nr;
+
+    CHATLLM_CHECK(src0->nb[0] == sizeof(float));
+
+    task_vector tasks;
+    tasks.emplace_back([=] {
+        // row index used to determine which thread to use
+        int ir = 0;
+        for (int64_t i3 = 0; i3 < dst->ne[3]; i3++) {
+            for (int64_t i2 = 0; i2 < dst->ne[2]; i2++) {
+                for (int64_t i1 = 0; i1 < dst->ne[1]; i1++) {
+                    if (ir++ < ir0) continue;
+                    if (ir > ir1) break;
+
+                    const float* const src = (float*)((char*)src0->data + i3 * src0->nb[3] + i2 * src0->nb[2] + i1 * src0->nb[1]);
+                    float* dst_data = (float*)((char*)dst->data + i3 * dst->nb[3] + i2 * dst->nb[2] + i1 * dst->nb[1]);
+
+                    float m = -INFINITY;
+                    for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
+                        if (src[i0] > m) m = src[i0];
+                    }
+                    
+                    float sum = 0.0f;
+                    for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
+                        sum += expf(src[i0] - m);
+                    }
+                    
+                    float v = logf(sum) + m;
+                    dst_data[0] = v;
+                }
+            }
+        }
+    });
+    return tasks;
+}
+
+struct ggml_custom_logsumexp {
+    task_vector operator()(ggml_tensor* dst)
+    {
+        const ggml_tensor* src0 = dst->src[0];
+        switch (dst->type)
+        {
+        case GGML_TYPE_I32:
+            CHATLLM_CHECK(ggml::type_of(dst) == ggml::type::GGML_TYPE_I32);
+            return ggml_custom_logsumexp_f32(dst, src0);
+        default:
+            std::unreachable();
+        }
+    }
+};

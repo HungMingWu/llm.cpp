@@ -813,6 +813,13 @@ namespace chatllm
         return tensor;
     }
 
+    ggml::tensor* ggml::ordering(ComputeContext* ctx, ggml::tensor* a, bool descending)
+    {
+        ggml::tensor* tensor = ggml_argsort(ctx->get_ctx(), a, descending ? GGML_SORT_ORDER_DESC : GGML_SORT_ORDER_ASC);
+        ctx->cb_op_tensor(tensor);
+        return tensor;
+    }
+
     ggml::tensor* ggml::cpy(ComputeContext* ctx, ggml::tensor* src, ggml::tensor* dst)
     {
         ggml::tensor* tensor = ggml_cpy(ctx->get_ctx(), src, dst);
@@ -921,6 +928,34 @@ namespace chatllm
     ggml::tensor* ggml::xielu(ComputeContext* ctx, ggml::tensor* input, float alpha_n, float alpha_p, float beta, float eps)
     {
         return ggml::map_custom(ctx, { input }, ggml_custom_xielu{ alpha_p, alpha_n, beta, eps });
+    }
+
+    ggml::tensor* ggml::logsumexp(ComputeContext* ctx, ggml::tensor* a)
+    {
+        return custom(ctx, ggml::type::GGML_TYPE_F32,
+            { 1, ggml::get_dim(a, 1), ggml::get_dim(a, 2), ggml::get_dim(a, 3) }, { a }, ggml_custom_logsumexp{});
+    }
+
+    ggml::tensor* ggml::categorical_entropy(ComputeContext* ctx, ggml::tensor* probs, ggml::tensor* logits)
+    {
+        CHATLLM_CHECK((probs != nullptr) ^ (logits != nullptr));
+        if (logits)
+        {
+            auto lsp = ggml::logsumexp(ctx, logits);
+            logits = ggml::sub(ctx, logits, lsp, false);
+            probs = ggml::soft_max(ctx, logits, false);
+        }
+
+        // else
+
+        {
+            logits = ctx->log(probs);
+        }
+
+        auto p_log_p = ggml::mul(ctx, logits, probs, false);
+        auto r = ggml::sum_rows(ctx, p_log_p);
+        r = ggml::scale(ctx, r, -1.0f, false);
+        return r;
     }
 
     ggml::tensor* ggml::map_custom(ComputeContext* ctx, std::initializer_list<ggml::tensor*> srcs, ggml_custom_op_cb fun)

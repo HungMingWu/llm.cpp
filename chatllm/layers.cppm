@@ -92,6 +92,7 @@ export namespace chatllm
         ggml::tensor* randn(ComputeContext* ctx, ggml::type type, int64_t ne0, int64_t ne1 = 1, int64_t ne2 = 1, int64_t ne3 = 1);
 
         ggml::tensor* top_k(ComputeContext* ctx, ggml::tensor* a, int k);
+        ggml::tensor* ordering(ComputeContext* ctx, ggml::tensor* a, bool descending = false);
 
         ggml::tensor* view_1d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, size_t offset);
         ggml::tensor* view_2d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1, size_t nb1, size_t offset);
@@ -173,6 +174,11 @@ export namespace chatllm
         ggml::tensor* swiglu_oai(ComputeContext* ctx, ggml::tensor* gate, ggml::tensor* up, float alpha, float limit);
 
         ggml::tensor* xielu(ComputeContext* ctx, ggml::tensor* input, float alpha_n, float alpha_p, float beta, float eps);
+
+        ggml::tensor* logsumexp(ComputeContext* ctx, ggml::tensor* a);
+
+        // accept either probs or logits, but not both
+        ggml::tensor* categorical_entropy(ComputeContext* ctx, ggml::tensor* probs, ggml::tensor* logits);
 
         ggml::tensor* map_custom(ComputeContext* ctx, std::initializer_list<ggml::tensor*> srcs, ggml_custom_op_cb fun);
 

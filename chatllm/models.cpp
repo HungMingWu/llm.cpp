@@ -925,6 +925,7 @@ namespace chatllm
             r = ggml::cpy(&ctx, r, t);
         }
 
+        ggml::set_output(r);
         ggml::build_forward_expand(&ctx, r);
 
         CHATLLM_CHECK(ctx.allocate()) << "failed to allocate memory";

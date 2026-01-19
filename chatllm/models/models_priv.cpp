@@ -120,7 +120,7 @@ namespace chatllm
             penalty.reset();
         }
 
-        virtual int sampling(std::span<float> logits) = 0;
+        virtual int sampling(std::span<float> logits, float* confidence_level = nullptr) = 0;
     public:
         LogitsPenalty penalty;
     protected:
@@ -138,7 +138,7 @@ namespace chatllm
             if (temp_en) inv_temp = 1.f / temperature;
         }
 
-        int sampling(std::span<float> logits) override
+        int sampling(std::span<float> logits, float* confidence_level) override
         {
             token_scores.resize(logits.size());
 
@@ -174,9 +174,11 @@ namespace chatllm
             }
 
             std::discrete_distribution<> dist(logits.data(), logits.data() + token_scores.size());
-            int next_token_id = token_scores[dist(gen)].id;
+            auto pos = dist(gen);
+            int next_token_id = token_scores[pos].id;
 
             penalty.accept_choice(next_token_id);
+            if (confidence_level) *confidence_level = token_scores[pos].score;
 
             return next_token_id;
         }
@@ -308,9 +310,20 @@ namespace chatllm
     class GreedySampler : public Sampler
     {
     public:
-        int sampling(std::span<float> logits) override
+        int sampling(std::span<float> logits, float* confidence_level) override
         {
-            return (int)(std::ranges::max_element(logits) - logits.begin());
+            int r = (int)(std::ranges::max_element(logits) - logits.begin());
+            if (confidence_level)
+            {
+                float max_score = *std::ranges::max_element(logits);
+                float sum = 0.f;
+                for (auto logit : logits)
+                {
+                    sum += expf(logit - max_score);
+                }
+                *confidence_level = expf(logits[r] - max_score) / sum;
+            }
+            return r;
         }
     };
 
@@ -642,6 +655,7 @@ namespace chatllm
                 r = ggml::scale(&ctx, r, logit_scale, false);
         }
 
+        ggml::set_output(r);
         ggml::build_forward_expand(&ctx, r);
 
         CHATLLM_CHECK(r->type == GGML_TYPE_F32) << "output type must be float: " << r->type;
@@ -916,15 +930,20 @@ namespace chatllm
     {
         const int qlen = ggml::get_dim(hidden_states, 1);
         const int batch = ggml::get_dim(hidden_states, 2);
-        hidden_states = ggml::view_3d(ctx, hidden_states, model->hidden_size, 1, batch,
+        const int last_n = qlen >= this->last_n ? this->last_n : qlen;
+        order = nullptr;
+
+        if (disable_head) return hidden_states;
+
+        hidden_states = ggml::view_3d(ctx, hidden_states, model->hidden_size, last_n, batch,
             ggml::row_size(hidden_states),
             ggml::row_size(hidden_states) * qlen,
-            (qlen - 1) * ggml::row_size(hidden_states));
+            (qlen - last_n) * ggml::row_size(hidden_states));
 
         ggml::tensor* transformer_outputs = model->final_layernorm->forward(ctx, hidden_states);
 
         // now, this is continous
-        transformer_outputs = ctx->reshape(transformer_outputs, { batch, ggml::get_dim(transformer_outputs, 0) });
+        transformer_outputs = ctx->reshape(transformer_outputs, { last_n * batch, ggml::get_dim(transformer_outputs, 0) });
 
         model->last_hidden_state = transformer_outputs;
         if (model->skip_lm_head)
@@ -935,6 +954,23 @@ namespace chatllm
 
         if (model->logits_pp)
             lm_logits = model->logits_pp->forward(ctx, lm_logits);
+
+        if (do_orderring)
+            order = ggml::ordering(ctx, lm_logits, true);
+
+        if ((last_n > 1) && (batch > 1))
+        {
+            lm_logits = ctx->reshape(lm_logits, { batch, last_n, ggml::get_dim(lm_logits, 0) });
+            if (order)
+                order = ctx->reshape(order, { batch, last_n, ggml::get_dim(order, 0) });
+        }
+
+        if (order)
+        {
+            ggml::set_output(order);
+            ggml::build_forward_expand(ctx, order);
+        }
+
         return lm_logits;
     }
 
@@ -985,6 +1021,7 @@ namespace chatllm
 
         ggml::get_shape(r, result_shape);
 
+        ggml::set_output(r);
         ggml::build_forward_expand(&ctx, r);
 
         CHATLLM_CHECK(ctx.allocate()) << "failed to allocate memory";
