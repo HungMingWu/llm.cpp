@@ -21,6 +21,12 @@ static constexpr bool ggml_musa_graphs_v = false;
 
 static constexpr bool use_cuda_graph_v = ggml_cuda_use_graphs_v | ggml_hip_graphs_v | ggml_musa_graphs_v;
 
+#if defined(GGML_CUDA_DEBUG)
+static constexpr bool ggml_cuda_debug_v = true;
+#else
+static constexpr bool ggml_cuda_debug_v = false;
+#endif
+
 // GGML_USE_HIP comes from CMake definition
 #ifdef GGML_USE_HIP
 static constexpr bool use_hip_v = true;

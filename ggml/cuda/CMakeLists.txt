@@ -1,6 +1,4 @@
 cmake_minimum_required(VERSION 3.18)  # for CMAKE_CUDA_ARCHITECTURES
-set(CUDA_FLAGS --expt-relaxed-constexpr -extended-lambda -Xcudafe --diag_suppress=737)
-
 file(READ "${CUDAToolkit_INCLUDE_DIRS}/cuda_runtime_api.h" CUDART_HEADER_CONTENTS)
 string(REGEX MATCH "#define CUDART_VERSION[ \t]+([0-9]+)" _ ${CUDART_HEADER_CONTENTS})
 set(CUDART_VERSION "${CMAKE_MATCH_1}")
@@ -16,18 +14,6 @@ if (NOT DEFINED GGML_USE_HIP AND NOT DEFINED GGML_USE_MUSA AND CUDART_VERSION GR
 else()
     set(CUDA_USE_CUB FALSE)
 endif()
-
-target_compile_definitions(libggml
-  PRIVATE
-    $<$<BOOL:GGML_CUDA_FORCE_MMQ>:GGML_CUDA_FORCE_MMQ>
-    $<$<BOOL:GGML_CUDA_FORCE_CUBLAS>:GGML_CUDA_FORCE_CUBLAS>
-    $<$<BOOL:GGML_CUDA_NO_VMM>:GGML_CUDA_NO_VMM>
-    $<$<NOT:$<BOOL:GGML_CUDA_NO_PEER_COPY>>:GGML_CUDA_NO_PEER_COPY>
-    $<$<NOT:$<BOOL:GGML_CUDA_FA>>:GGML_CUDA_NO_FA>
-    $<$<NOT:$<BOOL:GGML_CUDA_FA_ALL_QUANTS>>:GGML_CUDA_FA_ALL_QUANTS>
-    $<$<NOT:$<BOOL:GGML_CUDA_GRAPHS>>:GGML_CUDA_USE_GRAPHS>
-    GGML_CUDA_PEER_MAX_BATCH_SIZE=${GGML_CUDA_PEER_MAX_BATCH_SIZE}
-)
 
 target_sources(libggml
   PUBLIC
@@ -144,4 +130,27 @@ target_include_directories(libggml
 )
 
 target_link_libraries(libggml PRIVATE CUDA::cudart_static CUDA::cuda_driver CUDA::cublas)
-target_compile_options(libggml PRIVATE "$<$<COMPILE_LANGUAGE:CUDA>:${CUDA_FLAGS}>")
+
+target_compile_definitions(libggml
+  PRIVATE
+    $<$<NOT:$<BOOL:GGML_CUDA_DEBUG>>:GGML_CUDA_DEBUG>
+    $<$<BOOL:GGML_CUDA_FORCE_MMQ>:GGML_CUDA_FORCE_MMQ>
+    $<$<BOOL:GGML_CUDA_FORCE_CUBLAS>:GGML_CUDA_FORCE_CUBLAS>
+    $<$<BOOL:GGML_CUDA_NO_VMM>:GGML_CUDA_NO_VMM>
+    $<$<NOT:$<BOOL:GGML_CUDA_NO_PEER_COPY>>:GGML_CUDA_NO_PEER_COPY>
+    $<$<NOT:$<BOOL:GGML_CUDA_FA>>:GGML_CUDA_NO_FA>
+    $<$<NOT:$<BOOL:GGML_CUDA_FA_ALL_QUANTS>>:GGML_CUDA_FA_ALL_QUANTS>
+    $<$<NOT:$<BOOL:GGML_CUDA_GRAPHS>>:GGML_CUDA_USE_GRAPHS>
+    GGML_CUDA_PEER_MAX_BATCH_SIZE=${GGML_CUDA_PEER_MAX_BATCH_SIZE}
+)
+
+target_compile_options(libggml 
+    PRIVATE 
+    $<$<COMPILE_LANGUAGE:CUDA>:
+        --expt-relaxed-constexpr
+        -extended-lambda
+        -Xcudafe
+        --diag_suppress=737
+        $<$<NOT:$<BOOL:GGML_CUDA_DEBUG>>:-lineinfo>
+    >
+)
