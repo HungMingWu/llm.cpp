@@ -128,13 +128,12 @@ backend_cuda_reg::backend_cuda_reg(int api_version, void* context)
             continue;
         }
         else {
-            ggml_backend_cuda_device* dev = new ggml_backend_cuda_device(this);
-            dev->device = i;
-            dev->name = GGML_CUDA_NAME + std::to_string(i);
-            dev->description = prop.name;
-            dev->pci_bus_id = std::format("{:04x}:{:02x}:{:02x}.0", prop.pciDomainID, prop.pciBusID, prop.pciDeviceID);
-            dev->op_offload_min_batch_size = min_batch_size;
-            devices.push_back(dev);
+            ggml_backend_cuda_device& dev = devices.emplace_back(this);
+            dev.device = i;
+            dev.name = GGML_CUDA_NAME + std::to_string(i);
+            dev.description = prop.name;
+            dev.pci_bus_id = std::format("{:04x}:{:02x}:{:02x}.0", prop.pciDomainID, prop.pciBusID, prop.pciDeviceID);
+            dev.op_offload_min_batch_size = min_batch_size;
         }
     }
 }

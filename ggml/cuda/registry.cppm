@@ -11,14 +11,14 @@ import :cuda.buffer_type;
 import :cuda.device;
 
 class backend_cuda_reg : public ggml_backend_reg {
-    std::vector<ggml_backend_cuda_device*> devices;
+    std::vector<ggml_backend_cuda_device> devices;
 public:
     backend_cuda_reg(int api_version, void* context);
 
     std::string_view get_name() override;
 
     ggml_backend_device* get_device(size_t index) override {
-        return devices.at(index);
+        return &devices.at(index);
     }
 
 	void* get_proc_address(std::string_view name) override {
