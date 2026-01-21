@@ -108,8 +108,6 @@ public:
     }
 };
 
-#define GGML_BACKEND_API_VERSION 2
-
 ggml_backend_reg* ggml_backend_rpc_add_server(const char* endpoint)
 {
     static std::unordered_map<std::string, ggml_backend_reg_t> reg_map;
@@ -123,7 +121,7 @@ ggml_backend_reg* ggml_backend_rpc_add_server(const char* endpoint)
     if (dev_count == 0) {
         return nullptr;
     }
-    ggml_backend_rpc_reg* reg = new ggml_backend_rpc_reg(GGML_BACKEND_API_VERSION, nullptr);
+    ggml_backend_rpc_reg* reg = new ggml_backend_rpc_reg();
     reg->name = "RPC[" + std::string(endpoint) + "]";
     for (uint32_t ind = 0; ind < dev_count; ind++) {
         std::string dev_name = "RPC" + std::to_string(dev_id);

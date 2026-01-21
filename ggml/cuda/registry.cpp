@@ -13,7 +13,6 @@ module;
 #include <memory>
 #endif
 #define WARP_SIZE 32
-#define GGML_BACKEND_API_VERSION 2
 
 module ggml;
 import :cuda;
@@ -108,15 +107,12 @@ static bool ggml_backend_cuda_get_available_uma_memory(long* available_memory_kb
 #endif // defined(__linux__)
 
 ggml_backend_reg_t ggml_backend_cuda_reg() {
-    static backend_cuda_reg ggml_backend_cuda_reg = {
-        /* .api_version = */ GGML_BACKEND_API_VERSION,
-        /* .context     = */ nullptr,
-    };
+    static backend_cuda_reg ggml_backend_cuda_reg;
     return &ggml_backend_cuda_reg;
 }
 
-backend_cuda_reg::backend_cuda_reg(int api_version, void* context)
-    : ggml_backend_reg(api_version, context)
+backend_cuda_reg::backend_cuda_reg()
+    : ggml_backend_reg()
 {
     const int min_batch_size = getenv("GGML_OP_OFFLOAD_MIN_BATCH") ? atoi(getenv("GGML_OP_OFFLOAD_MIN_BATCH")) : 32;
     for (int i = 0; i < ggml_cuda_info().device_count; i++) {

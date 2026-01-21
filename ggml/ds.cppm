@@ -297,10 +297,10 @@ export {
 
     // Use for reflection later
     struct ggml_backend_reg {
-        int api_version; // initialize to GGML_BACKEND_API_VERSION
-        void* context;
+        static constexpr int API_VERSION = 2;
+        int api_version = API_VERSION;
     public:
-        ggml_backend_reg(int api_version, void* context) : api_version(api_version), context(context) {}
+        ggml_backend_reg() = default;
         virtual ~ggml_backend_reg() = default;
         virtual std::string_view get_name() = 0;
         virtual ggml_backend_device* get_device(size_t index) = 0;

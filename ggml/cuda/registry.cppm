@@ -13,7 +13,7 @@ import :cuda.device;
 class backend_cuda_reg : public ggml_backend_reg {
     std::vector<ggml_backend_cuda_device> devices;
 public:
-    backend_cuda_reg(int api_version, void* context);
+    backend_cuda_reg();
 
     std::string_view get_name() override;
 

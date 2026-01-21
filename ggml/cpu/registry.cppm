@@ -3,7 +3,6 @@ module;
 #include <span>
 #include <string_view>
 #define GGML_ASSERT(...)
-#define GGML_BACKEND_API_VERSION 2
 
 export module ggml:cpu.registry;
 import :ds;
@@ -57,14 +56,7 @@ public:
 export
 {
 	ggml_backend_reg_t ggml_backend_cpu_reg() {
-		// init CPU feature detection
-		//ggml_cpu_init();
-
-		static backend_cpu_reg ggml_backend_cpu_reg = {
-			/* .api_version = */ GGML_BACKEND_API_VERSION,
-			/* .context     = */ nullptr,
-		};
-
+		static backend_cpu_reg ggml_backend_cpu_reg;
 		return &ggml_backend_cpu_reg;
 	}
 }

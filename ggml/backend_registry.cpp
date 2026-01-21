@@ -4,8 +4,6 @@ module;
 #include <string>
 #include <vector>
 
-#define GGML_BACKEND_API_VERSION 1
-
 static std::string path_str(const std::filesystem::path& path) {
 	std::string u8path;
 	try {
@@ -113,14 +111,14 @@ ggml_backend_reg_t ggml_backend_registry::load_backend(const std::filesystem::pa
 	}
 
 	ggml_backend_reg_t reg = backend_init_fn();
-	if (!reg || reg->api_version != GGML_BACKEND_API_VERSION) {
+	if (!reg || reg->api_version != ggml_backend_reg::API_VERSION) {
 		if (!silent) {
 			if (!reg) {
 				GGML_LOG_ERROR("{}: failed to initialize backend from {}: ggml_backend_init returned NULL", __func__, path_str(path));
 			}
 			else {
 				GGML_LOG_ERROR("{}: failed to initialize backend from {}: incompatible API version (backend: {}, current: {})\n",
-					__func__, path_str(path), reg->api_version, GGML_BACKEND_API_VERSION);
+					__func__, path_str(path), reg->api_version, ggml_backend_reg::API_VERSION);
 			}
 		}
 		return nullptr;
