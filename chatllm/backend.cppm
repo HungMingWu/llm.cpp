@@ -409,6 +409,7 @@ export namespace chatllm
         UserOptions user_options;
 
         ggml::tensor* new_tensor(ggml::type type, std::initializer_list<int64_t> ne);
+        ggml::tensor* view(ggml::tensor* a, std::initializer_list<int64_t> ne, std::initializer_list<size_t> nb, size_t offset);
         ggml::tensor* reshape(ggml::tensor* a, std::initializer_list<int64_t> ne);
         ggml::tensor* sin(ggml::tensor* a);
         ggml::tensor* cos(ggml::tensor* a);

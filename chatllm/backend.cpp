@@ -853,6 +853,29 @@ namespace chatllm
         return tensor;
     }
 
+    ggml::tensor* ComputeContext::view(ggml::tensor* a, std::initializer_list<int64_t> ne, std::initializer_list<size_t> nb, size_t offset)
+    {
+        std::vector<int64_t> reverse_ne{ ne.begin(), ne.end() };
+        std::ranges::reverse(reverse_ne);
+        std::vector<size_t> reverse_nb{ nb.begin(), nb.end() };
+        std::ranges::reverse(reverse_nb);
+        ggml::tensor* tensor = [&]() {
+            if (reverse_ne.size() == 1)
+                return ggml_view(get_ctx(), a, { reverse_ne[0] }, {}, offset);
+            else if (reverse_ne.size() == 2)
+                return ggml_view(get_ctx(), a, { reverse_ne[0],  reverse_ne[1] }, { reverse_nb[0] }, offset);
+            else if (reverse_ne.size() == 3)
+                return ggml_view(get_ctx(), a, { reverse_ne[0],  reverse_ne[1],  reverse_ne[2] }, { reverse_nb[0], reverse_nb[1] }, offset);
+            else if (reverse_ne.size() == 4)
+                return ggml_view(get_ctx(), a,
+                    { reverse_ne[0],  reverse_ne[1],  reverse_ne[2], reverse_ne[3] },
+                    { reverse_nb[0], reverse_nb[1], reverse_nb[2] }, offset);
+            std::unreachable();
+        }();
+        cb_new_tensor(tensor);
+        return tensor;
+    }
+
     ggml::tensor* ComputeContext::reshape(ggml::tensor* a, std::initializer_list<int64_t> ne)
     {
         std::vector<int64_t> reverse_ne{ ne.begin(), ne.end() };

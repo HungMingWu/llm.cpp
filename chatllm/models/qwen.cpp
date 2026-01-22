@@ -1208,8 +1208,8 @@ namespace chatllm::qwen::vit
     {
         const int head_size = hidden_size / num_attention_heads;
 
-        ggml::tensor* sub_mask = mask ? ggml::view_2d(ctx, mask, qlen, qlen,
-            qlen * ggml::element_size(mask), 0) : nullptr;
+        ggml::tensor* sub_mask = mask ? ctx->view(mask, { qlen, qlen },
+            { qlen * ggml::element_size(mask) }, 0) : nullptr;
 
         ggml::tensor* attn_probs = ggml::soft_max_ext(ctx, attn_scores, sub_mask, 1.f / sqrtf((float)head_size), 0.0f);
         return attn_probs;
@@ -2031,7 +2031,7 @@ namespace chatllm::qwen::v3_ranker
         logits = ggml::get_rows(ctx, logits, yes_no_ids);
         logits = ctx->reshape(logits, { 2 });
         logits = ggml::soft_max(ctx, logits, false);
-        logits = ggml::view_1d(ctx, logits, 1, 0);
+        logits = ctx->view(logits, { 1 }, {}, 0);
         return logits;
     }
 
@@ -2329,10 +2329,9 @@ namespace chatllm::qwen::v3_vl::vit
 
                 CHATLLM_CHECK(ggml::get_dim(ds_feature, 0) == lm_hidden_size);
 
-                auto target = ggml::view_2d(ctx, deepstack_visual_embeds[idx].weight,
-                    lm_hidden_size,
-                    ggml::get_dim(ds_feature, 1),
-                    ggml::row_size(ds_feature),
+                auto target = ctx->view(deepstack_visual_embeds[idx].weight,
+                    { ggml::get_dim(ds_feature, 1), lm_hidden_size },
+                    { (size_t)ggml::row_size(ds_feature) },
                     ggml::element_size(deepstack_visual_embeds[idx].weight) * lm_hidden_size * ds_emb_offset);
                 ggml::build_forward_expand(ctx, ggml::cpy(ctx, ds_feature, target));
             }

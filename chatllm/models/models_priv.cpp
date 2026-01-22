@@ -938,9 +938,9 @@ namespace chatllm
 
         if (disable_head) return hidden_states;
 
-        hidden_states = ggml::view_3d(ctx, hidden_states, model->hidden_size, last_n, batch,
-            ggml::row_size(hidden_states),
-            ggml::row_size(hidden_states) * qlen,
+        hidden_states = ctx->view(hidden_states, { batch, last_n, model->hidden_size },
+            { (size_t)ggml::row_size(hidden_states) * qlen,
+              (size_t)ggml::row_size(hidden_states) },
             (qlen - last_n) * ggml::row_size(hidden_states));
 
         ggml::tensor* transformer_outputs = model->final_layernorm->forward(ctx, hidden_states);
@@ -986,8 +986,8 @@ namespace chatllm
 
     ggml::tensor* EmbeddingLastTokenFinalSteps::forward(HeterogeneousModel* model, ComputeContext* ctx, ggml::tensor* input_ids, ggml::tensor* hidden_states)
     {
-        hidden_states = ggml::view_2d(ctx, hidden_states, model->hidden_size, 1,
-            ggml::row_size(hidden_states),
+        hidden_states = ctx->view(hidden_states, { 1, model->hidden_size },
+            { (size_t)ggml::row_size(hidden_states) },
             (ggml::get_dim(input_ids, 0) - 1) * ggml::row_size(hidden_states));
         ggml::tensor* transformer_outputs = model->final_layernorm->forward(ctx, hidden_states);
         transformer_outputs = ggml::simple_norm(ctx, transformer_outputs, 1e-5f);

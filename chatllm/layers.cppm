@@ -95,11 +95,6 @@ export namespace chatllm
         ggml::tensor* top_k(ComputeContext* ctx, ggml::tensor* a, int k);
         ggml::tensor* ordering(ComputeContext* ctx, ggml::tensor* a, bool descending = false);
 
-        ggml::tensor* view_1d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, size_t offset);
-        ggml::tensor* view_2d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1, size_t nb1, size_t offset);
-        ggml::tensor* view_3d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1, int64_t ne2, size_t nb1, size_t nb2, size_t offset);
-        ggml::tensor* view_4d(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, size_t nb1, size_t nb2, size_t nb3, size_t offset);
-
         ggml::tensor* reshape(ComputeContext* ctx, ggml::tensor* a, int64_t ne0, int64_t ne1 = 1, int64_t ne2 = 1, int64_t ne3 = 1);
         ggml::tensor* flatten(ComputeContext* ctx, ggml::tensor* a);
 
@@ -1793,14 +1788,14 @@ export namespace chatllm
             const int remain = qlen - write_len;
 
             {
-                ggml::tensor* k_cache_view = ggml::view_1d(ctx, k_cache, write_len * k_hidden_size,
+                ggml::tensor* k_cache_view = ctx->view(k_cache, { write_len * k_hidden_size }, {},
                     ggml::row_size(k_cache) * write_offset);
 
-                ggml::tensor* v_cache_view = ggml::view_1d(ctx, v_cache, write_len * v_hidden_size,
+                ggml::tensor* v_cache_view = ctx->view(v_cache, { write_len * v_hidden_size }, {},
                     ggml::element_size(v_cache) * v_hidden_size * write_offset);
 
-                ggml::tensor* k_view = ggml::view_1d(ctx, k, write_len * k_hidden_size, 0);
-                ggml::tensor* v_view = ggml::view_1d(ctx, v, write_len * v_hidden_size, 0);
+                ggml::tensor* k_view = ctx->view(k, { write_len * k_hidden_size }, {}, 0);
+                ggml::tensor* v_view = ctx->view(v, { write_len * v_hidden_size }, {}, 0);
 
                 ggml::build_forward_expand(ctx, ggml::cpy(ctx, k_view, k_cache_view));
                 ggml::build_forward_expand(ctx, ggml::cpy(ctx, v_view, v_cache_view));
@@ -1808,17 +1803,13 @@ export namespace chatllm
 
             if (remain > 0)
             {
-                ggml::tensor* k_cache_view = ggml::view_1d(ctx, k_cache, remain * k_hidden_size,
-                    0);
+                ggml::tensor* k_cache_view = ctx->view(k_cache, { remain * k_hidden_size }, {}, 0);
 
-                ggml::tensor* v_cache_view = ggml::view_1d(ctx, v_cache, remain * v_hidden_size,
-                    0);
+                ggml::tensor* v_cache_view = ctx->view(v_cache, { remain * v_hidden_size }, {},  0);
 
-                ggml::tensor* k_view = ggml::view_1d(ctx, k, remain * k_hidden_size,
-                    write_len * k_hidden_size * ggml::element_size(k));
+                ggml::tensor* k_view = ctx->view(k, { remain * k_hidden_size }, {}, write_len * k_hidden_size * ggml::element_size(k));
 
-                ggml::tensor* v_view = ggml::view_1d(ctx, v, remain * v_hidden_size,
-                    write_len * v_hidden_size * ggml::element_size(v));
+                ggml::tensor* v_view = ctx->view(v, { remain * v_hidden_size }, {}, write_len * v_hidden_size * ggml::element_size(v));
 
                 ggml::build_forward_expand(ctx, ggml::cpy(ctx, k_view, k_cache_view));
                 ggml::build_forward_expand(ctx, ggml::cpy(ctx, v_view, v_cache_view));
@@ -1843,9 +1834,9 @@ export namespace chatllm
 
             const int total = n_past + qlen > cache_length ? cache_length : n_past + qlen;
 
-            ggml::tensor* indices_view = ggml::view_1d(ctx, indices, total, 0);
-            ggml::tensor* k_cache_view = ggml::view_2d(ctx, k_cache, k_hidden_size, cache_length,
-                ggml::row_size(k_cache), 0);
+            ggml::tensor* indices_view = ctx->view(indices, { total }, {}, 0);
+            ggml::tensor* k_cache_view = ctx->view(k_cache, { cache_length, k_hidden_size },
+                { ggml::row_size(k_cache) }, 0);
             ggml::tensor* key_layer = ggml::get_rows(ctx, k_cache_view, indices_view);
 
             key_layer = ctx->reshape(key_layer, { total, num_kv_heads, head_size });  // [qlen, heads, head_size]
@@ -1864,9 +1855,9 @@ export namespace chatllm
 
             const int total = n_past + qlen > cache_length ? cache_length : n_past + qlen;
 
-            ggml::tensor* indices_view = ggml::view_1d(ctx, indices, total, 0);
-            ggml::tensor* v_cache_view = ggml::view_2d(ctx, v_cache, v_hidden_size, cache_length,
-                v_hidden_size * ggml::element_size(v_cache), 0);
+            ggml::tensor* indices_view = ctx->view(indices, { total }, {}, 0);
+            ggml::tensor* v_cache_view = ctx->view(v_cache, { cache_length, v_hidden_size  },
+                { v_hidden_size * ggml::element_size(v_cache) }, 0);
             ggml::tensor* value_layer = ggml::get_rows(ctx, v_cache_view, indices_view);
 
             value_layer = ctx->reshape(value_layer, { total, num_kv_heads, head_size });  // [qlen, heads, head_size]
@@ -1914,7 +1905,7 @@ export namespace chatllm
 
             ggml::tensor* key_layer = nullptr;
 
-            key_layer = ggml::view_1d(ctx, k_cache, len * k_hidden_size, offset * ggml::row_size(k_cache));
+            key_layer = ctx->view(k_cache, { len * k_hidden_size }, {}, offset * ggml::row_size(k_cache));
             key_layer = ctx->reshape(key_layer, { len, num_kv_heads, head_size });  // [qlen, heads, head_size]
             key_layer = ggml::permute(ctx, key_layer, 0, 2, 1, 3);                       // [heads, qlen, head_size]
             if (ggml::is_quantized(key_layer))
@@ -1935,11 +1926,11 @@ export namespace chatllm
                 len = sliding_window_len;
             }
 
-            ggml::tensor* value_layer = ggml::view_3d(ctx,
+            ggml::tensor* value_layer = ctx->view(
                 v_cache,
-                len, head_size, num_kv_heads,
-                cache_length * ggml::element_size(v_cache),
-                cache_length * ggml::element_size(v_cache) * head_size,
+                { num_kv_heads, head_size, len },
+                { cache_length * ggml::element_size(v_cache) * head_size,
+                  cache_length * ggml::element_size(v_cache) },
                 offset * ggml::element_size(v_cache)); // [heads, head_size, klen]
             return value_layer;
         }
@@ -1992,19 +1983,17 @@ export namespace chatllm
                     int remain = sliding_window_len - qlen;
                     int shift = cache_length - remain;
 
-                    ggml::tensor* k_cache_remain = ggml::view_1d(ctx, k_cache, remain * k_hidden_size,
+                    ggml::tensor* k_cache_remain = ctx->view(k_cache, { remain * k_hidden_size }, {},
                         ggml::row_size(k_cache) * shift);
-                    ggml::tensor* k_cache_1d = ggml::view_1d(ctx, k_cache, remain * k_hidden_size,
-                        0);
+                    ggml::tensor* k_cache_1d = ctx->view(k_cache, { remain * k_hidden_size }, {}, 0);
 
                     ggml::tensor* k_remain_dup = ggml::dup(ctx, k_cache_remain);
 
-                    ggml::tensor* v_cache_remain = ggml::view_2d(ctx, v_cache, remain, v_hidden_size,
-                        cache_length * ggml::element_size(v_cache),
+                    ggml::tensor* v_cache_remain = ctx->view(v_cache, { v_hidden_size, remain  },
+                        { cache_length * ggml::element_size(v_cache) },
                         shift * ggml::element_size(v_cache));
-                    ggml::tensor* v_cache_2d = ggml::view_2d(ctx, v_cache, remain, v_hidden_size,
-                        cache_length * ggml::element_size(v_cache),
-                        0);
+                    ggml::tensor* v_cache_2d = ctx->view(v_cache, { v_hidden_size, remain  },
+                        { cache_length * ggml::element_size(v_cache) }, 0);
 
                     ggml::tensor* v_remain_dup = ggml::dup(ctx, v_cache_remain);
 
@@ -2022,13 +2011,13 @@ export namespace chatllm
             // compute the transposed [N, n_embd] V matrix
             ggml::tensor* Vcur = ggml::transpose(ctx, v); // ggml::reshape_2d(ctx, tmpv, kv_hidden_size, qlen));
 
-            ggml::tensor* k_cache_view = ggml::view_1d(ctx, k_cache, qlen * k_hidden_size,
+            ggml::tensor* k_cache_view = ctx->view(k_cache, { qlen * k_hidden_size }, {},
                 ggml::row_size(k_cache) * write_offset);
 
-            ggml::tensor* v_cache_view = ggml::view_2d(ctx, v_cache, qlen, v_hidden_size,
-                cache_length * ggml::element_size(v_cache), write_offset * ggml::element_size(v_cache));
+            ggml::tensor* v_cache_view = ctx->view(v_cache, { v_hidden_size, qlen },
+                { cache_length * ggml::element_size(v_cache) }, write_offset* ggml::element_size(v_cache));
 
-            ggml::tensor* k_view = ggml::view_1d(ctx, k, qlen * k_hidden_size, 0);
+            ggml::tensor* k_view = ctx->view(k, { qlen * k_hidden_size }, {}, 0);
 
             // important: storing RoPE-ed version of K in the KV cache!
             ggml::build_forward_expand(ctx, ggml::cpy(ctx, k_view, k_cache_view));
@@ -2052,7 +2041,7 @@ export namespace chatllm
 
             ggml::tensor* key_layer = nullptr;
 
-            key_layer = ggml::view_1d(ctx, k_cache, len * k_hidden_size, offset * ggml::row_size(k_cache));
+            key_layer = ctx->view(k_cache, { len * k_hidden_size }, {}, offset * ggml::row_size(k_cache));
             key_layer = ctx->reshape(key_layer, { len, num_kv_heads, head_size });  // [qlen, heads, head_size]
             key_layer = ggml::permute(ctx, key_layer, 0, 2, 1, 3);                       // [heads, qlen, head_size]
             if (ggml::is_quantized(key_layer))
@@ -2074,11 +2063,11 @@ export namespace chatllm
             if (offset + len > cache_length)
                 offset = 0;
 
-            ggml::tensor* value_layer = ggml::view_3d(ctx,
+            ggml::tensor* value_layer = ctx->view(
                 v_cache,
-                len, head_size, num_kv_heads,
-                cache_length * ggml::element_size(v_cache),
-                cache_length * ggml::element_size(v_cache) * head_size,
+                { num_kv_heads, head_size, len },
+                { cache_length * ggml::element_size(v_cache) * head_size,
+                  cache_length * ggml::element_size(v_cache) },
                 offset * ggml::element_size(v_cache)); // [heads, head_size, klen]
             return value_layer;
         }
