@@ -344,6 +344,11 @@ export {
 		ggml_tensor* a,
 		bool inplace);
 
+	ggml_tensor* ggml_gelu_quick(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		bool inplace);
+
 	ggml_tensor* ggml_l2_norm(
 		ggml_context* ctx,
 		ggml_tensor* a,

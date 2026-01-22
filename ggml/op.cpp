@@ -1152,6 +1152,14 @@ ggml_tensor* ggml_gelu(
 	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_GELU, inplace);
 }
 
+ggml_tensor* ggml_gelu_quick(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	bool inplace)
+{
+	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_GELU_QUICK, inplace);
+}
+
 static ggml_tensor* ggml_l2_norm_impl(
 	ggml_context* ctx,
 	ggml_tensor* a,

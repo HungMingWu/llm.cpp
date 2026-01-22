@@ -224,6 +224,7 @@ namespace chatllm
         MODEL_TYPE_GEMMA3Vis = MODEL_TYPE_TAG_ChatImageIn + 0x00011,
         MODEL_TYPE_DOTS_OCR = MODEL_TYPE_TAG_ChatImageIn + 0x00020,
         MODEL_TYPE_MISTRAL3 = MODEL_TYPE_TAG_ChatImageIn + 0x00030,
+        MODEL_TYPE_STEP_VL = MODEL_TYPE_TAG_ChatImageIn + 0x00040,
 
         MODEL_TYPE_QWEN2_AUDIO = MODEL_TYPE_TAG_ChatAudioIn + 0x00001,
 
@@ -485,6 +486,7 @@ namespace chatllm
         BackendContext backend_context;
         InitContext w_ctx_; // weight context
         BaseConfig config_;
+        std::vector<int> auto_output_prefix;
     };
 
     template <class Embedding>
