@@ -664,7 +664,6 @@ namespace chatllm
             Model* m;
         };
     public:
-        Model() = default;
         Model(InitContext* ctx, const Config& config, bool lm_head_bias, _Types... layer_args)
             : Model(ctx, config,
                 create_lm_head(ctx, config, lm_head_bias),

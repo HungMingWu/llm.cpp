@@ -810,7 +810,6 @@ export namespace chatllm
     class TheMLP : public Block
     {
     public:
-        TheMLP() = default;
         TheMLP(InitContext* ctx, int hidden_size, int intermediate_size, ActFunc act, bool bias)
             : TheMLP(ctx, hidden_size, intermediate_size, hidden_size, act, bias)
         {
@@ -862,7 +861,6 @@ export namespace chatllm
     class GLMMLP : public TheMLP
     {
     public:
-        GLMMLP() = default;
         GLMMLP(InitContext* ctx, int hidden_size)
             : GLMMLP(ctx, hidden_size, 4 * hidden_size) {
         }
@@ -899,7 +897,6 @@ export namespace chatllm
     template <class AttentionBlock> class LMAttentionBlock : public Block
     {
     public:
-        LMAttentionBlock() = default;
         LMAttentionBlock(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size,
             int max_length)
             : attention(ctx, hidden_size, num_attention_heads, max_length) {
@@ -1008,7 +1005,6 @@ export namespace chatllm
     private:
         typedef LMAttentionBlock<AttentionBlock> Base;
     public:
-        LMBlock1() = default;
         LMBlock1(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size,
             int max_length)
             : Base(ctx, hidden_size, num_attention_heads, intermediate_size, max_length),
@@ -1198,7 +1194,6 @@ export namespace chatllm
         class MLPBlock> class LMNoAttnBlock : public Block
     {
     public:
-        LMNoAttnBlock() = default;
         LMNoAttnBlock(InitContext* ctx, int hidden_size, int intermediate_size)
             : post_attention_layernorm(ctx, hidden_size),
             mlp(ctx, hidden_size, intermediate_size) {
@@ -1255,7 +1250,6 @@ export namespace chatllm
     private:
         typedef LMAttentionBlock<AttentionBlock> Base;
     public:
-        LMBlock4() = default;
         LMBlock4(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size,
             int max_length)
             : Base(ctx, hidden_size, num_attention_heads, intermediate_size, max_length),
@@ -1718,8 +1712,6 @@ export namespace chatllm
     class BaseCachelessAttention : public BaseAttention
     {
     public:
-        BaseCachelessAttention() = default;
-
         BaseCachelessAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int max_length, bool qkv_bias, bool o_bias)
             : BaseCachelessAttention(ctx, hidden_size, num_attention_heads, num_kv_heads, hidden_size / num_attention_heads, max_length, qkv_bias, o_bias)
         {
@@ -2789,8 +2781,6 @@ export namespace chatllm
     class RobertaOutput : public Block
     {
     public:
-        RobertaOutput() = default;
-
         RobertaOutput(InitContext* ctx, int hidden_size, bool use_bias = true)
             : RobertaOutput(ctx, hidden_size, hidden_size, use_bias)
         {
@@ -2890,8 +2880,6 @@ export namespace chatllm
     private:
         typedef LMAttentionBlock<AttentionBlock> Base;
     public:
-        LMBlock2() = default;
-
         LMBlock2(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size, int num_kv_heads,
             int max_length, bool qkv_bias = true, bool o_bias = true)
             : Base(ctx, hidden_size, num_attention_heads, intermediate_size, num_kv_heads,
@@ -3279,7 +3267,6 @@ export namespace chatllm
     class PersimmonMLP : public TheMLP
     {
     public:
-        PersimmonMLP() = default;
         PersimmonMLP(InitContext* ctx, int hidden_size)
             : PersimmonMLP(ctx, hidden_size, 4 * hidden_size) {
         }

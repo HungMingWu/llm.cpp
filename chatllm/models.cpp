@@ -554,8 +554,6 @@ namespace chatllm
         typedef Model<Config, Embedding, FinalBlock, LayerBlock, _Types...> Base;
         typedef HeterogeneousModel BaseBase;
 
-        EmbeddingModel() = default;
-
         EmbeddingModel(InitContext* ctx, const Config& config, _Types... layer_args)
             : Base(ctx, config, nullptr, std::forward<_Types>(layer_args)...)
         {

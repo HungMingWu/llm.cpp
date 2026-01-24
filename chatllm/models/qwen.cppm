@@ -140,8 +140,6 @@ namespace chatllm::qwen
         class ConditionalGeneration : public ModelProxy
         {
         public:
-            ConditionalGeneration() = default;
-
             ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config);
         };
     }

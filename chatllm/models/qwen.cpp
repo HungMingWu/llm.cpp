@@ -261,8 +261,6 @@ namespace chatllm::qwen::v2_moe
         typedef BaseModelForConditionalGeneration Base;
         typedef Model<Config, Embedding, RMSNorm, MoEBlock, int, int, int, int, int, int, int, int> ModelClass;
     public:
-        GenericConditionalGeneration() = default;
-
         GenericConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config)
             : BaseModelForConditionalGeneration(MODEL_TYPE_QWEN2MoE, config, runtime_config),
             config(config)
@@ -348,8 +346,6 @@ namespace chatllm::qwen::v2_moe
         class ConditionalGeneration : public GenericConditionalGeneration<NUM_EXPERTS, EXPERTS_PER_TOK, EFFECTIVE_EXPERTS_PER_TOK, MoEBlock>
         {
         public:
-            ConditionalGeneration() = default;
-
             ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config)
                 : GenericConditionalGeneration<NUM_EXPERTS, EXPERTS_PER_TOK, EFFECTIVE_EXPERTS_PER_TOK, MoEBlock>(config, runtime_config) {}
         };
