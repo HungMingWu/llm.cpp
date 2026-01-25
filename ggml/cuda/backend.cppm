@@ -10,10 +10,6 @@ module;
 #define GGML_ASSERT(...)
 #define GGML_ABORT(...)
 
-namespace internal {
-    enum ggml_type : int;
-}
-
 module ggml:cuda.backend;
 import :ds;
 import :tensor;
@@ -237,23 +233,6 @@ struct ggml_cuda_stream_context {
     }
 };
 
-class ggml_backend_cuda;
-using quantize_cuda_t = void (*)(
-    const float* x, const int32_t* ids, void* vy,
-    internal::ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
-    int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, cudaStream_t stream);
-using ggml_cuda_op_mul_mat_t = void(*)(
-    ggml_backend_cuda& ctx,
-    ggml_tensor* dst, 
-    const char* src0_dd_i, 
-    const float* src1_ddf_i,
-    const char* src1_ddq_i, 
-    float* dst_dd_i, 
-    const int64_t row_low, 
-    const int64_t row_high, 
-    const int64_t src1_ncols,
-    const int64_t src1_padded_row_size, 
-    cudaStream_t stream);
 class ggml_backend_cuda : public ggml_backend
 {
 protected:
@@ -275,10 +254,8 @@ private:
     // pool
     std::unique_ptr<ggml_cuda_pool> pools[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS];
 
-    void op_mul_mat(
-        ggml_tensor* dst,
-        ggml_cuda_op_mul_mat_t op,
-        quantize_cuda_t quantize_src1);
+    void mul_mat(ggml_tensor* dst);
+    bool compute_forward(ggml_tensor* dst);
 public:
     int device;
     std::string name;
@@ -294,8 +271,6 @@ public:
     cublasHandle_t cublas_handle(int device);
     cublasHandle_t cublas_handle() { return cublas_handle(device); }
 
-    void mul_mat(ggml_tensor* dst);
-    bool compute_forward(ggml_tensor* dst);
 public:
     using ggml_backend::ggml_backend;
     ~ggml_backend_cuda() override;

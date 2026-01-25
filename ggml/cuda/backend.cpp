@@ -233,6 +233,413 @@ namespace
         }
         return std::make_unique<ggml_cuda_pool_leg>(device);
     }
+
+    cudaError_t ggml_cuda_Memcpy2DPeerAsync(
+        void* dst, int dstDevice, size_t dpitch, void* src, int srcDevice, size_t spitch, size_t width, size_t height, cudaStream_t stream) {
+
+#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+        // cudaMemcpy2DAsync may fail with copies between vmm pools of different devices
+        cudaMemcpy3DPeerParms p = {};
+        p.dstDevice = dstDevice;
+        p.dstPtr = make_cudaPitchedPtr(dst, dpitch, dpitch, height);
+        p.srcDevice = srcDevice;
+        p.srcPtr = make_cudaPitchedPtr(src, spitch, spitch, height);
+        p.extent = make_cudaExtent(width, height, 1);
+        return cudaMemcpy3DPeerAsync(&p, stream);
+#else
+        // HIP does not support cudaMemcpy3DPeerAsync or vmm pools
+        GGML_UNUSED(dstDevice);
+        GGML_UNUSED(srcDevice);
+        return cudaMemcpy2DAsync(dst, dpitch, src, spitch, width, height, cudaMemcpyDeviceToDevice, stream);
+#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+    }
+
+    cudaError_t ggml_cuda_cpy_tensor_2d(
+        void* dst, const ggml_tensor* src, int64_t i3, int64_t i2, int64_t i1_low, int64_t i1_high, cudaStream_t stream) {
+
+        const char* src_ptr = (const char*)src->data;
+        char* dst_ptr = (char*)dst;
+
+        const int64_t ne0 = src->ne[0];
+        const int64_t nb0 = src->nb[0];
+        const int64_t nb1 = src->nb[1];
+        const int64_t nb2 = src->nb[2];
+        const int64_t nb3 = src->nb[3];
+        const enum ggml_type type = src->type;
+        const int64_t ts = ggml_type_size(type);
+        const int64_t bs = ggml_blck_size(type);
+        const int64_t i1_diff = i1_high - i1_low;
+
+        const char* x = src_ptr + i1_low * nb1 + i2 * nb2 + i3 * nb3;
+        if (nb0 == ts && nb1 == ts * ne0 / bs) {
+            return cudaMemcpyAsync(dst_ptr, x, i1_diff * nb1, cudaMemcpyDeviceToDevice, stream);
+        }
+        else if (nb0 == ts) {
+            return cudaMemcpy2DAsync(dst_ptr, ts * ne0 / bs, x, nb1, ts * ne0 / bs, i1_diff, cudaMemcpyDeviceToDevice, stream);
+        }
+        else {
+            for (int64_t i1 = 0; i1 < i1_diff; i1++) {
+                const void* rx = (const void*)((const char*)x + i1 * nb1);
+                void* rd = (void*)(dst_ptr + i1 * ts * ne0 / bs);
+                // pretend the row is a matrix with cols=1
+                cudaError_t r = cudaMemcpy2DAsync(rd, ts / bs, rx, nb0, ts / bs, ne0, cudaMemcpyDeviceToDevice, stream);
+                if (r != cudaSuccess) {
+                    return r;
+                }
+            }
+            return cudaSuccess;
+        }
+    }
+
+    using quantize_cuda_t = void (*)(
+        const float* x, const int32_t* ids, void* vy,
+        internal::ggml_type type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
+        int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, cudaStream_t stream);
+
+    using ggml_cuda_op_mul_mat_t = void(*)(
+        ggml_backend_cuda& ctx,
+        ggml_tensor* dst,
+        const char* src0_dd_i,
+        const float* src1_ddf_i,
+        const char* src1_ddq_i,
+        float* dst_dd_i,
+        const int64_t row_low,
+        const int64_t row_high,
+        const int64_t src1_ncols,
+        const int64_t src1_padded_row_size,
+        cudaStream_t stream);
+
+    void op_mul_mat(
+        ggml_backend_cuda& ctx,
+        ggml_tensor* dst,
+        ggml_cuda_op_mul_mat_t op,
+        quantize_cuda_t quantize_src1)
+    {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+        const int64_t ne00 = src0->ne[0];
+        const int64_t ne01 = src0->ne[1];
+        const int64_t ne02 = src0->ne[2];
+        const int64_t ne03 = src0->ne[3];
+
+        const int64_t ne10 = src1->ne[0];
+        const int64_t ne11 = src1->ne[1];
+        const int64_t ne12 = src1->ne[2];
+        const int64_t ne13 = src1->ne[3];
+        const int64_t nrows1 = ggml_nrows(src1);
+
+        const int64_t ne0 = dst->ne[0];
+        const int64_t ne1 = dst->ne[1];
+
+        const int64_t nb2 = dst->nb[2];
+        const int64_t nb3 = dst->nb[3];
+
+        GGML_ASSERT(ggml_backend_buffer_is_cuda(dst->buffer));
+        GGML_ASSERT(ggml_backend_buffer_is_cuda(src1->buffer));
+        auto src1_ctx = (cuda_backend_buffer*)src1->buffer;
+        auto dst_ctx = (cuda_backend_buffer*)dst->buffer;
+
+        GGML_ASSERT(src1->type == GGML_TYPE_F32 || (src1->ne[2] == 1 && src1->ne[3] == 1));
+
+        GGML_ASSERT(ne12 >= ne02 && ne12 % ne02 == 0);
+
+        const int64_t i02_divisor = ne12 / ne02;
+        const int64_t i03_divisor = ne13 / ne03;
+
+        const size_t src0_ts = ggml_type_size(src0->type);
+        const size_t src0_bs = ggml_blck_size(src0->type);
+        const size_t q8_1_ts = sizeof(block_q8_1);
+        const size_t q8_1_bs = QK8_1;
+
+        const bool src0_is_contiguous = ggml_is_contiguous(src0);
+        const bool src1_is_contiguous = ggml_is_contiguous(src1);
+
+        const int64_t src1_padded_col_size = GGML_PAD(ne10, MATRIX_ROW_PADDING);
+
+        const bool split = to_split_buffer_type(src0->buffer->get_type()) != nullptr;
+        GGML_ASSERT(!(split && ne02 > 1));
+        GGML_ASSERT(!(split && ne03 > 1));
+        GGML_ASSERT(!(split && ne02 < ne12));
+
+        ggml_tensor_extra_gpu* src0_extra = split ? (ggml_tensor_extra_gpu*)src0->extra : nullptr;
+
+        std::array<float, GGML_CUDA_MAX_DEVICES> tensor_split;
+        if (split) {
+            auto buft_ctx = (cuda_split_backend_buffer_type*)src0->buffer->get_type();
+            tensor_split = buft_ctx->tensor_split;
+        }
+
+        struct dev_data {
+            int cc;
+
+            ggml_cuda_pool_alloc<char>   src0_dd_alloc;
+            ggml_cuda_pool_alloc<float> src1_ddf_alloc;
+            ggml_cuda_pool_alloc<char>  src1_ddq_alloc;
+            ggml_cuda_pool_alloc<float>   dst_dd_alloc;
+
+            char* src0_dd = nullptr;
+            float* src1_ddf = nullptr; // float
+            char* src1_ddq = nullptr; // q8_1
+            float* dst_dd = nullptr;
+
+            int64_t  row_low;
+            int64_t row_high;
+        };
+
+        dev_data dev[GGML_CUDA_MAX_DEVICES];
+
+        int used_devices = 0;
+
+        for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
+            dev[id].cc = ggml_cuda_info().devices[id].cc;
+
+            // by default, use all rows
+            dev[id].row_low = 0;
+            dev[id].row_high = ne01;
+
+            // for multi GPU, get the row boundaries from tensor split
+            // and round to mul_mat_q tile sizes
+            if (split) {
+                const int64_t rounding = get_row_rounding(tensor_split);
+
+                if (id != 0) {
+                    dev[id].row_low = ne01 * tensor_split[id];
+                    if (dev[id].row_low < ne01) {
+                        dev[id].row_low -= dev[id].row_low % rounding;
+                    }
+                }
+
+                if (id != ggml_backend_cuda_get_device_count() - 1) {
+                    dev[id].row_high = ne01 * tensor_split[id + 1];
+                    if (dev[id].row_high < ne01) {
+                        dev[id].row_high -= dev[id].row_high % rounding;
+                    }
+                }
+            }
+        }
+
+        for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
+            if ((!split && id != ctx.device) || dev[id].row_low == dev[id].row_high) {
+                continue;
+            }
+
+            used_devices++;
+
+            const bool src1_on_device = id == src1_ctx->device;
+            const bool  dst_on_device = id == dst_ctx->device;
+
+            ggml_cuda_set_device(id);
+            cudaStream_t stream = ctx.stream(id, 0);
+
+            if (src0_is_contiguous) {
+                dev[id].src0_dd = split ? (char*)src0_extra->data_device[id] : (char*)src0->data;
+            }
+            else {
+                // If src0 is not contiguous it will be copied to a temporary buffer.
+                // This buffer needs to be cleared entirely because multiple regions will function as padding.
+                const size_t nbytes_data = src0->nbytes();
+                const size_t nbytes_padding = ggml_row_size(src0->type, MATRIX_ROW_PADDING - ne00 % MATRIX_ROW_PADDING);
+                dev[id].src0_dd = dev[id].src0_dd_alloc.alloc(ctx.pool(id), nbytes_data + nbytes_padding);
+                // TODO: remove this for MUSA once the Guilty Lockup issue is resolved
+#ifndef GGML_USE_MUSA
+                CUDA_CHECK(cudaMemsetAsync(dev[id].src0_dd, 0, nbytes_data + nbytes_padding, stream));
+#else // GGML_USE_MUSA
+                CUDA_CHECK(cudaMemsetAsync(dev[id].src0_dd + nbytes_data, 0, nbytes_padding, stream));
+#endif // !GGML_USE_MUSA
+            }
+
+            // If src0 is on a temporary compute buffer (partial offloading) there may be some padding that needs to be cleared:
+            if (ne00 % MATRIX_ROW_PADDING != 0 && ggml_is_quantized(src0->type) && src0->buffer->getUsage() == GGML_BACKEND_BUFFER_USAGE_COMPUTE && src0->view_src == nullptr) {
+                GGML_ASSERT(ggml_is_contiguously_allocated(src0));
+                GGML_ASSERT(!src0->view_src);
+                const size_t nbytes_data = ggml_row_size(src0->type, (dev[id].row_high - dev[id].row_low) * ne00);
+                const size_t nbytes_padding = ggml_row_size(src0->type, MATRIX_ROW_PADDING - ne00 % MATRIX_ROW_PADDING);
+                CUDA_CHECK(cudaMemsetAsync(dev[id].src0_dd + nbytes_data, 0, nbytes_padding, stream));
+            }
+
+            if (src1_on_device && src1_is_contiguous) {
+                dev[id].src1_ddf = (float*)src1->data;
+            }
+            else {
+                dev[id].src1_ddf = dev[id].src1_ddf_alloc.alloc(ctx.pool(id), src1->nelements());
+            }
+
+            if (quantize_src1) {
+                size_t src_1_ddq_size = nrows1 * src1_padded_col_size * q8_1_ts / q8_1_bs;
+                if (quantize_src1 == quantize_mmq_q8_1_cuda) {
+                    src_1_ddq_size += get_mmq_x_max_host(dev[id].cc) * sizeof(block_q8_1_mmq);
+                }
+                dev[id].src1_ddq = dev[id].src1_ddq_alloc.alloc(ctx.pool(id), src_1_ddq_size);
+                if (src1_on_device && src1_is_contiguous) {
+                    quantize_src1(
+                        dev[id].src1_ddf, nullptr, dev[id].src1_ddq, std::bit_cast<internal::ggml_type>(src0->type), src1->ne[0],
+                        src1->nb[1] / sizeof(float), src1->nb[2] / sizeof(float), src1->nb[3] / sizeof(float),
+                        src1_padded_col_size, src1->ne[1], src1->ne[2], src1->ne[3], stream);
+                    CUDA_CHECK(cudaGetLastError());
+                }
+            }
+
+            if (dst_on_device) {
+                dev[id].dst_dd = (float*)dst->data;
+            }
+            else {
+                const size_t size_dst_ddf = split ? (dev[id].row_high - dev[id].row_low) * ne1 : dst->nelements();
+                dev[id].dst_dd = dev[id].dst_dd_alloc.alloc(ctx.pool(id), size_dst_ddf);
+            }
+
+            // if multiple devices are used they need to wait for the main device
+            // here an event is recorded that signals that the main device has finished calculating the input data
+            if (split && used_devices > 1) {
+                ggml_cuda_set_device(ctx.device);
+                CUDA_CHECK(cudaEventRecord(src0_extra->events[ctx.device][0], ctx.stream()));
+            }
+        }
+
+        const int64_t src1_col_stride = split && used_devices > 1 ? MUL_MAT_SRC1_COL_STRIDE : ne11;
+        for (int64_t src1_col_0 = 0; src1_col_0 < ne11; src1_col_0 += src1_col_stride) {
+            const int64_t is = split ? (src1_col_0 / src1_col_stride) % GGML_CUDA_MAX_STREAMS : 0;
+            const int64_t src1_ncols = src1_col_0 + src1_col_stride > ne11 ? ne11 - src1_col_0 : src1_col_stride;
+
+            for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
+                if ((!split && id != ctx.device) || dev[id].row_low == dev[id].row_high) {
+                    continue;
+                }
+
+                const bool src1_on_device = id == src1_ctx->device;
+                const bool  dst_on_device = id == dst_ctx->device;
+                const int64_t row_diff = dev[id].row_high - dev[id].row_low;
+
+                ggml_cuda_set_device(id);
+                cudaStream_t stream = ctx.stream(id, is);
+
+                // wait for main GPU data if necessary
+                if (split && (id != ctx.device || is != 0)) {
+                    CUDA_CHECK(cudaStreamWaitEvent(stream, src0_extra->events[ctx.device][0], 0));
+                }
+
+                for (int64_t i0 = 0; i0 < ne13 * ne12; ++i0) {
+                    const int64_t i03 = i0 / ne12;
+                    const int64_t i02 = i0 % ne12;
+
+                    size_t src1_ddq_i_offset = i0 * ne11 * src1_padded_col_size * q8_1_ts / q8_1_bs;
+
+                    if (quantize_src1 == quantize_mmq_q8_1_cuda) {
+                        src1_ddq_i_offset += src1_col_0 * sizeof(block_q8_1_mmq);
+                    }
+                    else {
+                        src1_ddq_i_offset += src1_col_0 * src1_padded_col_size * q8_1_ts / q8_1_bs;
+                    }
+
+                    // for split tensors the data begins at i0 == i0_offset_low
+                    const size_t nbytes_src0_matrix = ne01 * ne00 * src0_ts / src0_bs;
+                    char* src0_dd_i = dev[id].src0_dd + ((i03 / i03_divisor) * ne02 + (i02 / i02_divisor)) * nbytes_src0_matrix;
+                    float* src1_ddf_i = dev[id].src1_ddf + (i0 * ne11 + src1_col_0) * ne10;
+                    char* src1_ddq_i = dev[id].src1_ddq + src1_ddq_i_offset;
+                    float* dst_dd_i = dev[id].dst_dd + (i0 * ne1 + src1_col_0) * (dst_on_device ? ne0 : row_diff);
+
+                    // the main device memory buffer can be on VRAM scratch, with space for all partial results
+                    // in that case an offset on dst_ddf_i is needed
+                    if (id == ctx.device) {
+                        dst_dd_i += dev[id].row_low; // offset is 0 if no tensor split
+                    }
+
+                    // copy src0, src1 to device if necessary
+                    if (src1_is_contiguous) {
+                        if (id != ctx.device) {
+                            if (quantize_src1) {
+                                char* src1_ddq_i_source = dev[ctx.device].src1_ddq + src1_ddq_i_offset;
+                                if (quantize_src1 == quantize_mmq_q8_1_cuda) {
+                                    const size_t pitch = ne11 * sizeof(block_q8_1_mmq);
+                                    const size_t width = src1_ncols * sizeof(block_q8_1_mmq);
+                                    const size_t height = src1_padded_col_size / (4 * QK8_1);
+                                    CUDA_CHECK(ggml_cuda_Memcpy2DPeerAsync(src1_ddq_i, id, pitch, src1_ddq_i_source, ctx.device, pitch, width, height, stream));
+                                }
+                                else {
+                                    CUDA_CHECK(cudaMemcpyPeerAsync(
+                                        src1_ddq_i, id, src1_ddq_i_source, ctx.device, src1_ncols * src1_padded_col_size * q8_1_ts / q8_1_bs, stream));
+                                }
+                            }
+                            else {
+                                float* src1_ddf_i_source = (float*)src1->data;
+                                src1_ddf_i_source += (i0 * ne11 + src1_col_0) * ne10;
+                                CUDA_CHECK(cudaMemcpyPeerAsync(src1_ddf_i, id, src1_ddf_i_source, ctx.device,
+                                    src1_ncols * ne10 * sizeof(float), stream));
+                            }
+                        }
+                    }
+                    else if (src1_on_device && !src1_is_contiguous) {
+                        CUDA_CHECK(ggml_cuda_cpy_tensor_2d(
+                            src1_ddf_i, src1, i03, i02, src1_col_0, src1_col_0 + src1_ncols, stream));
+                    }
+                    else {
+                        GGML_ABORT("fatal error");
+                    }
+
+                    if (quantize_src1 && !src1_is_contiguous) {
+                        quantize_src1(
+                            src1_ddf_i, nullptr, src1_ddq_i, std::bit_cast<internal::ggml_type>(src0->type), src1->ne[0], src1->ne[0],
+                            src1->ne[1] * src1->ne[0], src1->ne[2] * src1->ne[1] * src1->ne[0],
+                            src1_padded_col_size, src1_ncols, 1, 1, stream);
+                        CUDA_CHECK(cudaGetLastError());
+                    }
+
+                    if (src1_col_0 == 0 && !src0_is_contiguous && i02 % i02_divisor == 0) {
+                        CUDA_CHECK(ggml_cuda_cpy_tensor_2d(src0_dd_i, src0, i03, i02 / i02_divisor, dev[id].row_low, dev[id].row_high, stream));
+                    }
+
+                    // do the computation
+                    op(ctx, dst, src0_dd_i, src1_ddf_i, src1_ddq_i, dst_dd_i,
+                        dev[id].row_low, dev[id].row_high, src1_ncols, src1_padded_col_size, stream);
+                    CUDA_CHECK(cudaGetLastError());
+
+                    // copy dst to host or other device if necessary
+                    if (!dst_on_device) {
+                        void* dst_off_device = dst->data;
+                        if (split) {
+                            // src0 = weight matrix is saved as a transposed matrix for better memory layout.
+                            // dst is NOT transposed.
+                            // The outputs of matrix matrix multiplications can therefore NOT simply be concatenated for >1 GPU.
+                            // Instead they need to be copied to the correct slice in ne0 = dst row index.
+                            // If dst is a vector with ne0 == 1 then you don't have to do this but it still produces correct results.
+                            float* dhf_dst_i = (float*)((char*)dst_off_device + i02 * nb2 + i03 * nb3);
+                            GGML_ASSERT(dst->nb[1] == ne0 * sizeof(float));
+                            dhf_dst_i += src1_col_0 * ne0 + dev[id].row_low;
+                            CUDA_CHECK(ggml_cuda_Memcpy2DPeerAsync(
+                                dhf_dst_i, ctx.device, ne0 * sizeof(float), dst_dd_i, id, row_diff * sizeof(float), row_diff * sizeof(float), src1_ncols, stream));
+                        }
+                        else {
+                            float* dhf_dst_i = (float*)((char*)dst_off_device + i02 * nb2 + i03 * nb3);
+                            GGML_ASSERT(dst->nb[1] == ne0 * sizeof(float));
+                            dhf_dst_i += src1_col_0 * ne0;
+                            CUDA_CHECK(cudaMemcpyAsync(dhf_dst_i, dst_dd_i, src1_ncols * ne0 * sizeof(float), cudaMemcpyDeviceToDevice, stream));
+                        }
+                    }
+
+                    // add event for the main device to wait on until other device is done
+                    if (split && (id != ctx.device || is != 0)) {
+                        CUDA_CHECK(cudaEventRecord(src0_extra->events[id][is], stream));
+                    }
+
+                }
+            }
+        }
+
+        // main device waits for all other devices to be finished
+        if (split && ggml_backend_cuda_get_device_count() > 1) {
+            int64_t is_max = (ne11 + MUL_MAT_SRC1_COL_STRIDE - 1) / MUL_MAT_SRC1_COL_STRIDE;
+            is_max = is_max <= GGML_CUDA_MAX_STREAMS ? is_max : GGML_CUDA_MAX_STREAMS;
+
+            ggml_cuda_set_device(ctx.device);
+            for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
+                if (dev[id].row_low == dev[id].row_high) {
+                    continue;
+                }
+                for (int64_t is = 0; is < is_max; ++is) {
+                    CUDA_CHECK(cudaStreamWaitEvent(ctx.stream(), src0_extra->events[id][is], 0));
+                }
+            }
+        }
+    }
 }
 
 static void ggml_cuda_op_mul_mat_q(
@@ -866,404 +1273,16 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
         ggml_cuda_mul_mat_batched_cublas(*this, src0, src1, dst);
     }
     else if (use_mul_mat_vec_f) {
-        op_mul_mat(dst, ggml_cuda_op_mul_mat_vec_f, nullptr);
+        op_mul_mat(*this, dst, ggml_cuda_op_mul_mat_vec_f, nullptr);
     }
     else if (use_mul_mat_vec_q) {
-        op_mul_mat(dst, ggml_cuda_op_mul_mat_vec_q, quantize_row_q8_1_cuda);
+        op_mul_mat(*this, dst, ggml_cuda_op_mul_mat_vec_q, quantize_row_q8_1_cuda);
     }
     else if (use_mul_mat_q) {
-        op_mul_mat(dst, ggml_cuda_op_mul_mat_q, quantize_mmq_q8_1_cuda);
+        op_mul_mat(*this, dst, ggml_cuda_op_mul_mat_q, quantize_mmq_q8_1_cuda);
     }
     else {
-        op_mul_mat(dst, ggml_cuda_op_mul_mat_cublas, nullptr);
-    }
-}
-
-static cudaError_t ggml_cuda_cpy_tensor_2d(
-    void* dst, const struct ggml_tensor* src, int64_t i3, int64_t i2, int64_t i1_low, int64_t i1_high, cudaStream_t stream) {
-
-    const char* src_ptr = (const char*)src->data;
-    char* dst_ptr = (char*)dst;
-
-    const int64_t ne0 = src->ne[0];
-    const int64_t nb0 = src->nb[0];
-    const int64_t nb1 = src->nb[1];
-    const int64_t nb2 = src->nb[2];
-    const int64_t nb3 = src->nb[3];
-    const enum ggml_type type = src->type;
-    const int64_t ts = ggml_type_size(type);
-    const int64_t bs = ggml_blck_size(type);
-    const int64_t i1_diff = i1_high - i1_low;
-
-    const char* x = src_ptr + i1_low * nb1 + i2 * nb2 + i3 * nb3;
-    if (nb0 == ts && nb1 == ts * ne0 / bs) {
-        return cudaMemcpyAsync(dst_ptr, x, i1_diff * nb1, cudaMemcpyDeviceToDevice, stream);
-    }
-    else if (nb0 == ts) {
-        return cudaMemcpy2DAsync(dst_ptr, ts * ne0 / bs, x, nb1, ts * ne0 / bs, i1_diff, cudaMemcpyDeviceToDevice, stream);
-    }
-    else {
-        for (int64_t i1 = 0; i1 < i1_diff; i1++) {
-            const void* rx = (const void*)((const char*)x + i1 * nb1);
-            void* rd = (void*)(dst_ptr + i1 * ts * ne0 / bs);
-            // pretend the row is a matrix with cols=1
-            cudaError_t r = cudaMemcpy2DAsync(rd, ts / bs, rx, nb0, ts / bs, ne0, cudaMemcpyDeviceToDevice, stream);
-            if (r != cudaSuccess) {
-                return r;
-            }
-        }
-        return cudaSuccess;
-    }
-}
-
-static cudaError_t ggml_cuda_Memcpy2DPeerAsync(
-    void* dst, int dstDevice, size_t dpitch, void* src, int srcDevice, size_t spitch, size_t width, size_t height, cudaStream_t stream) {
-
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-    // cudaMemcpy2DAsync may fail with copies between vmm pools of different devices
-    cudaMemcpy3DPeerParms p = {};
-    p.dstDevice = dstDevice;
-    p.dstPtr = make_cudaPitchedPtr(dst, dpitch, dpitch, height);
-    p.srcDevice = srcDevice;
-    p.srcPtr = make_cudaPitchedPtr(src, spitch, spitch, height);
-    p.extent = make_cudaExtent(width, height, 1);
-    return cudaMemcpy3DPeerAsync(&p, stream);
-#else
-    // HIP does not support cudaMemcpy3DPeerAsync or vmm pools
-    GGML_UNUSED(dstDevice);
-    GGML_UNUSED(srcDevice);
-    return cudaMemcpy2DAsync(dst, dpitch, src, spitch, width, height, cudaMemcpyDeviceToDevice, stream);
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-}
-
-void ggml_backend_cuda::op_mul_mat(
-    ggml_tensor* dst,
-    ggml_cuda_op_mul_mat_t op,
-    quantize_cuda_t quantize_src1)
-{
-    const ggml_tensor* src0 = dst->src[0];
-    const ggml_tensor* src1 = dst->src[1];
-    const int64_t ne00 = src0->ne[0];
-    const int64_t ne01 = src0->ne[1];
-    const int64_t ne02 = src0->ne[2];
-    const int64_t ne03 = src0->ne[3];
-
-    const int64_t ne10 = src1->ne[0];
-    const int64_t ne11 = src1->ne[1];
-    const int64_t ne12 = src1->ne[2];
-    const int64_t ne13 = src1->ne[3];
-    const int64_t nrows1 = ggml_nrows(src1);
-
-    const int64_t ne0 = dst->ne[0];
-    const int64_t ne1 = dst->ne[1];
-
-    const int64_t nb2 = dst->nb[2];
-    const int64_t nb3 = dst->nb[3];
-
-    GGML_ASSERT(ggml_backend_buffer_is_cuda(dst->buffer));
-    GGML_ASSERT(ggml_backend_buffer_is_cuda(src1->buffer));
-    auto src1_ctx = (cuda_backend_buffer*)src1->buffer;
-    auto dst_ctx = (cuda_backend_buffer*)dst->buffer;
-
-    GGML_ASSERT(src1->type == GGML_TYPE_F32 || (src1->ne[2] == 1 && src1->ne[3] == 1));
-
-    GGML_ASSERT(ne12 >= ne02 && ne12 % ne02 == 0);
-
-    const int64_t i02_divisor = ne12 / ne02;
-    const int64_t i03_divisor = ne13 / ne03;
-
-    const size_t src0_ts = ggml_type_size(src0->type);
-    const size_t src0_bs = ggml_blck_size(src0->type);
-    const size_t q8_1_ts = sizeof(block_q8_1);
-    const size_t q8_1_bs = QK8_1;
-
-    const bool src0_is_contiguous = ggml_is_contiguous(src0);
-    const bool src1_is_contiguous = ggml_is_contiguous(src1);
-
-    const int64_t src1_padded_col_size = GGML_PAD(ne10, MATRIX_ROW_PADDING);
-
-    const bool split = to_split_buffer_type(src0->buffer->get_type()) != nullptr;
-    GGML_ASSERT(!(split && ne02 > 1));
-    GGML_ASSERT(!(split && ne03 > 1));
-    GGML_ASSERT(!(split && ne02 < ne12));
-
-    ggml_tensor_extra_gpu* src0_extra = split ? (ggml_tensor_extra_gpu*)src0->extra : nullptr;
-
-    std::array<float, GGML_CUDA_MAX_DEVICES> tensor_split;
-    if (split) {
-        auto buft_ctx = (cuda_split_backend_buffer_type*)src0->buffer->get_type();
-        tensor_split = buft_ctx->tensor_split;
-    }
-
-    struct dev_data {
-        int cc;
-
-        ggml_cuda_pool_alloc<char>   src0_dd_alloc;
-        ggml_cuda_pool_alloc<float> src1_ddf_alloc;
-        ggml_cuda_pool_alloc<char>  src1_ddq_alloc;
-        ggml_cuda_pool_alloc<float>   dst_dd_alloc;
-
-        char* src0_dd = nullptr;
-        float* src1_ddf = nullptr; // float
-        char* src1_ddq = nullptr; // q8_1
-        float* dst_dd = nullptr;
-
-        int64_t  row_low;
-        int64_t row_high;
-    };
-
-    dev_data dev[GGML_CUDA_MAX_DEVICES];
-
-    int used_devices = 0;
-
-    for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
-        dev[id].cc = ggml_cuda_info().devices[id].cc;
-
-        // by default, use all rows
-        dev[id].row_low = 0;
-        dev[id].row_high = ne01;
-
-        // for multi GPU, get the row boundaries from tensor split
-        // and round to mul_mat_q tile sizes
-        if (split) {
-            const int64_t rounding = get_row_rounding(tensor_split);
-
-            if (id != 0) {
-                dev[id].row_low = ne01 * tensor_split[id];
-                if (dev[id].row_low < ne01) {
-                    dev[id].row_low -= dev[id].row_low % rounding;
-                }
-            }
-
-            if (id != ggml_backend_cuda_get_device_count() - 1) {
-                dev[id].row_high = ne01 * tensor_split[id + 1];
-                if (dev[id].row_high < ne01) {
-                    dev[id].row_high -= dev[id].row_high % rounding;
-                }
-            }
-        }
-    }
-
-    for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
-        if ((!split && id != device) || dev[id].row_low == dev[id].row_high) {
-            continue;
-        }
-
-        used_devices++;
-
-        const bool src1_on_device = id == src1_ctx->device;
-        const bool  dst_on_device = id == dst_ctx->device;
-
-        ggml_cuda_set_device(id);
-        cudaStream_t stream = this->stream(id, 0);
-
-        if (src0_is_contiguous) {
-            dev[id].src0_dd = split ? (char*)src0_extra->data_device[id] : (char*)src0->data;
-        }
-        else {
-            // If src0 is not contiguous it will be copied to a temporary buffer.
-            // This buffer needs to be cleared entirely because multiple regions will function as padding.
-            const size_t nbytes_data = src0->nbytes();
-            const size_t nbytes_padding = ggml_row_size(src0->type, MATRIX_ROW_PADDING - ne00 % MATRIX_ROW_PADDING);
-            dev[id].src0_dd = dev[id].src0_dd_alloc.alloc(pool(id), nbytes_data + nbytes_padding);
-            // TODO: remove this for MUSA once the Guilty Lockup issue is resolved
-#ifndef GGML_USE_MUSA
-            CUDA_CHECK(cudaMemsetAsync(dev[id].src0_dd, 0, nbytes_data + nbytes_padding, stream));
-#else // GGML_USE_MUSA
-            CUDA_CHECK(cudaMemsetAsync(dev[id].src0_dd + nbytes_data, 0, nbytes_padding, stream));
-#endif // !GGML_USE_MUSA
-        }
-
-        // If src0 is on a temporary compute buffer (partial offloading) there may be some padding that needs to be cleared:
-        if (ne00 % MATRIX_ROW_PADDING != 0 && ggml_is_quantized(src0->type) && src0->buffer->getUsage() == GGML_BACKEND_BUFFER_USAGE_COMPUTE && src0->view_src == nullptr) {
-            GGML_ASSERT(ggml_is_contiguously_allocated(src0));
-            GGML_ASSERT(!src0->view_src);
-            const size_t nbytes_data = ggml_row_size(src0->type, (dev[id].row_high - dev[id].row_low) * ne00);
-            const size_t nbytes_padding = ggml_row_size(src0->type, MATRIX_ROW_PADDING - ne00 % MATRIX_ROW_PADDING);
-            CUDA_CHECK(cudaMemsetAsync(dev[id].src0_dd + nbytes_data, 0, nbytes_padding, stream));
-        }
-
-        if (src1_on_device && src1_is_contiguous) {
-            dev[id].src1_ddf = (float*)src1->data;
-        }
-        else {
-            dev[id].src1_ddf = dev[id].src1_ddf_alloc.alloc(pool(id), src1->nelements());
-        }
-
-        if (quantize_src1) {
-            size_t src_1_ddq_size = nrows1 * src1_padded_col_size * q8_1_ts / q8_1_bs;
-            if (quantize_src1 == quantize_mmq_q8_1_cuda) {
-                src_1_ddq_size += get_mmq_x_max_host(dev[id].cc) * sizeof(block_q8_1_mmq);
-            }
-            dev[id].src1_ddq = dev[id].src1_ddq_alloc.alloc(pool(id), src_1_ddq_size);
-            if (src1_on_device && src1_is_contiguous) {
-                quantize_src1(
-                    dev[id].src1_ddf, nullptr, dev[id].src1_ddq, std::bit_cast<internal::ggml_type>(src0->type), src1->ne[0],
-                    src1->nb[1] / sizeof(float), src1->nb[2] / sizeof(float), src1->nb[3] / sizeof(float),
-                    src1_padded_col_size, src1->ne[1], src1->ne[2], src1->ne[3], stream);
-                CUDA_CHECK(cudaGetLastError());
-            }
-        }
-
-        if (dst_on_device) {
-            dev[id].dst_dd = (float*)dst->data;
-        }
-        else {
-            const size_t size_dst_ddf = split ? (dev[id].row_high - dev[id].row_low) * ne1 : dst->nelements();
-            dev[id].dst_dd = dev[id].dst_dd_alloc.alloc(pool(id), size_dst_ddf);
-        }
-
-        // if multiple devices are used they need to wait for the main device
-        // here an event is recorded that signals that the main device has finished calculating the input data
-        if (split && used_devices > 1) {
-            ggml_cuda_set_device(device);
-            CUDA_CHECK(cudaEventRecord(src0_extra->events[device][0], this->stream()));
-        }
-    }
-
-    const int64_t src1_col_stride = split && used_devices > 1 ? MUL_MAT_SRC1_COL_STRIDE : ne11;
-    for (int64_t src1_col_0 = 0; src1_col_0 < ne11; src1_col_0 += src1_col_stride) {
-        const int64_t is = split ? (src1_col_0 / src1_col_stride) % GGML_CUDA_MAX_STREAMS : 0;
-        const int64_t src1_ncols = src1_col_0 + src1_col_stride > ne11 ? ne11 - src1_col_0 : src1_col_stride;
-
-        for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
-            if ((!split && id != device) || dev[id].row_low == dev[id].row_high) {
-                continue;
-            }
-
-            const bool src1_on_device = id == src1_ctx->device;
-            const bool  dst_on_device = id == dst_ctx->device;
-            const int64_t row_diff = dev[id].row_high - dev[id].row_low;
-
-            ggml_cuda_set_device(id);
-            cudaStream_t stream = this->stream(id, is);
-
-            // wait for main GPU data if necessary
-            if (split && (id != device || is != 0)) {
-                CUDA_CHECK(cudaStreamWaitEvent(stream, src0_extra->events[device][0], 0));
-            }
-
-            for (int64_t i0 = 0; i0 < ne13 * ne12; ++i0) {
-                const int64_t i03 = i0 / ne12;
-                const int64_t i02 = i0 % ne12;
-
-                size_t src1_ddq_i_offset = i0 * ne11 * src1_padded_col_size * q8_1_ts / q8_1_bs;
-
-                if (quantize_src1 == quantize_mmq_q8_1_cuda) {
-                    src1_ddq_i_offset += src1_col_0 * sizeof(block_q8_1_mmq);
-                }
-                else {
-                    src1_ddq_i_offset += src1_col_0 * src1_padded_col_size * q8_1_ts / q8_1_bs;
-                }
-
-                // for split tensors the data begins at i0 == i0_offset_low
-                const size_t nbytes_src0_matrix = ne01 * ne00 * src0_ts / src0_bs;
-                char* src0_dd_i = dev[id].src0_dd + ((i03 / i03_divisor) * ne02 + (i02 / i02_divisor)) * nbytes_src0_matrix;
-                float* src1_ddf_i = dev[id].src1_ddf + (i0 * ne11 + src1_col_0) * ne10;
-                char* src1_ddq_i = dev[id].src1_ddq + src1_ddq_i_offset;
-                float* dst_dd_i = dev[id].dst_dd + (i0 * ne1 + src1_col_0) * (dst_on_device ? ne0 : row_diff);
-
-                // the main device memory buffer can be on VRAM scratch, with space for all partial results
-                // in that case an offset on dst_ddf_i is needed
-                if (id == device) {
-                    dst_dd_i += dev[id].row_low; // offset is 0 if no tensor split
-                }
-
-                // copy src0, src1 to device if necessary
-                if (src1_is_contiguous) {
-                    if (id != device) {
-                        if (quantize_src1) {
-                            char* src1_ddq_i_source = dev[device].src1_ddq + src1_ddq_i_offset;
-                            if (quantize_src1 == quantize_mmq_q8_1_cuda) {
-                                const size_t pitch = ne11 * sizeof(block_q8_1_mmq);
-                                const size_t width = src1_ncols * sizeof(block_q8_1_mmq);
-                                const size_t height = src1_padded_col_size / (4 * QK8_1);
-                                CUDA_CHECK(ggml_cuda_Memcpy2DPeerAsync(src1_ddq_i, id, pitch, src1_ddq_i_source, device, pitch, width, height, stream));
-                            }
-                            else {
-                                CUDA_CHECK(cudaMemcpyPeerAsync(
-                                    src1_ddq_i, id, src1_ddq_i_source, device, src1_ncols * src1_padded_col_size * q8_1_ts / q8_1_bs, stream));
-                            }
-                        }
-                        else {
-                            float* src1_ddf_i_source = (float*)src1->data;
-                            src1_ddf_i_source += (i0 * ne11 + src1_col_0) * ne10;
-                            CUDA_CHECK(cudaMemcpyPeerAsync(src1_ddf_i, id, src1_ddf_i_source, device,
-                                src1_ncols * ne10 * sizeof(float), stream));
-                        }
-                    }
-                }
-                else if (src1_on_device && !src1_is_contiguous) {
-                    CUDA_CHECK(ggml_cuda_cpy_tensor_2d(
-                        src1_ddf_i, src1, i03, i02, src1_col_0, src1_col_0 + src1_ncols, stream));
-                }
-                else {
-                    GGML_ABORT("fatal error");
-                }
-
-                if (quantize_src1 && !src1_is_contiguous) {
-                    quantize_src1(
-                        src1_ddf_i, nullptr, src1_ddq_i, std::bit_cast<internal::ggml_type>(src0->type), src1->ne[0], src1->ne[0],
-                        src1->ne[1] * src1->ne[0], src1->ne[2] * src1->ne[1] * src1->ne[0],
-                        src1_padded_col_size, src1_ncols, 1, 1, stream);
-                    CUDA_CHECK(cudaGetLastError());
-                }
-
-                if (src1_col_0 == 0 && !src0_is_contiguous && i02 % i02_divisor == 0) {
-                    CUDA_CHECK(ggml_cuda_cpy_tensor_2d(src0_dd_i, src0, i03, i02 / i02_divisor, dev[id].row_low, dev[id].row_high, stream));
-                }
-
-                // do the computation
-                op(*this, dst, src0_dd_i, src1_ddf_i, src1_ddq_i, dst_dd_i,
-                    dev[id].row_low, dev[id].row_high, src1_ncols, src1_padded_col_size, stream);
-                CUDA_CHECK(cudaGetLastError());
-
-                // copy dst to host or other device if necessary
-                if (!dst_on_device) {
-                    void* dst_off_device = dst->data;
-                    if (split) {
-                        // src0 = weight matrix is saved as a transposed matrix for better memory layout.
-                        // dst is NOT transposed.
-                        // The outputs of matrix matrix multiplications can therefore NOT simply be concatenated for >1 GPU.
-                        // Instead they need to be copied to the correct slice in ne0 = dst row index.
-                        // If dst is a vector with ne0 == 1 then you don't have to do this but it still produces correct results.
-                        float* dhf_dst_i = (float*)((char*)dst_off_device + i02 * nb2 + i03 * nb3);
-                        GGML_ASSERT(dst->nb[1] == ne0 * sizeof(float));
-                        dhf_dst_i += src1_col_0 * ne0 + dev[id].row_low;
-                        CUDA_CHECK(ggml_cuda_Memcpy2DPeerAsync(
-                            dhf_dst_i, device, ne0 * sizeof(float), dst_dd_i, id, row_diff * sizeof(float), row_diff * sizeof(float), src1_ncols, stream));
-                    }
-                    else {
-                        float* dhf_dst_i = (float*)((char*)dst_off_device + i02 * nb2 + i03 * nb3);
-                        GGML_ASSERT(dst->nb[1] == ne0 * sizeof(float));
-                        dhf_dst_i += src1_col_0 * ne0;
-                        CUDA_CHECK(cudaMemcpyAsync(dhf_dst_i, dst_dd_i, src1_ncols * ne0 * sizeof(float), cudaMemcpyDeviceToDevice, stream));
-                    }
-                }
-
-                // add event for the main device to wait on until other device is done
-                if (split && (id != device || is != 0)) {
-                    CUDA_CHECK(cudaEventRecord(src0_extra->events[id][is], stream));
-                }
-
-            }
-        }
-    }
-
-    // main device waits for all other devices to be finished
-    if (split && ggml_backend_cuda_get_device_count() > 1) {
-        int64_t is_max = (ne11 + MUL_MAT_SRC1_COL_STRIDE - 1) / MUL_MAT_SRC1_COL_STRIDE;
-        is_max = is_max <= GGML_CUDA_MAX_STREAMS ? is_max : GGML_CUDA_MAX_STREAMS;
-
-        ggml_cuda_set_device(device);
-        for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
-            if (dev[id].row_low == dev[id].row_high) {
-                continue;
-            }
-            for (int64_t is = 0; is < is_max; ++is) {
-                CUDA_CHECK(cudaStreamWaitEvent(this->stream(), src0_extra->events[id][is], 0));
-            }
-        }
+        op_mul_mat(*this, dst, ggml_cuda_op_mul_mat_cublas, nullptr);
     }
 }
 
