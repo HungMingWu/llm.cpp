@@ -916,6 +916,26 @@ static cudaError_t ggml_cuda_cpy_tensor_2d(
     }
 }
 
+static cudaError_t ggml_cuda_Memcpy2DPeerAsync(
+    void* dst, int dstDevice, size_t dpitch, void* src, int srcDevice, size_t spitch, size_t width, size_t height, cudaStream_t stream) {
+
+#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+    // cudaMemcpy2DAsync may fail with copies between vmm pools of different devices
+    cudaMemcpy3DPeerParms p = {};
+    p.dstDevice = dstDevice;
+    p.dstPtr = make_cudaPitchedPtr(dst, dpitch, dpitch, height);
+    p.srcDevice = srcDevice;
+    p.srcPtr = make_cudaPitchedPtr(src, spitch, spitch, height);
+    p.extent = make_cudaExtent(width, height, 1);
+    return cudaMemcpy3DPeerAsync(&p, stream);
+#else
+    // HIP does not support cudaMemcpy3DPeerAsync or vmm pools
+    GGML_UNUSED(dstDevice);
+    GGML_UNUSED(srcDevice);
+    return cudaMemcpy2DAsync(dst, dpitch, src, spitch, width, height, cudaMemcpyDeviceToDevice, stream);
+#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+}
+
 void ggml_backend_cuda::op_mul_mat(
     ggml_tensor* dst,
     ggml_cuda_op_mul_mat_t op,
@@ -1152,9 +1172,6 @@ void ggml_backend_cuda::op_mul_mat(
                 // copy src0, src1 to device if necessary
                 if (src1_is_contiguous) {
                     if (id != device) {
-                        // TODO
-                        assert(false);
-#if 0
                         if (quantize_src1) {
                             char* src1_ddq_i_source = dev[device].src1_ddq + src1_ddq_i_offset;
                             if (quantize_src1 == quantize_mmq_q8_1_cuda) {
@@ -1165,16 +1182,15 @@ void ggml_backend_cuda::op_mul_mat(
                             }
                             else {
                                 CUDA_CHECK(cudaMemcpyPeerAsync(
-                                    src1_ddq_i, id, src1_ddq_i_source, ctx.device, src1_ncols * src1_padded_col_size * q8_1_ts / q8_1_bs, stream));
+                                    src1_ddq_i, id, src1_ddq_i_source, device, src1_ncols * src1_padded_col_size * q8_1_ts / q8_1_bs, stream));
                             }
                         }
                         else {
                             float* src1_ddf_i_source = (float*)src1->data;
                             src1_ddf_i_source += (i0 * ne11 + src1_col_0) * ne10;
-                            CUDA_CHECK(cudaMemcpyPeerAsync(src1_ddf_i, id, src1_ddf_i_source, ctx.device,
+                            CUDA_CHECK(cudaMemcpyPeerAsync(src1_ddf_i, id, src1_ddf_i_source, device,
                                 src1_ncols * ne10 * sizeof(float), stream));
                         }
-#endif
                     }
                 }
                 else if (src1_on_device && !src1_is_contiguous) {
@@ -1204,8 +1220,6 @@ void ggml_backend_cuda::op_mul_mat(
 
                 // copy dst to host or other device if necessary
                 if (!dst_on_device) {
-                    assert(false);
-#if 0
                     void* dst_off_device = dst->data;
                     if (split) {
                         // src0 = weight matrix is saved as a transposed matrix for better memory layout.
@@ -1225,13 +1239,11 @@ void ggml_backend_cuda::op_mul_mat(
                         dhf_dst_i += src1_col_0 * ne0;
                         CUDA_CHECK(cudaMemcpyAsync(dhf_dst_i, dst_dd_i, src1_ncols * ne0 * sizeof(float), cudaMemcpyDeviceToDevice, stream));
                     }
-#endif
                 }
 
                 // add event for the main device to wait on until other device is done
                 if (split && (id != device || is != 0)) {
-                    assert(false);
-                    //CUDA_CHECK(cudaEventRecord(src0_extra->events[id][is], stream));
+                    CUDA_CHECK(cudaEventRecord(src0_extra->events[id][is], stream));
                 }
 
             }
@@ -2296,7 +2308,7 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         op::sum_rows(stream(), dst);
         break;
     case GGML_OP_MEAN: {
-        const bool cuda_graph_exists = [=]() {
+        const bool cuda_graph_exists = [=, this]() {
             if constexpr (use_cuda_graph_v) {
                 return cuda_graph->instance != nullptr;
             }
@@ -2304,7 +2316,7 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
                 return false;
             }
         }();
-        const bool cuda_graph_enable = [=]() {
+        const bool cuda_graph_enable = [=, this]() {
             if constexpr (use_cuda_graph_v) {
                 return cuda_graph->is_enabled();
             }
