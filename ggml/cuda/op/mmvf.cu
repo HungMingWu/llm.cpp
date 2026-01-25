@@ -212,7 +212,7 @@ static __global__ void mul_mat_vec_f(
     }
     else if constexpr (std::is_same_v<T, nv_bfloat16>) {
         //TODO: add support for ggml_cuda_mad for hip_bfloat162
-        if constexpr (use_hip_v) {
+        if constexpr (ggml_use_hip_v) {
             const int* x2 = (const int*)x;
             const int* gate_x2 = nullptr;
             if constexpr (has_fusion) {

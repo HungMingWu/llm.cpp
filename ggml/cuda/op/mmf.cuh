@@ -74,7 +74,7 @@ static __global__ void mul_mat_f(
     [[maybe_unused]] const int sample_ratio, [[maybe_unused]] const int stride_sample_x,
     [[maybe_unused]] const int stride_sample_y, [[maybe_unused]] const int stride_sample_dst) {
     // TODO: handle this in a consistent and simpler way after AMD MFMA support has been added
-    if constexpr ((!use_hip_v && !use_musa_v) || amd_wmma_available_v) {
+    if constexpr ((!ggml_use_hip_v && !ggml_use_musa_v) || amd_wmma_available_v) {
         if constexpr (volta_mma_available_v && !std::is_same_v<T, half2>) {
             NO_DEVICE_CODE;
             return;
@@ -306,7 +306,7 @@ static __global__ void mul_mat_f_ids(
     [[maybe_unused]] const int stride_sample_y, [[maybe_unused]] const int stride_sample_dst,
     [[maybe_unused]] const uint3 sis1_fd, [[maybe_unused]] const uint3 nch_fd) {
     // TODO: handle this in a consistent and simpler way after AMD MFMA support has been added
-    if constexpr ((!use_hip_v && !use_musa_v) || amd_wmma_available_v) {
+    if constexpr ((!ggml_use_hip_v && !ggml_use_musa_v) || amd_wmma_available_v) {
         if constexpr (volta_mma_available_v && !std::is_same_v<T, half2>) {
             NO_DEVICE_CODE;
             return;

@@ -29,16 +29,16 @@ static constexpr bool ggml_cuda_debug_v = false;
 
 // GGML_USE_HIP comes from CMake definition
 #ifdef GGML_USE_HIP
-static constexpr bool use_hip_v = true;
+static constexpr bool ggml_use_hip_v = true;
 #else
-static constexpr bool use_hip_v = false;
+static constexpr bool ggml_use_hip_v = false;
 #endif
 
 // GGML_USE_MUSA comes from CMake definition
 #ifdef GGML_USE_MUSA
-static constexpr bool use_musa_v = true;
+static constexpr bool ggml_use_musa_v = true;
 #else
-static constexpr bool use_musa_v = false;
+static constexpr bool ggml_use_musa_v = false;
 #endif
 
 #if defined(GGML_CUDA_FORCE_CUBLAS)

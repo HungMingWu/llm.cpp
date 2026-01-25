@@ -13,7 +13,7 @@ static constexpr __device__ int ggml_cuda_fattn_vec_get_nthreads_device() {
 template <int D>
 constexpr size_t getnthreads_KQ_q()
 {
-    if constexpr (use_hip_v) {
+    if constexpr (ggml_use_hip_v) {
 #ifdef RDNA
         return 2;
 #else
@@ -292,7 +292,7 @@ static __global__ void flash_attn_ext_vec(
             }
         }
 
-        if constexpr (!use_hip_v) {
+        if constexpr (!ggml_use_hip_v) {
             __syncwarp();
         }
 

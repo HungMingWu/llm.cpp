@@ -137,7 +137,7 @@ static constexpr __device__ int mmq_get_granularity_device(const int mmq_x) {
 }
 
 static int mmq_get_nwarps_host(const int cc, const int warp_size) {
-    if constexpr (use_hip_v) {
+    if constexpr (ggml_use_hip_v) {
         return amd_mfma_available(cc) ? 8 : 256 / warp_size;
     }
     else {
@@ -162,7 +162,7 @@ static constexpr __device__ int get_mmq_x_max_device() {
         return 128;
     }
 
-    if constexpr (use_hip_v) {
+    if constexpr (ggml_use_hip_v) {
         return 64;
     }
     else {
@@ -175,7 +175,7 @@ static constexpr __device__ int get_mmq_x_max_device() {
 }
 
 static constexpr __device__ int get_mmq_y_device() {
-    if constexpr (use_hip_v) {
+    if constexpr (ggml_use_hip_v) {
 #if defined(RDNA1)
         return 64;
 #else
@@ -3490,7 +3490,7 @@ static constexpr size_t minBlocksPerMultiprocessor()
 // On non-CDNA AMD or old CUDA the performance with stream-k was worse, use conventional tiling instead:
 static constexpr bool need_tile_process()
 {
-    if constexpr (use_hip_v) {
+    if constexpr (ggml_use_hip_v) {
 #ifndef CDNA
         return true;
 #endif

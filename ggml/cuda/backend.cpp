@@ -237,21 +237,20 @@ namespace
     cudaError_t ggml_cuda_Memcpy2DPeerAsync(
         void* dst, int dstDevice, size_t dpitch, void* src, int srcDevice, size_t spitch, size_t width, size_t height, cudaStream_t stream) {
 
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-        // cudaMemcpy2DAsync may fail with copies between vmm pools of different devices
-        cudaMemcpy3DPeerParms p = {};
-        p.dstDevice = dstDevice;
-        p.dstPtr = make_cudaPitchedPtr(dst, dpitch, dpitch, height);
-        p.srcDevice = srcDevice;
-        p.srcPtr = make_cudaPitchedPtr(src, spitch, spitch, height);
-        p.extent = make_cudaExtent(width, height, 1);
-        return cudaMemcpy3DPeerAsync(&p, stream);
-#else
-        // HIP does not support cudaMemcpy3DPeerAsync or vmm pools
-        GGML_UNUSED(dstDevice);
-        GGML_UNUSED(srcDevice);
-        return cudaMemcpy2DAsync(dst, dpitch, src, spitch, width, height, cudaMemcpyDeviceToDevice, stream);
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+        if constexpr (!ggml_use_hip_v && !ggml_use_musa_v) {
+            // cudaMemcpy2DAsync may fail with copies between vmm pools of different devices
+            cudaMemcpy3DPeerParms p = {};
+            p.dstDevice = dstDevice;
+            p.dstPtr = make_cudaPitchedPtr(dst, dpitch, dpitch, height);
+            p.srcDevice = srcDevice;
+            p.srcPtr = make_cudaPitchedPtr(src, spitch, spitch, height);
+            p.extent = make_cudaExtent(width, height, 1);
+            return cudaMemcpy3DPeerAsync(&p, stream);
+        }
+        else {
+            // HIP does not support cudaMemcpy3DPeerAsync or vmm pools
+            return cudaMemcpy2DAsync(dst, dpitch, src, spitch, width, height, cudaMemcpyDeviceToDevice, stream);
+        }
     }
 
     cudaError_t ggml_cuda_cpy_tensor_2d(

@@ -587,7 +587,7 @@ void ggml_cuda_flash_attn_ext_wmma_f16(const flash_attn_ext_context& ctx) {
         return;
     }
 
-    if constexpr (!use_hip_v) {
+    if constexpr (!ggml_use_hip_v) {
         if (ctx.Q.ne[1] <= 8 && ctx.Q.ne[0] % warp_size == 0) {
             constexpr int cols_per_block = 8;
             switch (ctx.Q.ne[0]) {

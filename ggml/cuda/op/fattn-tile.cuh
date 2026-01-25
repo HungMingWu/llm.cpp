@@ -264,7 +264,7 @@ static __host__ uint32_t ggml_cuda_fattn_tile_get_config(const int DKQ, const in
 }
 
 static constexpr __device__ uint32_t ggml_cuda_fattn_tile_get_config(const int DKQ, const int DV, const int ncols) {
-    if constexpr (use_hip_v) {
+    if constexpr (ggml_use_hip_v) {
 #ifdef RDNA
         return ggml_cuda_fattn_tile_get_config_amd_rdna(DKQ, DV, ncols);
 #else
@@ -1059,7 +1059,7 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
 
     constexpr size_t nbytes_shared = 0;
 
-    if constexpr (use_hip_v && DV <= 128) {
+    if constexpr (ggml_use_hip_v && DV <= 128) {
         if (ctx.Q.ne[1] > 32 / ncols2) {
             constexpr int cols_per_block = 64;
             const int nwarps = ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, cols_per_block, cc) / warp_size;
@@ -1071,7 +1071,7 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
         }
     }
 
-    if constexpr (use_hip_v || DV <= 256)
+    if constexpr (ggml_use_hip_v || DV <= 256)
     {
         if (ctx.Q.ne[1] > 16 / ncols2) {
             constexpr int cols_per_block = 32;
