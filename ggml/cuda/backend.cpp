@@ -31,6 +31,210 @@ static std::mutex ggml_cuda_lock;
 static std::condition_variable ggml_cuda_lock_cv;
 static std::atomic<int> ggml_cuda_lock_counter;
 
+namespace 
+{
+    // pool with virtual memory
+    struct ggml_cuda_pool_vmm : public ggml_cuda_pool {
+        static const size_t CUDA_POOL_VMM_MAX_SIZE = 1ull << 35; // 32 GB
+
+        int device;
+        CUdeviceptr pool_addr = 0;
+        size_t pool_used = 0;
+        size_t pool_size = 0;
+        size_t granularity;
+
+        explicit ggml_cuda_pool_vmm(int device) :
+            device(device),
+            granularity(ggml_cuda_info().devices[device].vmm_granularity) {
+        }
+
+        ~ggml_cuda_pool_vmm() {
+            if (pool_addr != 0) {
+                CU_CHECK(cuMemUnmap(pool_addr, pool_size));
+                CU_CHECK(cuMemAddressFree(pool_addr, CUDA_POOL_VMM_MAX_SIZE));
+            }
+        }
+
+        void* alloc(size_t size, size_t* actual_size) override {
+            // round up the allocation size to the alignment to ensure that all allocations are aligned for all data types
+            const size_t alignment = 128;
+            size = alignment * ((size + alignment - 1) / alignment);
+
+            size_t avail = pool_size - pool_used;
+
+            if (size > avail) {
+                // round up to the next multiple of the granularity
+                size_t reserve_size = size - avail;
+                reserve_size = granularity * ((reserve_size + granularity - 1) / granularity);
+
+                GGML_ASSERT(pool_size + reserve_size <= CUDA_POOL_VMM_MAX_SIZE);
+
+                // allocate more physical memory
+                CUmemAllocationProp prop = {};
+                prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+                prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+                prop.location.id = device;
+                CUmemGenericAllocationHandle handle;
+                CU_CHECK(cuMemCreate(&handle, reserve_size, &prop, 0));
+
+                // reserve virtual address space (if not already reserved)
+                if (pool_addr == 0) {
+                    CU_CHECK(cuMemAddressReserve(&pool_addr, CUDA_POOL_VMM_MAX_SIZE, 0, 0, 0));
+                }
+
+                // map at the end of the pool
+                CU_CHECK(cuMemMap(pool_addr + pool_size, reserve_size, 0, handle, 0));
+
+                // the memory allocation handle is no longer needed after mapping
+                CU_CHECK(cuMemRelease(handle));
+
+                // set access
+                CUmemAccessDesc access = {};
+                access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+                access.location.id = device;
+                access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+                CU_CHECK(cuMemSetAccess(pool_addr + pool_size, reserve_size, &access, 1));
+
+                // add to the pool
+                pool_size += reserve_size;
+
+                //printf("cuda pool[%d]: size increased to %llu MB (reserved %llu MB)\n",
+                //       device, (unsigned long long) (pool_size/1024/1024),
+                //       (unsigned long long) (reserve_size/1024/1024));
+            }
+
+            GGML_ASSERT(pool_addr != 0);
+
+            void* ptr = (void*)(pool_addr + pool_used);
+            *actual_size = size;
+            pool_used += size;
+
+#ifdef DEBUG_CUDA_MALLOC
+            printf("cuda pool[%d]: allocated %llu bytes at %llx\n", device, (unsigned long long) size, ptr);
+#endif
+
+            return ptr;
+        }
+
+        void free(void* ptr, size_t size) override {
+#ifdef DEBUG_CUDA_MALLOC
+            printf("cuda pool[%d]: freed %llu bytes at %llx\n", device, (unsigned long long) size, ptr);
+#endif
+
+            pool_used -= size;
+
+            // all deallocations must be in reverse order of the allocations
+            GGML_ASSERT(ptr == (void*)(pool_addr + pool_used));
+        }
+    };
+
+    // buffer pool for cuda (legacy)
+    struct ggml_cuda_pool_leg : public ggml_cuda_pool {
+        static const int MAX_BUFFERS = 256;
+
+        int device;
+        struct ggml_cuda_buffer {
+            void* ptr = nullptr;
+            size_t size = 0;
+        };
+
+        ggml_cuda_buffer buffer_pool[MAX_BUFFERS] = {};
+        size_t pool_size = 0;
+
+        explicit ggml_cuda_pool_leg(int device) :
+            device(device) {
+        }
+
+        ~ggml_cuda_pool_leg() {
+            ggml_cuda_set_device(device);
+            for (int i = 0; i < MAX_BUFFERS; ++i) {
+                ggml_cuda_buffer& b = buffer_pool[i];
+                if (b.ptr != nullptr) {
+                    CUDA_CHECK(cudaFree(b.ptr));
+                    pool_size -= b.size;
+                }
+            }
+            GGML_ASSERT(pool_size == 0);
+        }
+
+        void* alloc(size_t size, size_t* actual_size) override {
+#ifdef DEBUG_CUDA_MALLOC
+            int nnz = 0;
+            size_t max_size = 0;
+#endif
+            size_t best_diff = 1ull << 36;
+            int ibest = -1;
+            for (int i = 0; i < MAX_BUFFERS; ++i) {
+                ggml_cuda_buffer& b = buffer_pool[i];
+                if (b.ptr != nullptr) {
+#ifdef DEBUG_CUDA_MALLOC
+                    ++nnz;
+                    if (b.size > max_size) max_size = b.size;
+#endif
+                    if (b.size >= size) {
+                        size_t diff = b.size - size;
+                        if (diff < best_diff) {
+                            best_diff = diff;
+                            ibest = i;
+                            if (!best_diff) {
+                                void* ptr = b.ptr;
+                                *actual_size = b.size;
+                                b.ptr = nullptr;
+                                b.size = 0;
+                                return ptr;
+                            }
+                        }
+                    }
+                }
+            }
+            if (ibest >= 0) {
+                ggml_cuda_buffer& b = buffer_pool[ibest];
+                void* ptr = b.ptr;
+                *actual_size = b.size;
+                b.ptr = nullptr;
+                b.size = 0;
+                return ptr;
+            }
+            void* ptr;
+            size_t look_ahead_size = (size_t)(1.05 * size);
+            look_ahead_size = 256 * ((look_ahead_size + 255) / 256);
+            ggml_cuda_set_device(device);
+            CUDA_CHECK(ggml_cuda_device_malloc(&ptr, look_ahead_size, device));
+            *actual_size = look_ahead_size;
+            pool_size += look_ahead_size;
+#ifdef DEBUG_CUDA_MALLOC
+            GGML_LOG_INFO("%s[%d]: %d buffers, max_size = %u MB, pool_size = %u MB, requested %u MB\n", __func__, device, nnz,
+                (uint32_t)(max_size / 1024 / 1024), (uint32_t)(pool_size / 1024 / 1024), (uint32_t)(size / 1024 / 1024));
+#endif
+            return ptr;
+        }
+
+        void free(void* ptr, size_t size) override {
+            for (int i = 0; i < MAX_BUFFERS; ++i) {
+                ggml_cuda_buffer& b = buffer_pool[i];
+                if (b.ptr == nullptr) {
+                    b.ptr = ptr;
+                    b.size = size;
+                    return;
+                }
+            }
+            GGML_LOG_DEBUG(GGML_CUDA_NAME " buffer pool full, increase MAX_CUDA_BUFFERS");
+            ggml_cuda_set_device(device);
+            CUDA_CHECK(cudaFree(ptr));
+            pool_size -= size;
+        }
+    };
+
+    std::unique_ptr<ggml_cuda_pool> new_pool_for_device(int device, int /*stream_no*/) {
+        if constexpr (ggml_use_vmm_v) {
+            if (ggml_cuda_info().devices[device].vmm) {
+                return std::make_unique<ggml_cuda_pool_vmm>(device);
+            }
+        }
+        return std::make_unique<ggml_cuda_pool_leg>(device);
+    }
+}
+
 static void ggml_cuda_op_mul_mat_q(
     ggml_backend_cuda& ctx,
     ggml_tensor* dst, const char* src0_dd_i, const float* /*src1_ddf_i*/,
@@ -380,207 +584,6 @@ void ggml_cuda_op_mul_mat_vec_q(
     };
 
     mul_mat_vec_q_switch_type(ctx1, stream);
-}
-
-// pool with virtual memory
-struct ggml_cuda_pool_vmm : public ggml_cuda_pool {
-    static const size_t CUDA_POOL_VMM_MAX_SIZE = 1ull << 35; // 32 GB
-
-    int device;
-    CUdeviceptr pool_addr = 0;
-    size_t pool_used = 0;
-    size_t pool_size = 0;
-    size_t granularity;
-
-    explicit ggml_cuda_pool_vmm(int device) :
-        device(device),
-        granularity(ggml_cuda_info().devices[device].vmm_granularity) {
-    }
-
-    ~ggml_cuda_pool_vmm() {
-        if (pool_addr != 0) {
-            CU_CHECK(cuMemUnmap(pool_addr, pool_size));
-            CU_CHECK(cuMemAddressFree(pool_addr, CUDA_POOL_VMM_MAX_SIZE));
-        }
-    }
-
-    void* alloc(size_t size, size_t* actual_size) override {
-        // round up the allocation size to the alignment to ensure that all allocations are aligned for all data types
-        const size_t alignment = 128;
-        size = alignment * ((size + alignment - 1) / alignment);
-
-        size_t avail = pool_size - pool_used;
-
-        if (size > avail) {
-            // round up to the next multiple of the granularity
-            size_t reserve_size = size - avail;
-            reserve_size = granularity * ((reserve_size + granularity - 1) / granularity);
-
-            GGML_ASSERT(pool_size + reserve_size <= CUDA_POOL_VMM_MAX_SIZE);
-
-            // allocate more physical memory
-            CUmemAllocationProp prop = {};
-            prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
-            prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-            prop.location.id = device;
-            CUmemGenericAllocationHandle handle;
-            CU_CHECK(cuMemCreate(&handle, reserve_size, &prop, 0));
-
-            // reserve virtual address space (if not already reserved)
-            if (pool_addr == 0) {
-                CU_CHECK(cuMemAddressReserve(&pool_addr, CUDA_POOL_VMM_MAX_SIZE, 0, 0, 0));
-            }
-
-            // map at the end of the pool
-            CU_CHECK(cuMemMap(pool_addr + pool_size, reserve_size, 0, handle, 0));
-
-            // the memory allocation handle is no longer needed after mapping
-            CU_CHECK(cuMemRelease(handle));
-
-            // set access
-            CUmemAccessDesc access = {};
-            access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-            access.location.id = device;
-            access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-            CU_CHECK(cuMemSetAccess(pool_addr + pool_size, reserve_size, &access, 1));
-
-            // add to the pool
-            pool_size += reserve_size;
-
-            //printf("cuda pool[%d]: size increased to %llu MB (reserved %llu MB)\n",
-            //       device, (unsigned long long) (pool_size/1024/1024),
-            //       (unsigned long long) (reserve_size/1024/1024));
-        }
-
-        GGML_ASSERT(pool_addr != 0);
-
-        void* ptr = (void*)(pool_addr + pool_used);
-        *actual_size = size;
-        pool_used += size;
-
-#ifdef DEBUG_CUDA_MALLOC
-        printf("cuda pool[%d]: allocated %llu bytes at %llx\n", device, (unsigned long long) size, ptr);
-#endif
-
-        return ptr;
-    }
-
-    void free(void* ptr, size_t size) override {
-#ifdef DEBUG_CUDA_MALLOC
-        printf("cuda pool[%d]: freed %llu bytes at %llx\n", device, (unsigned long long) size, ptr);
-#endif
-
-        pool_used -= size;
-
-        // all deallocations must be in reverse order of the allocations
-        GGML_ASSERT(ptr == (void*)(pool_addr + pool_used));
-    }
-};
-
-// buffer pool for cuda (legacy)
-struct ggml_cuda_pool_leg : public ggml_cuda_pool {
-    static const int MAX_BUFFERS = 256;
-
-    int device;
-    struct ggml_cuda_buffer {
-        void* ptr = nullptr;
-        size_t size = 0;
-    };
-
-    ggml_cuda_buffer buffer_pool[MAX_BUFFERS] = {};
-    size_t pool_size = 0;
-
-    explicit ggml_cuda_pool_leg(int device) :
-        device(device) {
-    }
-
-    ~ggml_cuda_pool_leg() {
-        ggml_cuda_set_device(device);
-        for (int i = 0; i < MAX_BUFFERS; ++i) {
-            ggml_cuda_buffer& b = buffer_pool[i];
-            if (b.ptr != nullptr) {
-                CUDA_CHECK(cudaFree(b.ptr));
-                pool_size -= b.size;
-            }
-        }
-        GGML_ASSERT(pool_size == 0);
-    }
-
-    void* alloc(size_t size, size_t* actual_size) override {
-#ifdef DEBUG_CUDA_MALLOC
-        int nnz = 0;
-        size_t max_size = 0;
-#endif
-        size_t best_diff = 1ull << 36;
-        int ibest = -1;
-        for (int i = 0; i < MAX_BUFFERS; ++i) {
-            ggml_cuda_buffer& b = buffer_pool[i];
-            if (b.ptr != nullptr) {
-#ifdef DEBUG_CUDA_MALLOC
-                ++nnz;
-                if (b.size > max_size) max_size = b.size;
-#endif
-                if (b.size >= size) {
-                    size_t diff = b.size - size;
-                    if (diff < best_diff) {
-                        best_diff = diff;
-                        ibest = i;
-                        if (!best_diff) {
-                            void* ptr = b.ptr;
-                            *actual_size = b.size;
-                            b.ptr = nullptr;
-                            b.size = 0;
-                            return ptr;
-                        }
-                    }
-                }
-            }
-        }
-        if (ibest >= 0) {
-            ggml_cuda_buffer& b = buffer_pool[ibest];
-            void* ptr = b.ptr;
-            *actual_size = b.size;
-            b.ptr = nullptr;
-            b.size = 0;
-            return ptr;
-        }
-        void* ptr;
-        size_t look_ahead_size = (size_t)(1.05 * size);
-        look_ahead_size = 256 * ((look_ahead_size + 255) / 256);
-        ggml_cuda_set_device(device);
-        CUDA_CHECK(ggml_cuda_device_malloc(&ptr, look_ahead_size, device));
-        *actual_size = look_ahead_size;
-        pool_size += look_ahead_size;
-#ifdef DEBUG_CUDA_MALLOC
-        GGML_LOG_INFO("%s[%d]: %d buffers, max_size = %u MB, pool_size = %u MB, requested %u MB\n", __func__, device, nnz,
-            (uint32_t)(max_size / 1024 / 1024), (uint32_t)(pool_size / 1024 / 1024), (uint32_t)(size / 1024 / 1024));
-#endif
-        return ptr;
-    }
-
-    void free(void* ptr, size_t size) override {
-        for (int i = 0; i < MAX_BUFFERS; ++i) {
-            ggml_cuda_buffer& b = buffer_pool[i];
-            if (b.ptr == nullptr) {
-                b.ptr = ptr;
-                b.size = size;
-                return;
-            }
-        }
-        GGML_LOG_DEBUG(GGML_CUDA_NAME " buffer pool full, increase MAX_CUDA_BUFFERS");
-        ggml_cuda_set_device(device);
-        CUDA_CHECK(cudaFree(ptr));
-        pool_size -= size;
-    }
-};
-
-std::unique_ptr<ggml_cuda_pool> ggml_backend_cuda::new_pool_for_device(int device, [[maybe_unused]] int stream_no) {
-    if constexpr (ggml_use_vmm_v) {
-        if (ggml_cuda_info().devices[device].vmm) {
-            return std::make_unique<ggml_cuda_pool_vmm>(device);
-        }
-    }
-    return std::make_unique<ggml_cuda_pool_leg>(device);
 }
 
 template <ggml_type type>
@@ -2393,23 +2396,47 @@ ggml_backend_cuda::~ggml_backend_cuda()
 }
 
 bool ggml_backend_cuda::graph_set_enabled() {
-#ifdef USE_CUDA_GRAPH
-
-    if (cuda_graph == nullptr) {
-        cuda_graph.reset(new ggml_cuda_graph());
-    }
-
-    if (cuda_graph->graph == nullptr) {
-        if (ggml_cuda_info().devices[device].cc < GGML_CUDA_CC_AMPERE) {
-            cuda_graph->disable_due_to_gpu_arch = true;
-            GGML_LOG_DEBUG("%s: disabling CUDA graphs due to GPU architecture\n", __func__);
+    if constexpr (use_cuda_graph_v) {
+        if (!cuda_graph) {
+            cuda_graph = std::make_unique<ggml_cuda_graph>();
         }
-    }
 
-    return cuda_graph->is_enabled();
-#else
-    return false;
-#endif // USE_CUDA_GRAPH
+        if (!cuda_graph->graph) {
+            if (ggml_cuda_info().devices[device].cc < GGML_CUDA_CC_AMPERE) {
+                cuda_graph->disable_due_to_gpu_arch = true;
+                GGML_LOG_DEBUG("{}: disabling CUDA graphs due to GPU architecture\n", __func__);
+            }
+        }
+
+        return cuda_graph->is_enabled();
+    }
+    else {
+        return false;
+    }
+}
+
+cudaStream_t ggml_backend_cuda::stream(int device, int stream) {
+    if (streams[device][stream] == nullptr) {
+        ggml_cuda_set_device(device);
+        CUDA_CHECK(cudaStreamCreateWithFlags(&streams[device][stream], cudaStreamNonBlocking));
+    }
+    return streams[device][stream];
+}
+
+ggml_cuda_pool& ggml_backend_cuda::pool(int device) {
+    if (pools[device][curr_stream_no] == nullptr) {
+        pools[device][curr_stream_no] = new_pool_for_device(device, curr_stream_no);
+    }
+    return *pools[device][curr_stream_no];
+}
+
+cublasHandle_t ggml_backend_cuda::cublas_handle(int device) {
+    if (cublas_handles[device] == nullptr) {
+        ggml_cuda_set_device(device);
+        CUBLAS_CHECK(cublasCreate(&cublas_handles[device]));
+        CUBLAS_CHECK(cublasSetMathMode(cublas_handles[device], CUBLAS_TF32_TENSOR_OP_MATH));
+    }
+    return cublas_handles[device];
 }
 
 void ggml_backend_cuda::graph_optimize(ggml_cgraph* cgraph) {
