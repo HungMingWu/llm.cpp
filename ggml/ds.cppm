@@ -452,7 +452,7 @@ export {
     private:        
         ggml_tensor* create_new_tensor_impl(
             ggml_type type,
-            std::span<int64_t> ne,
+            std::span<const int64_t> ne,
             struct ggml_tensor* view_src,
             size_t  view_offs);
     public:
@@ -463,8 +463,17 @@ export {
 
         template <typename Self>
         auto& getTensors(this Self&& self) { return self.tensors; }
-        ggml_tensor* create(ggml_type type, std::initializer_list<int64_t> ne);
-        ggml_tensor* create(ggml_type type, std::initializer_list<int64_t> ne, ggml_tensor* view_src, size_t view_offset);
+        ggml_tensor* create(ggml_type type, std::span<const int64_t> ne);
+
+        template <typename... Args>
+        requires (std::convertible_to<Args, int64_t> && ...)
+        ggml_tensor* create(ggml_type type, Args&&... args)
+        {
+            cpp26::inplace_vector<int64_t, GGML_MAX_DIMS> vec{ static_cast<int64_t>(args)... };
+            return create(type, vec);
+        }
+
+        ggml_tensor* create(ggml_type type, std::span<const int64_t> ne, ggml_tensor* view_src, size_t view_offset);
 		ggml_tensor* find(std::string_view name);
         void clear() { tensors.clear(); }
     };

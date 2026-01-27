@@ -52,7 +52,7 @@ std::tuple<ggml_tensor*, std::vector<float>> new_timestep_embedding(ggml_context
     // timesteps: [N,]
     // embedding: [dim, N]
     int actual_dim = dim;
-    ggml_tensor* embedding = ctx->create(GGML_TYPE_F32, { actual_dim, timesteps->ne[0] });
+    ggml_tensor* embedding = ctx->create(GGML_TYPE_F32, actual_dim, timesteps->ne[0]);
 	std::vector<float> embedding_data(embedding->nelements());
     std::mdspan embedding_mdspan(embedding_data.data(),
         embedding->ne[1], embedding->ne[0]);
@@ -68,7 +68,7 @@ int main(int argc, const char** argv) {
     {
         ggml_context ctx;
 
-        ggml_tensor* timesteps = ctx.create(GGML_TYPE_F32, { static_cast<int64_t>(ts.size()) });
+        ggml_tensor* timesteps = ctx.create(GGML_TYPE_F32, ts.size());
         auto [embedding, embedding_result] = new_timestep_embedding(&ctx, timesteps, ts, dim, max_period);
 
         for (auto value : embedding_result) {
@@ -111,7 +111,7 @@ int main(int argc, const char** argv) {
 
         ggml_context ctx;
 
-        ggml_tensor* timesteps = ctx.create(GGML_TYPE_F32, { static_cast<int64_t>(ts.size()) });
+        ggml_tensor* timesteps = ctx.create(GGML_TYPE_F32, ts.size());
 
         params_buffer = backend->alloc_tensors(&ctx);
 

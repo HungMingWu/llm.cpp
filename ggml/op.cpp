@@ -142,7 +142,7 @@ ggml_tensor* ggml_count_equal(
 	ggml_tensor* b) {
 	GGML_ASSERT(ggml_are_same_shape(a, b));
 
-	ggml_tensor* result = ctx->create(GGML_TYPE_I64, { 1 });
+	ggml_tensor* result = ctx->create(GGML_TYPE_I64, 1);
 
 	result->op = GGML_OP_COUNT_EQUAL;
 	result->src.push_back(a);
@@ -260,7 +260,7 @@ ggml_tensor* ggml_ssm_conv(
 	GGML_ASSERT(sx->ne[1] == d_inner);
 	GGML_ASSERT(n_t >= 0);
 
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { d_inner, n_t, n_s });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, d_inner, n_t, n_s);
 
 	result->op = GGML_OP_SSM_CONV;
 	result->src.push_back(sx);
@@ -319,7 +319,7 @@ ggml_tensor* ggml_ssm_scan(
 	}
 
 	// concatenated y + ssm_states
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { x->nelements() + s->ne[0] * s->ne[1] * s->ne[2] * ids->ne[0] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, x->nelements() + s->ne[0] * s->ne[1] * s->ne[2] * ids->ne[0]);
 
 	result->op = GGML_OP_SSM_SCAN;
 	result->src.push_back(s);
@@ -361,7 +361,7 @@ ggml_tensor* ggml_rwkv_wkv6(
 	}
 
 	// concat output and new_state
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { S * H, n_tokens + S * n_seqs, 1, 1 });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, S * H, n_tokens + S * n_seqs, 1, 1);
 
 	result->op = GGML_OP_RWKV_WKV6;
 	result->src.push_back(k);
@@ -400,7 +400,7 @@ ggml_tensor * ggml_gated_linear_attn(
     }
 
     // concat output and new_state
-    ggml_tensor * result = ctx->create(GGML_TYPE_F32, {S * H, n_tokens + S * n_seqs, 1, 1});
+    ggml_tensor * result = ctx->create(GGML_TYPE_F32, S * H, n_tokens + S * n_seqs, 1, 1);
 
 	result->op_params[0] = std::bit_cast<uint32_t>(scale);
 
@@ -444,7 +444,7 @@ ggml_tensor* ggml_mul_mat_id(
 	GGML_ASSERT(as->ne[0] == b->ne[0]); // can_mul_mat
 	GGML_ASSERT(ids->ne[0] % b->ne[1] == 0); // can broadcast
 
-	struct ggml_tensor* result = ctx->create(GGML_TYPE_F32, { as->ne[1], ids->ne[0], b->ne[2], 1 });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, as->ne[1], ids->ne[0], b->ne[2], 1);
 
 	result->op = GGML_OP_MUL_MAT_ID;
 	result->src.push_back(as);
@@ -468,7 +468,7 @@ ggml_tensor* ggml_out_prod(
 	GGML_ASSERT(!ggml_is_transposed(a));
 
 	// a is broadcastable to b for ne[2] and ne[3] -> use b->ne[2] and b->ne[3]
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { a->ne[0], b->ne[0], b->ne[2], b->ne[3] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, a->ne[0], b->ne[0], b->ne[2], b->ne[3]);
 
 	result->op = GGML_OP_OUT_PROD;
 	result->src.push_back(a);
@@ -705,7 +705,7 @@ ggml_tensor* ggml_concat(
 		ne[d] = a->ne[d];
 	}
 
-	ggml_tensor* result = ctx->create(a->type, { ne[0], ne[1], ne[2], ne[3] });
+	ggml_tensor* result = ctx->create(a->type, ne);
 
 	result->op_params[0] = std::bit_cast<uint32_t>(dim);
 	result->op = GGML_OP_CONCAT;
@@ -721,7 +721,7 @@ ggml_tensor* ggml_argsort(
 	ggml_sort_order order)
 {
 	GGML_ASSERT(a->ne[0] <= std::numeric_limits<int32_t>::max());
-	ggml_tensor* result = ctx->create(GGML_TYPE_I32, { a->ne[0], a->ne[1], a->ne[2], a->ne[3] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_I32, a->ne);
 
 	result->op_params[0] = std::bit_cast<int32_t>(order);
 
@@ -735,7 +735,7 @@ ggml_tensor* ggml_sum(
 	ggml_context* ctx,
 	ggml_tensor* a) {
 
-	ggml_tensor* result = ctx->create(a->type, { 1 });
+	ggml_tensor* result = ctx->create(a->type, 1);
 
 	result->op = GGML_OP_SUM;
 	result->src.push_back(a);
@@ -747,7 +747,7 @@ ggml_tensor* ggml_sum_rows(
 	ggml_context* ctx,
 	ggml_tensor* a)
 {
-	ggml_tensor* result = ctx->create(a->type, { 1, a->ne[1], a->ne[2], a->ne[3] });
+	ggml_tensor* result = ctx->create(a->type, 1, a->ne[1], a->ne[2], a->ne[3]);
 
 	result->op = GGML_OP_SUM_ROWS;
 	result->src.push_back(a);
@@ -758,7 +758,7 @@ ggml_tensor* ggml_sum_rows(
 ggml_tensor* ggml_mean(
 	ggml_context* ctx,
 	ggml_tensor* a) {
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { 1, a->ne[1], a->ne[2], a->ne[3] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, 1, a->ne[1], a->ne[2], a->ne[3]);
 
 	result->op = GGML_OP_MEAN;
 	result->src.push_back(a);
@@ -779,7 +779,7 @@ static ggml_tensor* ggml_upscale_impl(
 	GGML_ASSERT(a->ne[2] <= ne2);
 	GGML_ASSERT(a->ne[3] <= ne3);
 
-	ggml_tensor* result = ctx->create(a->type, { ne0, ne1, ne2, ne3 });
+	ggml_tensor* result = ctx->create(a->type, ne0, ne1, ne2, ne3);
 	result->op_params[0] = std::bit_cast<uint32_t>(mode);
 
 	result->op = GGML_OP_UPSCALE;
@@ -855,7 +855,7 @@ ggml_tensor* ggml_timestep_embedding(
 	int dim,
 	int max_period) {
 
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { dim, timesteps->ne[0] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, dim, timesteps->ne[0]);
 
 	result->op_params[0] = std::bit_cast<uint32_t>(dim);
 	result->op_params[1] = std::bit_cast<uint32_t>(max_period);
@@ -911,7 +911,7 @@ ggml_tensor* ggml_flash_attn_ext(
 	}
 
 	// permute(0, 2, 1, 3)
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { v->ne[0], q->ne[2], q->ne[1], q->ne[3] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, v->ne[0], q->ne[2], q->ne[1], q->ne[3]);
 
 	float params[] = { scale, max_bias, logit_softcap };
 	ggml_set_op_params(*result, params, sizeof(params));
@@ -934,7 +934,7 @@ ggml_tensor* ggml_mul_mat(
 	GGML_ASSERT(ggml_can_mul_mat(*a, *b));
 	GGML_ASSERT(!ggml_is_transposed(a));
 
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { a->ne[1], b->ne[1], b->ne[2], b->ne[3] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, a->ne[1], b->ne[1], b->ne[2], b->ne[3]);
 
 	result->op = GGML_OP_MUL_MAT;
 	result->src.emplace_back(a);
@@ -995,7 +995,7 @@ ggml_tensor* ggml_conv_2d(
 		ne[2] = COut;
 		ne[3] = N;
 
-		ggml_tensor* result = ctx->create(input->type, { ne[0], ne[1], ne[2], ne[3] });
+		ggml_tensor* result = ctx->create(input->type, ne);
 
 		result->op_params[0] = std::bit_cast<int32_t>(stride_w);
 		result->op_params[1] = std::bit_cast<int32_t>(stride_h);
@@ -1031,7 +1031,7 @@ ggml_tensor* ggml_cross_entropy_loss(
 	ggml_tensor* b) {
 	GGML_ASSERT(ggml_are_same_shape(a, b));
 
-	ggml_tensor* result = ctx->create(a->type, { 1 });
+	ggml_tensor* result = ctx->create(a->type, 1);
 
 	result->op = GGML_OP_CROSS_ENTROPY_LOSS;
 	result->src.push_back(a);
@@ -1092,7 +1092,7 @@ ggml_tensor* ggml_reshape(
 	// as only the shape of b is relevant, and not its memory layout, b is allowed to be non contiguous.
 	GGML_ASSERT(a->nelements() == b->nelements());
 
-	ggml_tensor* result = ctx->create(a->type, { b->ne[0], b->ne[1], b->ne[2], b->ne[3] }, a, 0);
+	ggml_tensor* result = ctx->create(a->type, b->ne, a, 0);
 	result->set_name("{} (reshaped)", a->name);
 
 	result->op = GGML_OP_RESHAPE;
@@ -1213,7 +1213,7 @@ ggml_tensor* ggml_rwkv_wkv7(
 	}
 
 	// concat output and new_state
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { S * H, n_tokens + S * n_seqs, 1, 1 });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, S * H, n_tokens + S * n_seqs, 1, 1);
 
 	result->op = GGML_OP_RWKV_WKV7;
 	result->src.push_back(r);
@@ -1243,7 +1243,7 @@ ggml_tensor* ggml_repeat(
 {
 	GGML_ASSERT(ggml_can_repeat(a, b));
 
-	ggml_tensor* result = ctx->create(a->type, { b->ne[0], b->ne[1], b->ne[2], b->ne[3] });
+	ggml_tensor* result = ctx->create(a->type, b->ne);
 
 	result->op = GGML_OP_REPEAT;
 	result->src.push_back(a);
@@ -1264,7 +1264,7 @@ ggml_tensor* ggml_repeat_4d(
 	);
 	GGML_ASSERT(can_repeat);
 
-	ggml_tensor* result = ctx->create(a->type, { ne0, ne1, ne2, ne3 });
+	ggml_tensor* result = ctx->create(a->type, ne0, ne1, ne2, ne3);
 
 	result->op = GGML_OP_REPEAT;
 	result->src.push_back(a);
@@ -1436,12 +1436,12 @@ ggml_tensor* ggml_conv_2d_dw(
 		auto [padding_h, padding_w] = padding;
 		auto [dilation_h, dilation_w] = dilation;
 
-		ggml_tensor* result = ctx->create(b->type, {
+		ggml_tensor* result = ctx->create(b->type,
 			ggml_calc_conv_output_size(b->ne[0], a->ne[0], stride_w, padding_w, dilation_w),
 			ggml_calc_conv_output_size(b->ne[1], a->ne[1], stride_h, padding_h, dilation_h),
 			b->ne[2],
 			b->ne[3]
-		});
+		);
 
 		if (ggml_is_contiguous_channels(b)) {
 			// Result will be permuted the same way as input (NHWC order)
@@ -1534,12 +1534,12 @@ static ggml_tensor* ggml_glu_impl(
 		GGML_ASSERT(a->type == b->type);
 	}
 
-	ggml_tensor* result = ctx->create(a->type, {
+	ggml_tensor* result = ctx->create(a->type,
 		b ? a->ne[0] : a->ne[0] / 2,
 		a->ne[1],
 		a->ne[2],
 		a->ne[3]
-	});
+	);
 
 	result->op_params[0] = std::bit_cast<int32_t>(op);
 	result->op_params[1] = swapped;
@@ -1665,7 +1665,7 @@ static ggml_tensor* ggml_interpolate_impl(
 	// TODO: implement antialias for modes other than bilinear
 	GGML_ASSERT(!(mode & GGML_SCALE_FLAG_ANTIALIAS) || (mode & 0xFF) == GGML_SCALE_MODE_BILINEAR);
 
-	ggml_tensor* result = ctx->create(a->type, { ne0, ne1, ne2, ne3 });
+	ggml_tensor* result = ctx->create(a->type, ne0, ne1, ne2, ne3);
 
 	result->op_params[0] = std::bit_cast<int32_t>(mode);
 
@@ -1696,7 +1696,7 @@ ggml_tensor* ggml_arange(
 
 	const int64_t steps = (int64_t)ceilf((stop - start) / step);
 
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { steps });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, steps);
 
 	result->op_params[0] = std::bit_cast<int32_t>(start);
 	result->op_params[1] = std::bit_cast<int32_t>(stop);
@@ -1722,7 +1722,7 @@ ggml_tensor* ggml_get_rows(
 	if (a->type == GGML_TYPE_I32) {
 		type = a->type;
 	}
-	ggml_tensor* result = ctx->create(type, { a->ne[0], b->ne[0], b->ne[1], b->ne[2] });
+	ggml_tensor* result = ctx->create(type, a->ne[0], b->ne[0], b->ne[1], b->ne[2]);
 
 	result->op = GGML_OP_GET_ROWS;
 	result->src.push_back(a);
@@ -1743,12 +1743,12 @@ ggml_tensor* ggml_pool_1d(
 	int s0,
 	int p0)
 {
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, {
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32,
 		ggml_calc_pool_output_size(a->ne[0], k0, s0, p0),
 		a->ne[1],
 		a->ne[2],
 		a->ne[3]
-	});
+	);
 
 	int32_t params[] = { op, k0, s0, p0 };
 	ggml_set_op_params(*result, params, sizeof(params));
@@ -1770,12 +1770,12 @@ ggml_tensor* ggml_pool_2d(
 	int32_t p0,
 	int32_t p1)
 {
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, {
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32,
 		ggml_calc_pool_output_size(a->ne[0], k0, s0, p0),
 		ggml_calc_pool_output_size(a->ne[1], k1, s1, p1),
 		a->ne[2],
 		a->ne[3]
-	});
+	);
 
 	int32_t params[] = { op, k0, k1, s0, s1, p0, p1 };
 	ggml_set_op_params(*result, params, sizeof(params));
@@ -1865,12 +1865,12 @@ ggml_tensor* ggml_im2col(
 	GGML_ASSERT((!is_2D || OH > 0) && "b too small compared to a");
 	GGML_ASSERT((OW > 0) && "b too small compared to a");
 
-	ggml_tensor* result = ctx->create(dst_type, {
+	ggml_tensor* result = ctx->create(dst_type,
 		is_2D ? (a->ne[2] * a->ne[1] * a->ne[0]) : a->ne[1] * a->ne[0],
 		OW,
 		is_2D ? OH : b->ne[2],
-		is_2D ? b->ne[3] : 1,
-	});
+		is_2D ? b->ne[3] : 1
+	);
 	int32_t params[] = { stride_w, stride_h, padding_w, padding_h, dilation_w, dilation_h, (is_2D ? 1 : 0) };
 	ggml_set_op_params(*result, params, sizeof(params));
 
@@ -1897,7 +1897,7 @@ ggml_tensor* ggml_conv_transpose_1d(
 	const int64_t L = b->ne[0];
 	const int64_t K = a->ne[0];
 	const int64_t LOut = (L - 1) * stride - 2 * padding + dilation * (K - 1) + 1;
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { LOut, COut, 1, 1 });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, LOut, COut, 1, 1);
 
 	int32_t params[] = { stride, padding, dilation };
 	ggml_set_op_params(*result, params, sizeof(params));
@@ -1947,11 +1947,11 @@ ggml_tensor* ggml_conv_transpose_2d(
 	const int64_t HIn = input->ne[1];
 	const int64_t WIn = input->ne[0];
 
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, {
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32,
 		(WIn - 1) * stride_w - 2 * padding_w + dilation_w * (Kw - 1) + 1,
 		(HIn - 1) * stride_h - 2 * padding_h + dilation_h * (Kh - 1) + 1,
 		COut, N
-	});
+	);
 
 	result->op_params[0] = std::bit_cast<uint32_t>(stride_w);
 	result->op_params[1] = std::bit_cast<uint32_t>(stride_h);
@@ -1982,12 +1982,12 @@ ggml_tensor* ggml_pad_reflect_1d(
 	GGML_ASSERT(ggml_is_contiguous(a));
 	GGML_ASSERT(a->type == GGML_TYPE_F32);
 
-	ggml_tensor* result = ctx->create(a->type, {
+	ggml_tensor* result = ctx->create(a->type,
 		a->ne[0] + p0 + p1,
 		a->ne[1],
 		a->ne[2],
 		a->ne[3]
-	});
+	);
 
 	int32_t params[] = { p0, p1 };
 	ggml_set_op_params(*result, params, sizeof(params));
@@ -2004,7 +2004,7 @@ ggml_tensor* ggml_argmax(
 	GGML_ASSERT(ggml_is_matrix(a));
 	GGML_ASSERT(a->ne[0] <= INT32_MAX);
 
-	ggml_tensor* result = ctx->create(GGML_TYPE_I32, { a->ne[1] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_I32, a->ne[1]);
 
 	result->op = GGML_OP_ARGMAX;
 	result->src.push_back(a);
@@ -2069,7 +2069,7 @@ ggml_tensor* ggml_get_rel_pos(
 	GGML_ASSERT(qh == kh);
 	GGML_ASSERT(2 * std::max(qh, kh) - 1 == a->ne[1]);
 
-	ggml_tensor* result = ctx->create(GGML_TYPE_F16, { a->ne[0], kh, qh });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F16, a->ne[0], kh, qh);
 
 	result->op = GGML_OP_GET_REL_POS;
 	result->src.push_back(a);
@@ -2159,7 +2159,7 @@ ggml_tensor* ggml_cast(
 	ggml_context* ctx,
 	ggml_tensor* a,
 	enum ggml_type type) {
-	ggml_tensor* result = ctx->create(type, { a->ne[0], a->ne[1], a->ne[2], a->ne[3] });
+	ggml_tensor* result = ctx->create(type, a->ne);
 	result->set_name(std::format("{} (copy)", a->name));
 
 	result->op = GGML_OP_CPY;
@@ -2225,7 +2225,7 @@ ggml_tensor* ggml_top_k(
 {
 	GGML_ASSERT(a->ne[0] >= k);
 
-	ggml_tensor* result = ctx->create(GGML_TYPE_I32, { k, a->ne[1], a->ne[2], a->ne[3] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_I32, k, a->ne[1], a->ne[2], a->ne[3]);
 
 	result->op = GGML_OP_TOP_K;
 	result->src.push_back(a);
@@ -2321,7 +2321,7 @@ ggml_tensor* ggml_im2col_3d(
 	GGML_ASSERT((OH > 0) && "b too small compared to a");
 	GGML_ASSERT((OW > 0) && "b too small compared to a");
 
-	ggml_tensor* result = ctx->create(dst_type, { KW * KH * KD * IC, OW, OH, OD * N });
+	ggml_tensor* result = ctx->create(dst_type, KW * KH * KD * IC, OW, OH, OD * N);
 	int32_t params[] = { s0, s1, s2, p0, p1, p2, d0, d1, d2, (int32_t)IC };
 	ggml_set_op_params(*result, params, sizeof(params));
 
@@ -2358,7 +2358,7 @@ ggml_tensor* ggml_conv_3d_direct(
 	ne[2] = ggml_calc_conv_output_size(b->ne[2], a->ne[2], s2, p2, d2);
 	ne[3] = (int64_t)oc * n;
 
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { ne[0], ne[1], ne[2], ne[3] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, ne);
 
 	result->op_params[0] = s0;
 	result->op_params[1] = s1;
@@ -2394,10 +2394,10 @@ ggml_tensor* ggml_pad_ext(
 	bool circular
 ) {
 	ggml_tensor* result = ctx->create(a->type,
-		{ a->ne[0] + lp0 + rp0,
+		a->ne[0] + lp0 + rp0,
 		a->ne[1] + lp1 + rp1,
 		a->ne[2] + lp2 + rp2,
-		a->ne[3] + lp3 + rp3 });
+		a->ne[3] + lp3 + rp3);
 
 	result->op_params[0] = lp0;
 	result->op_params[1] = rp0;
@@ -2544,7 +2544,7 @@ ggml_tensor* ggml_solve_tri(
 
 	GGML_ASSERT(lower && left && !uni); // TODO: support other variants
 
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32, { b->ne[0], b->ne[1], b->ne[2], b->ne[3] });
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, b->ne);
 
 	result->op = GGML_OP_SOLVE_TRI;
 	result->src.push_back(a);
@@ -2590,7 +2590,7 @@ ggml_tensor* ggml_diag(
 	ggml_tensor* a) {
 	GGML_ASSERT(a->ne[1] == 1);
 
-	ggml_tensor* result = ctx->create(a->type, { a->ne[0], a->ne[0], a->ne[2], a->ne[3] });
+	ggml_tensor* result = ctx->create(a->type, a->ne[0], a->ne[0], a->ne[2], a->ne[3]);
 
 	result->op = GGML_OP_DIAG;
 	result->src.push_back(a);

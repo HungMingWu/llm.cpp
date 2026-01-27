@@ -84,8 +84,8 @@ void load_model(test_model& model, bool use_gpu = false) {
 
     // create tensors
     // A Pytorch grouped Conv1d weight parameter is of shape (out_channels, input_channels/groups, kernel_size)
-    model.weight = model.ctx.create(GGML_TYPE_F16, { K, 1, IC });
-    model.input = model.ctx.create(GGML_TYPE_F32, { IL, IC, N });
+    model.weight = model.ctx.create(GGML_TYPE_F16, K, 1, IC);
+    model.input = model.ctx.create(GGML_TYPE_F32, IL, IC, N);
 
     // create a allocator
     ggml_tallocr alloc(model.buffer.get());

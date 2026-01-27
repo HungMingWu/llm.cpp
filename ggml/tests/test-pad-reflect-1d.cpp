@@ -70,7 +70,7 @@ void test_pad_reflect_1d(bool use_gpu) {
         ggml_gallocr gallocr(backend->get_default_buffer_type());
 
         // Create a simple 1D input tensor [1, 2, 3, 4]
-        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 4 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, 4);
         float input_data[] = { 1.0f, 2.0f, 3.0f, 4.0f };
         tallocr.alloc(t);
 
@@ -115,7 +115,7 @@ void test_pad_reflect_1d(bool use_gpu) {
         ggml_gallocr gallocr(backend->get_default_buffer_type());
 
         // Create a 2D input tensor (5 columns กั 4 rows)
-        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 5, 4 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, 5, 4);
         float input_data[] = {
             1.0f, 2.0f, 3.0f, 4.0f, 5.0f,  // row 1
             6.0f, 7.0f, 8.0f, 9.0f, 10.0f, // row 2

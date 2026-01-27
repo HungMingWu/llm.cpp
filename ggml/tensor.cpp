@@ -84,7 +84,7 @@ bool ggml_is_contiguous(const ggml_tensor* tensor) {
 }
 
 ggml_tensor* ggml_dup_tensor(ggml_context* ctx, const ggml_tensor* src) {
-	return ctx->create(src->type, { src->ne[0], src->ne[1], src->ne[2], src->ne[3] });
+	return ctx->create(src->type, src->ne);
 }
 
 bool ggml_can_repeat(const ggml_tensor* t0, const ggml_tensor* t1) {
@@ -102,7 +102,7 @@ bool ggml_is_vector(const ggml_tensor* tensor) {
 ggml_tensor* ggml_view_tensor(
 	ggml_context* ctx,
 	ggml_tensor* src) {
-	ggml_tensor* result = ctx->create(src->type, { src->ne[0], src->ne[1], src->ne[2], src->ne[3] }, src, 0);
+	ggml_tensor* result = ctx->create(src->type, src->ne, src, 0);
 	result->set_name("{} (view)", src->name);
 
 	for (int i = 0; i < GGML_MAX_DIMS; i++) {

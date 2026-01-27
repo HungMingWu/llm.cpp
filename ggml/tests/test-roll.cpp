@@ -71,7 +71,7 @@ bool test_roll(std::array<int64_t, 4> ne, std::array<int, 4> shift, bool permute
     ggml_cgraph gf;
 
     // Build graph
-    ggml_tensor* src = ctx.create(GGML_TYPE_F32, { ne[0], ne[1], ne[2], ne[3] });
+    ggml_tensor* src = ctx.create(GGML_TYPE_F32, ne);
     ggml_tensor* res;
     if (!permute) {
         res = ggml_roll(&ctx, src, shift[0], shift[1], shift[2], shift[3]);

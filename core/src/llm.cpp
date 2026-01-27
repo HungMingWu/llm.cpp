@@ -10450,8 +10450,8 @@ static bool llama_kv_cache_init(
             return false;
         }
 
-        ggml_tensor* k = ctx->create(type_k, { n_embd_k_gqa * kv_size });
-        ggml_tensor* v = ctx->create(type_v, { n_embd_v_gqa * kv_size });
+        ggml_tensor* k = ctx->create(type_k, n_embd_k_gqa * kv_size);
+        ggml_tensor* v = ctx->create(type_v, n_embd_v_gqa * kv_size);
         k->set_name("cache_k_l{}", i);
         v->set_name("cache_v_l{}", i);
         cache.k_l.push_back(k);
@@ -10571,14 +10571,14 @@ static ggml_tensor* llm_build_inp_embd(
     struct ggml_tensor* inpL;
 
     if (batch.token) {
-        lctx.inp_tokens = ctx->create(GGML_TYPE_I32, { batch.n_tokens });
+        lctx.inp_tokens = ctx->create(GGML_TYPE_I32, batch.n_tokens);
         cb(lctx.inp_tokens, "inp_tokens", -1);
         lctx.inp_tokens->set_flag(GGML_TENSOR_FLAG_INPUT);
 
         inpL = ggml_get_rows(ctx, tok_embd, lctx.inp_tokens);
     }
     else {
-        lctx.inp_embd = ctx->create(GGML_TYPE_F32, { n_embd, batch.n_tokens });
+        lctx.inp_embd = ctx->create(GGML_TYPE_F32, n_embd, batch.n_tokens);
         inpL = lctx.inp_embd;
         lctx.inp_embd->set_flag(GGML_TENSOR_FLAG_INPUT);
     }
@@ -11613,7 +11613,7 @@ struct llm_build_context {
 
         GGML_ASSERT(kv_self.size == n_ctx);
 
-        lctx.inp_K_shift = ctx0->create(GGML_TYPE_I32, { n_ctx });
+        lctx.inp_K_shift = ctx0->create(GGML_TYPE_I32, n_ctx);
         cb(lctx.inp_K_shift, "K_shift", -1);
         lctx.inp_K_shift->set_flag(GGML_TENSOR_FLAG_INPUT);
 
@@ -11729,7 +11729,7 @@ struct llm_build_context {
     }
 
     ggml_tensor* build_inp_pos() {
-        lctx.inp_pos = ctx0->create(GGML_TYPE_I32, { n_tokens });
+        lctx.inp_pos = ctx0->create(GGML_TYPE_I32, n_tokens);
         cb(lctx.inp_pos, "inp_pos", -1);
         lctx.inp_pos->set_flag(GGML_TENSOR_FLAG_INPUT);
         return lctx.inp_pos;
@@ -11751,7 +11751,7 @@ struct llm_build_context {
     }
 
     ggml_tensor* build_inp_out_ids() {
-        lctx.inp_out_ids = ctx0->create(GGML_TYPE_I32, { n_outputs });
+        lctx.inp_out_ids = ctx0->create(GGML_TYPE_I32, n_outputs);
         cb(lctx.inp_out_ids, "inp_out_ids", -1);
         lctx.inp_out_ids->set_flag(GGML_TENSOR_FLAG_INPUT);
         return lctx.inp_out_ids;
@@ -11759,8 +11759,8 @@ struct llm_build_context {
 
     ggml_tensor* build_inp_KQ_mask(bool causal = true) {
         lctx.inp_KQ_mask = causal
-            ? ctx0->create(GGML_TYPE_F32, { n_kv, (int64_t)GGML_PAD(n_tokens, GGML_KQ_MASK_PAD) })
-            : ctx0->create(GGML_TYPE_F32, { n_tokens, (int64_t)GGML_PAD(n_tokens, GGML_KQ_MASK_PAD) });
+            ? ctx0->create(GGML_TYPE_F32, n_kv, GGML_PAD(n_tokens, GGML_KQ_MASK_PAD))
+            : ctx0->create(GGML_TYPE_F32, n_tokens, GGML_PAD(n_tokens, GGML_KQ_MASK_PAD));
         cb(lctx.inp_KQ_mask, "KQ_mask", -1);
         lctx.inp_KQ_mask->set_flag(GGML_TENSOR_FLAG_INPUT);
 
@@ -11771,8 +11771,8 @@ struct llm_build_context {
         GGML_ASSERT(hparams.n_swa > 0);
 
         lctx.inp_KQ_mask_swa = causal
-            ? ctx0->create(GGML_TYPE_F32, { n_kv, (int64_t)GGML_PAD(n_tokens, GGML_KQ_MASK_PAD) })
-            : ctx0->create(GGML_TYPE_F32, { n_tokens, (int64_t)GGML_PAD(n_tokens, GGML_KQ_MASK_PAD) });
+            ? ctx0->create(GGML_TYPE_F32, n_kv, GGML_PAD(n_tokens, GGML_KQ_MASK_PAD))
+            : ctx0->create(GGML_TYPE_F32, n_tokens, GGML_PAD(n_tokens, GGML_KQ_MASK_PAD));
         cb(lctx.inp_KQ_mask_swa, "KQ_mask_swa", -1);
         lctx.inp_KQ_mask_swa->set_flag(GGML_TENSOR_FLAG_INPUT);
 
@@ -11780,28 +11780,28 @@ struct llm_build_context {
     }
 
     ggml_tensor* build_inp_mean() {
-        lctx.inp_mean = ctx0->create(GGML_TYPE_F32, { n_tokens, n_tokens });
+        lctx.inp_mean = ctx0->create(GGML_TYPE_F32, n_tokens, n_tokens);
         cb(lctx.inp_mean, "inp_mean", -1);
         lctx.inp_mean->set_flag(GGML_TENSOR_FLAG_INPUT);
         return lctx.inp_mean;
     }
 
     ggml_tensor* build_inp_cls() {
-        lctx.inp_cls = ctx0->create(GGML_TYPE_I32, { n_tokens });
+        lctx.inp_cls = ctx0->create(GGML_TYPE_I32, n_tokens);
         cb(lctx.inp_cls, "inp_cls", -1);
         lctx.inp_cls->set_flag(GGML_TENSOR_FLAG_INPUT);
         return lctx.inp_cls;
     }
 
     ggml_tensor* build_inp_s_copy() {
-        lctx.inp_s_copy = ctx0->create(GGML_TYPE_I32, { n_kv });
+        lctx.inp_s_copy = ctx0->create(GGML_TYPE_I32, n_kv);
         cb(lctx.inp_s_copy, "inp_s_copy", -1);
         lctx.inp_s_copy->set_flag(GGML_TENSOR_FLAG_INPUT);
         return lctx.inp_s_copy;
     }
 
     ggml_tensor* build_inp_s_mask() {
-        lctx.inp_s_mask = ctx0->create(GGML_TYPE_F32, { 1, n_kv });
+        lctx.inp_s_mask = ctx0->create(GGML_TYPE_F32, 1, n_kv);
         cb(lctx.inp_s_mask, "inp_s_mask", -1);
         lctx.inp_s_mask->set_flag(GGML_TENSOR_FLAG_INPUT);
         return lctx.inp_s_mask;
@@ -11875,10 +11875,10 @@ struct llm_build_context {
 
     ggml_tensor* llm_build_pos_bucket(bool causal) {
         if (causal) {
-            lctx.inp_pos_bucket = ctx0->create(GGML_TYPE_I32, { n_kv, n_tokens });
+            lctx.inp_pos_bucket = ctx0->create(GGML_TYPE_I32, n_kv, n_tokens);
         }
         else {
-            lctx.inp_pos_bucket = ctx0->create(GGML_TYPE_I32, { n_tokens, n_tokens });
+            lctx.inp_pos_bucket = ctx0->create(GGML_TYPE_I32, n_tokens, n_tokens);
         }
 
         lctx.inp_pos_bucket->set_flag(GGML_TENSOR_FLAG_INPUT);
@@ -11908,14 +11908,14 @@ struct llm_build_context {
 
     ggml_tensor* llm_build_inp_embd_enc() {
         const int64_t n_embd = hparams.n_embd;
-        lctx.inp_embd_enc = ctx0->create(GGML_TYPE_F32, { n_embd, n_outputs_enc });
+        lctx.inp_embd_enc = ctx0->create(GGML_TYPE_F32, n_embd, n_outputs_enc);
         lctx.inp_embd_enc->set_flag(GGML_TENSOR_FLAG_INPUT);
         cb(lctx.inp_embd_enc, "embd_enc", -1);
         return lctx.inp_embd_enc;
     }
 
     ggml_tensor* llm_build_inp_KQ_mask_cross() {
-        lctx.inp_KQ_mask_cross = ctx0->create(GGML_TYPE_F32, { n_outputs_enc, (int64_t)GGML_PAD(n_tokens, GGML_KQ_MASK_PAD) });
+        lctx.inp_KQ_mask_cross = ctx0->create(GGML_TYPE_F32, n_outputs_enc, GGML_PAD(n_tokens, GGML_KQ_MASK_PAD));
         lctx.inp_KQ_mask_cross->set_flag(GGML_TENSOR_FLAG_INPUT);
         cb(lctx.inp_KQ_mask_cross, "KQ_mask_cross", -1);
         return lctx.inp_KQ_mask_cross;
@@ -13894,7 +13894,7 @@ struct llm_build_context {
         inpL = llm_build_inp_embd(ctx0, lctx, hparams, ubatch, model.tok_embd, cb);
 
         // inp_pos - contains the positions
-        lctx.inp_pos = ctx0->create(GGML_TYPE_I32, { n_tokens * 4 });
+        lctx.inp_pos = ctx0->create(GGML_TYPE_I32, n_tokens * 4);
         cb(lctx.inp_pos, "inp_pos", -1);
         lctx.inp_pos->set_flag(GGML_TENSOR_FLAG_INPUT);
         struct ggml_tensor* inp_pos = lctx.inp_pos;
@@ -18123,7 +18123,7 @@ struct llm_build_context {
         int num_img_tokens = img_token_end_idx - img_token_start_idx;
         // creates 1d tensor of size num_img_tokens and values -FLT_MAX,
         // which ensures that text token values are always at least larger than image token values
-        ggml_tensor* img_logits = ctx0->create(GGML_TYPE_F32, { num_img_tokens });
+        ggml_tensor* img_logits = ctx0->create(GGML_TYPE_F32,  num_img_tokens);
         img_logits = ggml_clamp(ctx0, img_logits, -FLT_MAX, -FLT_MAX);
         cb(img_logits, "img_logits", -1);
         cur = ggml_set_1d(ctx0, cur, img_logits, ggml_element_size(cur) * img_token_start_idx);

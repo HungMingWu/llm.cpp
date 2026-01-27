@@ -87,8 +87,8 @@ void test_conv_transpose_1d(void) {
     // conv transpose 1d with stride 1, 2 & 3
     {
         ggml_context ctx;
-        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 3, 2 }); // l x cin
-        ggml_tensor* k = ctx.create(GGML_TYPE_F16, { 2, 3, 2 }); // k x cout x cin
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, 3, 2); // l x cin
+        ggml_tensor* k = ctx.create(GGML_TYPE_F16, 2, 3, 2); // k x cout x cin
         ggml_tensor* out_1 = ggml_conv_transpose_1d(&ctx, k, t, 1 /* s0 */, 0 /* p0 */, 1 /* d0 */);
         ggml_tensor* out_2 = ggml_conv_transpose_1d(&ctx, k, t, 2 /* s0 */, 0 /* p0 */, 1 /* d0 */);
         ggml_tensor* out_3 = ggml_conv_transpose_1d(&ctx, k, t, 3 /* s0 */, 0 /* p0 */, 1 /* d0 */);
@@ -194,8 +194,8 @@ void test_conv_transpose_2d(void) {
     // conv transpose 2d with stride 1, 2 & 3
     {
         ggml_context ctx;
-        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 3, 2, 2, 1 }); // w x h x cin
-        ggml_tensor* k = ctx.create(GGML_TYPE_F16, { 2, 2, 3, 2 }); // w x h cin x cout
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, 3, 2, 2, 1); // w x h x cin
+        ggml_tensor* k = ctx.create(GGML_TYPE_F16, 2, 2, 3, 2); // w x h cin x cout
         ggml_tensor* out_1 = ggml_conv_transpose_2d(&ctx, k, t, 1);
         ggml_tensor* out_2 = ggml_conv_transpose_2d(&ctx, k, t, 2);
         ggml_tensor* out_3 = ggml_conv_transpose_2d(&ctx, k, t, 3);

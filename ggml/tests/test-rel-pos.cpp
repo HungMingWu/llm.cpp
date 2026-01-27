@@ -39,17 +39,17 @@ int main(int argc, const char** argv) {
     {
         ggml_context ctx;
 
-        ggml_tensor* t = ctx.create(GGML_TYPE_F16, { 3, 3 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F16, 3, 3);
 
-        ggml_tensor* t_2 = ctx.create(GGML_TYPE_F16, { 3, 3 });
+        ggml_tensor* t_2 = ctx.create(GGML_TYPE_F16, 3, 3);
         ggml_tensor* rw = ggml_get_rel_pos(&ctx, t, 2, 2);
         ggml_tensor* rh = ggml_get_rel_pos(&ctx, t_2, 2, 2);
 
-        ggml_tensor* rw_f32 = ggml_cpy(&ctx, rw, ctx.create(GGML_TYPE_F32, { 3, 2, 2 }));
-        ggml_tensor* rh_f32 = ggml_cpy(&ctx, rh, ctx.create(GGML_TYPE_F32, { 3, 2, 2 }));
+        ggml_tensor* rw_f32 = ggml_cpy(&ctx, rw, ctx.create(GGML_TYPE_F32, 3, 2, 2));
+        ggml_tensor* rh_f32 = ggml_cpy(&ctx, rh, ctx.create(GGML_TYPE_F32, 3, 2, 2));
 
-        ggml_tensor* in = ctx.create(GGML_TYPE_F32, { 9, 4 });
-        ggml_tensor* out_inplace = ctx.create(GGML_TYPE_F32, { 9, 4 });
+        ggml_tensor* in = ctx.create(GGML_TYPE_F32, 9, 4);
+        ggml_tensor* out_inplace = ctx.create(GGML_TYPE_F32, 9, 4);
 
         ggml_tensor* out = ggml_add_rel_pos(&ctx, in, rw_f32, rh_f32, false);
         ggml_cgraph gf;

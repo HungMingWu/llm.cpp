@@ -305,12 +305,12 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
 
         model.layers.resize(n_layer);
 
-        model.ln_f_g = ctx.create(GGML_TYPE_F32, { n_embd });
-        model.ln_f_b = ctx.create(GGML_TYPE_F32, { n_embd });
+        model.ln_f_g = ctx.create(GGML_TYPE_F32, n_embd);
+        model.ln_f_b = ctx.create(GGML_TYPE_F32, n_embd);
 
-        model.wte = ctx.create(wtype, { n_embd, n_vocab });
-        model.wpe = ctx.create(GGML_TYPE_F32, { n_embd, n_ctx });
-        model.lm_head = ctx.create(wtype, { n_embd, n_vocab });
+        model.wte = ctx.create(wtype, n_embd, n_vocab);
+        model.wpe = ctx.create(GGML_TYPE_F32, n_embd, n_ctx);
+        model.lm_head = ctx.create(wtype, n_embd, n_vocab);
 
         // map by name
         model.tensors["model/ln_f/g"] = model.ln_f_g;
@@ -323,23 +323,23 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
         for (int i = 0; i < n_layer; ++i) {
             auto& layer = model.layers[i];
 
-            layer.ln_1_g = ctx.create(GGML_TYPE_F32, { n_embd });
-            layer.ln_1_b = ctx.create(GGML_TYPE_F32, { n_embd });
+            layer.ln_1_g = ctx.create(GGML_TYPE_F32, n_embd);
+            layer.ln_1_b = ctx.create(GGML_TYPE_F32, n_embd);
 
-            layer.ln_2_g = ctx.create(GGML_TYPE_F32, { n_embd });
-            layer.ln_2_b = ctx.create(GGML_TYPE_F32, { n_embd });
+            layer.ln_2_g = ctx.create(GGML_TYPE_F32, n_embd);
+            layer.ln_2_b = ctx.create(GGML_TYPE_F32, n_embd);
 
-            layer.c_attn_attn_w = ctx.create(wtype, { n_embd, 3 * n_embd });
-            layer.c_attn_attn_b = ctx.create(GGML_TYPE_F32, { 3 * n_embd });
+            layer.c_attn_attn_w = ctx.create(wtype, n_embd, 3 * n_embd);
+            layer.c_attn_attn_b = ctx.create(GGML_TYPE_F32, 3 * n_embd);
 
-            layer.c_attn_proj_w = ctx.create(wtype, { n_embd, n_embd });
-            layer.c_attn_proj_b = ctx.create(GGML_TYPE_F32, { n_embd });
+            layer.c_attn_proj_w = ctx.create(wtype, n_embd, n_embd);
+            layer.c_attn_proj_b = ctx.create(GGML_TYPE_F32, n_embd);
 
-            layer.c_mlp_fc_w = ctx.create(wtype, { n_embd, 4 * n_embd });
-            layer.c_mlp_fc_b = ctx.create(GGML_TYPE_F32, { 4 * n_embd });
+            layer.c_mlp_fc_w = ctx.create(wtype, n_embd, 4 * n_embd);
+            layer.c_mlp_fc_b = ctx.create(GGML_TYPE_F32, 4 * n_embd);
 
-            layer.c_mlp_proj_w = ctx.create(wtype, { 4 * n_embd, n_embd });
-            layer.c_mlp_proj_b = ctx.create(GGML_TYPE_F32, { n_embd });
+            layer.c_mlp_proj_w = ctx.create(wtype, 4 * n_embd, n_embd);
+            layer.c_mlp_proj_b = ctx.create(GGML_TYPE_F32, n_embd);
 
             // map by name
             model.tensors["model/h" + std::to_string(i) + "/ln_1/g"] = layer.ln_1_g;
@@ -376,8 +376,8 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
         const int n_mem = n_layer * n_ctx;
         const int n_elements = n_embd * n_mem;
 
-        model.kv_cache.k = ctx.create(GGML_TYPE_F32, { n_elements });
-        model.kv_cache.v = ctx.create(GGML_TYPE_F32, { n_elements });
+        model.kv_cache.k = ctx.create(GGML_TYPE_F32, n_elements);
+        model.kv_cache.v = ctx.create(GGML_TYPE_F32, n_elements);
 
         model.kv_cache.head = 0;
         model.kv_cache.size = n_ctx;
@@ -530,11 +530,11 @@ ggml_cgraph gpt2_graph(
 
     ggml_tensor* inpL;
     if (!batch.token.empty()) {
-        ggml_tensor* inp_tokens = ctx.create(GGML_TYPE_I32, { n_tokens });
+        ggml_tensor* inp_tokens = ctx.create(GGML_TYPE_I32, n_tokens);
         inp_tokens->set_name("inp_tokens");
         inp_tokens->set_flag(GGML_TENSOR_FLAG_INPUT);
 
-        ggml_tensor* position = ctx.create(GGML_TYPE_I32, { n_tokens });
+        ggml_tensor* position = ctx.create(GGML_TYPE_I32, n_tokens);
         position->set_name("position");
         position->set_flag(GGML_TENSOR_FLAG_INPUT);
 
@@ -547,13 +547,13 @@ ggml_cgraph gpt2_graph(
     else {
         GGML_ASSERT(!batch.embd.empty());
 
-        inpL = ctx.create(GGML_TYPE_F32, { n_embd, n_tokens });
+        inpL = ctx.create(GGML_TYPE_F32, n_embd, n_tokens);
         inpL->set_name("embd");
         inpL->set_flag(GGML_TENSOR_FLAG_INPUT);
     }
 
     // KQ_mask (mask for 1 head, it will be broadcasted to all heads)
-    ggml_tensor* KQ_mask = ctx.create(GGML_TYPE_F32, { n_kv, n_tokens, 1 });
+    ggml_tensor* KQ_mask = ctx.create(GGML_TYPE_F32, n_kv, n_tokens, 1);
     KQ_mask->set_name("KQ_mask");
     KQ_mask->set_flag(GGML_TENSOR_FLAG_INPUT);
 

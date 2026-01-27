@@ -27,7 +27,7 @@ bool test_interpolate(char const* name,
     ggml_cgraph gf;
 
     // Build graph
-    ggml_tensor* src = ctx.create(GGML_TYPE_F32, { src_ne[0], src_ne[1], src_ne[2], src_ne[3] });
+    ggml_tensor* src = ctx.create(GGML_TYPE_F32, src_ne);
     ggml_tensor* res = ggml_interpolate(&ctx, src, dst_ne[0], dst_ne[1], dst_ne[2], dst_ne[3], mode);
     gf.build_forward_expand(res);
 

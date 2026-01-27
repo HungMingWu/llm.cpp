@@ -164,7 +164,7 @@ ggml_cgraph magika_graph(
 
     ggml_cgraph gf;
 
-    ggml_tensor* input = ctx.create(GGML_TYPE_F32, { 257, 1536, n_files }); // one-hot
+    ggml_tensor* input = ctx.create(GGML_TYPE_F32, 257, 1536, n_files); // one-hot
     input->set_name("input");
     input->set_flag(GGML_TENSOR_FLAG_INPUT);
 

@@ -101,14 +101,14 @@ static helper_ctx_data helper_get_ctx_data(
     std::vector<ggml_tensor*>   data_batch(ndata);
     std::vector<ggml_tensor*> labels_batch(ndata);
     for (int64_t ndata_batch = 1; ndata_batch <= ndata; ++ndata_batch) {
-        data_batch[ndata_batch - 1] = ctx_static.create(GGML_TYPE_F32, { ndata_batch * ne_datapoint });
-        labels_batch[ndata_batch - 1] = ctx_static.create(GGML_TYPE_F32, { ndata_batch * ne_label });
+        data_batch[ndata_batch - 1] = ctx_static.create(GGML_TYPE_F32, ndata_batch * ne_datapoint);
+        labels_batch[ndata_batch - 1] = ctx_static.create(GGML_TYPE_F32, ndata_batch * ne_label);
     }
 
-    ggml_tensor* inputs = ctx_static.create(GGML_TYPE_F32, { nbatch_physical });
+    ggml_tensor* inputs = ctx_static.create(GGML_TYPE_F32, nbatch_physical);
     inputs->set_name("inputs");
 
-    ggml_tensor* weights = ctx_static.create(GGML_TYPE_F32, { 1 });
+    ggml_tensor* weights = ctx_static.create(GGML_TYPE_F32, 1);
     weights->set_name("weights");
     weights->set_flag(GGML_TENSOR_FLAG_PARAM);
 
@@ -714,14 +714,14 @@ static std::pair<int, int> test_regression(
     ggml_context ctx_compute;
 
     // The first dimension is the dimension of the datapoints, the second dimension is the number of datapoints.
-    ggml_tensor* x = ctx_static.create(GGML_TYPE_F32, { 1, ndata_regression });
+    ggml_tensor* x = ctx_static.create(GGML_TYPE_F32, 1, ndata_regression);
     x->set_name("x");
 
-    ggml_tensor* a = ctx_static.create(GGML_TYPE_F32, { 1 });
+    ggml_tensor* a = ctx_static.create(GGML_TYPE_F32, 1);
     a->set_name("a");
     a->set_flag(GGML_TENSOR_FLAG_PARAM);
 
-    ggml_tensor* b = ctx_static.create(GGML_TYPE_F32, { 1 });
+    ggml_tensor* b = ctx_static.create(GGML_TYPE_F32, 1);
     b->set_name("b");
     b->set_flag(GGML_TENSOR_FLAG_PARAM);
 
@@ -860,20 +860,20 @@ int main(void) {
             bool skip;
             {
                 ggml_context ctx;
-                ggml_tensor* a = ctx.create(GGML_TYPE_F32, { 1 });
+                ggml_tensor* a = ctx.create(GGML_TYPE_F32, 1);
                 a->set_flag(GGML_TENSOR_FLAG_PARAM);
-                ggml_tensor* b = ctx.create(GGML_TYPE_F32, { 1 });
-                ggml_tensor* c = ctx.create(GGML_TYPE_F32, { 1 });
-                ggml_tensor* d = ctx.create(GGML_TYPE_F32, { 1 });
+                ggml_tensor* b = ctx.create(GGML_TYPE_F32, 1);
+                ggml_tensor* c = ctx.create(GGML_TYPE_F32, 1);
+                ggml_tensor* d = ctx.create(GGML_TYPE_F32, 1);
 
                 ggml_tensor* t = nullptr;
                 switch (optim) {
                 case GGML_OPT_OPTIMIZER_TYPE_ADAMW: {
-                    ggml_tensor* p = ctx.create(GGML_TYPE_F32, { 7 });
+                    ggml_tensor* p = ctx.create(GGML_TYPE_F32, 7);
                     t = ggml_opt_step_adamw(&ctx, a, b, c, d, p);
                 } break;
                 case GGML_OPT_OPTIMIZER_TYPE_SGD: {
-                    ggml_tensor* p = ctx.create(GGML_TYPE_F32, { 2 });
+                    ggml_tensor* p = ctx.create(GGML_TYPE_F32, 2);
                     t = ggml_opt_step_sgd(&ctx, a, b, p);
                 } break;
                 case GGML_OPT_OPTIMIZER_TYPE_COUNT: {

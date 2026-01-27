@@ -85,8 +85,8 @@ bool test_conv_2d_dw(
     ggml_cgraph gf;
 
     // Build graph
-    ggml_tensor* src_input = ctx->create(GGML_TYPE_F32, { src_w, src_h, channels, batch });
-    ggml_tensor* knl_input = ctx->create(GGML_TYPE_F32, { knl_w, knl_h, 1, channels });
+    ggml_tensor* src_input = ctx->create(GGML_TYPE_F32, src_w, src_h, channels, batch);
+    ggml_tensor* knl_input = ctx->create(GGML_TYPE_F32, knl_w, knl_h, 1, channels);
     ggml_tensor* src = src_input;
     ggml_tensor* knl = knl_input;
     if (contiguous_channels) {

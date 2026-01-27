@@ -87,8 +87,8 @@ void load_model(test_model& model, bool use_gpu = false) {
     model.buffer = model.backend->get_default_buffer_type()->alloc_buffer(buffer_size);
 
     // create tensors
-    model.a = model.ctx.create(GGML_TYPE_F16, { K, IC, OC });
-    model.b = model.ctx.create(GGML_TYPE_F32, { IL, IC, N });
+    model.a = model.ctx.create(GGML_TYPE_F16, K, IC, OC);
+    model.b = model.ctx.create(GGML_TYPE_F32, IL, IC, N);
 
     // create a allocator
     ggml_tallocr alloc(model.buffer.get());

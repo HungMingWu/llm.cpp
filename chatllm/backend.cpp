@@ -838,17 +838,7 @@ namespace chatllm
     {
 		std::vector<int64_t> reverse_ne{ ne.begin(), ne.end() };
         std::ranges::reverse(reverse_ne);
-        ggml::tensor* tensor = [&]() {
-            if (reverse_ne.size() == 1)
-                return get_ctx()->create(type, { reverse_ne[0] });
-            else if (reverse_ne.size() == 2)
-                return get_ctx()->create(type, { reverse_ne[0], reverse_ne[1] });
-            else if (reverse_ne.size() == 3)
-                return get_ctx()->create(type, { reverse_ne[0], reverse_ne[1], reverse_ne[2] });
-            else if (reverse_ne.size() == 4)
-                return get_ctx()->create(type, { reverse_ne[0], reverse_ne[1], reverse_ne[2], reverse_ne[3] });
-            std::unreachable();
-        }();
+        ggml::tensor* tensor = get_ctx()->create(type, reverse_ne);
         cb_new_tensor(tensor);
         return tensor;
     }

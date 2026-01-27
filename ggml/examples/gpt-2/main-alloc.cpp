@@ -208,12 +208,12 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
 
         model.layers.resize(n_layer);
 
-        model.ln_f_g = ctx.create(GGML_TYPE_F32, { n_embd });
-        model.ln_f_b = ctx.create(GGML_TYPE_F32, { n_embd });
+        model.ln_f_g = ctx.create(GGML_TYPE_F32, n_embd);
+        model.ln_f_b = ctx.create(GGML_TYPE_F32, n_embd);
 
-        model.wte = ctx.create(wtype, { n_embd, n_vocab });
-        model.wpe = ctx.create(GGML_TYPE_F32, { n_embd, n_ctx });
-        model.lm_head = ctx.create(wtype, { n_embd, n_vocab });
+        model.wte = ctx.create(wtype, n_embd, n_vocab);
+        model.wpe = ctx.create(GGML_TYPE_F32, n_embd, n_ctx);
+        model.lm_head = ctx.create(wtype, n_embd, n_vocab);
 
         // map by name
         model.tensors["model/ln_f/g"] = model.ln_f_g;
@@ -226,23 +226,23 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
         for (int i = 0; i < n_layer; ++i) {
             auto& layer = model.layers[i];
 
-            layer.ln_1_g = ctx.create(GGML_TYPE_F32, { n_embd });
-            layer.ln_1_b = ctx.create(GGML_TYPE_F32, { n_embd });
+            layer.ln_1_g = ctx.create(GGML_TYPE_F32, n_embd);
+            layer.ln_1_b = ctx.create(GGML_TYPE_F32, n_embd);
 
-            layer.ln_2_g = ctx.create(GGML_TYPE_F32, { n_embd });
-            layer.ln_2_b = ctx.create(GGML_TYPE_F32, { n_embd });
+            layer.ln_2_g = ctx.create(GGML_TYPE_F32, n_embd);
+            layer.ln_2_b = ctx.create(GGML_TYPE_F32, n_embd);
 
-            layer.c_attn_attn_w = ctx.create(wtype, { n_embd, 3 * n_embd });
-            layer.c_attn_attn_b = ctx.create(GGML_TYPE_F32, { 3 * n_embd });
+            layer.c_attn_attn_w = ctx.create(wtype, n_embd, 3 * n_embd);
+            layer.c_attn_attn_b = ctx.create(GGML_TYPE_F32, 3 * n_embd);
 
-            layer.c_attn_proj_w = ctx.create(wtype, { n_embd, n_embd });
-            layer.c_attn_proj_b = ctx.create(GGML_TYPE_F32, { n_embd });
+            layer.c_attn_proj_w = ctx.create(wtype, n_embd, n_embd);
+            layer.c_attn_proj_b = ctx.create(GGML_TYPE_F32, n_embd);
 
-            layer.c_mlp_fc_w = ctx.create(wtype, { n_embd, 4 * n_embd });
-            layer.c_mlp_fc_b = ctx.create(GGML_TYPE_F32, { 4 * n_embd });
+            layer.c_mlp_fc_w = ctx.create(wtype, n_embd, 4 * n_embd);
+            layer.c_mlp_fc_b = ctx.create(GGML_TYPE_F32, 4 * n_embd);
 
-            layer.c_mlp_proj_w = ctx.create(wtype, { 4 * n_embd, n_embd });
-            layer.c_mlp_proj_b = ctx.create(GGML_TYPE_F32, { n_embd });
+            layer.c_mlp_proj_w = ctx.create(wtype, 4 * n_embd, n_embd);
+            layer.c_mlp_proj_b = ctx.create(GGML_TYPE_F32, n_embd);
 
             // map by name
             model.tensors["model/h" + std::to_string(i) + "/ln_1/g"] = layer.ln_1_g;
@@ -276,8 +276,8 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
         const int n_mem = n_layer * n_ctx;
         const int n_elements = n_embd * n_mem;
 
-        model.memory_k = ctx.create(GGML_TYPE_F32, { n_elements });
-        model.memory_v = ctx.create(GGML_TYPE_F32, { n_elements });
+        model.memory_k = ctx.create(GGML_TYPE_F32, n_elements);
+        model.memory_v = ctx.create(GGML_TYPE_F32, n_elements);
 
         const size_t memory_size = model.memory_k->nbytes() + model.memory_v->nbytes();
 
@@ -383,7 +383,7 @@ ggml_cgraph gpt2_graph(
 
     ggml_cgraph gf;
 
-    ggml_tensor* embd = ctx.create(GGML_TYPE_I32, { N });
+    ggml_tensor* embd = ctx.create(GGML_TYPE_I32, N);
     // at this point, the tensor data is not allocated yet and cannot be set
     // we will find the tensor after the graph is allocated by its name, and set the data then
     embd->set_name("embd");
@@ -391,7 +391,7 @@ ggml_cgraph gpt2_graph(
     // this is important to ensure that the input tensors are not overwritten before they are used
     embd->set_flag(GGML_TENSOR_FLAG_INPUT);
 
-    ggml_tensor* position = ctx.create(GGML_TYPE_I32, { N });
+    ggml_tensor* position = ctx.create(GGML_TYPE_I32, N);
     position->set_name("position");
     position->set_flag(GGML_TENSOR_FLAG_INPUT);
 

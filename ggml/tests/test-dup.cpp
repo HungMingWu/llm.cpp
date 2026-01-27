@@ -81,8 +81,8 @@ void test_dup(ggml_type src_type, ggml_type dst_type)
 {
     ggml_context ctx;
 
-    ggml_tensor* src = ctx.create(src_type, { 10, 11 });
-    ggml_tensor* dst = ctx.create(dst_type, { 10, 11 });
+    ggml_tensor* src = ctx.create(src_type, 10, 11);
+    ggml_tensor* dst = ctx.create(dst_type, 10, 11);
 
     // 2nd-row: [20, 21, ..., 29]
     ggml_tensor* src_cont = ggml_view(&ctx, src, { 10 }, {}, src->nb[1] * 2);

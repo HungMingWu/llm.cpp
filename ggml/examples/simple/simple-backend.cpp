@@ -72,8 +72,8 @@ ggml_cgraph build_graph(ggml_context &ctx, simple_model& model) {
     ggml_cgraph gf;
 
     // create tensors
-    model.a = ctx.create(GGML_TYPE_F32, { cols_A, rows_A });
-    model.b = ctx.create(GGML_TYPE_F32, { cols_B, rows_B });
+    model.a = ctx.create(GGML_TYPE_F32, cols_A, rows_A);
+    model.b = ctx.create(GGML_TYPE_F32, cols_B, rows_B);
 
     // result = a*b^T
     ggml_tensor* result = ggml_mul_mat(&ctx, model.a, model.b);

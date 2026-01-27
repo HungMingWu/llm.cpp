@@ -1122,7 +1122,7 @@ struct test_case {
         if (mode == MODE_PERF || mode == MODE_GRAD) {
             return;
         }
-        ggml_tensor* sentinel = ctx->create(GGML_TYPE_F32, { sentinel_size });
+        ggml_tensor* sentinel = ctx->create(GGML_TYPE_F32, sentinel_size);
         sentinel->set_name("sent_{}", sentinels.size());
         sentinels.push_back(sentinel);
     }

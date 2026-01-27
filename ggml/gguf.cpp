@@ -464,7 +464,7 @@ void constructFrom(const gguf_context &ctx, ggml_context* out)
     // create the tensors
     for (const auto& info : ctx.info) {
         const auto& ne = info.t.ne;
-        ggml_tensor* cur = out->create(info.t.type, { ne[0], ne[1], ne[2], ne[3] });
+        ggml_tensor* cur = out->create(info.t.type, ne);
         cur->set_name(info.t.name);
     }
 }

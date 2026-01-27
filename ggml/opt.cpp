@@ -27,11 +27,11 @@ ggml_opt_dataset::ggml_opt_dataset(
     GGML_ASSERT(ndata > 0);
     GGML_ASSERT(ndata_shard > 0);
 
-    data = ctx.create(type_data, { ne_datapoint, ndata });
+    data = ctx.create(type_data, ne_datapoint, ndata);
     nbs_data = data->nbytes() * ndata_shard / ndata;
 
     if (ne_label > 0) {
-        labels = ctx.create(type_label, { ne_label, ndata });
+        labels = ctx.create(type_label, ne_label, ndata);
         nbs_labels = labels->nbytes() * ndata_shard / ndata;
     }
     else {
@@ -174,7 +174,7 @@ void ggml_opt_context::build() {
             ggml_tensor* node = gf.nodes[i];
             if ((accumulate && (node->flags & GGML_TENSOR_FLAG_PARAM)) || (node->flags & GGML_TENSOR_FLAG_LOSS)) {
                 const auto& ne = node->ne;
-                grad_accs[i] = ctx_static.create(GGML_TYPE_F32, { ne[0], ne[1], ne[2], ne[3] });
+                grad_accs[i] = ctx_static.create(GGML_TYPE_F32, ne);
             }
             else {
                 grad_accs[i] = nullptr;
@@ -188,8 +188,8 @@ void ggml_opt_context::build() {
                 const ggml_tensor* node = gf.nodes[i];
                 if (node->flags & GGML_TENSOR_FLAG_PARAM) {
                     const auto& ne = node->ne;
-                    grad_m[i] = ctx_static.create(GGML_TYPE_F32, { ne[0], ne[1], ne[2], ne[3] });
-                    grad_v[i] = ctx_static.create(GGML_TYPE_F32, { ne[0], ne[1], ne[2], ne[3] });
+                    grad_m[i] = ctx_static.create(GGML_TYPE_F32, ne);
+                    grad_v[i] = ctx_static.create(GGML_TYPE_F32, ne);
                 }
                 else {
                     grad_m[i] = nullptr;
@@ -217,7 +217,7 @@ void ggml_opt_context::build() {
     // gb_opt == graph backward optimize, forward pass, then backward pass to calculate gradients, then optimizer step.
     gb_opt = gb_grad;
 
-    opt_step_params = ctx_cpu.create(GGML_TYPE_F32, { need_momenta ? 7 : 2 });
+    opt_step_params = ctx_cpu.create(GGML_TYPE_F32, need_momenta ? 7 : 2);
     ggml_tensor* adamw_params = opt_step_params;
     adamw_params->set_flag(GGML_TENSOR_FLAG_INPUT);
     const char* optimizer_name = ggml_opt_optimizer_name(optimizer);

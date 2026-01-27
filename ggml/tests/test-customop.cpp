@@ -166,7 +166,7 @@ int main(int argc, const char** argv) {
     // 2 tasks, no userdata, parallelized by elements
     {
         ggml_context ctx;
-        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 10, 2 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, 10, 2);
 
         ggml_tensor* m1 = ggml_map_custom(&ctx, { t }, false, custom1);
 
@@ -186,8 +186,8 @@ int main(int argc, const char** argv) {
     // max tasks (4), userdata, parallelized by rows
     {
         ggml_context ctx;
-        ggml_tensor* t1 = ctx.create(GGML_TYPE_F32, { 10, 2 });
-        ggml_tensor* t2 = ctx.create(GGML_TYPE_F32, { 10, 2 });
+        ggml_tensor* t1 = ctx.create(GGML_TYPE_F32, 10, 2);
+        ggml_tensor* t2 = ctx.create(GGML_TYPE_F32, 10, 2);
         ggml_tensor* m2 = ggml_map_custom(&ctx, { t1, t2 }, false, custom2);
 
         ggml_cgraph graph;
@@ -211,9 +211,9 @@ int main(int argc, const char** argv) {
     // 1 task, userdata, not parallelized
     {
         ggml_context ctx;
-        ggml_tensor* t1 = ctx.create(GGML_TYPE_F32, { 10, 2 });
-        ggml_tensor* t2 = ctx.create(GGML_TYPE_F32, { 10, 2 });
-        ggml_tensor* t3 = ctx.create(GGML_TYPE_F32, { 10, 2 });
+        ggml_tensor* t1 = ctx.create(GGML_TYPE_F32, 10, 2);
+        ggml_tensor* t2 = ctx.create(GGML_TYPE_F32, 10, 2);
+        ggml_tensor* t3 = ctx.create(GGML_TYPE_F32, 10, 2);
 
         ggml_tensor* m3 = ggml_map_custom(&ctx, { t1, t2, t3 }, false, custom3);
 
@@ -240,11 +240,11 @@ int main(int argc, const char** argv) {
     // custom
     {
         ggml_context ctx;
-        ggml_tensor* t1 = ctx.create(GGML_TYPE_F32, { 10, 2 });
-        ggml_tensor* t2 = ctx.create(GGML_TYPE_F32, { 10, 2 });
-        ggml_tensor* t3 = ctx.create(GGML_TYPE_F32, { 10, 2 });
-        ggml_tensor* t4 = ctx.create(GGML_TYPE_F32, { 10, 2 });
-        ggml_tensor* t5 = ctx.create(GGML_TYPE_F32, { 10, 2 });
+        ggml_tensor* t1 = ctx.create(GGML_TYPE_F32, 10, 2);
+        ggml_tensor* t2 = ctx.create(GGML_TYPE_F32, 10, 2);
+        ggml_tensor* t3 = ctx.create(GGML_TYPE_F32, 10, 2);
+        ggml_tensor* t4 = ctx.create(GGML_TYPE_F32, 10, 2);
+        ggml_tensor* t5 = ctx.create(GGML_TYPE_F32, 10, 2);
 
         ggml_tensor* m4 = ggml_custom(&ctx, GGML_TYPE_F32, { 10, 2, 1, 1 }, { t1, t2, t3, t4, t5 }, custom);
 

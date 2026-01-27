@@ -90,8 +90,8 @@ void load_model(test_model& model, bool use_gpu = false) {
     model.ctx = std::make_unique<ggml_context>();
 
     // create tensors
-    model.a = model.ctx->create(GGML_TYPE_F16, { KW, KH, IC, OC });
-    model.b = model.ctx->create(GGML_TYPE_F32, { IW, IH, IC, N });
+    model.a = model.ctx->create(GGML_TYPE_F16, KW, KH, IC, OC);
+    model.b = model.ctx->create(GGML_TYPE_F32, IW, IH, IC, N);
 
     // create a allocator
     ggml_tallocr alloc(model.buffer.get());

@@ -128,7 +128,7 @@ ggml_tensor* ggml_repeat_back(
     ggml_tensor* b) {
     GGML_ASSERT(ggml_can_repeat(b, a));
 
-    ggml_tensor* result = ctx->create(a->type, { b->ne[0], b->ne[1], b->ne[2], b->ne[3] });
+    ggml_tensor* result = ctx->create(a->type, b->ne);
 
     result->op = GGML_OP_REPEAT_BACK;
     result->src.push_back(a);
@@ -146,8 +146,7 @@ ggml_tensor* ggml_get_rows_back(
     GGML_ASSERT(ggml_is_matrix(c) && (a->ne[0] == c->ne[0]));
 
     // TODO: implement non F32 return
-    //struct ggml_tensor * result = ggml_new_tensor_2d(ctx, a->type, a->ne[0], b->ne[0]);
-    ggml_tensor* result = ctx->create(GGML_TYPE_F32, { c->ne[0], c->ne[1] });
+    ggml_tensor* result = ctx->create(GGML_TYPE_F32, c->ne[0], c->ne[1]);
 
     result->op = GGML_OP_GET_ROWS_BACK;
     result->src.push_back(a);

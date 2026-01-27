@@ -132,7 +132,7 @@ ggml_tensor* ggml_pool_2d_back(
     int                   s1,
     float                 p0,
     float                 p1) {
-    ggml_tensor* result = ctx->create(GGML_TYPE_F32, { af->ne[0], af->ne[1], af->ne[2], af->ne[3] });
+    ggml_tensor* result = ctx->create(GGML_TYPE_F32, af->ne);
 
     int32_t params[] = { op, k0, k1, s0, s1, (int32_t)p0, (int32_t)p1 };
     ggml_set_op_params(*result, params, sizeof(params));
@@ -225,7 +225,7 @@ ggml_tensor* ggml_im2col_back(
     int                   d0,
     int                   d1,
     bool                  is_2D) {
-    ggml_tensor* result = ctx->create(GGML_TYPE_F32, { ne[0], ne[1], ne[2], ne[3] });
+    ggml_tensor* result = ctx->create(GGML_TYPE_F32, ne);
     int32_t params[] = { s0, s1, p0, p1, d0, d1, (is_2D ? 1 : 0) };
     ggml_set_op_params(*result, params, sizeof(params));
 
@@ -889,7 +889,7 @@ void ggml_cgraph::build_backward_expand(ggml_context* ctx, std::span<ggml_tensor
         else if (node->flags & GGML_TENSOR_FLAG_LOSS) {
             // loss tensors always need a gradient accumulator
             const auto& ne = node->ne;
-            this->grad_accs[node] = ctx->create(GGML_TYPE_F32, { ne[0], ne[1], ne[2], ne[3] });
+            this->grad_accs[node] = ctx->create(GGML_TYPE_F32, ne);
             grads[node] = this->grad_accs[node];
         }
         grads_needed[node] = true;

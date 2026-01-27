@@ -21,7 +21,7 @@ int main(int argc, const char** argv) {
     // avg pool 1d - Float 32
     {
         ggml_context ctx;
-        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 10, 2 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, 10, 2);
 
         ggml_tensor* t_pooled = ggml_pool_1d(&ctx, t, GGML_OP_POOL_AVG, 3, 3, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
@@ -49,7 +49,7 @@ int main(int argc, const char** argv) {
     // avg pool 1d - Float 16
     {
         ggml_context ctx;
-        ggml_tensor* t = ctx.create(GGML_TYPE_F16, { 10, 2 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F16, 10, 2);
 
         ggml_tensor* t_pooled = ggml_pool_1d(&ctx, t, GGML_OP_POOL_AVG, 3, 3, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
@@ -77,7 +77,7 @@ int main(int argc, const char** argv) {
     // max pool 1d - Float 32
     {
         ggml_context ctx;
-        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 10, 2 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, 10, 2);
 
         ggml_tensor* t_pooled = ggml_pool_1d(&ctx, t, GGML_OP_POOL_MAX, 3, 3, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
@@ -105,7 +105,7 @@ int main(int argc, const char** argv) {
     // max pool 1d - Float 16
     {
         ggml_context ctx;
-        ggml_tensor* t = ctx.create(GGML_TYPE_F16, { 10, 2 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F16, 10, 2);
 
         ggml_tensor* t_pooled = ggml_pool_1d(&ctx, t, GGML_OP_POOL_MAX, 3, 3, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
@@ -133,7 +133,7 @@ int main(int argc, const char** argv) {
     // avg pool 2d - Float 32
     {
         ggml_context ctx;
-        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 10, 10, 2 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, 10, 10, 2);
 
         ggml_tensor* t_pooled = ggml_pool_2d(&ctx, t, GGML_OP_POOL_AVG, 3, 4, 3, 4, 0, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
@@ -168,7 +168,7 @@ int main(int argc, const char** argv) {
     // avg pool 2d - Float 16
     {
         ggml_context ctx;
-        ggml_tensor* t = ctx.create(GGML_TYPE_F16, { 10, 10, 2 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F16, 10, 10, 2);
 
         ggml_tensor* t_pooled = ggml_pool_2d(&ctx, t, GGML_OP_POOL_AVG, 3, 4, 3, 4, 0, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
@@ -203,7 +203,7 @@ int main(int argc, const char** argv) {
     // max pool 2d - Float 32
     {
         ggml_context ctx;
-        ggml_tensor* t = ctx.create(GGML_TYPE_F32, { 10, 10, 2 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F32, 10, 10, 2);
 
         ggml_tensor* t_pooled = ggml_pool_2d(&ctx, t, GGML_OP_POOL_MAX, 3, 4, 3, 4, 0, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);
@@ -238,7 +238,7 @@ int main(int argc, const char** argv) {
     // max pool 2d - Float 16
     {
         ggml_context ctx;
-        ggml_tensor* t = ctx.create(GGML_TYPE_F16, { 10, 10, 2 });
+        ggml_tensor* t = ctx.create(GGML_TYPE_F16, 10, 10, 2);
 
         ggml_tensor* t_pooled = ggml_pool_2d(&ctx, t, GGML_OP_POOL_MAX, 3, 4, 3, 4, 0, 0);
         GGML_ASSERT(t_pooled->ne[0] == 3);

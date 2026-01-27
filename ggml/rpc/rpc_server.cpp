@@ -151,7 +151,7 @@ ggml_tensor* rpc_server::deserialize_tensor(struct ggml_context* ctx, const rpc_
     }
 
     ggml_tensor* result = ctx->create((ggml_type)tensor->type,
-        { tensor->ne[0], tensor->ne[1], tensor->ne[2], tensor->ne[3] });
+        tensor->ne[0], tensor->ne[1], tensor->ne[2], tensor->ne[3]);
 
     // ggml_new_tensor_4d might fail if dimensions are invalid, although less likely to crash than invalid type
     if (result == nullptr) {

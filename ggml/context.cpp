@@ -20,7 +20,7 @@ ggml_context::~ggml_context()
 
 ggml_tensor* ggml_context::create_new_tensor_impl(
     ggml_type type,
-    std::span<int64_t> ne,
+    std::span<const int64_t> ne,
     ggml_tensor* view_src,
     size_t  view_offs)
 {
@@ -59,14 +59,14 @@ ggml_tensor* ggml_context::create_new_tensor_impl(
     return new_tensor;
 }
 
-ggml_tensor* ggml_context::create(ggml_type type, std::initializer_list<int64_t> ne)
+ggml_tensor* ggml_context::create(ggml_type type, std::span<const int64_t> ne)
 {
 	GGML_ASSERT(ne.size() < 5);
     cpp26::inplace_vector<int64_t, 4> vec(ne.begin(), ne.end());
 	return create_new_tensor_impl(type, vec, nullptr, 0);
 }
 
-ggml_tensor* ggml_context::create(ggml_type type, std::initializer_list<int64_t> ne, ggml_tensor* view_src, size_t view_offset)
+ggml_tensor* ggml_context::create(ggml_type type, std::span<const int64_t> ne, ggml_tensor* view_src, size_t view_offset)
 {
     ggml_tensor* result = create(type, ne);
     result->view_src = view_src;
