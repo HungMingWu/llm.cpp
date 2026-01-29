@@ -39,6 +39,7 @@ target_sources(libggml
       buffer.cpp
       buffer_type.cpp
       common.cpp
+      common.cu
       cuda.cpp
       device.cpp
       fused.cpp

@@ -143,12 +143,8 @@ std::span<const ggml_backend_feature> backend_cuda_reg::get_features()
 {
     static std::vector<ggml_backend_feature> features = []() {
         std::vector<ggml_backend_feature> features;
-#define _STRINGIFY(...) #__VA_ARGS__
-#define STRINGIFY(...) _STRINGIFY(__VA_ARGS__)
 
-#ifdef __CUDA_ARCH_LIST__
-        features.push_back({ "ARCHS", STRINGIFY(__CUDA_ARCH_LIST__) });
-#endif
+        features.push_back({ "ARCHS", get_arch_list_names() });
 
         if constexpr (not ggml_cuda_force_mmq_v) {
             features.push_back({ "FORCE_MMQ", "1" });

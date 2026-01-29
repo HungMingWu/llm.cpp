@@ -1,6 +1,6 @@
 #pragma once
-#include <array>
 #include <stdlib.h>
+#include <array>
 #include "vendors/cuda.h"
 #include "cuda_config.h"
 
@@ -150,48 +150,8 @@ static const char* cu_get_error_str(CUresult err) {
 
 #define MATRIX_ROW_PADDING 512 // last row of quant. matrices is a multiple of this to avoid out-of-bounds memory accesses
 
-#define STRINGIZE_IMPL(...) #__VA_ARGS__
-#define STRINGIZE(...) STRINGIZE_IMPL(__VA_ARGS__)
-
-#ifdef __CUDA_ARCH_LIST__
-constexpr bool ggml_cuda_has_arch_impl(int) {
-    return false;
-}
-
-template<class ... Archs>
-constexpr bool ggml_cuda_has_arch_impl(const int arch, const int first, Archs... rest) {
-    return arch == first || ggml_cuda_has_arch_impl(arch, rest...);
-}
-
-constexpr bool ggml_cuda_has_arch(const int arch) {
-    return ggml_cuda_has_arch_impl(arch, __CUDA_ARCH_LIST__);
-}
-
-constexpr int ggml_cuda_highest_compiled_arch_impl(const int /*arch*/, const int cur) {
-    if (cur == 0) {
-        return -1;
-    }
-    return cur;
-}
-
-template<class ... Archs>
-constexpr int ggml_cuda_highest_compiled_arch_impl(const int arch, const int cur, const int first, Archs... rest) {
-    if (first <= arch && first > cur) {
-        return ggml_cuda_highest_compiled_arch_impl(arch, first, rest...);
-    }
-    else {
-        return ggml_cuda_highest_compiled_arch_impl(arch, cur, rest...);
-    }
-}
-
-constexpr int ggml_cuda_highest_compiled_arch(const int arch) {
-    return ggml_cuda_highest_compiled_arch_impl(arch, 0, __CUDA_ARCH_LIST__);
-}
-#else
-constexpr int ggml_cuda_highest_compiled_arch(const int arch) {
-    return arch;
-}
-#endif // __CUDA_ARCH_LIST__
+int ggml_cuda_highest_compiled_arch(const int arch);
+const char* get_arch_list_names();
 
 #if (defined(CUDART_VERSION) && CUDART_VERSION < CUDART_HMASK) || defined(GGML_USE_HIP) || \
     (defined(MUSART_VERSION) && MUSART_VERSION < MUSART_HMASK)
@@ -202,11 +162,11 @@ static __device__ __forceinline__ uint32_t __hgt2_mask(const half2 a, const half
 }
 #endif // (defined(CUDART_VERSION) && CUDART_VERSION < CUDART_HMASK) || defined(GGML_USE_HIP) || (defined(MUSART_VERSION) && MUSART_VERSION < MUSART_HMASK)
 
-static constexpr bool fp16_available(const int cc) {
+static bool fp16_available(const int cc) {
     return ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_PASCAL;
 }
 
-static constexpr bool fast_fp16_available(const int cc) {
+static bool fast_fp16_available(const int cc) {
     return GGML_CUDA_CC_IS_AMD(cc) ||
         (GGML_CUDA_CC_IS_NVIDIA(cc) && fp16_available(cc) && ggml_cuda_highest_compiled_arch(cc) != 610);
 }
