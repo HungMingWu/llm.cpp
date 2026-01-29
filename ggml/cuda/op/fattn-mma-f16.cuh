@@ -194,11 +194,12 @@ static __host__ int ggml_cuda_fattn_mma_get_nstages(const int DKQ, const int DV,
 
 static constexpr __device__ int ggml_cuda_fattn_mma_get_nstages(
     [[maybe_unused]] const int DKQ, [[maybe_unused]] const int DV, [[maybe_unused]] const int ncols1, [[maybe_unused]] const int ncols2) {
-#ifdef CP_ASYNC_AVAILABLE
-    return ncols2 >= 2 ? ggml_cuda_fattn_mma_get_nstages_target(DKQ, DV, ncols1 * ncols2) : 0;
-#else
-    return 0;
-#endif // CP_ASYNC_AVAILABLE
+    if constexpr (cp_async_available_v) {
+        return ncols2 >= 2 ? ggml_cuda_fattn_mma_get_nstages_target(DKQ, DV, ncols1 * ncols2) : 0;
+    }
+    else {
+        return 0;
+    }
 }
 
 // ------------------------------------------------------------------------------------------------------------------

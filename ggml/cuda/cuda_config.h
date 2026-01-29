@@ -137,3 +137,9 @@ static constexpr bool ggml_use_vmm_v = true;
 #else
 static constexpr bool ggml_use_vmm_v = false;
 #endif // (!defined(GGML_USE_HIP) && !defined(GGML_CUDA_NO_VMM)) || (defined(GGML_USE_HIP) && !defined(GGML_HIP_NO_VMM))
+
+#if !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+static constexpr bool cp_async_available_v = true;
+#else
+static constexpr bool cp_async_available_v = false;
+#endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE

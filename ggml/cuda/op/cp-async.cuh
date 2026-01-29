@@ -4,12 +4,12 @@
 
 
 static __device__ __forceinline__ unsigned int ggml_cuda_cvta_generic_to_shared([[maybe_unused]] void* generic_ptr) {
-#ifdef CP_ASYNC_AVAILABLE
-    return __cvta_generic_to_shared(generic_ptr);
-#else
-    NO_DEVICE_CODE;
-    return 0;
-#endif // CP_ASYNC_AVAILABLE
+    if constexpr (cp_async_available_v) {
+        return __cvta_generic_to_shared(generic_ptr);
+    } else {
+        NO_DEVICE_CODE;
+        return 0;
+    }
 }
 
 // Copies data from global to shared memory, cg == cache global.
@@ -20,38 +20,40 @@ static __device__ __forceinline__ unsigned int ggml_cuda_cvta_generic_to_shared(
 template <int preload>
 static __device__ __forceinline__ void cp_async_cg_16([[maybe_unused]] const unsigned int dst, [[maybe_unused]] const void* src) {
     static_assert(preload == 0 || preload == 64 || preload == 128 || preload == 256, "bad preload");
-#ifdef CP_ASYNC_AVAILABLE
+    if constexpr (cp_async_available_v) {
 #if CUDART_VERSION >= 11040
-    if (preload == 256) {
-        asm volatile("cp.async.cg.shared.global.L2::256B [%0], [%1], 16;"
-            : : "r"(dst), "l"(src));
-    }
-    else if (preload == 128) {
-        asm volatile("cp.async.cg.shared.global.L2::128B [%0], [%1], 16;"
-            : : "r"(dst), "l"(src));
-    }
-    else if (preload == 64) {
-        asm volatile("cp.async.cg.shared.global.L2::64B [%0], [%1], 16;"
-            : : "r"(dst), "l"(src));
-    }
-    else
+        if (preload == 256) {
+            asm volatile("cp.async.cg.shared.global.L2::256B [%0], [%1], 16;"
+                : : "r"(dst), "l"(src));
+        }
+        else if (preload == 128) {
+            asm volatile("cp.async.cg.shared.global.L2::128B [%0], [%1], 16;"
+                : : "r"(dst), "l"(src));
+        }
+        else if (preload == 64) {
+            asm volatile("cp.async.cg.shared.global.L2::64B [%0], [%1], 16;"
+                : : "r"(dst), "l"(src));
+        }
+        else
 #endif // CUDART_VERSION >= 11040
-    {
-        asm volatile("cp.async.cg.shared.global [%0], [%1], 16;"
-            : : "r"(dst), "l"(src));
+        {
+            asm volatile("cp.async.cg.shared.global [%0], [%1], 16;"
+                : : "r"(dst), "l"(src));
+        }
     }
-#else
-    NO_DEVICE_CODE;
-#endif // CP_ASYNC_AVAILABLE
+    else {
+        NO_DEVICE_CODE;
+    }
 }
 
 // Makes each thread wait until its asynchronous data copies are done.
 // This does NOT provide any additional synchronization.
 // In particular, when copying data with multiple warps a call to __syncthreads will be needed.
 static __device__ __forceinline__ void cp_async_wait_all() {
-#ifdef CP_ASYNC_AVAILABLE
-    asm volatile("cp.async.wait_all;");
-#else
-    NO_DEVICE_CODE;
-#endif // CP_ASYNC_AVAILABLE
+    if constexpr (cp_async_available_v) {
+        asm volatile("cp.async.wait_all;");
+    }
+    else {
+        NO_DEVICE_CODE;
+    }
 }
