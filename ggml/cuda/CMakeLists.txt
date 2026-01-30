@@ -15,6 +15,30 @@ else()
     set(CUDA_USE_CUB FALSE)
 endif()
 
+if (CUDART_VERSION GREATER_EQUAL 12000)
+target_include_directories(libggml
+  PRIVATE
+    ./cuda_rt/12000
+)
+else()
+target_include_directories(libggml
+  PRIVATE
+    ./cuda_rt/no_12000
+)
+endif()
+
+if (CUDART_VERSION GREATER_EQUAL 12080)
+target_include_directories(libggml
+  PRIVATE
+    ./cuda_rt/12080
+)
+else()
+target_include_directories(libggml
+  PRIVATE
+    ./cuda_rt/no_12080
+)
+endif()
+
 target_sources(libggml
   PUBLIC
     FILE_SET primary_cuda_interface

@@ -21,7 +21,6 @@ template <int preload>
 static __device__ __forceinline__ void cp_async_cg_16([[maybe_unused]] const unsigned int dst, [[maybe_unused]] const void* src) {
     static_assert(preload == 0 || preload == 64 || preload == 128 || preload == 256, "bad preload");
     if constexpr (cp_async_available_v) {
-#if CUDART_VERSION >= 11040
         if (preload == 256) {
             asm volatile("cp.async.cg.shared.global.L2::256B [%0], [%1], 16;"
                 : : "r"(dst), "l"(src));
@@ -32,12 +31,6 @@ static __device__ __forceinline__ void cp_async_cg_16([[maybe_unused]] const uns
         }
         else if (preload == 64) {
             asm volatile("cp.async.cg.shared.global.L2::64B [%0], [%1], 16;"
-                : : "r"(dst), "l"(src));
-        }
-        else
-#endif // CUDART_VERSION >= 11040
-        {
-            asm volatile("cp.async.cg.shared.global [%0], [%1], 16;"
                 : : "r"(dst), "l"(src));
         }
     }

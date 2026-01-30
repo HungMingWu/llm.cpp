@@ -3,6 +3,7 @@
 #include "common.cuh"
 #include "block.h"
 #include "ds.h"
+#include "quantize_mmq_mxfp4.h"
 
 #define GGML_ASSERT(...)
 #define CUDA_QUANTIZE_BLOCK_SIZE     256
@@ -325,35 +326,7 @@ static __global__ void quantize_mmq_mxfp4(const float* __restrict__ x,
         scales[b] = e;
         const float inv_s = (amax == 0.0f) ? 0.0f : __frcp_rn(ggml_cuda_e8m0_to_fp32(e));
 
-#if CUDART_VERSION >= 12080
-        const float scaled_val = xi * inv_s;
-
-        const float val0 = __shfl_sync(0xFFFFFFFF, scaled_val, base, WARP_SIZE);
-        const float val1 = __shfl_sync(0xFFFFFFFF, scaled_val, base + 16, WARP_SIZE);
-        const float val2 = __shfl_sync(0xFFFFFFFF, scaled_val, base + 1, WARP_SIZE);
-        const float val3 = __shfl_sync(0xFFFFFFFF, scaled_val, base + 17, WARP_SIZE);
-
-        if (lane_in_group == 0) {
-            __nv_fp4x4_e2m1 fp4_packed(make_float4(val0, val1, val2, val3));
-
-            yqs2[quad_idx_in_block * 16 + b * 8 + group_id] = *(char2*)&fp4_packed;
-        }
-#else
-        // Fallback: manual FP4 conversion using LUT
-        const uint8_t q_val = ggml_cuda_float_to_fp4_e2m1(xi, inv_s);
-
-        const uint8_t q_lo_0 = __shfl_sync(0xFFFFFFFF, q_val, base, WARP_SIZE);
-        const uint8_t q_lo_1 = __shfl_sync(0xFFFFFFFF, q_val, base + 1, WARP_SIZE);
-        const uint8_t q_hi_0 = __shfl_sync(0xFFFFFFFF, q_val, base + 16, WARP_SIZE);
-        const uint8_t q_hi_1 = __shfl_sync(0xFFFFFFFF, q_val, base + 17, WARP_SIZE);
-
-        if (lane_in_group == 0) {
-            char2 q;
-            q.x = (q_hi_0 << 4) | q_lo_0;
-            q.y = (q_hi_1 << 4) | q_lo_1;
-            yqs2[quad_idx_in_block * 16 + b * 8 + group_id] = q;
-        }
-#endif // CUDART_VERSION >= 12080
+        quantize_mmq_mxfp4_helper(lane_in_group, xi, inv_s, base, yqs2 + quad_idx_in_block * 16 + b * 8 + group_id);
     }
 
     if (lane_id_32 == 0) {

@@ -117,26 +117,7 @@ static const char* cu_get_error_str(CUresult err) {
 }
 #define CU_CHECK(err) CUDA_CHECK_GEN(err, CUDA_SUCCESS, cu_get_error_str)
 
-#if CUDART_VERSION >= 12000 || defined(GGML_USE_MUSA)
-static const char* cublas_get_error_str(const cublasStatus_t err) {
-    return cublasGetStatusString(err);
-}
-#else
-static const char* cublas_get_error_str(const cublasStatus_t err) {
-    switch (err) {
-    case CUBLAS_STATUS_SUCCESS: return "CUBLAS_STATUS_SUCCESS";
-    case CUBLAS_STATUS_NOT_INITIALIZED: return "CUBLAS_STATUS_NOT_INITIALIZED";
-    case CUBLAS_STATUS_ALLOC_FAILED: return "CUBLAS_STATUS_ALLOC_FAILED";
-    case CUBLAS_STATUS_INVALID_VALUE: return "CUBLAS_STATUS_INVALID_VALUE";
-    case CUBLAS_STATUS_ARCH_MISMATCH: return "CUBLAS_STATUS_ARCH_MISMATCH";
-    case CUBLAS_STATUS_MAPPING_ERROR: return "CUBLAS_STATUS_MAPPING_ERROR";
-    case CUBLAS_STATUS_EXECUTION_FAILED: return "CUBLAS_STATUS_EXECUTION_FAILED";
-    case CUBLAS_STATUS_INTERNAL_ERROR: return "CUBLAS_STATUS_INTERNAL_ERROR";
-    case CUBLAS_STATUS_NOT_SUPPORTED: return "CUBLAS_STATUS_NOT_SUPPORTED";
-    default: return "unknown error";
-    }
-}
-#endif // CUDART_VERSION >= 12000
+const char* cublas_get_error_str(const cublasStatus_t err);
 #define CUBLAS_CHECK(err) CUDA_CHECK_GEN(err, CUBLAS_STATUS_SUCCESS, cublas_get_error_str)
 
 #if !defined(GGML_USE_HIP) && !defined(GGML_CUDA_NO_VMM)
@@ -153,14 +134,13 @@ static const char* cu_get_error_str(CUresult err) {
 int ggml_cuda_highest_compiled_arch(const int arch);
 const char* get_arch_list_names();
 
-#if (defined(CUDART_VERSION) && CUDART_VERSION < CUDART_HMASK) || defined(GGML_USE_HIP) || \
-    (defined(MUSART_VERSION) && MUSART_VERSION < MUSART_HMASK)
+#if defined(GGML_USE_HIP) || (defined(MUSART_VERSION) && MUSART_VERSION < MUSART_HMASK)
 static __device__ __forceinline__ uint32_t __hgt2_mask(const half2 a, const half2 b) {
     const uint32_t mask_low = 0x0000FFFF * (float(__low2half(a)) > float(__low2half(b)));
     const uint32_t mask_high = 0xFFFF0000 * (float(__high2half(a)) > float(__high2half(b)));
     return mask_low | mask_high;
 }
-#endif // (defined(CUDART_VERSION) && CUDART_VERSION < CUDART_HMASK) || defined(GGML_USE_HIP) || (defined(MUSART_VERSION) && MUSART_VERSION < MUSART_HMASK)
+#endif // defined(GGML_USE_HIP) || (defined(MUSART_VERSION) && MUSART_VERSION < MUSART_HMASK)
 
 static bool fp16_available(const int cc) {
     return ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_PASCAL;

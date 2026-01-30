@@ -5,6 +5,7 @@
 
 #include "common.h"
 #include "block.h"
+#include "e8m0_to_fp32.h"
 
 [[noreturn]]
 static __device__ void no_device_code(
@@ -167,11 +168,12 @@ static __device__ __forceinline__ int warp_reduce_any(int x) {
 
 static __device__ __forceinline__ half ggml_cuda_hmax(const half a, [[maybe_unused]] const half b) {
     if constexpr (fp16_available_v) {
-#if !defined(GGML_USE_HIP) && CUDART_VERSION < CUDART_HMAX
-        return __float2half(fmaxf(__half2float(a), __half2float(b)));
-#else
-        return __hmax(a, b);
-#endif // !defined(GGML_USE_HIP) && CUDART_VERSION < CUDART_HMAX
+        if constexpr (!ggml_use_hip_v) {
+            return __float2half(fmaxf(__half2float(a), __half2float(b)));
+        }
+        else {
+            return __hmax(a, b);
+        }
     }
     else {
         NO_DEVICE_CODE;
@@ -180,18 +182,18 @@ static __device__ __forceinline__ half ggml_cuda_hmax(const half a, [[maybe_unus
 }
 
 static __device__ __forceinline__ half2 ggml_cuda_hmax2([[maybe_unused]] const half2 a, [[maybe_unused]] const half2 b) {
-#if defined(GGML_USE_HIP) && HIP_VERSION >= 50700000
-    return half2(__hmax(a.x, b.x), __hmax(a.y, b.y));
-#elif !defined(GGML_USE_HIP) && CUDART_VERSION >= CUDART_HMAX
-    return __hmax2(a, b);
-#elif !defined(GGML_USE_HIP)
-    half2 ret;
-    reinterpret_cast<half&>(ret.x) = __float2half(fmaxf(__low2float(a), __low2float(b)));
-    reinterpret_cast<half&>(ret.y) = __float2half(fmaxf(__high2float(a), __high2float(b)));
-    return ret;
-#else
-    NO_DEVICE_CODE;
-#endif
+    if constexpr (ggml_use_hip_v) {
+        return half2(__hmax(a.x, b.x), __hmax(a.y, b.y));
+    }
+    else if constexpr (!ggml_use_hip_v) {
+        return __hmax2(a, b);
+    }
+    else {
+        half2 ret;
+        reinterpret_cast<half&>(ret.x) = __float2half(fmaxf(__low2float(a), __low2float(b)));
+        reinterpret_cast<half&>(ret.y) = __float2half(fmaxf(__high2float(a), __high2float(b)));
+        return ret;
+    }
 }
 
 // See https://gmplib.org/~tege/divcnst-pldi94.pdf figure 4.1.
@@ -570,23 +572,6 @@ static __device__ __forceinline__ half2 __tohalf2(uint32_t value)
 static __device__ __forceinline__ float2 __half22float2(uint32_t value)
 {
     return __half22float2(__tohalf2(value));
-}
-
-static __device__ __forceinline__ float ggml_cuda_e8m0_to_fp32(uint8_t x) {
-#if CUDART_VERSION >= 12080
-    const nv_bfloat16 e = __nv_cvt_e8m0_to_bf16raw(x);
-    return (float)e;
-#else
-    uint32_t bits;
-    if (x == 0) {
-        bits = 0x00400000;
-    }
-    else {
-        bits = (uint32_t)x << 23;
-    }
-
-    return std::bit_cast<float>(bits);
-#endif // CUDART_VERSION >= 12050
 }
 
 // Maximum number of bytes that can be copied in a single instruction.

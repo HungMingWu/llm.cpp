@@ -23,42 +23,31 @@
 // However, the i indices in this file are by default permuted to simplify the index calculations.
 // #define GGML_CUDA_MMA_NO_VOLTA_PERM
 
-#if CUDART_VERSION >= 11080
-
 static __device__ __forceinline__ int ggml_cuda_movmatrix([[maybe_unused]] const int x) {
-    int ret = 0;
-
     if constexpr (turing_mma_available_v) {
+        int ret = 0;
         asm("movmatrix.sync.aligned.m8n8.trans.b16 %0, %1;"
             : "=r"(ret) : "r"(x));
+        return ret;
     }
     else {
-        NO_DEVICE_CODE;
+        // Imagine transposing row-major matrix to column-major matrix.
+        const int src_i_low = 2 * (threadIdx.x % 4);
+        const int src_i_high = src_i_low + 1;
+        const int src_j = threadIdx.x / 4;
+
+        const int src_laneid_low = src_i_low * 4 + src_j / 2;
+        const int src_laneid_high = src_i_high * 4 + src_j / 2;
+
+        const int shift_low = ((src_j + 0) % 2) * 16;
+        const int shift_high = ((src_j + 1) % 2) * 16;
+
+        const int ret_low = (__shfl_sync(0xFFFFFFFF, x, src_laneid_low, WARP_SIZE) >> shift_low) & 0x0000FFFF;
+        const int ret_high = (__shfl_sync(0xFFFFFFFF, x, src_laneid_high, WARP_SIZE) << shift_high) & 0xFFFF0000;
+
+        return ret_low | ret_high;
     }
-    return ret;
 }
-
-#else
-
-static __device__ __forceinline__ int ggml_cuda_movmatrix(const int x) {
-    // Imagine transposing row-major matrix to column-major matrix.
-    const int src_i_low = 2 * (threadIdx.x % 4);
-    const int src_i_high = src_i_low + 1;
-    const int src_j = threadIdx.x / 4;
-
-    const int src_laneid_low = src_i_low * 4 + src_j / 2;
-    const int src_laneid_high = src_i_high * 4 + src_j / 2;
-
-    const int shift_low = ((src_j + 0) % 2) * 16;
-    const int shift_high = ((src_j + 1) % 2) * 16;
-
-    const int ret_low = (__shfl_sync(0xFFFFFFFF, x, src_laneid_low, WARP_SIZE) >> shift_low) & 0x0000FFFF;
-    const int ret_high = (__shfl_sync(0xFFFFFFFF, x, src_laneid_high, WARP_SIZE) << shift_high) & 0xFFFF0000;
-
-    return ret_low | ret_high;
-}
-
-#endif // CUDART_VERSION >= 11080
 
 static __device__ __forceinline__ half2 ggml_cuda_movmatrix(const half2 x) {
     half2 ret;

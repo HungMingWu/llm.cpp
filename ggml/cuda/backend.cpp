@@ -1365,14 +1365,8 @@ void ggml_backend_cuda::synchronize()
 }
 
 static void ggml_cuda_graph_update_executable(ggml_cuda_graph& cuda_graph) {
-#if CUDART_VERSION >= 12000
     cudaGraphExecUpdateResultInfo result_info;
     cudaError_t stat = cudaGraphExecUpdate(cuda_graph.instance, cuda_graph.graph, &result_info);
-#else
-    cudaGraphNode_t errorNode;
-    cudaGraphExecUpdateResult result_info;
-    cudaError_t stat = cudaGraphExecUpdate(cuda_graph.instance, cuda_graph.graph, &errorNode, &result_info);
-#endif // CUDART_VERSION >= 12000
 
     if (stat == cudaErrorGraphExecUpdateFailure) {
 #ifndef NDEBUG
