@@ -1178,6 +1178,9 @@ bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* 
         if (node->op != ops[i]) {
             return false;
         }
+        if ((node->flags & GGML_TENSOR_FLAG_COMPUTE) == 0) {
+            return false;
+        }
         if (i < num_ops - 1 && !ggml_node_has_n_uses(cgraph, node_idx + i, 1)) {
             return false;
         }

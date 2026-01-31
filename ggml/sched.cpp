@@ -244,9 +244,10 @@ void ggml_backend_sched::print_assignments(const ggml_cgraph& graph) {
         }
         if (debug > 1) {
             ggml_backend* tensor_backend = get_tensor_backend(node);
-            GGML_LOG_DEBUG("node #{:3} ({:>10.10}): {:>20.20} ({:>5.5}) [{:>5.5} {:>8.8}] use={}:", i, ggml_op_name(node->op), node->name,
+
+            GGML_LOG_DEBUG("node #{:3} ({:>10.10}): {:>20.20} ({:>5.5}) [{:>5.5} {:>8.8}] use={},c={}:", i, ggml_op_name(node->op), node->name,
                 fmt_size(node->nbytes()), get_name(tensor_backend), GET_CAUSE(node),
-                graph.use_counts.at(node));
+                graph.use_counts.at(node), node->flags & GGML_TENSOR_FLAG_COMPUTE ? 1 : 0);
             for (auto src : node->src) {
                 if (!src) continue;
                 ggml_backend* src_backend = get_tensor_backend(src);

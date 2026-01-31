@@ -119,6 +119,7 @@ export {
         GGML_TENSOR_FLAG_OUTPUT = 2, // ...is an output for the GGML compute graph
         GGML_TENSOR_FLAG_PARAM = 4, // ...contains trainable parameters
         GGML_TENSOR_FLAG_LOSS = 8, // ...defines loss for numerical optimization (multiple loss tensors add up)
+        GGML_TENSOR_FLAG_COMPUTE = 16, // ...must be computed
     };
 
     constexpr size_t GGML_SCHED_MAX_SPLIT_INPUTS = 30;
