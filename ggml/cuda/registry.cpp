@@ -485,7 +485,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_L2_NORM:
         return true;
     case GGML_OP_RMS_NORM_BACK:
-        return ggml_is_contiguous(op->src[0]) && op->ne[0] % WARP_SIZE == 0;
+        return ggml_is_contiguous(op->src[0]);
     case GGML_OP_NONE:
     case GGML_OP_RESHAPE:
     case GGML_OP_VIEW:

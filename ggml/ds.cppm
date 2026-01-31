@@ -119,6 +119,7 @@ export {
         GGML_TENSOR_FLAG_OUTPUT = 2, // ...is an output for the GGML compute graph
         GGML_TENSOR_FLAG_PARAM = 4, // ...contains trainable parameters
         GGML_TENSOR_FLAG_LOSS = 8, // ...defines loss for numerical optimization (multiple loss tensors add up)
+        GGML_TENSOR_FLAG_COMPUTE = 16, // ...must be computed
     };
 
     constexpr size_t GGML_SCHED_MAX_SPLIT_INPUTS = 30;
@@ -702,7 +703,8 @@ export {
         std::unordered_map<const ggml_tensor*, int32_t> use_counts; // number of uses of each tensor
 
         enum ggml_cgraph_eval_order order = GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT;
-        void visit_parents(ggml_tensor*);
+        void visit_parents_graph(ggml_tensor*, bool);
+        void build_forward_impl(ggml_tensor* tensor, bool expand, bool compute);
     public:
         void build_forward_expand(ggml_tensor*);
         void build_backward_expand(ggml_context*, std::span<ggml_tensor*> grad_accs = {});
@@ -713,6 +715,37 @@ export {
         void reset();
         ggml_tensor* get_tensor(std::string_view name);
         int32_t get_use_count(int node_idx) const;
+
+        // build forward mutiple tensors and select one of them for computing
+        // this is useful for creating graphs that have constant topology but compute different things based on the input
+        // ref: https://github.com/ggml-org/llama.cpp/pull/18550
+        //
+        // nodes:
+        //   | - build forward into the graph but do not compute
+        //   c - build forward into the graph and compute
+        //
+        //    |  |  ...  c  ...  |
+        //    |  |  ...  c  ...  |
+        //    |  |  ...  c  ...  |
+        //   [0  1  ... idx ...  n-1]        <-- ggml_build_forward_select(..., n, idx)
+        //               c
+        //               c
+        //
+        // example:
+        //   ggml_tensor * curs[3];
+        //
+        //   curs[0]  = compute0(...);
+        //   curs[1]  = compute1(...);
+        //   curs[2]  = compute2(...);
+        //
+        //   int idx = select_branch(some_input);
+        //
+        //   ggml_tensor * out = cgraph->build_forward_select(, curs, 3, idx);
+        //
+        ggml_tensor* build_forward_select(
+            ggml_tensor** tensors,
+            int n_tensors,
+            int idx);
     };
 
     // Evaluation callback for each node in the graph (set with ggml_backend_sched_set_eval_callback)

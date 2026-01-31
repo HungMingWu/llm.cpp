@@ -78,7 +78,7 @@ public:
 private:
     static constexpr std::size_t total_size = (Extents * ...);
 
-    std::array<T, total_size> storage_{};
+    alignas(16) std::array<T, total_size> storage_{};
     mdspan_type view_{ storage_.data() };
 
 public:

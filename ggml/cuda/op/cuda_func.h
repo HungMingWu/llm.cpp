@@ -81,6 +81,7 @@ struct mat_vec_q_switch_context {
     const int64_t stride_sample_x;
     const int64_t stride_sample_y;
     const int64_t stride_sample_dst;
+    const int64_t ids_stride;
 };
 
 void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t stream);
@@ -594,6 +595,7 @@ struct flash_attn_ext_context {
     const float logit_softcap;
     const internal::ggml_prec precision;
     const bool use_gqa_opt;
+    bool V_is_K_view;
 
     struct {
         const internal::ggml_type type;
@@ -615,7 +617,6 @@ struct flash_attn_ext_context {
     } K;
 
     struct {
-        const bool exist;
         const internal::ggml_type type;
         const size_t block_size, type_size;
         const void* data;
@@ -746,8 +747,8 @@ struct mean_context {
     const float* src0_d;
     float* dst_d;
     const int64_t ncols, nrows;
-    bool cuda_graph_exists = false;
-    bool cuda_graph_enable = false;
+    bool any_cuda_graph_has_instance = false;
+    bool any_cuda_graph_enabled = false;
 };
 void mean_fallback(const mean_context& ctx, cudaStream_t stream);
 void mean_cuda(const mean_context& ctx, cudaStream_t stream);
@@ -839,9 +840,12 @@ struct mul_mat_f_context {
     const mmf_ids_data* ids_info_ptr;
 };
 
+int mmf_get_rows_per_block(const int cc);
 void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream);
 
 // mmvf.cu
+
+static constexpr int64_t MMVF_MAX_BATCH_SIZE = 8; // Max. batch size for which to use MMVF kernels.
 
 struct mul_mat_vec_f_context {
     internal::ggml_type src0_type;
@@ -856,12 +860,15 @@ struct mul_mat_vec_f_context {
     const int64_t ncols_dst;
     const int64_t nchannels_y;
     const int64_t nchannels_dst;
+    const int64_t stride_col_dst;
+    const int64_t stride_col_y;
     const int64_t stride_channel_dst;
     const int64_t stride_channel_y;
 
     const int64_t s01, s02, s03;
-    const int64_t s11, s13;
-    const int64_t s1, s3;
+    const int64_t s13;
+    const int64_t s3;
+    const int64_t ids_stride;
     const enum internal::ggml_prec prec;
 };
 

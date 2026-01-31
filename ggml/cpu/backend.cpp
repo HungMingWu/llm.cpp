@@ -12,6 +12,7 @@ void ggml_compute_forward(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	ggml_compute_params* params,
+	bool use_ref,
 	ggml_tensor* tensor);
 
 static bool ggml_op_is_empty(enum ggml_op op) {
@@ -43,7 +44,11 @@ enum ggml_status ggml_cpu_backend::graph_compute_impl(ggml_cgraph* cgraph)
 			continue;
 		}
 
-		ggml_compute_forward(pool, scope, &params, node);
+		if ((node->flags & GGML_TENSOR_FLAG_COMPUTE) == 0) {
+			continue;
+		}
+
+		ggml_compute_forward(pool, scope, &params, use_ref, node);
 #if 0
 		if (state->ith == 0 && cplan->abort_callback &&
 			cplan->abort_callback(cplan->abort_callback_data)) {

@@ -5,16 +5,26 @@
 void softcap_f32_cuda(const float* x, float* dst, const float scale, const float softcap, const int k, cudaStream_t stream);
 
 // topk-moe.cu
-struct topk_moe_context {
+
+// Kernel config struct - passed by value to CUDA kernel
+struct topk_moe_config {
+    bool use_sigmoid;
     bool with_norm;
-    const float* logits_d;
-    float* weights_d;
-    int32_t* ids_d;
-    const int n_rows;
-    const int n_experts;
-    const int n_expert_used;
+    bool delayed_softmax;
+};
+
+struct topk_moe_context {
+    const bool has_bias;
+    const float* logits;
+    float* weights;
+    float* bias;
+    int32_t* ids;
+    const int64_t n_rows;
+    const int64_t n_experts;
+    const int64_t n_expert_used;
     const float clamp_val;
-    const bool delayed_softmax;
+    const float scale_val;
+    topk_moe_config config;
 };
 
 void topk_moe_cuda(const topk_moe_context& ctx, cudaStream_t stream);

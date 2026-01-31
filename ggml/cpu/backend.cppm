@@ -13,6 +13,7 @@ export
 {
 	struct ggml_cpu_backend : public ggml_backend {
 	protected:
+		bool use_ref = false;  // use reference implementation
 		enum ggml_status graph_compute_impl(ggml_cgraph* cgraph) override;
 	public:
 		using ggml_backend::ggml_backend;
@@ -26,6 +27,10 @@ export
 
 		void set_n_threads(size_t threads) {
 			n_threads = threads;
+		}
+
+		void set_use_ref(bool use_ref) {
+			this->use_ref = use_ref;
 		}
 	};
 

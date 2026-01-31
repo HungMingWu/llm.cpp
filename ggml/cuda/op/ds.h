@@ -128,3 +128,12 @@ struct ggml_cuda_mm_fusion_args_device {
     const void* gate_bias = nullptr;
     internal::ggml_glu_op glu_op;
 };
+
+struct ggml_cuda_topk_moe_args {
+    bool sigmoid{};
+    bool softmax{};
+    bool delayed_softmax{};
+    bool prob_bias{};
+    bool norm{};
+    bool scale{};
+};
