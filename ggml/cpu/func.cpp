@@ -3720,6 +3720,447 @@ static void ggml_compute_forward_timestep_embedding(
 	}
 }
 
+#define GGML_FA_TILE_Q  32
+#define GGML_FA_TILE_KV 16
+
+struct ggml_fa_tile_config {
+	static constexpr size_t Q = GGML_FA_TILE_Q;
+	static constexpr size_t KV = GGML_FA_TILE_KV;
+};
+
+inline static void ggml_vec_tanh_f32(const int n, float* y, const float* x) { for (int i = 0; i < n; ++i) y[i] = tanhf(x[i]); }
+inline static void ggml_vec_scale_f32(const int n, float* y, const float   v) {
+	// scalar
+	for (int i = 0; i < n; ++i) {
+		y[i] *= v;
+	}
+}
+
+inline static void ggml_vec_add_f32(const int n, float* z, const float* x, const float* y) {
+	int i = 0;
+#if defined(__AVX2__)
+	for (; i + 7 < n; i += 8) {
+		__m256 vx = _mm256_loadu_ps(x + i);
+		__m256 vy = _mm256_loadu_ps(y + i);
+		__m256 vz = _mm256_add_ps(vx, vy);
+		_mm256_storeu_ps(z + i, vz);
+	}
+#endif
+	for (; i < n; ++i) {
+		z[i] = x[i] + y[i];
+	}
+}
+
+inline static void ggml_vec_max_f32(const int n, float* s, const float* x) {
+#ifndef GGML_USE_ACCELERATE
+	float max = -INFINITY;
+	for (int i = 0; i < n; ++i) {
+		max = std::max(max, x[i]);
+	}
+	*s = max;
+#else
+	vDSP_maxv(x, 1, s, n);
+#endif
+}
+
+inline static void ggml_vec_mad_f32(const int n, float* y, const float* x, const float v) {
+#if defined(GGML_SIMD)
+#if defined(__ARM_FEATURE_SVE)
+
+	const int sve_register_length = ggml_cpu_get_sve_cnt() * 8;
+	const int ggml_f32_epr = sve_register_length / 32;//8;//svcntw(); // SVE128:4, SVE256:8, SVE512:16
+	const int ggml_f32_step = 8 * ggml_f32_epr; // choose 8 SVE registers
+	GGML_F32_VEC vx = GGML_F32_VEC_SET1(v);
+
+	const int np = (n & ~(ggml_f32_step - 1));
+	svfloat32_t ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8;
+	svfloat32_t ay1, ay2, ay3, ay4, ay5, ay6, ay7, ay8;
+	for (int i = 0; i < np; i += ggml_f32_step) {
+
+		ax1 = GGML_F32_VEC_LOAD(x + i);
+		ay1 = GGML_F32_VEC_LOAD(y + i);
+		ay1 = GGML_F32_VEC_FMA(ay1, ax1, vx);
+
+		GGML_F32_VEC_STORE(y + i, ay1);
+
+		ax2 = GGML_F32_VEC_LOAD(x + i + 1 * ggml_f32_epr);
+		ay2 = GGML_F32_VEC_LOAD(y + i + 1 * ggml_f32_epr);
+		ay2 = GGML_F32_VEC_FMA(ay2, ax2, vx);
+
+		GGML_F32_VEC_STORE(y + i + 1 * ggml_f32_epr, ay2);
+
+		ax3 = GGML_F32_VEC_LOAD(x + i + 2 * ggml_f32_epr);
+		ay3 = GGML_F32_VEC_LOAD(y + i + 2 * ggml_f32_epr);
+		ay3 = GGML_F32_VEC_FMA(ay3, ax3, vx);
+
+		GGML_F32_VEC_STORE(y + i + 2 * ggml_f32_epr, ay3);
+
+		ax4 = GGML_F32_VEC_LOAD(x + i + 3 * ggml_f32_epr);
+		ay4 = GGML_F32_VEC_LOAD(y + i + 3 * ggml_f32_epr);
+		ay4 = GGML_F32_VEC_FMA(ay4, ax4, vx);
+
+		GGML_F32_VEC_STORE(y + i + 3 * ggml_f32_epr, ay4);
+
+		ax5 = GGML_F32_VEC_LOAD(x + i + 4 * ggml_f32_epr);
+		ay5 = GGML_F32_VEC_LOAD(y + i + 4 * ggml_f32_epr);
+		ay5 = GGML_F32_VEC_FMA(ay5, ax5, vx);
+
+		GGML_F32_VEC_STORE(y + i + 4 * ggml_f32_epr, ay5);
+
+		ax6 = GGML_F32_VEC_LOAD(x + i + 5 * ggml_f32_epr);
+		ay6 = GGML_F32_VEC_LOAD(y + i + 5 * ggml_f32_epr);
+		ay6 = GGML_F32_VEC_FMA(ay6, ax6, vx);
+
+		GGML_F32_VEC_STORE(y + i + 5 * ggml_f32_epr, ay6);
+
+		ax7 = GGML_F32_VEC_LOAD(x + i + 6 * ggml_f32_epr);
+		ay7 = GGML_F32_VEC_LOAD(y + i + 6 * ggml_f32_epr);
+		ay7 = GGML_F32_VEC_FMA(ay7, ax7, vx);
+
+		GGML_F32_VEC_STORE(y + i + 6 * ggml_f32_epr, ay7);
+
+		ax8 = GGML_F32_VEC_LOAD(x + i + 7 * ggml_f32_epr);
+		ay8 = GGML_F32_VEC_LOAD(y + i + 7 * ggml_f32_epr);
+		ay8 = GGML_F32_VEC_FMA(ay8, ax8, vx);
+
+		GGML_F32_VEC_STORE(y + i + 7 * ggml_f32_epr, ay8);
+	}
+	// leftovers
+	// Since 8 unrolls are done in above loop, leftovers lie in range [0, ggml_f32_step] which is handled in below loop
+	const int np2 = (n & ~(ggml_f32_epr - 1));
+	for (int i = np; i < np2; i += ggml_f32_epr) {
+		ax1 = GGML_F32_VEC_LOAD(x + i);
+		ay1 = GGML_F32_VEC_LOAD(y + i);
+		ay1 = GGML_F32_VEC_FMA(ay1, ax1, vx);
+
+		GGML_F32_VEC_STORE(y + i, ay1);
+	}
+	// maximum number of leftover elements will be less that ggml_f32_epr. Apply predicated svmad on available elements only
+	if (np2 < n) {
+		svbool_t pg = svwhilelt_b32(np2, n);
+		ax1 = svld1_f32(pg, x + np2);
+		ay1 = svld1_f32(pg, y + np2);
+		ay1 = svmad_f32_m(pg, ax1, vx, ay1);
+
+		svst1_f32(pg, y + np2, ay1);
+	}
+#elif defined(__riscv_v_intrinsic)
+	for (int i = 0, avl; i < n; i += avl) {
+		avl = __riscv_vsetvl_e32m8(n - i);
+		vfloat32m8_t ax = __riscv_vle32_v_f32m8(&x[i], avl);
+		vfloat32m8_t ay = __riscv_vle32_v_f32m8(&y[i], avl);
+		vfloat32m8_t ny = __riscv_vfmadd_vf_f32m8(ax, v, ay, avl);
+		__riscv_vse32_v_f32m8(&y[i], ny, avl);
+	}
+#else
+	const int np = (n & ~(GGML_F32_STEP - 1));
+
+	GGML_F32_VEC vx = GGML_F32_VEC_SET1(v);
+
+	GGML_F32_VEC ax[GGML_F32_ARR];
+	GGML_F32_VEC ay[GGML_F32_ARR];
+
+	for (int i = 0; i < np; i += GGML_F32_STEP) {
+		for (int j = 0; j < GGML_F32_ARR; j++) {
+			ax[j] = GGML_F32_VEC_LOAD(x + i + j * GGML_F32_EPR);
+			ay[j] = GGML_F32_VEC_LOAD(y + i + j * GGML_F32_EPR);
+			ay[j] = GGML_F32_VEC_FMA(ay[j], ax[j], vx);
+
+			GGML_F32_VEC_STORE(y + i + j * GGML_F32_EPR, ay[j]);
+		}
+	}
+
+	// leftovers
+	for (int i = np; i < n; ++i) {
+		y[i] += x[i] * v;
+	}
+#endif
+#else
+	// scalar
+	for (int i = 0; i < n; ++i) {
+		y[i] += x[i] * v;
+	}
+#endif
+}
+
+ggml_float ggml_vec_soft_max_f32(const int n, float* y, const float* x, float max) {
+	int i = 0;
+	ggml_float sum = 0;
+	for (; i < n; ++i) {
+		float val = expf(x[i] - max);
+		sum += (ggml_float)val;
+		y[i] = val;
+	}
+	return sum;
+}
+
+template <typename kv_type>
+static void ggml_compute_forward_flash_attn_ext_tiled(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
+	const ggml_tensor* q = dst->src[0];
+	const ggml_tensor* k = dst->src[1];
+	const ggml_tensor* v = dst->src[2];
+	const ggml_tensor* mask = dst->src[3];
+	const ggml_tensor* sinks = dst->src[4];
+
+	const int64_t DK = k->ne[0];
+	const int64_t DV = v->ne[0];
+	const int64_t N = q->ne[1];
+
+	GGML_ASSERT(dst->ne[0] == DV);
+	GGML_ASSERT(dst->ne[2] == N);
+
+	// input tensor rows must be contiguous
+	GGML_ASSERT(q->nb[0] == ggml_type_size(q->type));
+	GGML_ASSERT(k->nb[0] == ggml_type_size(k->type));
+	GGML_ASSERT(v->nb[0] == ggml_type_size(v->type));
+
+	GGML_ASSERT(q->ne[0] == DK);
+	GGML_ASSERT(k->ne[0] == DK);
+	GGML_ASSERT(v->ne[0] == DV);
+
+	GGML_ASSERT(q->ne[1] == N);
+
+	// dst cannot be transposed or permuted
+	GGML_ASSERT(dst->nb[0] == sizeof(float));
+	GGML_ASSERT(dst->nb[0] <= dst->nb[1]);
+	GGML_ASSERT(dst->nb[1] <= dst->nb[2]);
+	GGML_ASSERT(dst->nb[2] <= dst->nb[3]);
+
+	GGML_ASSERT(k->type == v->type);
+
+	//const auto* kv_type_traits_cpu = ggml_get_type_traits_cpu(kv_type);
+	//const ggml_from_float_t kv_from_float = kv_type_traits_cpu->from_float;
+	//const ggml_vec_dot_t    kv_vec_dot = kv_type_traits_cpu->vec_dot;
+	const size_t kv_type_size = ggml_type_size(k->type);
+
+	// broadcast factors
+	const int64_t rk2 = q->ne[2] / k->ne[2];
+	const int64_t rk3 = q->ne[3] / k->ne[3];
+
+	const int64_t rv2 = q->ne[2] / v->ne[2];
+	const int64_t rv3 = q->ne[3] / v->ne[3];
+
+	float scale = 1.0f;
+	float max_bias = 0.0f;
+	float logit_softcap = 0.0f;
+
+	memcpy(&scale, (float*)dst->op_params + 0, sizeof(float));
+	memcpy(&max_bias, (float*)dst->op_params + 1, sizeof(float));
+	memcpy(&logit_softcap, (float*)dst->op_params + 2, sizeof(float));
+
+	if (logit_softcap != 0) {
+		scale /= logit_softcap;
+	}
+
+	const uint32_t n_head = q->ne[2];
+	const uint32_t n_head_log2 = 1u << (uint32_t)floor(log2(n_head));
+
+	const float m0 = powf(2.0f, -(max_bias) / n_head_log2);
+	const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
+
+	static constexpr int Q_TILE_SZ = ggml_fa_tile_config::Q;
+	static constexpr int KV_TILE_SZ = ggml_fa_tile_config::KV;
+
+	GGML_ASSERT(k->ne[1] % KV_TILE_SZ == 0 && "KV sequence length must be divisible by KV_TILE_SZ");
+
+	// q indices for the start of this tile
+	for (int64_t iq3 = 0; iq3 < q->ne[3]; iq3++) {
+		for (int64_t iq2 = 0; iq2 < q->ne[2]; iq2 += Q_TILE_SZ) {
+			for (int64_t iq1 = 0; iq1 < q->ne[1]; iq1 += Q_TILE_SZ) {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+					// Number of valid rows in this tile:
+					// - limited by tile size (Q_TILE_SZ)
+					// - limited by chunk boundary (q->ne[2] - iq2)
+					// - limited by head boundary (q->ne[1] - iq1) to avoid crossing into next head
+					const int tile_rows = std::min(Q_TILE_SZ, std::min((int)(q->ne[2] - iq2), (int)(q->ne[1] - iq1)));
+					GGML_ASSERT(tile_rows > 0);
+
+					const uint32_t h = iq2; // head index
+					const float slope = (max_bias > 0.0f) ? h < n_head_log2 ? powf(m0, h + 1) : powf(m1, 2 * (h - n_head_log2) + 1) : 1.0f;
+
+					float S[Q_TILE_SZ];
+					float M[Q_TILE_SZ];
+
+					for (int i = 0; i < Q_TILE_SZ; ++i) {
+						S[i] = 0.;
+						M[i] = -INFINITY;
+					}
+
+					// Per-thread scratch layout:
+					// Q_q:    Q_TILE_SZ * DK (converted Q tile in KV type)
+					// KQ:     Q_TILE_SZ * KV_TILE_SZ (attention scores in float)
+					// mask:   Q_TILE_SZ * KV_TILE_SZ (mask in float)
+					// VKQ32:  Q_TILE_SZ * DV (FP32 output accumulator)
+					// V32:    KV_TILE_SZ * DV (F32 buffer for V tile - used for f166 conversion)
+					float* base = nullptr;// (float*)params->wdata + ith * (Q_TILE_SZ * DK + 2 * Q_TILE_SZ * KV_TILE_SZ + Q_TILE_SZ * DV + KV_TILE_SZ * DV + CACHE_LINE_SIZE_F32);
+
+					void* Q_q = base;
+					float* KQ = (float*)((char*)base + Q_TILE_SZ * DK * sizeof(float));
+					float* mask32 = KQ + Q_TILE_SZ * KV_TILE_SZ;
+					float* VKQ32 = mask32 + Q_TILE_SZ * KV_TILE_SZ;
+					float* V32 = VKQ32 + Q_TILE_SZ * DV;  // F32 buffer for V tile
+
+					memset(VKQ32, 0, Q_TILE_SZ * DV * sizeof(float));
+					memset(mask32, 0, Q_TILE_SZ * KV_TILE_SZ * sizeof(float));
+
+					// k indices
+					const int ik3 = iq3 / rk3;
+					const int ik2 = iq2 / rk2;
+
+					// v indices
+					const int iv3 = iq3 / rv3;
+					const int iv2 = iq2 / rv2;
+
+					for (int tq = 0; tq < tile_rows; tq++) {
+						const float* pq = (const float*)((char*)q->data + ((iq1 + tq) * q->nb[1] + iq2 * q->nb[2] + iq3 * q->nb[3]));
+						from_float(pq, (kv_type*)((char*)Q_q + tq * DK * kv_type_size), DK);
+					}
+					// Zero-pad remaining rows
+					for (int tq = tile_rows; tq < Q_TILE_SZ; tq++) {
+						memset((char*)Q_q + tq * DK * kv_type_size, 0, DK * kv_type_size);
+					}
+
+					for (int64_t ic = 0; ic < k->ne[1]; ic += KV_TILE_SZ) {
+
+						// skip the tile entirely if all the masks are -inf
+						if (mask) {
+							bool can_skip = true;
+							for (int tq = 0; tq < tile_rows; tq++) {
+								const ggml_fp16_t* mp_row = (const ggml_fp16_t*)((const char*)mask->data + (iq1 + tq) * mask->nb[1] + (iq2 % mask->ne[2]) * mask->nb[2] + (iq3 % mask->ne[3]) * mask->nb[3]);
+								for (int tk = 0; tk < KV_TILE_SZ; tk++) {
+									mask32[tq * KV_TILE_SZ + tk] = slope * toFloat32(mp_row[ic + tk]);
+									if (mask32[tq * KV_TILE_SZ + tk] != -INFINITY) {
+										can_skip = false;
+									}
+								}
+							}
+
+							if (can_skip) {
+								continue;
+							}
+						}
+
+						for (int tq = 0; tq < Q_TILE_SZ; tq++) {
+							const void* q_row = (const char*)Q_q + tq * DK * kv_type_size;
+							for (int tk = 0; tk < KV_TILE_SZ; tk++) {
+								const void* k_row = (const char*)k->data + ((ic + tk) * k->nb[1] + ik2 * k->nb[2] + ik3 * k->nb[3]);
+								float s;
+								ggml_vec_dot(DK, &s, 0, k_row, 0, static_cast<const kv_type*>(q_row), 0, 1);
+								KQ[tq * KV_TILE_SZ + tk] = s * scale;
+							}
+						}
+
+						if (logit_softcap != 0.0f) {
+							ggml_vec_tanh_f32(Q_TILE_SZ * KV_TILE_SZ, KQ, KQ);
+							ggml_vec_scale_f32(Q_TILE_SZ * KV_TILE_SZ, KQ, logit_softcap);
+						}
+
+						if (mask) {
+							ggml_vec_add_f32(tile_rows * KV_TILE_SZ, KQ, KQ, mask32);
+						}
+
+						bool skip[Q_TILE_SZ] = {};
+
+						for (int tq = 0; tq < Q_TILE_SZ; tq++) {
+							float* kq_row = KQ + tq * KV_TILE_SZ;
+
+							float tile_max;
+							ggml_vec_max_f32(KV_TILE_SZ, &tile_max, kq_row);
+
+							if (tile_max == -INFINITY) {
+								skip[tq] = true;
+								continue;
+							}
+
+							const float Mold = M[tq];
+							const float Mnew = fmaxf(Mold, tile_max);
+
+							if (Mnew > Mold) {
+								const float ms = expf(Mold - Mnew);
+								ggml_vec_scale_f32(DV, VKQ32 + tq * DV, ms);
+								S[tq] *= ms;
+							}
+							M[tq] = Mnew;
+
+
+							S[tq] += ggml_vec_soft_max_f32(KV_TILE_SZ, kq_row, kq_row, Mnew);
+						}
+
+						// Convert V tile to F32 first (if F16), then do MAD
+						// On x86, ggml_vec_mad_f16 internall converts F16<->F32 on every load/store, so pre-converting is faster.
+						// TODO: on ARM, native f16 should be faster
+						if (false) { //kv_type == GGML_TYPE_F16) {
+#if 0
+							for (int tk = 0; tk < KV_TILE_SZ; tk++) {
+								const ggml_fp16_t* v_row = (const ggml_fp16_t*)((const char*)v->data + ((ic + tk) * v->nb[1] + iv2 * v->nb[2] + iv3 * v->nb[3]));
+								ggml_fp16_to_fp32_row(v_row, V32 + tk * DV, DV);
+							}
+							for (int tq = 0; tq < Q_TILE_SZ; tq++) {
+								if (skip[tq]) continue;
+								float* vkq_row = VKQ32 + tq * DV;
+								for (int tk = 0; tk < KV_TILE_SZ; tk++) {
+									const float p = KQ[tq * KV_TILE_SZ + tk];
+									ggml_vec_mad_f32(DV, vkq_row, V32 + tk * DV, p);
+								}
+							}
+#endif
+						}
+						else {
+							for (int tq = 0; tq < Q_TILE_SZ; tq++) {
+								if (skip[tq]) continue;
+								float* vkq_row = VKQ32 + tq * DV;
+								for (int tk = 0; tk < KV_TILE_SZ; tk++) {
+									const float p = KQ[tq * KV_TILE_SZ + tk];
+									const float* v_row = (const float*)((const char*)v->data + ((ic + tk) * v->nb[1] + iv2 * v->nb[2] + iv3 * v->nb[3]));
+									ggml_vec_mad_f32(DV, vkq_row, v_row, p);
+								}
+							}
+						}
+					}
+
+					// sinks (apply only to valid rows in the tile)
+					if (sinks) {
+						const float s = ((float*)((char*)sinks->data))[h];
+
+						for (int tq = 0; tq < tile_rows; tq++) {
+							float ms = 1.0f;
+							float vs = 1.0f;
+
+							if (s > M[tq]) {
+								ms = expf(M[tq] - s);
+								ggml_vec_scale_f32(DV, VKQ32 + tq * DV, ms);
+							}
+							else {
+								vs = expf(s - M[tq]);
+							}
+
+							S[tq] = S[tq] * ms + vs;
+						}
+					}
+
+					for (int tq = 0; tq < tile_rows; tq++) {
+						// V /= S
+						const float S_inv = S[tq] == 0.0f ? 0.0f : 1.0f / S[tq];
+						ggml_vec_scale_f32(DV, VKQ32 + tq * DV, S_inv);
+
+						// dst indices
+						const int i1 = iq1 + tq;
+						const int i2 = iq2;
+						const int i3 = iq3;
+
+						// permute(0, 2, 1, 3)
+						memcpy((char*)dst->data + (i3 * dst->ne[2] * dst->ne[1] + i2 + i1 * dst->ne[1]) * dst->nb[1], VKQ32 + tq * DV, dst->nb[1]);
+					}
+				});
+				scope.spawn(std::move(sender));
+			}
+		}
+	}
+}
+
 template <typename V_TYPE, typename K_TYPE> 
 static void ggml_compute_forward_flash_attn_ext(
 	exec::static_thread_pool& pool,
@@ -3778,7 +4219,6 @@ static void ggml_compute_forward_flash_attn_ext(
 	const float m0 = powf(2.0f, -(max_bias) / n_head_log2);
 	const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
 
-	stdexec::scheduler auto scheduler = pool.get_scheduler();
 	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
 	auto v_data = make_strided_mdspan(static_cast<const V_TYPE*>(v->data), v->ne, v->nb);
 	auto k_data = make_strided_mdspan(static_cast<const K_TYPE*>(k->data), k->ne, k->nb);
@@ -3788,7 +4228,7 @@ static void ggml_compute_forward_flash_attn_ext(
 	for (int64_t iq3 = 0; iq3 < q->ne[3]; iq3++) {
 		for (int64_t iq2 = 0; iq2 < n_head; iq2++) {
 			for (int64_t iq1 = 0; iq1 < N; iq1++) {
-				stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
 					std::vector<float> VKQ(DV); // FP32 VKQ accumulator
 					std::vector<float> V32(DV); // (temporary) FP32 V buffer
 					std::vector<q_to_vec_dot_t> Q_q(DK); // (temporary) buffer for Q converted to quantized/FP16
@@ -3919,7 +4359,8 @@ static void ggml_compute_forward_flash_attn_ext(
 	const ggml_tensor* k = dst->src[1];
 	switch (k->type) {
 	case GGML_TYPE_F32: {
-		ggml_compute_forward_flash_attn_ext<V_TYPE, ggml_fp32_t>(pool, scope, dst);
+		ggml_compute_forward_flash_attn_ext_tiled<ggml_fp32_t>(pool, scope, dst);
+		//ggml_compute_forward_flash_attn_ext<V_TYPE, ggml_fp32_t>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_F16: {
 		ggml_compute_forward_flash_attn_ext<V_TYPE, ggml_fp16_t>(pool, scope, dst);

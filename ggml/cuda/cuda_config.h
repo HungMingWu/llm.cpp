@@ -109,8 +109,10 @@ static constexpr bool volta_mma_available_v = false;
 
 #if !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_TURING
 static constexpr bool turing_mma_available_v = true;
+static constexpr bool ldmatrix_trans_available_v = true;
 #else
 static constexpr bool turing_mma_available_v = false;
+static constexpr bool ldmatrix_trans_available_v = false;
 #endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_TURING
 
 #if !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE

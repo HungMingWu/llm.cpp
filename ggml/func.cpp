@@ -201,6 +201,7 @@ static ggml_tensor* graph_copy_dup_tensor(std::unordered_map<ggml_tensor*, ggml_
         dst->view_offs = src->view_offs;
     }
     dst->op = src->op;
+    dst->flags = src->flags;
     memcpy(dst->op_params, src->op_params, sizeof(dst->op_params));
     dst->name = src->name;
 

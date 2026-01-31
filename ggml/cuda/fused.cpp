@@ -50,6 +50,10 @@ static bool ggml_can_fuse_subgraph_ext(const ggml_cgraph* cgraph,
             return false;
         }
 
+        if ((node->flags & GGML_TENSOR_FLAG_COMPUTE) == 0) {
+            return false;
+        }
+
         if (ggml_node_list_find_tensor(cgraph, outputs, num_outputs, node) != -1) {
             continue;
         }
@@ -60,7 +64,7 @@ static bool ggml_can_fuse_subgraph_ext(const ggml_cgraph* cgraph,
 
         int subgraph_uses = 0;
         for (int j = i + 1; j < count; ++j) {
-            const struct ggml_tensor* other_node = cgraph->nodes[node_idxs[j]];
+            const ggml_tensor* other_node = cgraph->nodes[node_idxs[j]];
             for (int src_idx = 0; src_idx < GGML_MAX_SRC; src_idx++) {
                 if (other_node->src[src_idx] == node) {
                     subgraph_uses++;
@@ -85,88 +89,54 @@ static bool ggml_can_fuse_subgraph_ext(const ggml_cgraph* cgraph,
     return true;
 }
 
-// Returns true if the subgraph formed by {node_idxs} can be fused
-// checks whethers all nodes which are not part of outputs can be elided
-// by checking if their num_uses are confined to the subgraph
-static inline bool ggml_can_fuse_subgraph(const ggml_cgraph* cgraph,
-    int                        node_idx,
-    int                        count,
-    const ggml_op* ops,
-    const int* outputs,
-    int                        num_outputs) {
-    GGML_ASSERT(count < 32);
-    if (node_idx + count > cgraph->nodes.size()) {
-        return false;
-    }
-
-    int idxs[32];
-
-    for (int i = 0; i < count; ++i) {
-        idxs[i] = node_idx + i;
-    }
-
-    return ggml_can_fuse_subgraph_ext(cgraph, idxs, count, ops, outputs, num_outputs);
-}
-
 inline bool ggml_can_fuse_subgraph(const ggml_cgraph* cgraph,
     int                                 start_idx,
     std::initializer_list<enum ggml_op> ops,
     std::initializer_list<int>          outputs = {}) {
-    return ggml_can_fuse_subgraph(cgraph, start_idx, ops.size(), ops.begin(), outputs.begin(), outputs.size());
+    return fused::ggml_can_fuse_subgraph(cgraph, start_idx, ops.size(), ops.begin(), outputs.begin(), outputs.size());
 }
 
-static bool ggml_cuda_should_use_topk_moe(const ggml_tensor* softmax,
+static bool ggml_cuda_should_use_topk_moe(const ggml_tensor* gating_op,
     const ggml_tensor* weights,
-    const ggml_tensor* get_rows,
-    const ggml_tensor* argsort,
-    const ggml_tensor* clamp,
-    int n_expert) {
-    ggml_tensor* probs = get_rows->src[0];
-    if (probs->op != GGML_OP_RESHAPE) {
-        return false;
-    }
-    probs = probs->src[0];
-    ggml_tensor* selection_probs = argsort->src[0];
-
-    if (probs != selection_probs) {
+    const ggml_tensor* logits,
+    const ggml_tensor* ids) {
+    const int n_expert = ids->nb[1] / ids->nb[0];
+    if (((n_expert & (n_expert - 1)) != 0 || n_expert > 512) && n_expert != 576) {
         return false;
     }
 
-    float scale = 1.0f;
-    float max_bias = 0.0f;
-
-    memcpy(&scale, (const float*)softmax->op_params + 0, sizeof(float));
-    memcpy(&max_bias, (const float*)softmax->op_params + 1, sizeof(float));
-
-    if (!ggml_is_contiguous(softmax->src[0]) || !ggml_is_contiguous(weights)) {
+    if (!ggml_is_contiguous(weights) || !ggml_is_contiguous(logits)) {
         return false;
     }
 
-    if (scale != 1.0f || max_bias != 0.0f) {
-        return false;
-    }
+    if (gating_op->op == GGML_OP_SOFT_MAX) {
+        const ggml_tensor* softmax = gating_op;
+        float               scale = 1.0f;
+        float               max_bias = 0.0f;
 
-    // don't fuse when masks or sinks are present
-    if (softmax->src[1] || softmax->src[2]) {
-        return false;
-    }
+        memcpy(&scale, (const float*)softmax->op_params + 0, sizeof(float));
+        memcpy(&max_bias, (const float*)softmax->op_params + 1, sizeof(float));
 
-    // n_expert must be a power of 2
-    if ((n_expert & (n_expert - 1)) != 0 || n_expert > 512) {
-        return false;
-    }
-
-    if (clamp) {
-        if (clamp->op != GGML_OP_CLAMP) {
+        if (!ggml_is_contiguous(softmax->src[0])) {
             return false;
         }
-        float max_val = std::bit_cast<float>(clamp->op_params[1]);
 
-        if (max_val != INFINITY) {
+        if (scale != 1.0f || max_bias != 0.0f) {
+            return false;
+        }
+
+        // don't fuse when masks or sinks are present
+        if (softmax->src[1] || softmax->src[2]) {
             return false;
         }
     }
+    else if (gating_op->op == GGML_OP_UNARY) {
+        ggml_unary_op op = ggml_get_unary_op(gating_op);
 
+        if (op != GGML_UNARY_OP_SIGMOID) {
+            return false;
+        }
+    }
 
     return true;
 }
@@ -291,32 +261,81 @@ static bool ggml_cuda_should_fuse_rope_set_rows(const ggml_tensor* rope,
     return true;
 }
 
+// return true if the node's results are only used by N other nodes
+// and can be fused into their calculations.
+static bool ggml_node_has_n_uses(const ggml_cgraph* cgraph, int node_idx, int32_t n_uses) {
+    ggml_tensor* node = cgraph->nodes[node_idx];
+
+    // check the use count against how many we're replacing
+    if (cgraph->get_use_count(node_idx) != n_uses) {
+        return false;
+    }
+
+    // if node is a view, some other node might be using the intermediate result
+    // via the view source.
+    if (node->view_src) {
+        return false;
+    }
+
+    // If the user requested output for the node, can't fuse
+    if (node->flags & GGML_TENSOR_FLAG_OUTPUT) {
+        return false;
+    }
+
+    return true;
+}
+
+// Returns true if nodes with indices { node_idxs } are the sequence of ggml_ops in ops[]
+// and are fusable. Nodes are considered fusable according to this function if:
+// - all nodes except the last have only one use and are not views/outputs (see ggml_node_has_N_uses).
+// - all nodes except the last are a src of the following node.
+// - all nodes are the same shape.
+// TODO: Consider allowing GGML_OP_NONE nodes in between
+static inline bool ggml_can_fuse_ext(const ggml_cgraph* cgraph, const int* node_idxs, const enum ggml_op* ops, int num_ops) {
+    for (int i = 0; i < num_ops; ++i) {
+        if (node_idxs[i] + num_ops > cgraph->nodes.size()) {
+            return false;
+        }
+
+        struct ggml_tensor* node = cgraph->nodes[node_idxs[i]];
+        if (node->op != ops[i]) {
+            return false;
+        }
+        if ((node->flags & GGML_TENSOR_FLAG_COMPUTE) == 0) {
+            return false;
+        }
+        if (i < num_ops - 1 && !ggml_node_has_n_uses(cgraph, node_idxs[i], 1)) {
+            return false;
+        }
+        if (i > 0) {
+            struct ggml_tensor* prev = cgraph->nodes[node_idxs[i - 1]];
+            if (node->src[0] != prev && node->src[1] != prev) {
+                return false;
+            }
+            if (!ggml_are_same_shape(node, prev)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 namespace fused
 {
-    std::initializer_list<enum ggml_op> ggml_cuda_topk_moe_ops(bool norm, bool delayed_softmax) {
-        static std::initializer_list<enum ggml_op> norm_ops = { GGML_OP_SOFT_MAX, GGML_OP_RESHAPE,  GGML_OP_ARGSORT,
-                                                                GGML_OP_VIEW,     GGML_OP_GET_ROWS, GGML_OP_RESHAPE,
-                                                                GGML_OP_SUM_ROWS, GGML_OP_CLAMP,    GGML_OP_DIV,
-                                                                GGML_OP_RESHAPE };
+    // same as above, for sequential indices starting at node_idx
+    bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* ops, int num_ops) {
+        assert(num_ops < 32);
 
-        static std::initializer_list<enum ggml_op> no_norm_ops = { GGML_OP_SOFT_MAX, GGML_OP_RESHAPE, GGML_OP_ARGSORT,
-                                                                   GGML_OP_VIEW, GGML_OP_GET_ROWS };
-
-        static std::initializer_list<enum ggml_op> delayed_softmax_ops = { GGML_OP_ARGSORT,  GGML_OP_VIEW,
-                                                                           GGML_OP_GET_ROWS, GGML_OP_RESHAPE,
-                                                                           GGML_OP_SOFT_MAX, GGML_OP_RESHAPE };
-
-        GGML_ASSERT(!norm || !delayed_softmax);
-
-        if (delayed_softmax) {
-            return delayed_softmax_ops;
+        if (node_idx + num_ops > cgraph->nodes.size()) {
+            return false;
         }
 
-        if (norm) {
-            return norm_ops;
+        int idxs[32];
+        for (int i = 0; i < num_ops; ++i) {
+            idxs[i] = node_idx + i;
         }
 
-        return no_norm_ops;
+        return ggml_can_fuse_ext(cgraph, idxs, ops, num_ops);
     }
 
     // nicer C++ syntax for ggml_can_fuse
@@ -324,62 +343,168 @@ namespace fused
         return ggml_can_fuse(cgraph, node_idx, ops.begin(), (int)ops.size());
     }
 
-    bool ggml_cuda_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, std::initializer_list<enum ggml_op> ops, std::initializer_list<enum ggml_unary_op> unary_ops) {
+    static bool ggml_cuda_topk_moe_fusion(const ggml_cgraph* cgraph, int node_idx, ggml_cuda_topk_moe_args& args) {
+        args.sigmoid = false;
+        args.softmax = false;
+        args.delayed_softmax = false;
+        args.prob_bias = false;
+        args.norm = false;
+
+        const int      n_nodes = cgraph->nodes.size();
+        auto  nodes = cgraph->nodes.data();
+
+        if (nodes[node_idx]->op == GGML_OP_SOFT_MAX) {
+            args.softmax = true;
+        }
+
+        if (nodes[node_idx]->op == GGML_OP_UNARY) {
+            if (ggml_get_unary_op(nodes[node_idx]) != GGML_UNARY_OP_SIGMOID) {
+                return false;
+            }
+            args.sigmoid = true;
+        }
+
+        if (nodes[node_idx]->op == GGML_OP_ARGSORT) {
+            args.delayed_softmax = true;
+        }
+
+        node_idx++;
+
+        if (args.sigmoid || args.softmax) {
+            // SOFTMAX -> RESHAPE
+            if (node_idx >= n_nodes || nodes[node_idx]->op != GGML_OP_RESHAPE ||
+                nodes[node_idx]->src[0] != nodes[node_idx - 1]) {
+                return false;
+            }
+            ggml_tensor* probs_reshaped = nodes[node_idx];
+            node_idx++;
+
+            if (node_idx >= n_nodes) {
+                return false;
+            }
+
+            // src of bias add is the unreshaped probs (-2 instead of -1)
+            if (nodes[node_idx]->op == GGML_OP_ADD && nodes[node_idx]->src[0] == nodes[node_idx - 2]) {
+                args.prob_bias = true;
+                node_idx++;
+            }
+            // RESHAPE/ADD -> ARGSORT
+            if (node_idx >= n_nodes || nodes[node_idx]->op != GGML_OP_ARGSORT) {
+                return false;
+            }
+
+            if (args.prob_bias && nodes[node_idx]->src[0] != nodes[node_idx - 1]) {
+                return false;
+            }
+            else if (!args.prob_bias && nodes[node_idx]->src[0] != nodes[node_idx - 2]) {
+                return false;
+            }
+
+            node_idx++;
+
+            // ARGSORT-> VIEW
+            if (node_idx >= n_nodes || nodes[node_idx]->op != GGML_OP_VIEW ||
+                nodes[node_idx]->src[0] != nodes[node_idx - 1]) {
+                return false;
+            }
+            node_idx++;
+
+            if (node_idx >= n_nodes || nodes[node_idx]->op != GGML_OP_GET_ROWS) {
+                return false;
+            }
+
+            // GET_ROWS
+            if (nodes[node_idx]->src[0] != probs_reshaped || nodes[node_idx]->src[1] != nodes[node_idx - 1]) {
+                return false;
+            }
+            node_idx++;
+        }
+        else if (args.delayed_softmax) {
+            if (node_idx - 2 < 0) {
+                return false;
+            }
+            ggml_tensor* probs_reshaped = nodes[node_idx - 2];
+
+            // VIEW->ARGSORT
+            if (node_idx >= n_nodes || nodes[node_idx]->op != GGML_OP_VIEW ||
+                nodes[node_idx]->src[0] != nodes[node_idx - 1]) {
+                return false;
+            }
+            node_idx++;
+
+            // GET_ROWS
+            if (node_idx >= n_nodes || nodes[node_idx]->src[1] != nodes[node_idx - 1] ||
+                nodes[node_idx]->src[0] != probs_reshaped) {
+                return false;
+            }
+            node_idx++;
+
+            static const std::vector<ggml_op> remaining_ops = { GGML_OP_RESHAPE, GGML_OP_SOFT_MAX, GGML_OP_RESHAPE };
+
+            for (const ggml_op op : remaining_ops) {
+                if (node_idx >= n_nodes || nodes[node_idx]->op != op || nodes[node_idx]->src[0] != nodes[node_idx - 1]) {
+                    return false;
+                }
+                node_idx++;
+            }
+        }
+
+        // At this point we can check for norm + scale. Everything is now at least valid till the norm
+        if (node_idx >= n_nodes) {
+            return true;
+        }
+
+        if (nodes[node_idx]->op == GGML_OP_RESHAPE) {
+            //check RESHAPE->SUM_ROWS->CLAMP->DIV->RESHAPE
+            static const std::vector<ggml_op> norm_ops = { GGML_OP_RESHAPE, GGML_OP_SUM_ROWS, GGML_OP_CLAMP };
+
+            args.norm = true;
+            for (const ggml_op op : norm_ops) {
+                if (nodes[node_idx]->op == op && nodes[node_idx]->src[0] == nodes[node_idx - 1]) {
+                    node_idx++;
+                }
+                else {
+                    args.norm = false;
+                    return true;
+                }
+            }
+
+            // DIV <- CLAMP, RESHAPE
+            if (nodes[node_idx]->op != GGML_OP_DIV || nodes[node_idx]->src[1] != nodes[node_idx - 1] ||
+                nodes[node_idx]->src[0] != nodes[node_idx - 3]) {
+                args.norm = false;
+                return true;
+            }
+            node_idx++;
+
+            if (nodes[node_idx]->op != GGML_OP_RESHAPE || nodes[node_idx]->src[0] != nodes[node_idx - 1]) {
+                args.norm = false;
+                return true;
+            }
+
+            node_idx++;
+        }
+
+        if (nodes[node_idx]->op == GGML_OP_SCALE && nodes[node_idx]->src[0] == nodes[node_idx - 1]) {
+            args.scale = true;
+        }
+
+        return true;
+    }
+
+    bool ggml_cuda_can_fuse(const ggml_cgraph* cgraph,
+        int                                       node_idx,
+        std::initializer_list<enum ggml_op>       ops,
+        std::initializer_list<enum ggml_unary_op> unary_ops) {
 #ifndef NDEBUG
         const size_t num_unary = std::count(ops.begin(), ops.end(), GGML_OP_UNARY);
         GGML_ASSERT(unary_ops.size() == num_unary);
 #endif
 
-        //TODO: remove special case once ggml_can_fuse can handle empty nodes
-        std::initializer_list<enum ggml_op> topk_moe_ops =
-            ggml_cuda_topk_moe_ops(/*with_norm*/ false, /*delayed_softmax=*/false);
-        std::initializer_list<enum ggml_op> topk_moe_ops_with_norm =
-            ggml_cuda_topk_moe_ops(/*with_norm=*/true, /*delayed_softmax=*/false);
-        std::initializer_list<enum ggml_op> topk_moe_ops_delayed_softmax =
-            ggml_cuda_topk_moe_ops(/*with_norm=*/false, /*delayed_softmax=*/true);
-
         const auto is_equal = [](const std::initializer_list<enum ggml_op>& list1,
-                                 const std::initializer_list<enum ggml_op>& list2) {
-            return std::equal(list1.begin(), list1.end(), list2.begin(), list2.end());
+            const std::initializer_list<enum ggml_op>& list2) {
+                return std::equal(list1.begin(), list1.end(), list2.begin(), list2.end());
         };
-
-        if (is_equal(topk_moe_ops_with_norm, ops) &&
-            ggml_can_fuse_subgraph(cgraph, node_idx, ops, { node_idx + 3, node_idx + 9 })) {
-            ggml_tensor* softmax = cgraph->nodes[node_idx];
-            ggml_tensor* weights = cgraph->nodes[node_idx + 9];
-            ggml_tensor* get_rows = cgraph->nodes[node_idx + 4];
-            ggml_tensor* argsort = cgraph->nodes[node_idx + 2];
-            int n_expert = cgraph->nodes[node_idx]->src[0]->ne[0];
-
-            if (ggml_cuda_should_use_topk_moe(softmax, weights, get_rows, argsort, nullptr, n_expert)) {
-                return true;
-            }
-        }
-
-        if (is_equal(topk_moe_ops, ops) && ggml_can_fuse_subgraph(cgraph, node_idx, ops, { node_idx + 3, node_idx + 4 })) {
-            ggml_tensor* softmax = cgraph->nodes[node_idx];
-            ggml_tensor* weights = cgraph->nodes[node_idx + 4];
-            ggml_tensor* get_rows = cgraph->nodes[node_idx + 4];
-            ggml_tensor* argsort = cgraph->nodes[node_idx + 2];
-            int n_expert = cgraph->nodes[node_idx]->src[0]->ne[0];
-
-            if (ggml_cuda_should_use_topk_moe(softmax, weights, get_rows, argsort, nullptr, n_expert)) {
-                return true;
-            }
-        }
-
-        if (is_equal(topk_moe_ops_delayed_softmax, ops) &&
-            ggml_can_fuse_subgraph(cgraph, node_idx, ops, { node_idx + 1, node_idx + 5 })) {
-            ggml_tensor* softmax = cgraph->nodes[node_idx + 4];
-            ggml_tensor* weights = cgraph->nodes[node_idx + 5];
-            ggml_tensor* get_rows = cgraph->nodes[node_idx + 2];
-            ggml_tensor* argsort = cgraph->nodes[node_idx + 0];
-            int n_expert = cgraph->nodes[node_idx]->src[0]->ne[0];
-
-            if (ggml_cuda_should_use_topk_moe(softmax, weights, get_rows, argsort, nullptr, n_expert)) {
-                return true;
-            }
-        }
 
         std::initializer_list<enum ggml_op> mul_mat_bias_glu_ops = { GGML_OP_MUL_MAT,    GGML_OP_ADD,    GGML_OP_MUL_MAT,    GGML_OP_ADD,    GGML_OP_GLU };
         std::initializer_list<enum ggml_op> mul_mat_id_bias_glu_ops = { GGML_OP_MUL_MAT_ID, GGML_OP_ADD_ID, GGML_OP_MUL_MAT_ID, GGML_OP_ADD_ID, GGML_OP_GLU };
@@ -608,36 +733,35 @@ namespace fused
         const ggml_tensor* logits,
         ggml_tensor* weights,
         ggml_tensor* ids,
-        const bool                  with_norm,
-        const bool                  delayed_softmax,
-        ggml_tensor* clamp)
+        const ggml_tensor* clamp,
+        const ggml_tensor* scale,
+        const ggml_tensor* bias,
+        const ggml_cuda_topk_moe_args& args)
     {
         GGML_ASSERT(logits->type == GGML_TYPE_F32);
         GGML_ASSERT(weights->type == GGML_TYPE_F32);
         GGML_ASSERT(ids->type == GGML_TYPE_I32);
-        GGML_ASSERT(with_norm || clamp == nullptr);
-        const int n_experts = logits->ne[0];
-        const int n_rows = logits->ne[1];
 
-        const float* logits_d = (const float*)logits->data;
-        float* weights_d = (float*)weights->data;
-        int32_t* ids_d = (int32_t*)ids->data;
+        const int n_experts = logits->ne[0];
 
         GGML_ASSERT(ids->nb[1] / ggml_type_size(ids->type) == (size_t)n_experts);
 
-        const int n_expert_used = weights->ne[1];
-
-        const float clamp_val = (clamp) ?  std::bit_cast<float>(clamp->op_params[0]) : -INFINITY;
-        topk_moe_context ctx{
-            .with_norm = with_norm,
-            .logits_d = logits_d,
-            .weights_d = weights_d,
-            .ids_d = ids_d,
-            .n_rows = n_rows,
+        topk_moe_context ctx {
+            .has_bias = bias != nullptr,
+            .logits = (const float*)logits->data,
+            .weights = (float*)weights->data,
+            .bias = bias ? (float*)bias->data : nullptr,
+            .ids = (int32_t*)ids->data,
+            .n_rows = logits->ne[1],
             .n_experts = n_experts,
-            .n_expert_used = n_expert_used,
-            .clamp_val = clamp_val,
-            .delayed_softmax = delayed_softmax
+            .n_expert_used = weights->ne[1],
+            .clamp_val = clamp ? std::bit_cast<float>(clamp->op_params[0]) : -INFINITY,
+            .scale_val = scale ? std::bit_cast<float>(scale->op_params[0]) : 1.0f,
+            .config = {
+                .use_sigmoid = args.sigmoid,
+                .with_norm = clamp != nullptr,
+                .delayed_softmax = args.delayed_softmax
+            }
         };
 
         topk_moe_cuda(ctx, stream);
@@ -713,5 +837,73 @@ namespace fused
         }
 
         return use_mul_mat_vec_q;
+    }
+
+    bool should_use_topk_moe(const ggml_tensor* gating_op,
+        const ggml_tensor* weights,
+        const ggml_tensor* logits,
+        const ggml_tensor* ids) {
+        const int n_expert = ids->nb[1] / ids->nb[0];
+        if (((n_expert & (n_expert - 1)) != 0 || n_expert > 512) && n_expert != 576) {
+            return false;
+        }
+
+        if (!ggml_is_contiguous(weights) || !ggml_is_contiguous(logits)) {
+            return false;
+        }
+
+        if (gating_op->op == GGML_OP_SOFT_MAX) {
+            const ggml_tensor* softmax = gating_op;
+            float               scale = 1.0f;
+            float               max_bias = 0.0f;
+
+            memcpy(&scale, (const float*)softmax->op_params + 0, sizeof(float));
+            memcpy(&max_bias, (const float*)softmax->op_params + 1, sizeof(float));
+
+            if (!ggml_is_contiguous(softmax->src[0])) {
+                return false;
+            }
+
+            if (scale != 1.0f || max_bias != 0.0f) {
+                return false;
+            }
+
+            // don't fuse when masks or sinks are present
+            if (softmax->src[1] || softmax->src[2]) {
+                return false;
+            }
+        }
+        else if (gating_op->op == GGML_OP_UNARY) {
+            ggml_unary_op op = ggml_get_unary_op(gating_op);
+
+            if (op != GGML_UNARY_OP_SIGMOID) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Returns true if the subgraph formed by {node_idxs} can be fused
+    // checks whethers all nodes which are not part of outputs can be elided
+    // by checking if their num_uses are confined to the subgraph
+    bool ggml_can_fuse_subgraph(const ggml_cgraph* cgraph,
+        int                        node_idx,
+        int                        count,
+        const ggml_op* ops,
+        const int* outputs,
+        int                        num_outputs) {
+        GGML_ASSERT(count < 32);
+        if (node_idx + count > cgraph->nodes.size()) {
+            return false;
+        }
+
+        int idxs[32];
+
+        for (int i = 0; i < count; ++i) {
+            idxs[i] = node_idx + i;
+        }
+
+        return ggml_can_fuse_subgraph_ext(cgraph, idxs, count, ops, outputs, num_outputs);
     }
 }

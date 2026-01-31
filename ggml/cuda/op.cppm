@@ -1304,70 +1304,7 @@ namespace op
         soft_max_back_f32_cuda(ctx, stream);
     }
 
-    void rope(cudaStream_t stream, ggml_tensor* dst, bool forward, const ggml_tensor* set_rows = nullptr) {
-        const ggml_tensor* src0 = dst->src[0];
-        const ggml_tensor* src1 = dst->src[1];
-        const ggml_tensor* src2 = dst->src[2];
-
-        GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
-        GGML_ASSERT(dst->type == GGML_TYPE_F32 || dst->type == GGML_TYPE_F16);
-        GGML_ASSERT(src0->type == dst->type);
-
-        const int mode = std::bit_cast<int>(dst->op_params[2]);
-
-        void* dst_d = dst->data;
-        const int64_t* row_indices = nullptr;
-        ggml_type dst_type = dst->type;
-
-        if (set_rows != nullptr) {
-            GGML_ASSERT(forward);
-            dst_d = set_rows->data;
-            row_indices = (const int64_t*)set_rows->src[1]->data;
-            dst_type = set_rows->type;
-        }
-
-        rope_context ctx{
-            .forward = forward,
-            .is_neox = static_cast<bool>(mode & GGML_ROPE_TYPE_NEOX),
-            .is_mrope = static_cast<bool>(mode & GGML_ROPE_TYPE_MROPE),
-            .is_imrope = static_cast<bool>(mode == GGML_ROPE_TYPE_IMROPE),
-            .is_vision = static_cast<bool>(mode == GGML_ROPE_TYPE_VISION),
-            .src_type = std::bit_cast<internal::ggml_type>(src0->type),
-            .dst_type = std::bit_cast<internal::ggml_type>(dst_type),
-            .src_d = src0->data,
-            .dst_d = dst_d,
-            .src_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
-            .src_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
-            .dst_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
-            .dst_nb = { ggml_type_size(dst_type),
-                        ggml_type_size(dst_type) * src0->ne[0],
-                        ggml_type_size(dst_type) * src0->ne[0] * src0->ne[1],
-                        ggml_type_size(dst_type) * src0->ne[0] * src0->ne[1] * src0->ne[2]},
-            .n_dims = std::bit_cast<int>(dst->op_params[1]),
-            .n_ctx_orig = std::bit_cast<int>(dst->op_params[4]),
-            .pos = (const int32_t*)src1->data,
-            // RoPE alteration for extended context
-            .freq_base = std::bit_cast<float>(dst->op_params[5]),
-            .freq_scale = std::bit_cast<float>(dst->op_params[6]),
-            .ext_factor = std::bit_cast<float>(dst->op_params[7]),
-            .attn_factor = std::bit_cast<float>(dst->op_params[8]),
-            .beta_fast = std::bit_cast<float>(dst->op_params[9]),
-            .beta_slow = std::bit_cast<float>(dst->op_params[10]),
-            .freq_factors = (src2 != nullptr) ? (const float*)src2->data : nullptr,
-            .row_indices = row_indices,
-        };
-        memcpy(&ctx.sections.v, (int32_t*)dst->op_params + 11, sizeof(int) * 4);
-
-        if (ctx.is_mrope) {
-            GGML_ASSERT(ctx.sections.v[0] > 0 || ctx.sections.v[1] > 0 || ctx.sections.v[2] > 0);
-        }
-        if (ctx.is_vision) {
-            GGML_ASSERT(ctx.n_dims == ctx.src_ne[0] / 2);
-        }
-
-        rope_cuda(ctx, stream);
-    }
-
+    void rope(cudaStream_t stream, ggml_tensor* dst, bool forward, const ggml_tensor* set_rows = nullptr);
     void concat(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         const ggml_tensor* src1 = dst->src[1];
@@ -1583,7 +1520,18 @@ namespace op
 
         // The effective batch size for the kernel can be increased by gqa_ratio.
         // The kernel versions without this optimization are also used for ALiBi, if there is no mask, or if the KV cache is not padded,
-        const bool gqa_opt_applies = gqa_ratio % 2 == 0 && mask && max_bias == 0.0f && K->ne[1] % FATTN_KQ_STRIDE == 0;
+        bool gqa_opt_applies = gqa_ratio >= 2 && mask && max_bias == 0.0f && K->ne[1] % FATTN_KQ_STRIDE == 0;
+        for (const ggml_tensor* t : { Q, K, V, mask }) {
+            if (t == nullptr || ggml_is_quantized(t->type)) {
+                continue;
+            }
+            for (size_t i = 1; i < GGML_MAX_DIMS; ++i) {
+                if (t->nb[i] % 16 != 0) {
+                    gqa_opt_applies = false;
+                    break;
+                }
+            }
+        }
 
         const int cc = ggml_cuda_info().devices[device].cc;
 
@@ -1604,7 +1552,7 @@ namespace op
             if (V->ne[0] != 512) {
                 return BEST_FATTN_KERNEL_NONE;
             }
-            if (!gqa_opt_applies || gqa_ratio % 16 != 0) {
+            if (!gqa_opt_applies) {
                 return BEST_FATTN_KERNEL_NONE;
             }
             break;
@@ -1690,6 +1638,32 @@ namespace op
                 return BEST_FATTN_KERNEL_VEC;
             }
             return BEST_FATTN_KERNEL_WMMA_F16;
+        }
+
+        if (amd_wmma_available(cc) && GGML_CUDA_CC_IS_RDNA4(cc) && gqa_opt_applies && Q->ne[0] <= 128 && Q->ne[0] != 40 && Q->ne[0] != 72) {
+            if (can_use_vector_kernel) {
+                if (!ggml_is_quantized(K->type) && !ggml_is_quantized(V->type)) {
+                    if (Q->ne[1] == 1) {
+                        if (!gqa_opt_applies) {
+                            return BEST_FATTN_KERNEL_VEC;
+                        }
+                    }
+                }
+                else {
+                    if (Q->ne[1] <= 2) {
+                        return BEST_FATTN_KERNEL_VEC;
+                    }
+                }
+            }
+            int gqa_ratio_eff = 1;
+            const int ncols2_max = Q->ne[0] == 576 ? 16 : 8;
+            while (gqa_ratio % (2 * gqa_ratio_eff) == 0 && gqa_ratio_eff < ncols2_max) {
+                gqa_ratio_eff *= 2;
+            }
+            if (Q->ne[1] * gqa_ratio_eff <= 8) {
+                return BEST_FATTN_KERNEL_TILE; // AMD WMMA is only faster if the full tile width of 16 can be utilized.
+            }
+            return BEST_FATTN_KERNEL_MMA_F16;
         }
 
         // If there are no tensor cores available, use the generic tile kernel:
@@ -2136,7 +2110,7 @@ namespace op
         swiglu_oai_cuda(src0_p, src1_p, dst_d, dst->nelements(), nc, src0_o / sizeof(float), src1_o / sizeof(float), alpha, limit, stream);
     }
 
-    void mean(ggml_cuda_pool& pool, cudaStream_t stream, bool cuda_graph_exists, bool cuda_graph_enable, ggml_tensor* dst);
+    void mean(ggml_cuda_pool& pool, cudaStream_t stream, bool any_cuda_graph_has_instance, bool any_cuda_graph_enabled, ggml_tensor* dst);
 
     void set_rows(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];

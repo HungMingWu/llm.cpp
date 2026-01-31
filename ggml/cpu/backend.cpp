@@ -43,6 +43,10 @@ enum ggml_status ggml_cpu_backend::graph_compute_impl(ggml_cgraph* cgraph)
 			continue;
 		}
 
+		if ((node->flags & GGML_TENSOR_FLAG_COMPUTE) == 0) {
+			continue;
+		}
+
 		ggml_compute_forward(pool, scope, &params, node);
 #if 0
 		if (state->ith == 0 && cplan->abort_callback &&

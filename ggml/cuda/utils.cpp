@@ -51,7 +51,11 @@ namespace utils
                 return false;
             }
         }
-        if (src0_ne[1] % MMF_ROWS_PER_BLOCK != 0) {
+        if (src0_ne[1] % mmf_get_rows_per_block(cc) != 0) {
+            return false;
+        }
+
+        if (GGML_CUDA_CC_IS_CDNA3(cc) && type == GGML_TYPE_BF16) {
             return false;
         }
 
@@ -67,6 +71,13 @@ namespace utils
             if (GGML_CUDA_CC_IS_RDNA3_0(cc) && src1_ncols > 8) {
                 return false;
             }
+            else if (GGML_CUDA_CC_IS_CDNA2(cc) && (type == GGML_TYPE_F16 || type == GGML_TYPE_BF16)) {
+                //TODO: truse CDNA2 as CDNA1, tune the perf when CDNA2 is available.
+                return false;
+            }
+            else if (GGML_CUDA_CC_IS_CDNA1(cc) && (type == GGML_TYPE_F16 || type == GGML_TYPE_BF16)) {
+                return false;
+            }
             else if (src1_ncols > 16) {
                 return false;
             }
@@ -74,11 +85,11 @@ namespace utils
 
         switch (type) {
         case GGML_TYPE_F32:
-            return ampere_mma_available(cc);
+            return ampere_mma_available(cc) || amd_mfma_available(cc);
         case GGML_TYPE_F16:
-            return volta_mma_available(cc) || turing_mma_available(cc) || amd_wmma_available(cc);
+            return volta_mma_available(cc) || turing_mma_available(cc) || amd_wmma_available(cc) || amd_mfma_available(cc);
         case GGML_TYPE_BF16:
-            return ampere_mma_available(cc) || amd_wmma_available(cc);
+            return ampere_mma_available(cc) || amd_wmma_available(cc) || amd_mfma_available(cc);
         default:
             return false;
         }

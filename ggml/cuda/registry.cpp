@@ -114,6 +114,16 @@ ggml_backend_reg_t ggml_backend_cuda_reg() {
 backend_cuda_reg::backend_cuda_reg()
     : ggml_backend_reg()
 {
+    // Set CUDA_SCALE_LAUNCH_QUEUES before any CUDA API call to improve multi-GPU pipeline parallelism performance
+    // PR: https://github.com/ggml-org/llama.cpp/pull/19042
+    if (getenv("CUDA_SCALE_LAUNCH_QUEUES") == nullptr) {
+#ifdef _WIN32
+        _putenv_s("CUDA_SCALE_LAUNCH_QUEUES", "4x");
+#else
+        setenv("CUDA_SCALE_LAUNCH_QUEUES", "4x", 0); // don't overwrite if already set
+#endif // _WIN32
+    }
+
     const int min_batch_size = getenv("GGML_OP_OFFLOAD_MIN_BATCH") ? atoi(getenv("GGML_OP_OFFLOAD_MIN_BATCH")) : 32;
     for (int i = 0; i < ggml_cuda_info().device_count; i++) {
         cudaDeviceProp prop;
@@ -485,7 +495,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_L2_NORM:
         return true;
     case GGML_OP_RMS_NORM_BACK:
-        return ggml_is_contiguous(op->src[0]) && op->ne[0] % WARP_SIZE == 0;
+        return ggml_is_contiguous(op->src[0]);
     case GGML_OP_NONE:
     case GGML_OP_RESHAPE:
     case GGML_OP_VIEW:

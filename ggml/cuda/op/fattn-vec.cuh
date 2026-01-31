@@ -25,7 +25,7 @@ constexpr size_t getnthreads_KQ_q()
     }
 }
 
-// Currenlty llvm with the amdgcn target dose not support unrolling loops
+// Currenlty llvm with the amdgcn target does not support unrolling loops
 // that contain a break that can not be resolved at compile time.
 #ifdef __clang__
 #pragma clang diagnostic push
@@ -117,7 +117,7 @@ static __global__ void flash_attn_ext_vec(
     }
 
     // Convert Q to float2 (f16 K) or q8_1 (quantized K) and store in registers:
-    t2  Q_reg[ncols][(D / 2) / nthreads_KQ]; // Will be initialized completely.
+    __align__(16) t2  Q_reg[ncols][(D / 2) / nthreads_KQ]; // Will be initialized completely.
     int    Q_i32[ncols][1 > D / (sizeof(int) * nthreads_KQ) ? 1 : D / (sizeof(int) * nthreads_KQ)];
     float2  Q_ds[ncols][1 > D / (sizeof(int) * nthreads_KQ) ? 1 : D / (sizeof(int) * nthreads_KQ)];
     if constexpr (Q_q8_1) {
@@ -186,7 +186,7 @@ static __global__ void flash_attn_ext_vec(
                 for (int i0 = 0; i0 < D / 2; i0 += nthreads_KQ * cpy_ne) {
                     const int i = i0 + (nthreads_KQ == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_KQ) * cpy_ne;
 
-                    float2 tmp[cpy_ne] = { {0.0f, 0.0f} };
+                    __align__(16) float2 tmp[cpy_ne] = { {0.0f, 0.0f} };
                     if (ncols == 1 || ic0 + j < int(ne01.z)) {
                         ggml_cuda_memcpy_1<cpy_nb>(tmp, &Q_j[i]);
                         ggml_cuda_memcpy_1<cpy_nb>(tmp + cpy_ne / 2, &Q_j[i + cpy_ne / 2]);
