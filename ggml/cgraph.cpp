@@ -552,7 +552,7 @@ static void ggml_compute_backward(
     case GGML_OP_DIAG_MASK_INF: {
         if (src0_needs_grads) {
             /* ggml_diag_mask_inf_impl() shouldn't be here */
-            /* ref:  https://github.com/ggerganov/llama.cpp/pull/4203#discussion_r1412377992 */
+            /* ref:  https://github.com/ggml-org/llama.cpp/pull/4203#discussion_r1412377992 */
             const int n_past = ((const int32_t*)tensor->op_params)[0];
             ggml_add_or_set(ctx, cgraph, src0, ggml_diag_mask_zero_impl(ctx, grad, n_past, false));
         }
@@ -716,16 +716,32 @@ static void ggml_compute_backward(
     GGML_ASSERT(!src2_needs_grads || ggml_are_same_shape(src2, cgraph->grads[src2]));
 }
 
-void ggml_cgraph::visit_parents(ggml_tensor* node)
+void ggml_cgraph::visit_parents_graph(ggml_tensor* node, bool compute)
 {
-    // check if already visited
-    if (use_counts.contains(node)) return;
+    if (node->op != GGML_OP_NONE && compute) {
+        node->flags |= GGML_TENSOR_FLAG_COMPUTE;
+    }
 
+    if (use_counts.contains(node)) {
+        // already visited
+
+        if (compute) {
+            // update the compute flag regardless
+            for (auto src : node->src) {
+                if (src && ((src->flags & GGML_TENSOR_FLAG_COMPUTE) == 0)) {
+                    visit_parents_graph(src, true);
+                }
+            }
+        }
+        return;
+    }
+
+    // This is the first time we see this node in the current graph.
     use_counts[node] = 0;
     if (order == GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT) {
-        std::for_each(node->src.begin(), node->src.end(), [this](ggml_tensor* src) {
+        std::for_each(node->src.begin(), node->src.end(), [this, compute](ggml_tensor* src) {
             if (src) {
-                visit_parents(src);
+                visit_parents_graph(src, compute);
 
                 // Update the use count for this operand.
                 use_counts[src]++;
@@ -733,9 +749,9 @@ void ggml_cgraph::visit_parents(ggml_tensor* node)
         });
     }
     else {
-        std::for_each(node->src.rbegin(), node->src.rend(), [this](ggml_tensor* src) {
+        std::for_each(node->src.rbegin(), node->src.rend(), [this, compute](ggml_tensor* src) {
             if (src) {
-                visit_parents(src);
+                visit_parents_graph(src, compute);
 
                 // Update the use count for this operand.
                 use_counts[src]++;
@@ -757,18 +773,23 @@ void ggml_cgraph::visit_parents(ggml_tensor* node)
     }
 }
 
-void ggml_cgraph::build_forward_expand(ggml_tensor* tensor)
+void ggml_cgraph::build_forward_impl(ggml_tensor* tensor, bool expand, bool compute)
 {
-    const size_t ori_nodes = nodes.size();
-    visit_parents(tensor);
-    const size_t append_nodes = nodes.size() - ori_nodes;
+    const size_t n_old = nodes.size();
+    visit_parents_graph(tensor, compute);
+    const size_t n_new = nodes.size() - n_old;
 
-    GGML_PRINT_DEBUG("%s: visited %d new nodes\n", __func__, append_nodes);
+    GGML_PRINT_DEBUG("%s: visited %d new nodes\n", __func__, n_new);
 
-    if (append_nodes > 0) {
+    if (n_new > 0) {
         // the last added node should always be starting point
         GGML_ASSERT(nodes.back() == tensor);
     }
+}
+
+void ggml_cgraph::build_forward_expand(ggml_tensor* tensor)
+{
+    build_forward_impl(tensor, true, true);
 }
 
 void ggml_cgraph::clear()
@@ -979,7 +1000,7 @@ static void ggml_graph_dump_dot_leaf_edge(
         label);
 }
 
-void ggml_graph_dump_dot(const ggml_cgraph* gb, const ggml_cgraph* gf, const char* filename) {
+void ggml_graph_dump_dot(const ggml_cgraph* gb, const ggml_cgraph* cgraph, const char* filename) {
     std::ofstream outFile(filename);
     if (!outFile) {
         return;
@@ -1001,7 +1022,7 @@ void ggml_graph_dump_dot(const ggml_cgraph* gb, const ggml_cgraph* gf, const cha
                 return "yellow";
             }
             else if (grad) {
-                if (ggml_graph_find(gf, node)) {
+                if (ggml_graph_find(cgraph, node)) {
                     return "green";
                 }
                 else {
@@ -1138,58 +1159,16 @@ int32_t ggml_cgraph::get_use_count(int node_idx) const {
     return use_counts.at(node);
 }
 
-// return true if the node's results are only used by N other nodes
-// and can be fused into their calculations.
-static inline bool ggml_node_has_n_uses(const ggml_cgraph* cgraph, int node_idx, int32_t n_uses) {
-    ggml_tensor* node = cgraph->nodes[node_idx];
+ggml_tensor* ggml_cgraph::build_forward_select(
+    ggml_tensor** tensors,
+    int n_tensors,
+    int idx)
+{
+    GGML_ASSERT(idx >= 0 && idx < n_tensors);
 
-    // check the use count against how many we're replacing
-    if (cgraph->get_use_count(node_idx) != n_uses) {
-        return false;
+    for (int i = 0; i < n_tensors; i++) {
+        build_forward_impl(tensors[i], true, i == idx ? true : false);
     }
 
-    // if node is a view, some other node might be using the intermediate result
-    // via the view source.
-    if (node->view_src) {
-        return false;
-    }
-
-    // If the user requested output for the node, can't fuse
-    if (node->flags & GGML_TENSOR_FLAG_OUTPUT) {
-        return false;
-    }
-
-    return true;
-}
-
-// Returns true if nodes [i, i+ops.size()) are the sequence of ggml_ops in ops[]
-// and are fusable. Nodes are considered fusable according to this function if:
-// - all nodes except the last have only one use and are not views/outputs (see ggml_node_has_N_uses).
-// - all nodes except the last are a src of the following node.
-// - all nodes are the same shape.
-// TODO: Consider allowing GGML_OP_NONE nodes in between
-bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* ops, int num_ops) {
-    if (node_idx + num_ops > cgraph->nodes.size()) {
-        return false;
-    }
-
-    for (int i = 0; i < num_ops; ++i) {
-        ggml_tensor* node = cgraph->nodes[node_idx + i];
-        if (node->op != ops[i]) {
-            return false;
-        }
-        if (i < num_ops - 1 && !ggml_node_has_n_uses(cgraph, node_idx + i, 1)) {
-            return false;
-        }
-        if (i > 0) {
-            ggml_tensor* prev = cgraph->nodes[node_idx + i - 1];
-            if (node->src[0] != prev && node->src[1] != prev) {
-                return false;
-            }
-            if (!ggml_are_same_shape(node, prev)) {
-                return false;
-            }
-        }
-    }
-    return true;
+    return tensors[idx];
 }

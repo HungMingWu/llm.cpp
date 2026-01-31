@@ -216,7 +216,6 @@ namespace op {
 
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
-        GGML_ASSERT(ggml_is_contiguous(src0));
 
         const bool circular = dst->op_params[8];
         pad_context ctx{
@@ -275,7 +274,7 @@ namespace op {
         //     are put into the template specialization without GQA optimizations.
         auto use_gpa_opt = [=]() -> bool {
             for (const ggml_tensor* t : { Q, K, V, mask }) {
-                if (t == nullptr) {
+                if (t == nullptr || ggml_is_quantized(t->type)) {
                     continue;
                 }
                 for (size_t i = 1; i < GGML_MAX_DIMS; ++i)
@@ -293,6 +292,7 @@ namespace op {
             .logit_softcap = std::bit_cast<float>(dst->op_params[2]),
             .precision = std::bit_cast<internal::ggml_prec>(dst->op_params[3]),
             .use_gqa_opt = use_gpa_opt,
+            .V_is_K_view = V->view_src && (V->view_src == K || (V->view_src == K->view_src && V->view_offs == K->view_offs)),
             .Q = {
                 .type = std::bit_cast<internal::ggml_type>(Q->type),
                 .data = Q->data,
@@ -319,23 +319,22 @@ namespace op {
                 .element_size = ggml_element_size(K)
             },
             .V = {
-                .exist = V != nullptr,
-                .type = std::bit_cast<internal::ggml_type>(V ? V->type : GGML_TYPE_F32),
-                .block_size = V ? ggml_blck_size(V->type) : 0,
-                .type_size = V ? ggml_type_size(V->type) : 0,
-                .data = V ? V->data : nullptr,
-                .elements = V ? V->nelements() : 0,
-                .ne0 = V ? V->ne[0] : 0,
-                .ne1 = V ? V->ne[1] : 0,
-                .ne2 = V ? V->ne[2] : 0,
-                .ne3 = V ? V->ne[3] : 0,
-                .nb0 = V ? V->nb[0] : 0,
-                .nb1 = V ? V->nb[1] : 0,
-                .nb2 = V ? V->nb[2] : 0,
-                .nb3 = V ? V->nb[3] : 00,
-                .bs = V ? ggml_blck_size(V->type) : 0,
-                .ts = V ? ggml_type_size(V->type) : 0,
-                .element_size = V ? ggml_element_size(V) : 0
+                .type = std::bit_cast<internal::ggml_type>(V->type),
+                .block_size = ggml_blck_size(V->type),
+                .type_size = ggml_type_size(V->type),
+                .data = V->data,
+                .elements = V->nelements(),
+                .ne0 = V->ne[0],
+                .ne1 = V->ne[1],
+                .ne2 = V->ne[2],
+                .ne3 = V->ne[3],
+                .nb0 = V->nb[0],
+                .nb1 = V->nb[1],
+                .nb2 = V->nb[2],
+                .nb3 = V->nb[3],
+                .bs = ggml_blck_size(V->type),
+                .ts = ggml_type_size(V->type),
+                .element_size = ggml_element_size(V)
             },
             .mask = {
                 .exist = mask != nullptr,
@@ -526,7 +525,7 @@ namespace op {
         soft_max_f32_cuda(ctx, stream);
     }
 
-    void mean(ggml_cuda_pool& pool, cudaStream_t stream, bool cuda_graph_exists, bool cuda_graph_enable, ggml_tensor* dst) {
+    void mean(ggml_cuda_pool& pool, cudaStream_t stream, bool any_cuda_graph_has_instance, bool any_cuda_graph_enabled, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
@@ -537,9 +536,70 @@ namespace op {
             .dst_d = (float*)dst->data,
             .ncols = src0->ne[0],
             .nrows = ggml_nrows(src0),
-            .cuda_graph_exists = cuda_graph_exists,
-            .cuda_graph_enable = cuda_graph_enable
+            .any_cuda_graph_has_instance = any_cuda_graph_has_instance,
+            .any_cuda_graph_enabled = any_cuda_graph_enabled
         };
         mean_cuda(ctx, stream);
+    }
+
+    void rope(cudaStream_t stream, ggml_tensor* dst, bool forward, const ggml_tensor* set_rows) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+        const ggml_tensor* src2 = dst->src[2];
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32 || dst->type == GGML_TYPE_F16);
+        GGML_ASSERT(src0->type == dst->type);
+
+        const int mode = std::bit_cast<int>(dst->op_params[2]);
+
+        void* dst_d = dst->data;
+        const int64_t* row_indices = nullptr;
+        ggml_type dst_type = dst->type;
+
+        if (set_rows != nullptr) {
+            GGML_ASSERT(forward);
+            dst_d = set_rows->data;
+            row_indices = (const int64_t*)set_rows->src[1]->data;
+            dst_type = set_rows->type;
+        }
+
+        rope_context ctx {
+            .forward = forward,
+            .is_neox = static_cast<bool>(mode & GGML_ROPE_TYPE_NEOX),
+            .is_mrope = static_cast<bool>(mode & GGML_ROPE_TYPE_MROPE),
+            .is_imrope = static_cast<bool>(mode == GGML_ROPE_TYPE_IMROPE),
+            .is_vision = static_cast<bool>(mode == GGML_ROPE_TYPE_VISION),
+            .src_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .dst_type = std::bit_cast<internal::ggml_type>(dst_type),
+            .src_d = src0->data,
+            .dst_d = dst_d,
+            .src_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .dst_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
+            .n_dims = std::bit_cast<int>(dst->op_params[1]),
+            .n_ctx_orig = std::bit_cast<int>(dst->op_params[4]),
+            .pos = (const int32_t*)src1->data,
+            // RoPE alteration for extended context
+            .freq_base = std::bit_cast<float>(dst->op_params[5]),
+            .freq_scale = std::bit_cast<float>(dst->op_params[6]),
+            .ext_factor = std::bit_cast<float>(dst->op_params[7]),
+            .attn_factor = std::bit_cast<float>(dst->op_params[8]),
+            .beta_fast = std::bit_cast<float>(dst->op_params[9]),
+            .beta_slow = std::bit_cast<float>(dst->op_params[10]),
+            .freq_factors = (src2 != nullptr) ? (const float*)src2->data : nullptr,
+            .row_indices = row_indices,
+        };
+        memcpy(&ctx.sections.v, (int32_t*)dst->op_params + 11, sizeof(int) * 4);
+
+        if (ctx.is_mrope) {
+            GGML_ASSERT(ctx.sections.v[0] > 0 || ctx.sections.v[1] > 0 || ctx.sections.v[2] > 0);
+        }
+        if (ctx.is_vision) {
+            GGML_ASSERT(ctx.n_dims == ctx.src_ne[0] / 2);
+        }
+
+        rope_cuda(ctx, stream);
     }
 }

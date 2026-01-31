@@ -14,10 +14,14 @@ void mean_cuda(const mean_context& ctx, cudaStream_t stream) {
             cudaStreamCaptureStatus iscapturing;
             CUDA_CHECK(cudaStreamIsCapturing(stream, &iscapturing));
 
-            const bool cuda_graph_enabled = !ctx.cuda_graph_exists && iscapturing == cudaStreamCaptureStatusNone || ctx.cuda_graph_enable;
+            // Determine if CUDA graphs are effectively disabled for this context
+            // (no graph instance exists and we're not capturing, OR graphs are explicitly enabled)
+            const bool cuda_graph_enabled = (!ctx.any_cuda_graph_has_instance && iscapturing == cudaStreamCaptureStatusNone)
+                || ctx.any_cuda_graph_enabled;
 
-            if (ctx.ncols > 65536 && cuda_graph_enabled) return true; // CUDA_GRAPHS_DISABLED
-            if (ctx.ncols > 32768 && !cuda_graph_enabled) return true;  // CUDA_GRAPHS ENABLED
+            if (ctx.ncols > 65536 && cuda_graph_enabled) return true;
+            // CUDA graphs are enabled - use lower threshold
+            if (ctx.ncols > 32768 && !cuda_graph_enabled) return true;
             return false;
         }
         else {

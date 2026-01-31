@@ -34,11 +34,42 @@ static constexpr bool ggml_use_hip_v = true;
 static constexpr bool ggml_use_hip_v = false;
 #endif
 
+// GGML_HIP_ROCWMMA_FATTN comes from CMake definition
+#ifdef GGML_HIP_ROCWMMA_FATTN
+static constexpr bool ggml_hip_rocwmma_fattn_v = true;
+#else
+static constexpr bool ggml_hip_rocwmma_fattn_v = false;
+#endif
+
 // GGML_USE_MUSA comes from CMake definition
 #ifdef GGML_USE_MUSA
 static constexpr bool ggml_use_musa_v = true;
 #else
 static constexpr bool ggml_use_musa_v = false;
+#endif
+
+#if defined(GGML_USE_MUSA)
+static constexpr bool ggml_use_wmma_fattn_v = true;
+#elif defined(GGML_HIP_ROCWMMA_FATTN)
+// ignore judgement right now
+#if 0
+#if defined(CDNA) && (ROCWMMA_VERSION_MAJOR < 2 || ROCWMMA_VERSION_MINOR > 0 || ROCWMMA_VERSION_PATCH > 0)
+#define GGML_USE_WMMA_FATTN
+#elif defined(CDNA)
+#warning "rocwmma fattn on CDNA is broken on rocwmma v2.0.0, expect degraded performance"
+#endif // defined(CDNA) && (ROCWMMA_VERSION_MAJOR < 2 || ROCWMMA_VERSION_MINOR > 0 || ROCWMMA_VERSION_PATCH > 0)
+#if defined(RDNA3)
+#define GGML_USE_WMMA_FATTN
+#endif // defined(RDNA3)
+#if defined(RDNA4) && ROCWMMA_VERSION_MAJOR > 1
+#define GGML_USE_WMMA_FATTN
+#elif defined(RDNA4)
+#warning "rocwmma fattn is not suported on RDNA4 on rocwmma < v2.0.0, expect degraded performance"
+#endif // defined(RDNA4) && ROCWMMA_VERSION_MAJOR > 1
+#endif
+static constexpr bool ggml_use_wmma_fattn_v = true;
+#else
+static constexpr bool ggml_use_wmma_fattn_v = false;
 #endif
 
 #if defined(GGML_CUDA_FORCE_CUBLAS)
@@ -109,8 +140,10 @@ static constexpr bool volta_mma_available_v = false;
 
 #if !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_TURING
 static constexpr bool turing_mma_available_v = true;
+static constexpr bool ldmatrix_trans_available_v = true;
 #else
 static constexpr bool turing_mma_available_v = false;
+static constexpr bool ldmatrix_trans_available_v = false;
 #endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_TURING
 
 #if !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE

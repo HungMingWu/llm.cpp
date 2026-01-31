@@ -82,7 +82,7 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ_f16(
 
 #pragma unroll
     for (int k_KQ_0 = 0; k_KQ_0 < D / 2; k_KQ_0 += nthreads * cpy_ne) {
-        half2 tmp[cpy_ne];
+        __align__(16) half2 tmp[cpy_ne];
         ggml_cuda_memcpy_1<sizeof(tmp)>(tmp, K_h2 + k_KQ_0 + (threadIdx.x % nthreads) * cpy_ne);
 #pragma unroll
         for (int k_KQ_1 = 0; k_KQ_1 < cpy_ne; ++k_KQ_1) {
@@ -310,7 +310,7 @@ static __device__ __forceinline__ void dequantize_V_f16(const void* __restrict__
     }
     else if constexpr (std::is_same_v<T, float>) {
         static_assert(ne % 2 == 0, "bad ne");
-        half2 tmp[ne / 2];
+        __align__(16) half2 tmp[ne / 2];
         ggml_cuda_memcpy_1<ne * sizeof(half)>(tmp, (const half*)vx + i0);
         float2* dst_f2 = (float2*)dst;
 #pragma unroll
@@ -717,8 +717,8 @@ static __global__ void flash_attn_mask_to_KV_max(
 template<int D, int ncols1, int ncols2> // D == head size
 __launch_bounds__(D, 1)
 static __global__ void flash_attn_stream_k_fixup(
-    float* __restrict__ dst, const float2* __restrict__ dst_fixup, const int ne01, const int ne02, const int ne03, const int ne11,
-    const int nbatch_fa) {
+    float* __restrict__ dst, const float2* __restrict__ dst_fixup, const int ne01, const int ne02, const int ne03,
+    const int ne11, const int ne12, const int nbatch_fa) {
     constexpr int ncols = ncols1 * ncols2;
 
     const int bidx0 = blockIdx.x;
@@ -729,11 +729,14 @@ static __global__ void flash_attn_stream_k_fixup(
 
     const float* dst_fixup_data = ((const float*)dst_fixup) + gridDim.x * (2 * 2 * ncols);
 
+    const int gqa_ratio = ne02 / ne12; // With grouped query attention there are > 1 Q matrices per K, V matrix.
+
     const int iter_k = (ne11 + (nbatch_fa - 1)) / nbatch_fa;
     const int iter_j = (ne01 + (ncols1 - 1)) / ncols1;
+    const int iter_z_gqa = (gqa_ratio + (ncols2 - 1)) / ncols2;
 
-    const int kbc0 = (bidx0 + 0) * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
-    const int kbc0_stop = (bidx0 + 1) * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
+    const int kbc0 = int64_t(bidx0 + 0) * (iter_k * iter_j * iter_z_gqa * ne12 * ne03) / gridDim.x;
+    const int kbc0_stop = int64_t(bidx0 + 1) * (iter_k * iter_j * iter_z_gqa * ne12 * ne03) / gridDim.x;
 
     const bool did_not_have_any_data = kbc0 == kbc0_stop;
     const bool wrote_beginning_of_tile = kbc0 % iter_k == 0;
@@ -742,15 +745,19 @@ static __global__ void flash_attn_stream_k_fixup(
         return;
     }
 
-    const int sequence = kbc0 / (iter_k * iter_j * (ne02 / ncols2));
-    const int head = (kbc0 - iter_k * iter_j * (ne02 / ncols2) * sequence) / (iter_k * iter_j);
-    const int jt = (kbc0 - iter_k * iter_j * (ne02 / ncols2) * sequence - iter_k * iter_j * head) / iter_k; // j index of current tile.
+    // z_KV == K/V head index, zt_gqa = Q head start index per K/V head, jt = token position start index
+    const int sequence = kbc0 / (iter_k * iter_j * iter_z_gqa * ne12);
+    const int z_KV = (kbc0 - iter_k * iter_j * iter_z_gqa * ne12 * sequence) / (iter_k * iter_j * iter_z_gqa);
+    const int zt_gqa = (kbc0 - iter_k * iter_j * iter_z_gqa * ne12 * sequence - iter_k * iter_j * iter_z_gqa * z_KV) / (iter_k * iter_j);
+    const int jt = (kbc0 - iter_k * iter_j * iter_z_gqa * ne12 * sequence - iter_k * iter_j * iter_z_gqa * z_KV - iter_k * iter_j * zt_gqa) / iter_k;
 
-    if (jt * ncols1 + j >= ne01) {
+    const int zt_Q = z_KV * gqa_ratio + zt_gqa * ncols2; // Global Q head start index.
+
+    if (jt * ncols1 + j >= ne01 || zt_gqa * ncols2 + c >= gqa_ratio) {
         return;
     }
 
-    dst += sequence * ne02 * ne01 * D + jt * ne02 * (ncols1 * D) + head * (ncols2 * D) + (j * ne02 + c) * D + tid;
+    dst += sequence * ne02 * ne01 * D + jt * ne02 * (ncols1 * D) + zt_Q * D + (j * ne02 + c) * D + tid;
 
     // Load the partial result that needs a fixup:
     float dst_val = 0.0f;
@@ -769,7 +776,7 @@ static __global__ void flash_attn_stream_k_fixup(
     int bidx = bidx0 - 1;
     int kbc_stop = kbc0;
     while (true) {
-        const int kbc = bidx * (iter_k * iter_j * (ne02 / ncols2) * ne03) / gridDim.x;
+        const int kbc = int64_t(bidx) * (iter_k * iter_j * iter_z_gqa * ne12 * ne03) / gridDim.x;
         if (kbc == kbc_stop) { // Did not have any data.
             bidx--;
             kbc_stop = kbc;
@@ -813,15 +820,12 @@ void launch_fattn(
 ) {
     constexpr int ncols = ncols1 * ncols2;
 
-    const bool is_mla = DV == 512; // TODO better parameterization
-
-    GGML_ASSERT(ctx.V.exist || is_mla);
     GGML_ASSERT(ctx.Q.type == internal::GGML_TYPE_F32);
     GGML_ASSERT(ctx.KQV.type == internal::GGML_TYPE_F32);
 
     GGML_ASSERT(ctx.Q.nb[0] == ctx.Q.element_size);
     GGML_ASSERT(ctx.K.nb0 == ctx.K.element_size);
-    GGML_ASSERT(!ctx.V.exist || ctx.V.nb0 == ctx.V.element_size);
+    GGML_ASSERT(ctx.V.nb0 == ctx.V.element_size);
 
     GGML_ASSERT(!ctx.mask.exist || ctx.mask.type == internal::GGML_TYPE_F16);
 
@@ -844,10 +848,10 @@ void launch_fattn(
     size_t nb13 = ctx.K.nb3;
 
     const char* V_data = (const char*)ctx.V.data;
-    size_t nb20 = ctx.V.exist ? ctx.V.nb0 : nb10;
-    size_t nb21 = ctx.V.exist ? ctx.V.nb1 : nb11;
-    size_t nb22 = ctx.V.exist ? ctx.V.nb2 : nb12;
-    size_t nb23 = ctx.V.exist ? ctx.V.nb3 : nb13;
+    size_t nb20 = ctx.V.nb0;
+    size_t nb21 = ctx.V.nb1;
+    size_t nb22 = ctx.V.nb2;
+    size_t nb23 = ctx.V.nb3;
 
     if (need_f16_K && ctx.K.type != internal::GGML_TYPE_F16) {
         const size_t bs = ctx.K.block_size;
@@ -868,27 +872,37 @@ void launch_fattn(
         K_data = (char*)K_f16.ptr;
     }
 
-    if (ctx.V.exist && need_f16_V && ctx.V.type != internal::GGML_TYPE_F16) {
-        const size_t bs = ctx.V.block_size;
-        const size_t ts = ctx.V.type_size;
+    if (need_f16_V && ctx.V.type != internal::GGML_TYPE_F16) {
+        if (ctx.V_is_K_view) {
+            V_data = K_data;
+            nb21 = nb11;
+            nb22 = nb12;
+            nb23 = nb13;
+        }
+        else {
+            const size_t bs = ctx.V.block_size;
+            const size_t ts = ctx.V.type_size;
 
-        V_f16.alloc(ctx.V.elements);
-        GGML_ASSERT(ctx.V.nb0 == ts);
-        convert_context convert_ctx {
-            .src_type = ctx.V.type,
-            .src_ne = { ctx.V.ne0, ctx.V.ne1, ctx.V.ne2, ctx.V.ne3 },
-            .src_nb = { nb20, nb21, nb22, nb23 },
-        };
-        convert_to_cuda(convert_ctx, V_data, V_f16.ptr, main_stream);
+            V_f16.alloc(ctx.V.elements);
+            GGML_ASSERT(ctx.V.nb0 == ts);
+            convert_context convert_ctx{
+                .src_type = ctx.V.type,
+                .src_ne = { ctx.V.ne0, ctx.V.ne1, ctx.V.ne2, ctx.V.ne3 },
+                .src_nb = { nb20, nb21, nb22, nb23 },
+            };
+            convert_to_cuda(convert_ctx, V_data, V_f16.ptr, main_stream);
 
-        nb21 = ctx.V.ne0 * sizeof(half);
-        nb22 = ctx.V.ne1 * nb21;
-        nb23 = ctx.V.ne2 * nb22;
-        V_data = (char*)V_f16.ptr;
+            nb21 = ctx.V.ne0 * sizeof(half);
+            nb22 = ctx.V.ne1 * nb21;
+            nb23 = ctx.V.ne2 * nb22;
+            V_data = (char*)V_f16.ptr;
+        }
     }
 
     const int ntiles_x = ((ctx.Q.ne[1] + ncols1 - 1) / ncols1);
-    const int ntiles_total = ntiles_x * (ctx.Q.ne[2] / ncols2) * ctx.Q.ne[3];
+    const int gqa_ratio = ctx.Q.ne[2] / ctx.K.ne2;
+    const int ntiles_z_gqa = ((gqa_ratio + ncols2 - 1) / ncols2);
+    const int ntiles_total = ntiles_x * ntiles_z_gqa * ctx.K.ne2 * ctx.Q.ne[3];
 
     // Optional optimization where the mask is scanned to determine whether part of the calculation can be skipped.
     // Only worth the overhead if there is at lease one FATTN_KQ_STRIDE x FATTN_KQ_STRIDE square to be skipped or
@@ -924,7 +938,7 @@ void launch_fattn(
 
         const int nblocks_stream_k = max_blocks;
 
-        const bool use_stream_k = cc >= GGML_CUDA_CC_ADA_LOVELACE || tiles_efficiency_percent < 75;
+        const bool use_stream_k = cc >= GGML_CUDA_CC_ADA_LOVELACE || amd_wmma_available(cc) || tiles_efficiency_percent < 75;
 
         blocks_num.x = use_stream_k ? nblocks_stream_k : ntiles_total;
         blocks_num.y = 1;
@@ -964,7 +978,7 @@ void launch_fattn(
 
         blocks_num.x = ntiles_x;
         blocks_num.y = parallel_blocks;
-        blocks_num.z = (ctx.Q.ne[2] / ncols2) * ctx.Q.ne[3];
+        blocks_num.z = ntiles_z_gqa * ctx.K.ne2 * ctx.Q.ne[3];
 
         if (parallel_blocks > 1) {
             dst_tmp.alloc(parallel_blocks * ctx.KQV.elements);
@@ -1009,7 +1023,7 @@ void launch_fattn(
 
             flash_attn_stream_k_fixup<DV, ncols1, ncols2>
                 << <blocks_num_combine, block_dim_combine, 0, main_stream >> >
-                ((float*)ctx.KQV.data, dst_tmp_meta.ptr, ctx.Q.ne[1], ctx.Q.ne[2], ctx.Q.ne[3], ctx.K.ne1, nbatch_fa);
+                ((float*)ctx.KQV.data, dst_tmp_meta.ptr, ctx.Q.ne[1], ctx.Q.ne[2], ctx.Q.ne[3], ctx.K.ne1, ctx.K.ne2, nbatch_fa);
         }
     }
     else if (parallel_blocks > 1) {

@@ -1,5 +1,6 @@
 module;
 #include <assert.h>
+#include <float.h>
 #include <stdint.h>
 #include <algorithm>
 #include <bit>
@@ -13,39 +14,56 @@ import :ds;
 import :cpu.op;
 
 template <typename src0_t>
-static void ggml_compute_forward_pool_1d_sk_p0(
+static void ggml_compute_forward_pool_1d_ksp(
 	const enum ggml_op_pool op,
 	const int k,
+	const int s,
+	const int p,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
 	std::mdspan dst_data(static_cast<float*>(dst->data), dst->ne[1], dst->ne[0]);
 	std::mdspan src0_data(static_cast<const src0_t*>(src0->data), src0->ne[1], src0->ne[0]);
 
-	const int64_t rs = dst->ne[0];
+	const int64_t IW = src0->ne[0];
+	const int64_t OW = dst->ne[0];
 
 	for (int64_t i1 = 0; i1 < src0_data.extent(0); i1++) {
-		int64_t j = 0;
-		for (int64_t i0 = 0; i0 < rs; ++i0) {
+		for (int64_t ow = 0; ow < OW; ++ow) {
+			float res = 0;
 			switch (op) {
-			case GGML_OP_POOL_AVG:   dst_data[i1, i0] = 0;        break;
-			case GGML_OP_POOL_MAX:   dst_data[i1, i0] = -std::numeric_limits<float>::infinity(); break;
+			case GGML_OP_POOL_AVG: res = 0.0f;     break;
+			case GGML_OP_POOL_MAX: res = -FLT_MAX; break;
 			case GGML_OP_POOL_COUNT: GGML_ABORT("fatal error");
 			}
+
+			int count = 0;
+			const int base = (int)ow * s - p;
+
 			for (int ki = 0; ki < k; ++ki) {
-				const float srow_j = toFloat32(src0_data[i1, j]);
-				switch (op) {
-				case GGML_OP_POOL_AVG:                         dst_data[i1, i0] += srow_j; break;
-				case GGML_OP_POOL_MAX:   if (srow_j > dst_data[i1, i0]) dst_data[i1, i0] = srow_j; break;
-				case GGML_OP_POOL_COUNT:                       GGML_ABORT("fatal error");
+				const int j = base + ki;
+				if (j < 0 || j >= (int)IW) {
+					continue;
 				}
-				++j;
+
+				float v = toFloat32(src0_data[i1, j]);
+
+				switch (op) {
+				case GGML_OP_POOL_AVG: res += v;                break;
+				case GGML_OP_POOL_MAX: res = std::max(v, res); break;
+				case GGML_OP_POOL_COUNT: GGML_ABORT("fatal error");
+				}
+
+				++count;
 			}
+
 			switch (op) {
-			case GGML_OP_POOL_AVG:         dst_data[i1, i0] /= k; break;
-			case GGML_OP_POOL_MAX:                       break;
+			case GGML_OP_POOL_AVG: res = (count > 0) ? (res / count) : 0.0f; break;
+			case GGML_OP_POOL_MAX:                                           break;
 			case GGML_OP_POOL_COUNT: GGML_ABORT("fatal error");
 			}
+
+			dst_data[i1, ow] = res;
 		}
 	}
 }
@@ -56,17 +74,15 @@ void ggml_compute_forward_pool_1d(ggml_tensor* dst) {
 	const int k0 = opts[1];
 	const int s0 = opts[2];
 	const int p0 = opts[3];
-	assert(p0 == 0); // padding not supported
-	assert(k0 == s0); // only s = k supported
 
 	switch (dst->src[0]->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_pool_1d_sk_p0<ggml_fp32_t>(op, k0, dst);
+		ggml_compute_forward_pool_1d_ksp<ggml_fp32_t>(op, k0, s0, p0, dst);
 	} break;
 	case GGML_TYPE_F16:
 	{
-		ggml_compute_forward_pool_1d_sk_p0<ggml_fp16_t>(op, k0, dst);
+		ggml_compute_forward_pool_1d_ksp<ggml_fp16_t>(op, k0, s0, p0, dst);
 	} break;
 	default:
 		GGML_ABORT("unsupported type for ggml_compute_forward_pool_1d");
@@ -80,6 +96,7 @@ static void ggml_compute_forward_pool_2d(
 	const ggml_tensor* src0 = dst->src[0];
 
 	const int32_t* opts = (const int32_t*)dst->op_params;
+
 	auto op = std::bit_cast<ggml_op_pool>(opts[0]);
 	const int k0 = opts[1];
 	const int k1 = opts[2];
@@ -97,10 +114,10 @@ static void ggml_compute_forward_pool_2d(
 	for (int64_t i2 = 0; i2 < dst_data.extent(0); i2++) {
 		for (int64_t i1 = 0; i1 < dst_data.extent(1); i1++) {
 			for (int64_t i0 = 0; i0 < dst_data.extent(2); i0++) {
-				float& out = dst_data[i2, i1, i0];
+				float res = 0;
 				switch (op) {
-				case GGML_OP_POOL_AVG:     out = 0;        break;
-				case GGML_OP_POOL_MAX:     out = -std::numeric_limits<float>::infinity(); break;
+				case GGML_OP_POOL_AVG: res = 0;        break;
+				case GGML_OP_POOL_MAX: res = -FLT_MAX; break;
 				case GGML_OP_POOL_COUNT: GGML_ABORT("fatal error");
 				}
 
@@ -108,23 +125,28 @@ static void ggml_compute_forward_pool_2d(
 				const int iy = offset1 + i1 * s1;
 
 				for (int ky = 0; ky < k1; ++ky) {
-					if (iy + ky < 0 || iy + ky >= src0->ne[1]) continue;
+					if (iy + ky < 0 || iy + ky >= src0->ne[1]) {
+						continue;
+					}
 					for (int kx = 0; kx < k0; ++kx) {
 						int j = ix + kx;
-						if (j < 0 || j >= src0->ne[0]) continue;
+						if (j < 0 || j >= src0->ne[0]) {
+							continue;
+						}
 						const float srow_j = toFloat32(src0_data[i2, iy + ky, j]);
 						switch (op) {
-						case GGML_OP_POOL_AVG:                     out += srow_j; break;
-						case GGML_OP_POOL_MAX: if (srow_j > out)  out = srow_j; break;
+						case GGML_OP_POOL_AVG: res += srow_j;                break;
+						case GGML_OP_POOL_MAX: res = std::max(srow_j, res); break;
 						case GGML_OP_POOL_COUNT:               GGML_ABORT("fatal error");
 						}
 					}
 				}
 				switch (op) {
-				case GGML_OP_POOL_AVG:           out /= ka; break;
-				case GGML_OP_POOL_MAX:                       break;
+				case GGML_OP_POOL_AVG:           res /= ka; break;
+				case GGML_OP_POOL_MAX:                      break;
 				case GGML_OP_POOL_COUNT: GGML_ABORT("fatal error");
 				}
+				dst_data[i2, i1, i0] = res;
 			}
 		}
 	}

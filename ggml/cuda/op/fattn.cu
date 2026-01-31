@@ -161,12 +161,14 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1(const flash_attn_ext_
         }
     }
 
-    if (turing_mma_available(cc) && ctx.Q.ne[1] <= 16 / ncols2) {
-        ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 16 / ncols2, ncols2>(ctx);
-        return;
+    if constexpr (ncols2 <= 16) {
+        if ((turing_mma_available(cc) || amd_wmma_available(cc)) && ctx.Q.ne[1] <= 16 / ncols2) {
+            ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 16 / ncols2, ncols2>(ctx);
+            return;
+        }
     }
 
-    if (ggml_cuda_highest_compiled_arch(cc) == GGML_CUDA_CC_TURING || ctx.Q.ne[1] <= 32 / ncols2) {
+    if (ggml_cuda_highest_compiled_arch(cc) == GGML_CUDA_CC_TURING || amd_wmma_available(cc) || ctx.Q.ne[1] <= 32 / ncols2) {
         ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 32 / ncols2, ncols2>(ctx);
         return;
     }
@@ -178,18 +180,40 @@ template <int DKQ, int DV>
 static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2(const flash_attn_ext_context& ctx) {
     GGML_ASSERT(ctx.Q.ne[2] % ctx.K.ne2 == 0);
     const int gqa_ratio = ctx.Q.ne[2] / ctx.K.ne2;
+    const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
 
-    if (ctx.use_gqa_opt && gqa_ratio % 8 == 0) {
+    // On Volta the GQA optimizations aren't as impactful vs. minimizing wasted compute:
+    if (cc == GGML_CUDA_CC_VOLTA) {
+        if (ctx.use_gqa_opt && gqa_ratio % 8 == 0) {
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 8>(ctx);
+            return;
+        }
+
+        if (ctx.use_gqa_opt && gqa_ratio % 4 == 0) {
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 4>(ctx);
+            return;
+        }
+
+        if (ctx.use_gqa_opt && gqa_ratio % 2 == 0) {
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx);
+            return;
+        }
+
+        ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 1>(ctx);
+        return;
+    }
+
+    if (ctx.use_gqa_opt && gqa_ratio > 4) {
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 8>(ctx);
         return;
     }
 
-    if (ctx.use_gqa_opt && gqa_ratio % 4 == 0) {
+    if (ctx.use_gqa_opt && gqa_ratio > 2) {
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 4>(ctx);
         return;
     }
 
-    if (ctx.use_gqa_opt && gqa_ratio % 2 == 0) {
+    if (ctx.use_gqa_opt && gqa_ratio > 1) {
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx);
         return;
     }
@@ -198,6 +222,7 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2(const flash_attn_ext_
 }
 
 void ggml_cuda_flash_attn_ext_mma_f16(const flash_attn_ext_context& ctx) {
+    const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
     switch (ctx.Q.ne[0]) {
     case 64:
         GGML_ASSERT(ctx.V.ne0 == 64);
@@ -231,8 +256,52 @@ void ggml_cuda_flash_attn_ext_mma_f16(const flash_attn_ext_context& ctx) {
 
         GGML_ASSERT(ctx.Q.ne[2] % ctx.K.ne2 == 0);
         const int gqa_ratio = ctx.Q.ne[2] / ctx.K.ne2;
-        GGML_ASSERT(gqa_ratio % 16 == 0);
-        ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 16>(ctx);
+        if (gqa_ratio == 20) { // GLM 4.7 Flash
+            if (cc >= GGML_CUDA_CC_DGX_SPARK) {
+                if (ctx.Q.ne[1] <= 8) {
+                    ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 16>(ctx);
+                    break;
+                }
+                ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 4>(ctx);
+                break;
+            }
+            if (cc >= GGML_CUDA_CC_BLACKWELL) {
+                if (ctx.Q.ne[1] <= 4 && ctx.K.ne1 >= 65536) {
+                    ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 16>(ctx);
+                    break;
+                }
+                ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 4>(ctx);
+                break;
+            }
+            if (cc >= GGML_CUDA_CC_ADA_LOVELACE) {
+                if (ctx.Q.ne[1] <= 4) {
+                    ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 16>(ctx);
+                    break;
+                }
+                ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 4>(ctx);
+                break;
+            }
+            if (cc >= GGML_CUDA_CC_TURING) {
+                if (ctx.Q.ne[1] <= 4) {
+                    if (ctx.K.ne1 <= 16384) {
+                        ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 16>(ctx);
+                        break;
+                    }
+                    ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 32>(ctx);
+                    break;
+                }
+                ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 4>(ctx);
+                break;
+            }
+            // Volta:
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 4>(ctx);
+        }
+        else if (gqa_ratio % 16 == 0) {
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 16>(ctx);
+        }
+        else {
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 4>(ctx);
+        }
     } break;
     default:
         GGML_ABORT("fatal error");

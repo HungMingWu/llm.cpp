@@ -5,20 +5,19 @@ module;
 #include <vector>
 
 static std::string path_str(const std::filesystem::path& path) {
-	std::string u8path;
 	try {
 #if defined(__cpp_lib_char8_t)
 		// C++20 and later: u8string() returns std::u8string
-		std::u8string u8str = path.u8string();
-		u8path = std::string(reinterpret_cast<const char*>(u8str.c_str()));
+		const std::u8string u8str = path.u8string();
+		return std::string(reinterpret_cast<const char*>(u8str.data()), u8str.size());
 #else
 		// C++17: u8string() returns std::string
-		u8path = path.u8string();
+		return path.u8string();
 #endif
 	}
 	catch (...) {
+		return std::string();
 	}
-	return u8path;
 }
 
 module ggml;
@@ -32,13 +31,32 @@ ggml_backend_registry::ggml_backend_registry() {
 	register_backend(ggml_backend_sycl_reg());
 #endif
 #ifdef GGML_USE_VULKAN
-	register_backend(ggml_backend_vk_reg());
+	// Add runtime disable check
+	if (getenv("GGML_DISABLE_VULKAN") == nullptr) {
+		register_backend(ggml_backend_vk_reg());
+	}
+	else {
+		GGML_LOG_DEBUG("Vulkan backend disabled by GGML_DISABLE_VULKAN environment variable\n");
+	}
 #endif
 #ifdef GGML_USE_WEBGPU
 	register_backend(ggml_backend_webgpu_reg());
 #endif
+#ifdef GGML_USE_ZDNN
+	register_backend(ggml_backend_zdnn_reg());
+#endif
+#ifdef GGML_USE_VIRTGPU_FRONTEND
+	register_backend(ggml_backend_virtgpu_reg());
+#endif
+
 #ifdef GGML_USE_OPENCL
 	register_backend(ggml_backend_opencl_reg());
+#endif
+#ifdef GGML_USE_ZENDNN
+	register_backend(ggml_backend_zendnn_reg());
+#endif
+#ifdef GGML_USE_HEXAGON
+	register_backend(ggml_backend_hexagon_reg());
 #endif
 #ifdef GGML_USE_CANN
 	register_backend(ggml_backend_cann_reg());
@@ -48,6 +66,9 @@ ggml_backend_registry::ggml_backend_registry() {
 #endif
 #ifdef GGML_USE_RPC
 	register_backend(ggml_backend_rpc_reg());
+#endif
+#ifdef GGML_USE_CPU
+	register_backend(ggml_backend_cpu_reg());
 #endif
 }
 
@@ -177,9 +198,10 @@ static ggml_backend_reg* ggml_backend_load_best(std::u8string name_path, bool si
 
 	int best_score = 0;
 	fs::path best_path;
+	std::error_code ec;
 
 	for (const auto& search_path : search_paths) {
-		if (std::error_code ec; !fs::exists(search_path, ec)) {
+		if (!fs::exists(search_path, ec)) {
 			if (ec) {
 				GGML_LOG_DEBUG("{}: posix_stat({}) failure, error-message: {}\n", __func__, path_str(search_path), ec.message());
 			}
@@ -190,7 +212,7 @@ static ggml_backend_reg* ggml_backend_load_best(std::u8string name_path, bool si
 		}
 		fs::directory_iterator dir_it(search_path, fs::directory_options::skip_permission_denied);
 		for (const auto& entry : dir_it) {
-			if (entry.is_regular_file()) {
+			if (entry.is_regular_file(ec)) {
 				auto filename = entry.path().filename();
 				auto ext = entry.path().extension();
 				if (filename.native().find(file_prefix) == 0 && ext == file_extension) {

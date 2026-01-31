@@ -80,51 +80,6 @@ static __global__ void soft_max_f32(
     }
 }
 
-// TODO: This is a common pattern used across kernels that could be moved to common.cuh + templated
-static __device__ float two_stage_warp_reduce_max(float val) {
-    val = warp_reduce_max(val);
-    if (blockDim.x > WARP_SIZE) {
-        assert((blockDim.x <= 1024) && (blockDim.x % WARP_SIZE) == 0);
-        __shared__ float local_vals[32];
-        const int        warp_id = threadIdx.x / WARP_SIZE;
-        const int        lane_id = threadIdx.x % WARP_SIZE;
-        if (lane_id == 0) {
-            local_vals[warp_id] = val;
-        }
-        __syncthreads();
-        val = -INFINITY;
-        if (lane_id < (static_cast<int>(blockDim.x) / WARP_SIZE)) {
-            val = local_vals[lane_id];
-        }
-        return warp_reduce_max(val);
-    }
-    else {
-        return val;
-    }
-}
-
-static __device__ float two_stage_warp_reduce_sum(float val) {
-    val = warp_reduce_sum(val);
-    if (blockDim.x > WARP_SIZE) {
-        assert((blockDim.x <= 1024) && (blockDim.x % WARP_SIZE) == 0);
-        __shared__ float local_vals[32];
-        const int        warp_id = threadIdx.x / WARP_SIZE;
-        const int        lane_id = threadIdx.x % WARP_SIZE;
-        if (lane_id == 0) {
-            local_vals[warp_id] = val;
-        }
-        __syncthreads();
-        val = 0.0f;
-        if (lane_id < (static_cast<int>(blockDim.x) / WARP_SIZE)) {
-            val = local_vals[lane_id];
-        }
-        return warp_reduce_sum(val);
-    }
-    else {
-        return val;
-    }
-}
-
 // TODO: Template to allow keeping ncols in registers if they fit
 static __device__ void soft_max_f32_parallelize_cols_single_row(const float* __restrict__ x,
     float* __restrict__ dst,
@@ -142,6 +97,7 @@ static __device__ void soft_max_f32_parallelize_cols_single_row(const float* __r
     float     local_vals[n_elem_per_thread] = { -INFINITY, -INFINITY, -INFINITY, -INFINITY };
     float     local_max = -INFINITY;
     const int step_size = gridDim.x * blockDim.x;
+    __shared__ float shared_vals[32];
 
     // Compute thread-local max
     for (int col = col_start; col < p.ncols;) {
@@ -158,7 +114,9 @@ static __device__ void soft_max_f32_parallelize_cols_single_row(const float* __r
     }
 
     // Compute CTA-level max
-    local_max = two_stage_warp_reduce_max(local_max);
+    auto block = cooperative_groups::this_thread_block();
+    auto tile = cooperative_groups::tiled_partition<32>(block);
+    local_max = reduceWithBlock<cooperative_groups::greater>(block, tile, -INFINITY, local_max, shared_vals);
 
     // Store CTA-level max to GMEM
     if (tid == 0) {
@@ -174,7 +132,7 @@ static __device__ void soft_max_f32_parallelize_cols_single_row(const float* __r
     else {
         local_max = -INFINITY;
     }
-    local_max = two_stage_warp_reduce_max(local_max);
+    local_max = reduceWithBlock<cooperative_groups::greater>(block, tile, -INFINITY, local_max, shared_vals);
 
     // Compute softmax dividends, accumulate divisor
     float tmp_expf = 0.0f;
@@ -197,7 +155,7 @@ static __device__ void soft_max_f32_parallelize_cols_single_row(const float* __r
     }
 
     // Reduce divisor within CTA
-    tmp_expf = two_stage_warp_reduce_sum(tmp_expf);
+    tmp_expf = reduceWithBlock<cooperative_groups::plus>(block, tile, 0.0f, tmp_expf, shared_vals);
 
     // Store CTA-level sum to GMEM
     if (tid == 0) {
@@ -212,7 +170,7 @@ static __device__ void soft_max_f32_parallelize_cols_single_row(const float* __r
     else {
         tmp_expf = 0.0f;
     }
-    tmp_expf = two_stage_warp_reduce_sum(tmp_expf);
+    tmp_expf = reduceWithBlock<cooperative_groups::plus>(block, tile, 0.0f, tmp_expf, shared_vals);
 
     // Divide dividend by global sum + store data
     for (int col = col_start; col < p.ncols;) {

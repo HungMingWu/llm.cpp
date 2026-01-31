@@ -28,7 +28,8 @@ export {
         size_t                nb1,
         size_t                nb2,
         size_t                nb3,
-        size_t                offset);
+        size_t                offset,
+		bool inplace);
 
 	ggml_tensor* ggml_cpy(
 		ggml_context* ctx,

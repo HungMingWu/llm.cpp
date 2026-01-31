@@ -150,7 +150,7 @@ export {
 		 buf->memset_tensor(tensor, value, offset, size);
 	 }
 
-	 void ggml_graph_dump_dot(const ggml_cgraph* gb, const ggml_cgraph* gf, const char* filename);
+	 void ggml_graph_dump_dot(const ggml_cgraph* gb, const ggml_cgraph* cgraph, const char* filename);
 
 	 void* ggml_get_data(const ggml_tensor* tensor) {
 		 return tensor->data;
@@ -212,8 +212,6 @@ export {
 
 		 return "GGML status: unknown";
 	 }
-
-	 bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* ops, int num_ops);
 
 	 float ggml_compute_softplus_f32(float input) {
 		 return (input > 20.0f) ? input : logf(1 + expf(input));

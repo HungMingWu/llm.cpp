@@ -270,6 +270,8 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
         case GGML_UNARY_OP_CEIL:
         case GGML_UNARY_OP_ROUND:
         case GGML_UNARY_OP_TRUNC:
+            // TODO: should become:
+            //return ggml_is_contiguous_rows(op->src[0]);
             return ggml_is_contiguous(op->src[0]);
         default:
             return false;
@@ -485,7 +487,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_L2_NORM:
         return true;
     case GGML_OP_RMS_NORM_BACK:
-        return ggml_is_contiguous(op->src[0]) && op->ne[0] % WARP_SIZE == 0;
+        return ggml_is_contiguous(op->src[0]);
     case GGML_OP_NONE:
     case GGML_OP_RESHAPE:
     case GGML_OP_VIEW:
@@ -544,8 +546,11 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_CONV_2D_DW:
     case GGML_OP_CONV_TRANSPOSE_2D:
     case GGML_OP_POOL_2D:
-    case GGML_OP_ACC:
         return true;
+    case GGML_OP_ACC:
+        // TODO: extend support like so:
+        //return ggml_is_contiguous_rows(op->src[0]) && ggml_is_contiguous_rows(op->src[1]);
+        return ggml_is_contiguous(op->src[0]) && ggml_is_contiguous(op->src[1]);
     case GGML_OP_TOP_K:
     case GGML_OP_SUM:
         return ggml_is_contiguous_rows(op->src[0]);
@@ -554,8 +559,9 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_SUM_ROWS:
     case GGML_OP_MEAN:
     case GGML_OP_GROUP_NORM:
-    case GGML_OP_PAD:
         return ggml_is_contiguous(op->src[0]);
+    case GGML_OP_PAD:
+        return true;
     case GGML_OP_UPSCALE:
     case GGML_OP_PAD_REFLECT_1D:
     case GGML_OP_ARANGE:

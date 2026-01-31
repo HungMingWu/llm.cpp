@@ -6,14 +6,27 @@
 
 #define GGML_ABORT(...)
 
+int mmf_get_rows_per_block(const int cc) {
+    if (GGML_CUDA_CC_IS_CDNA(cc)) {
+        return MMF_ROWS_PER_BLOCK_CDNA;
+    }
+    else {
+        return MMF_ROWS_PER_BLOCK;
+    }
+}
+
 void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream)
 {
+    const int device = ggml_cuda_get_device();
+    const int cc = ggml_cuda_info().devices[device].cc;
+    const int rows_per_block = mmf_get_rows_per_block(cc);
+
     switch (ctx->src0_type) {
     case internal::GGML_TYPE_F32: {
         const float* src0_d = (const float*)ctx->src0_d;
         constexpr int vals_per_T = 1;
-        mul_mat_f_switch_cols_per_block(
-            src0_d, ctx->src1_d, ctx->ids_d, ctx->dst_d, ctx->ne00 / vals_per_T,
+        mul_mat_f_switch_rows_per_block<float>(
+            rows_per_block, src0_d, ctx->src1_d, ctx->ids_d, ctx->dst_d, ctx->ne00 / vals_per_T,
             ctx->ne01, ctx->ncols_dst, ctx->s01 / vals_per_T, ctx->stride_col_y / vals_per_T,
             ctx->stride_col_dst,  ctx->ids_s0, ctx->ids_s1, ctx->ne02, ctx->nchannels_y,
             ctx->nchannels_dst, ctx->s02 / vals_per_T, ctx->stride_channel_y, ctx->stride_channel_dst,
@@ -22,8 +35,8 @@ void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream)
     case internal::GGML_TYPE_F16: {
         const half2* src0_d = (const half2*)ctx->src0_d;
         constexpr int vals_per_T = 2;
-        mul_mat_f_switch_cols_per_block(
-            src0_d, ctx->src1_d, ctx->ids_d, ctx->dst_d, ctx->ne00 / vals_per_T,
+        mul_mat_f_switch_rows_per_block<half2>(
+            rows_per_block, src0_d, ctx->src1_d, ctx->ids_d, ctx->dst_d, ctx->ne00 / vals_per_T,
             ctx->ne01, ctx->ncols_dst, ctx->s01 / vals_per_T, ctx->stride_col_y / vals_per_T,
             ctx->stride_col_dst, ctx->ids_s0, ctx->ids_s1, ctx->ne02, ctx->nchannels_y,
             ctx->nchannels_dst, ctx->s02 / vals_per_T, ctx->stride_channel_y, ctx->stride_channel_dst,
@@ -32,8 +45,8 @@ void mul_mat_f_cuda(const mul_mat_f_context* ctx, cudaStream_t stream)
     case internal::GGML_TYPE_BF16: {
         const nv_bfloat162* src0_d = (const nv_bfloat162*)ctx->src0_d;
         constexpr int vals_per_T = 2;
-        mul_mat_f_switch_cols_per_block(
-            src0_d, ctx->src1_d, ctx->ids_d, ctx->dst_d, ctx->ne00 / vals_per_T,
+        mul_mat_f_switch_rows_per_block<nv_bfloat162>(
+            rows_per_block, src0_d, ctx->src1_d, ctx->ids_d, ctx->dst_d, ctx->ne00 / vals_per_T,
             ctx->ne01, ctx->ncols_dst, ctx->s01 / vals_per_T, ctx->stride_col_y / vals_per_T,
             ctx->stride_col_dst, ctx->ids_s0, ctx->ids_s1, ctx->ne02, ctx->nchannels_y,
             ctx->nchannels_dst, ctx->s02 / vals_per_T, ctx->stride_channel_y, ctx->stride_channel_dst,

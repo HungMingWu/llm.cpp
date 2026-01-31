@@ -67,6 +67,8 @@ static constexpr __host__ __device__ uint32_t ggml_cuda_fattn_tile_get_config_nv
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 16, 256, 2, 64, 64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 32, 256, 2, 64, 64)
 
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 4, 128, 2, 64, 64)
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 8, 256, 2, 64, 64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 16, 256, 2, 64, 64)
 
     return 0;
@@ -121,6 +123,8 @@ static constexpr __host__ __device__ uint32_t ggml_cuda_fattn_tile_get_config_nv
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 16, 256, 2, 32, 128)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 32, 256, 2, 32, 64)
 
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 4, 128, 2, 32, 64)
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 8, 256, 2, 32, 64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 16, 256, 2, 32, 64)
 
     return 0;
@@ -182,6 +186,8 @@ static constexpr __host__ __device__ uint32_t ggml_cuda_fattn_tile_get_config_am
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 16, 256, 2, 32, 128)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 32, 256, 2, 32, 128)
 
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 4, 128, 2, 64, 64)
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 8, 256, 2, 64, 64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 16, 256, 2, 64, 64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 32, 512, 1, 128, 64)
 
@@ -244,6 +250,8 @@ static constexpr __host__ __device__ uint32_t ggml_cuda_fattn_tile_get_config_am
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 16, 256, 5, 32, 256)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 32, 256, 3, 64, 128)
 
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 4, 128, 2, 64, 64)
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 8, 256, 2, 64, 64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 16, 256, 4, 64, 64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(576, 512, 32, 256, 2, 128, 64)
 
@@ -641,8 +649,8 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
         if constexpr (fast_fp16_available_v) {
 #pragma unroll
             for (int k1 = 0; k1 < nbatch_V; k1 += np) {
-                half2 V_k[(DVp / 2) / warp_size];
-                half2 KQ_k[cpw];
+                __align__(16) half2 V_k[(DVp / 2) / warp_size];
+                __align__(16) half2 KQ_k[cpw];
 
                 constexpr int cpy_ne_D = cpy_ne / 2 < (DVp / 2) / warp_size ? cpy_ne / 2 : (DVp / 2) / warp_size;
 #pragma unroll
@@ -653,7 +661,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
                 for (int jc_VKQ_0 = 0; jc_VKQ_0 < cpw; jc_VKQ_0 += KQ_cs) {
                     const int jc_KQ = jc_VKQ_0 / KQ_cs + (threadIdx.y / np) * (cpw / KQ_cs);
 
-                    half tmp[KQ_cs];
+                    __align__(16) half tmp[KQ_cs];
                     ggml_cuda_memcpy_1<KQ_cs * sizeof(half)>(
                         &tmp, KQ + jc_KQ * (nbatch_fa * KQ_cs) + (k0 + k1 + threadIdx.y % np) * KQ_cs);
 #pragma unroll
@@ -673,8 +681,8 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
         } else {
 #pragma unroll
             for (int k1 = 0; k1 < nbatch_V; k1 += np) {
-                float2 V_k[(DVp / 2) / warp_size];
-                float  KQ_k[cpw];
+                __align__(16) float2 V_k[(DVp / 2) / warp_size];
+                __align__(16) float  KQ_k[cpw];
 
                 constexpr int cpy_ne_D = cpy_ne < DVp / warp_size ? cpy_ne : DVp / warp_size;
 #pragma unroll
@@ -727,13 +735,13 @@ static __global__ void flash_attn_tile(
     if constexpr (flash_attn_available_v) {
 
         // Skip unused kernel variants for faster compilation:
-
-        if (
-#ifdef GGML_USE_WMMA_FATTN
-        (ncols2 != 1 && DV != 40 && DV != 72 && DV != 512) ||
-#endif // GGML_USE_WMMA_FATTN
-            (use_logit_softcap && !(DV == 128 || DV == 256))
-            ) {
+        constexpr bool emit_no_device_code_v = [=]() -> bool {
+            if constexpr (ggml_use_wmma_fattn_v) {
+                if (ncols2 != 1 && DV != 40 && DV != 72 && DV != 512) return true;
+            }
+            return use_logit_softcap && !(DV == 128 || DV == 256);
+        }();
+        if constexpr (emit_no_device_code_v) {
             NO_DEVICE_CODE;
             return;
         }
@@ -798,7 +806,7 @@ static __global__ void flash_attn_tile(
         __shared__ t1 Q_tmp[ncols * DKQ / factor];
         __shared__ t1 KV_tmp[nbatch_fa * (nbatch_K / factor + cpy_ne) + DVp - DV];
         __shared__ t2  KQ[ncols * nbatch_fa];
-        t3 VKQ[cpw * ((DVp / 2) / warp_size)] = { {0.0f, 0.0f} };
+        __align__(16) t3 VKQ[cpw * ((DVp / 2) / warp_size)] = { {0.0f, 0.0f} };
 
         float KQ_max[cpw];
 #pragma unroll
@@ -820,7 +828,7 @@ static __global__ void flash_attn_tile(
 #pragma unroll
             for (int i0 = 0; i0 < DKQp; i0 += np * warp_size * cpy_ne_D) {
                 if (i0 + np * warp_size * cpy_ne_D <= DKQ || i0 + (threadIdx.y % np) * (warp_size * cpy_ne_D) + threadIdx.x * cpy_ne_D < DKQ) {
-                    float tmp_f[cpy_ne_D] = { 0.0f };
+                    __align__(16) float tmp_f[cpy_ne_D] = { 0.0f };
                     for (size_t i = 0; i < cpy_ne_D; i++)
                         tmp_f[i] = Q_data(sequence, head0 + c, (col_Q_0 + j) % ctx.Q.ne[1], i0 + (threadIdx.y % np) * (warp_size * cpy_ne_D) + threadIdx.x * cpy_ne_D + i);
 
@@ -830,7 +838,7 @@ static __global__ void flash_attn_tile(
                     }
 
                     if constexpr (fast_fp16_available_v) {
-                        half2 tmp_h2[cpy_ne_D / 2];
+                        __align__(16) half2 tmp_h2[cpy_ne_D / 2];
 #pragma unroll
                         for (int i1 = 0; i1 < cpy_ne_D; i1 += 2) {
                             tmp_h2[i1 / 2] = make_half2(tmp_f[i1 + 0], tmp_f[i1 + 1]);
@@ -935,7 +943,7 @@ static __global__ void flash_attn_tile(
                     constexpr int cpy_ne_D = cpy_ne < (DVp / 2) / warp_size ? cpy_ne : (DVp / 2) / warp_size;
 #pragma unroll
                     for (int i0 = 0; i0 < DVp / 2; i0 += warp_size * cpy_ne_D) {
-                        half2 tmp[cpy_ne_D];
+                        __align__(16) half2 tmp[cpy_ne_D];
                         ggml_cuda_memcpy_1<cpy_ne_D * 4>(tmp, &VKQ_combine[(threadIdx.y + ip) * (DVp / 2) + i0 + threadIdx.x * cpy_ne_D]);
 #pragma unroll
                         for (int i1 = 0; i1 < cpy_ne_D; ++i1) {
@@ -947,7 +955,7 @@ static __global__ void flash_attn_tile(
                     constexpr int cpy_ne_D = cpy_ne < DVp / warp_size ? cpy_ne : DVp / warp_size;
 #pragma unroll
                     for (int i0 = 0; i0 < DVp; i0 += warp_size * cpy_ne_D) {
-                        float tmp[cpy_ne_D];
+                        __align__(16) float tmp[cpy_ne_D];
                         ggml_cuda_memcpy_1<cpy_ne_D * 4>(tmp, &VKQ_combine[(threadIdx.y + ip) * DVp + i0 + threadIdx.x * cpy_ne_D]);
 #pragma unroll
                         for (int i1 = 0; i1 < cpy_ne_D; ++i1) {
@@ -1012,7 +1020,7 @@ static __global__ void flash_attn_tile(
                 constexpr int cpy_ne_D = cpy_ne / 2 < (DVp / 2) / warp_size ? cpy_ne / 2 : (DVp / 2) / warp_size;
 #pragma unroll
                 for (int i0 = 0; i0 < DVp / 2; i0 += warp_size * cpy_ne_D) {
-                    float2 tmp[cpy_ne_D];
+                    __align__(16) float2 tmp[cpy_ne_D];
 #pragma unroll
                     for (int i1 = 0; i1 < cpy_ne_D; ++i1) {
                         tmp[i1] = __half22float2(VKQ[jc0 * ((DVp / 2) / warp_size) + i0 / warp_size + i1]);
@@ -1143,6 +1151,10 @@ static void launch_fattn_tile_switch_ncols2(const flash_attn_ext_context& ctx) {
     if constexpr (DV == 512) {
         if (use_gqa_opt && gqa_ratio % 16 == 0) {
             launch_fattn_tile_switch_ncols1<DKQ, DV, 16, use_logit_softcap>(ctx);
+            return;
+        }
+        if (use_gqa_opt && gqa_ratio % 4 == 0) {
+            launch_fattn_tile_switch_ncols1<DKQ, DV, 4, use_logit_softcap>(ctx);
             return;
         }
     }

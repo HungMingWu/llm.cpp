@@ -158,8 +158,9 @@ ggml_tensor* ggml_set(
 	size_t                nb1,
 	size_t                nb2,
 	size_t                nb3,
-	size_t                offset) {
-	return ggml_set_impl(ctx, a, b, nb1, nb2, nb3, offset, false);
+	size_t                offset,
+	bool inplace) {
+	return ggml_set_impl(ctx, a, b, nb1, nb2, nb3, offset, inplace);
 }
 
 ggml_tensor* ggml_cpy(
@@ -824,10 +825,6 @@ ggml_tensor* ggml_acc(
 
 	ggml_tensor* result = build(inplace, ctx, a, GGML_OP_ACC, a, b);
 	cpp26::inplace_vector<int32_t, 4> offsets(offset.begin(), offset.end());
-	GGML_ASSERT(offsets[0] + b->ne[0] <= a->ne[0]);
-	GGML_ASSERT(offsets[1] + b->ne[1] <= a->ne[1]);
-	GGML_ASSERT(offsets[2] + b->ne[2] <= a->ne[2]);
-	GGML_ASSERT(offsets[3] + b->ne[3] <= a->ne[3]);
 	uint32_t params[] = {
 		static_cast<uint32_t>(offsets[0]),
 		static_cast<uint32_t>(offsets[1]),
@@ -1124,7 +1121,7 @@ static ggml_tensor* ggml_unary_impl(
 	ggml_tensor* a,
 	ggml_unary_op op,
 	bool inplace) {
-	GGML_ASSERT(ggml_is_contiguous_1(a));
+	GGML_ASSERT(ggml_is_contiguous_rows(a));
 
 	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
 
@@ -1743,12 +1740,9 @@ ggml_tensor* ggml_pool_1d(
 	int s0,
 	int p0)
 {
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32,
-		ggml_calc_pool_output_size(a->ne[0], k0, s0, p0),
-		a->ne[1],
-		a->ne[2],
-		a->ne[3]
-	);
+	const int64_t ne0 = ggml_calc_pool_output_size(a->ne[0], k0, s0, p0);
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, ne0, a->ne[1], a->ne[2], a->ne[3]);
+	GGML_ASSERT(ne0 > 0);
 
 	int32_t params[] = { op, k0, s0, p0 };
 	ggml_set_op_params(*result, params, sizeof(params));
@@ -1770,12 +1764,11 @@ ggml_tensor* ggml_pool_2d(
 	int32_t p0,
 	int32_t p1)
 {
-	ggml_tensor* result = ctx->create(GGML_TYPE_F32,
-		ggml_calc_pool_output_size(a->ne[0], k0, s0, p0),
-		ggml_calc_pool_output_size(a->ne[1], k1, s1, p1),
-		a->ne[2],
-		a->ne[3]
-	);
+	const int64_t ne0 = ggml_calc_pool_output_size(a->ne[0], k0, s0, p0);
+	const int64_t ne1 = ggml_calc_pool_output_size(a->ne[1], k1, s1, p1);
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, ne0, ne1, a->ne[2], a->ne[3]);
+	GGML_ASSERT(ne0 > 0);
+	GGML_ASSERT(ne1 > 0);
 
 	int32_t params[] = { op, k0, k1, s0, s1, p0, p1 };
 	ggml_set_op_params(*result, params, sizeof(params));
@@ -2164,8 +2157,8 @@ ggml_tensor* ggml_cast(
 
 	result->op = GGML_OP_CPY;
 	result->src.push_back(a);
-	result->src.push_back(result);
-
+	result->src.push_back(result); // note: this self-reference might seem redundant, but it's actually needed by so
+	                               //       backends for consistency with ggml_cpy_impl() above
 	return result;
 }
 

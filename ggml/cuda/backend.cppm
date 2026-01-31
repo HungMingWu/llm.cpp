@@ -240,14 +240,26 @@ protected:
     void set_tensor_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
     void get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
 private:
-    bool graph_set_enabled();
-    void graph_evaluate_and_capture(ggml_cgraph* cgraph, const bool use_cuda_graph, const bool cuda_graph_update_required);
+    bool graph_set_enabled(const void* graph_key);
+    void graph_evaluate_and_capture(ggml_cgraph* cgraph, const bool use_cuda_graph, const bool cuda_graph_update_required, const void* graph_key);
     cudaEvent_t copy_event = nullptr;
     cudaStream_t streams[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = { { nullptr } };
 
     cublasHandle_t cublas_handles[GGML_CUDA_MAX_DEVICES] = { nullptr };
 
-    std::unique_ptr<ggml_cuda_graph> cuda_graph;
+    // Map from first_node_ptr to cuda_graph - allows multiple graphs per context
+    // when the computation is split across CPU/GPU (e.g., with --n-cpu-moe)
+    std::unordered_map<const void*, std::unique_ptr<ggml_cuda_graph>> cuda_graphs;
+
+    ggml_cuda_graph* cuda_graph(const void* first_node_ptr) {
+        auto it = cuda_graphs.find(first_node_ptr);
+        if (it == cuda_graphs.end()) {
+            cuda_graphs[first_node_ptr] = std::make_unique<ggml_cuda_graph>();
+            return cuda_graphs[first_node_ptr].get();
+        }
+        return it->second.get();
+    }
+
     int curr_stream_no = 0;
     ggml_cuda_stream_context concurrent_stream_context;
 

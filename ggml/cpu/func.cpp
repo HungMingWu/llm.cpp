@@ -3506,7 +3506,7 @@ static void ggml_compute_forward_acc_f32(
 	const ggml_tensor* src1 = dst->src[1];
 
 	GGML_ASSERT(ggml_are_same_shape(src0, dst));
-	GGML_ASSERT(ggml_is_contiguous(dst) && ggml_is_contiguous(src0));
+	GGML_ASSERT(ggml_is_contiguous_rows(src0));
 
 	// view src0 and dst with these strides and data offset inbytes during acc
 	// nb0 is implicitly element_size because src0 and dst are contiguous
@@ -3596,8 +3596,7 @@ static void ggml_compute_forward_pad_f32(
 	ggml_tensor* dst) {
 	const ggml_tensor* src0 = dst->src[0];
 
-	GGML_ASSERT(src0->nb[0] == sizeof(float));
-	GGML_ASSERT(dst->nb[0] == sizeof(float));
+	assert(dst->nb[0] == sizeof(float));
 
 	const int32_t lp0 = ggml_get_op_params_i32(dst, 0);
 	const int32_t rp0 = ggml_get_op_params_i32(dst, 1);
@@ -3720,10 +3719,259 @@ static void ggml_compute_forward_timestep_embedding(
 	}
 }
 
-template <typename V_TYPE, typename K_TYPE> 
-static void ggml_compute_forward_flash_attn_ext(
+#define GGML_FA_TILE_Q  32
+#define GGML_FA_TILE_KV 16
+
+struct ggml_fa_tile_config {
+	static constexpr size_t Q = GGML_FA_TILE_Q;
+	static constexpr size_t KV = GGML_FA_TILE_KV;
+};
+
+struct flash_attn_context {
+	bool use_split_kv_path;
+	bool use_tiled;
+	float scale;
+	float max_bias;
+	float logit_softcap;
+	const uint32_t n_head;
+	const uint32_t n_head_log2;
+	const float m0;
+	const float m1;
+};
+
+template <typename kv_type>
+static void ggml_compute_forward_flash_attn_ext_tiled(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
+	const flash_attn_context& ctx,
+	ggml_tensor* dst) {
+	const ggml_tensor* q = dst->src[0];
+	const ggml_tensor* k = dst->src[1];
+	const ggml_tensor* v = dst->src[2];
+	const ggml_tensor* mask = dst->src[3];
+	const ggml_tensor* sinks = dst->src[4];
+
+	const int64_t DK = k->ne[0];
+	const int64_t DV = v->ne[0];
+	const int64_t N = q->ne[1];
+
+	GGML_ASSERT(dst->ne[0] == DV);
+	GGML_ASSERT(dst->ne[2] == N);
+
+	// input tensor rows must be contiguous
+	GGML_ASSERT(q->nb[0] == ggml_type_size(q->type));
+	GGML_ASSERT(k->nb[0] == ggml_type_size(k->type));
+	GGML_ASSERT(v->nb[0] == ggml_type_size(v->type));
+
+	GGML_ASSERT(q->ne[0] == DK);
+	GGML_ASSERT(k->ne[0] == DK);
+	GGML_ASSERT(v->ne[0] == DV);
+
+	GGML_ASSERT(q->ne[1] == N);
+
+	// dst cannot be transposed or permuted
+	GGML_ASSERT(dst->nb[0] == sizeof(float));
+	GGML_ASSERT(dst->nb[0] <= dst->nb[1]);
+	GGML_ASSERT(dst->nb[1] <= dst->nb[2]);
+	GGML_ASSERT(dst->nb[2] <= dst->nb[3]);
+
+	// broadcast factors
+	const int64_t rk2 = q->ne[2] / k->ne[2];
+	const int64_t rk3 = q->ne[3] / k->ne[3];
+
+	const int64_t rv2 = q->ne[2] / v->ne[2];
+	const int64_t rv3 = q->ne[3] / v->ne[3];
+
+	static constexpr int Q_TILE_SZ = ggml_fa_tile_config::Q;
+	static constexpr int KV_TILE_SZ = ggml_fa_tile_config::KV;
+
+	GGML_ASSERT(k->ne[1] % KV_TILE_SZ == 0 && "KV sequence length must be divisible by KV_TILE_SZ");
+
+	// q indices for the start of this tile
+	for (int64_t iq3 = 0; iq3 < q->ne[3]; iq3++) {
+		for (int64_t iq2 = 0; iq2 < q->ne[2]; iq2++) {
+			for (int64_t iq1 = 0; iq1 < q->ne[1]; iq1 += Q_TILE_SZ) {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+					// Number of valid rows in this tile:
+					// - limited by tile size (Q_TILE_SZ)
+					// - limited by head boundary (q->ne[1] - iq1) to avoid crossing into next head
+					const int tile_rows = std::min(Q_TILE_SZ, (int)(q->ne[1] - iq1));
+					GGML_ASSERT(tile_rows > 0);
+
+					const uint32_t h = iq2; // head index
+					const float slope = (ctx.max_bias > 0.0f) ? h < ctx.n_head_log2 ? powf(ctx.m0, h + 1) : powf(ctx.m1, 2 * (h - ctx.n_head_log2) + 1) : 1.0f;
+
+					float S[Q_TILE_SZ];
+					float M[Q_TILE_SZ];
+
+					for (int i = 0; i < Q_TILE_SZ; ++i) {
+						S[i] = 0.;
+						M[i] = -INFINITY;
+					}
+
+					// Per-thread scratch layout:
+					// Q_q:    Q_TILE_SZ * DK (converted Q tile in KV type)
+					// KQ:     Q_TILE_SZ * KV_TILE_SZ (attention scores in float)
+					// mask:   Q_TILE_SZ * KV_TILE_SZ (mask in float)
+					// VKQ32:  Q_TILE_SZ * DV (FP32 output accumulator)
+
+					std::vector<kv_type> Q_q(Q_TILE_SZ * DK);
+					std::vector<float> KQ(Q_TILE_SZ * KV_TILE_SZ);
+					std::vector<float> mask32(Q_TILE_SZ * KV_TILE_SZ, 0);
+					std::vector<float> VKQ32(Q_TILE_SZ * DV, 0);
+					std::mdspan Q_q_mdspan(Q_q.data(), Q_TILE_SZ, DK);
+					std::mdspan mask32_mdspan(mask32.data(), Q_TILE_SZ, KV_TILE_SZ);
+					std::mdspan VKQ32_mdspan(VKQ32.data(), Q_TILE_SZ, DV);
+					std::mdspan KQ_mdspan(KQ.data(), Q_TILE_SZ, KV_TILE_SZ);
+
+					// k indices
+					const int ik3 = iq3 / rk3;
+					const int ik2 = iq2 / rk2;
+
+					// v indices
+					const int iv3 = iq3 / rv3;
+					const int iv2 = iq2 / rv2;
+
+					for (int tq = 0; tq < Q_TILE_SZ; tq++) {
+						auto q_data = make_strided_mdspan(static_cast<const float*>(q->data), q->ne, q->nb);
+						if (tq < tile_rows) {
+							for (int64_t i = 0; i < DK; i++)
+								Q_q_mdspan[tq, i] = fromFloat32<kv_type>(q_data[iq3, iq2, iq1 + tq, i]);
+						}
+						else {
+							// Zero-pad remaining rows
+							for (int64_t i = 0; i < DK; i++)
+								Q_q_mdspan[tq, i] = kv_type{ 0 };
+						}
+					}
+
+					for (int64_t ic = 0; ic < k->ne[1]; ic += KV_TILE_SZ) {
+
+						// skip the tile entirely if all the masks are -inf
+						if (mask) {
+							bool can_skip = true;
+							for (int tq = 0; tq < tile_rows; tq++) {
+								auto mask_data = make_strided_mdspan(static_cast<const ggml_fp16_t*>(mask->data), mask->ne, mask->nb);
+								for (int tk = 0; tk < KV_TILE_SZ; tk++) {
+									mask32_mdspan[tq, tk] = slope * toFloat32(mask_data[iq3 % mask->ne[3], iq2 % mask->ne[2], iq1 + tq, ic + tk]);
+									if (mask32_mdspan[tq, tk] != -INFINITY) {
+										can_skip = false;
+									}
+								}
+							}
+
+							if (can_skip) {
+								continue;
+							}
+						}
+
+						for (int tq = 0; tq < Q_TILE_SZ; tq++) {
+							auto k_data = make_strided_mdspan(static_cast<const kv_type*>(k->data), k->ne, k->nb);
+							for (int tk = 0; tk < KV_TILE_SZ; tk++) {
+								float s;
+								ggml_vec_dot(DK, &s, 0, &k_data[ik3, ik2, ic + tk, 0], 0, &Q_q_mdspan[tq, 0], 0, 1);
+								KQ_mdspan[tq, tk] = s * ctx.scale;
+								if (ctx.logit_softcap != 0.0f) KQ_mdspan[tq, tk] = tanhf(KQ_mdspan[tq, tk]) * ctx.logit_softcap;
+								if (mask && tq < tile_rows) KQ_mdspan[tq, tk] += mask32_mdspan[tq, tk];
+							}
+						}
+
+						bool skip[Q_TILE_SZ] = {};
+
+						for (int tq = 0; tq < Q_TILE_SZ; tq++) {
+							float tile_max = -INFINITY;
+							for (int i = 0; i < KV_TILE_SZ; ++i) {
+								tile_max = std::max(tile_max, KQ_mdspan[tq, i]);
+							}
+
+							if (tile_max == -INFINITY) {
+								skip[tq] = true;
+								continue;
+							}
+
+							const float Mold = M[tq];
+							const float Mnew = fmaxf(Mold, tile_max);
+
+							if (Mnew > Mold) {
+								const float ms = expf(Mold - Mnew);
+								for (int64_t i = 0; i < DV; i++)
+									VKQ32_mdspan[tq, i] *= ms;
+								S[tq] *= ms;
+							}
+							M[tq] = Mnew;
+
+							float sum = 0;
+							for (int64_t i = 0; i < KV_TILE_SZ; i++) {
+								float val = expf(KQ_mdspan[tq, i] - Mnew);
+								sum += val;
+								KQ_mdspan[tq, i] = val;
+							}
+							S[tq] += sum;
+						}
+
+						// Convert V tile to F32 first (if F16), then do MAD
+						for (int tq = 0; tq < Q_TILE_SZ; tq++) {
+							if (skip[tq]) continue;
+							auto v_data = make_strided_mdspan(static_cast<const kv_type*>(v->data), v->ne, v->nb);
+							for (int tk = 0; tk < KV_TILE_SZ; tk++) {
+								for (int i = 0; i < DV; ++i) {
+									VKQ32_mdspan[tq, i] += toFloat32(v_data[iv3, iv2, ic + tk, i]) * KQ_mdspan[tq, tk];
+								}
+							}
+						}
+					}
+
+					// sinks (apply only to valid rows in the tile)
+					if (sinks) {
+						const float s = ((float*)((char*)sinks->data))[h];
+
+						for (int tq = 0; tq < tile_rows; tq++) {
+							float ms = 1.0f;
+							float vs = 1.0f;
+
+							if (s > M[tq]) {
+								ms = expf(M[tq] - s);
+								for (int64_t i = 0; i < DV; i++) {
+									VKQ32_mdspan[tq, i] *= ms;
+								}
+							}
+							else {
+								vs = expf(s - M[tq]);
+							}
+
+							S[tq] = S[tq] * ms + vs;
+						}
+					}
+
+					auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+					for (int tq = 0; tq < tile_rows; tq++) {
+						// V /= S
+						const float S_inv = S[tq] == 0.0f ? 0.0f : 1.0f / S[tq];
+						for (int64_t i = 0; i < DV; i++)
+							VKQ32_mdspan[tq, i] *= S_inv;
+
+						// dst indices
+						const int i1 = iq1 + tq;
+						const int i2 = iq2;
+						const int i3 = iq3;
+
+						// permute(3, 1, 2, 0)
+
+						for (size_t i0 = 0; i0 < dst->ne[0]; i0++)
+							dst_data[i3, i1, i2, i0] = VKQ32_mdspan[tq, i0];
+					}
+				});
+				scope.spawn(std::move(sender));
+			}
+		}
+	}
+}
+
+template <typename V_TYPE, typename K_TYPE> 
+static void ggml_compute_forward_flash_attn_ext_vec(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	const flash_attn_context& ctx,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* q = dst->src[0];
@@ -3762,38 +4010,23 @@ static void ggml_compute_forward_flash_attn_ext(
 	const int64_t rv2 = q->ne[2] / v->ne[2];
 	const int64_t rv3 = q->ne[3] / v->ne[3];
 
-	float scale = std::bit_cast<float>(dst->op_params[0]);
-	float max_bias = std::bit_cast<float>(dst->op_params[1]);
-	float logit_softcap = std::bit_cast<float>(dst->op_params[2]);
-
-	if (logit_softcap != 0) {
-		scale /= logit_softcap;
-	}
-
 	const uint32_t n_head = q->ne[2];
 	GGML_ASSERT(dst->ne[1] == n_head);
 
-	const uint32_t n_head_log2 = 1u << (uint32_t)floor(log2(n_head));
-
-	const float m0 = powf(2.0f, -(max_bias) / n_head_log2);
-	const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
-
-	stdexec::scheduler auto scheduler = pool.get_scheduler();
 	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
 	auto v_data = make_strided_mdspan(static_cast<const V_TYPE*>(v->data), v->ne, v->nb);
 	auto k_data = make_strided_mdspan(static_cast<const K_TYPE*>(k->data), k->ne, k->nb);
 	auto q_data = make_strided_mdspan(static_cast<const float*>(q->data), q->ne, q->nb);
 
-	// loop over n_batch and n_head
 	for (int64_t iq3 = 0; iq3 < q->ne[3]; iq3++) {
 		for (int64_t iq2 = 0; iq2 < n_head; iq2++) {
 			for (int64_t iq1 = 0; iq1 < N; iq1++) {
-				stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
 					std::vector<float> VKQ(DV); // FP32 VKQ accumulator
 					std::vector<float> V32(DV); // (temporary) FP32 V buffer
 					std::vector<q_to_vec_dot_t> Q_q(DK); // (temporary) buffer for Q converted to quantized/FP16
 					const uint32_t h = iq2; // head index
-					const float slope = (max_bias > 0.0f) ? h < n_head_log2 ? powf(m0, h + 1) : powf(m1, 2 * (h - n_head_log2) + 1) : 1.0f;
+					const float slope = (ctx.max_bias > 0.0f) ? h < ctx.n_head_log2 ? powf(ctx.m0, h + 1) : powf(ctx.m1, 2 * (h - ctx.n_head_log2) + 1) : 1.0f;
 
 					float S = 0.0f;      // sum
 					float M = -INFINITY; // maximum KQ value
@@ -3828,10 +4061,10 @@ static void ggml_compute_forward_flash_attn_ext(
 
 						ggml_vec_dot(DK, &s, 0, &k_data[ik3, ik2, ic, 0], 0, Q_q.data(), 0, 1);
 
-						s = s * scale; // scale KQ value
+						s = s * ctx.scale; // scale KQ value
 
-						if (logit_softcap != 0.0f) {
-							s = logit_softcap * tanhf(s);
+						if (ctx.logit_softcap != 0.0f) {
+							s = ctx.logit_softcap * tanhf(s);
 						}
 
 						s += mv; // apply mask
@@ -3871,7 +4104,7 @@ static void ggml_compute_forward_flash_attn_ext(
 						S = S * ms + vs; // scale and increment sum with partial sum
 					}
 
-					// sinks
+					// sinks - apply only on the first kv-chunk
 					if (sinks) {
 						const float s = ((float*)((char*)sinks->data))[h];
 
@@ -3911,27 +4144,260 @@ static void ggml_compute_forward_flash_attn_ext(
 	}
 }
 
+template <typename V_TYPE, typename K_TYPE>
+static void ggml_compute_forward_flash_attn_ext_vec_reduce(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	const flash_attn_context& ctx,
+	ggml_tensor* dst) {
+
+	const ggml_tensor* q = dst->src[0];
+	const ggml_tensor* k = dst->src[1];
+	const ggml_tensor* v = dst->src[2];
+	const ggml_tensor* mask = dst->src[3];
+	const ggml_tensor* sinks = dst->src[4];
+
+	using q_to_vec_dot_t = typename vec_dot_trait<K_TYPE>::type;
+
+	const int64_t DK = k->ne[0];
+	const int64_t DV = v->ne[0];
+	const int64_t N = q->ne[1];
+
+	GGML_ASSERT(dst->ne[0] == DV);
+	GGML_ASSERT(dst->ne[2] == N);
+
+	// input tensor rows must be contiguous
+	GGML_ASSERT(q->nb[0] == ggml_type_size(q->type));
+	GGML_ASSERT(k->nb[0] == ggml_type_size(k->type));
+	GGML_ASSERT(v->nb[0] == ggml_type_size(v->type));
+
+	GGML_ASSERT(q->ne[0] == DK);
+	GGML_ASSERT(q->ne[3] == dst->ne[3]);
+
+	// dst cannot be transposed or permuted
+	GGML_ASSERT(dst->nb[0] == sizeof(float));
+	GGML_ASSERT(dst->nb[0] <= dst->nb[1]);
+	GGML_ASSERT(dst->nb[1] <= dst->nb[2]);
+	GGML_ASSERT(dst->nb[2] <= dst->nb[3]);
+
+	// broadcast factors
+	const int64_t rk2 = q->ne[2] / k->ne[2];
+	const int64_t rk3 = q->ne[3] / k->ne[3];
+
+	const int64_t rv2 = q->ne[2] / v->ne[2];
+	const int64_t rv3 = q->ne[3] / v->ne[3];
+
+	const uint32_t n_head = q->ne[2];
+	GGML_ASSERT(dst->ne[1] == n_head);
+
+	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	auto v_data = make_strided_mdspan(static_cast<const V_TYPE*>(v->data), v->ne, v->nb);
+	auto k_data = make_strided_mdspan(static_cast<const K_TYPE*>(k->data), k->ne, k->nb);
+	auto q_data = make_strided_mdspan(static_cast<const float*>(q->data), q->ne, q->nb);
+
+	const int64_t iq1 = 0, iq3 = 0;
+	const int64_t nth = pool.available_parallelism();
+	const int64_t chunks = (k->ne[1] + nth - 1) / nth;
+
+	// Partials buffer layout: [q_head][kv_chunk][M, S, VKQ]
+	const int64_t partial_size = 2 + DV;
+	std::vector<float> partials(n_head * nth * partial_size);
+	std::span<float> partials_span(partials);
+	for (int64_t iq2 = 0; iq2 < n_head; iq2++) {
+		for (int64_t ic_start = 0; ic_start < k->ne[1]; ic_start += chunks) {
+			int64_t ic_end = std::min(ic_start + chunks, k->ne[1]);
+			std::span<float> parials_chunk = partials_span.first(partial_size);
+			partials_span = partials_span.subspan(partial_size);
+			stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=, &partials] {
+				std::vector<float> VKQ(DV); // FP32 VKQ accumulator
+				std::vector<float> V32(DV); // (temporary) FP32 V buffer
+				std::vector<q_to_vec_dot_t> Q_q(DK); // (temporary) buffer for Q converted to quantized/FP16
+				const uint32_t h = iq2; // head index
+				const float slope = (ctx.max_bias > 0.0f) ? h < ctx.n_head_log2 ? powf(ctx.m0, h + 1) : powf(ctx.m1, 2 * (h - ctx.n_head_log2) + 1) : 1.0f;
+
+				float S = 0.0f;      // sum
+				float M = -INFINITY; // maximum KQ value
+
+				const ggml_fp16_t* mp = mask ? (ggml_fp16_t*)((char*)mask->data + iq1 * mask->nb[1] + (iq2 % mask->ne[2]) * mask->nb[2] + (iq3 % mask->ne[3]) * mask->nb[3]) : NULL;
+
+				// k indices
+				const int ik3 = iq3 / rk3;
+				const int ik2 = iq2 / rk2;
+
+				// v indices
+				const int iv3 = iq3 / rv3;
+				const int iv2 = iq2 / rv2;
+
+				if constexpr (is_quant_type_v<q_to_vec_dot_t>) {
+					quantize_row(&q_data[iq3, iq2, iq1, 0], Q_q.data(), DK);
+				}
+				else {
+					from_float(&q_data[iq3, iq2, iq1, 0], Q_q.data(), DK);
+				}
+
+				// online softmax / attention
+				// loop over n_kv and n_head_kv
+				// ref: https://arxiv.org/pdf/2112.05682.pdf
+				for (int64_t ic = ic_start; ic < ic_end; ++ic) {
+					const float mv = mp ? slope * toFloat32(mp[ic]) : 0.0f;
+					if (mv == -INFINITY) {
+						continue;
+					}
+
+					float s; // KQ value
+					ggml_vec_dot(DK, &s, 0, &k_data[ik3, ik2, ic, 0], 0, Q_q.data(), 0, 1);
+
+					s = s * ctx.scale; // scale KQ value
+
+					if (ctx.logit_softcap != 0.0f) {
+						s = ctx.logit_softcap * tanhf(s);
+					}
+
+					s += mv; // apply mask
+
+					const float Mold = M;
+
+					float ms = 1.0f; // upon new higher max val, scale VKQ and KQ sum with this value
+					float vs = 1.0f; // post-softmax KQ value, expf(s - M)
+
+					if (s > M) {
+						// s is new maximum, ms < 1.0f, vs == expf(s - s) == 1.0f
+						M = s;
+						ms = expf(Mold - M);
+
+						// V = V*expf(Mold - M)
+						for (int i = 0; i < DV; ++i) {
+							VKQ[i] = VKQ[i] * ms;
+						}
+					}
+					else {
+						// no new maximum, ms == 1.0f, vs != 1.0f
+						vs = expf(s - M);
+					}
+
+					if constexpr (is_quant_type_v<V_TYPE>) {
+						dequantize_row(&v_data[iv3, iv2, ic, 0], V32.data(), DV);
+					}
+					else {
+						to_float(&v_data[iv3, iv2, ic, 0], V32.data(), DV);
+					}
+
+					// V += v*expf(s - M)
+					for (int i = 0; i < DV; ++i) {
+						VKQ[i] += V32[i] * vs;
+					}
+
+					S = S * ms + vs; // scale and increment sum with partial sum
+				}
+
+				// sinks - apply only on the first kv-chunk
+				if (sinks && ic_start == 0) {
+					const float s = ((float*)((char*)sinks->data))[h];
+
+					float ms = 1.0f;
+					float vs = 1.0f;
+
+					if (s > M) {
+						ms = expf(M - s);
+						M = s;
+						for (auto& v : VKQ) v *= ms;
+					}
+					else {
+						vs = expf(s - M);
+					}
+
+					S = S * ms + vs;
+				}
+
+				// Write M, S, VKQ to partials for later reduction
+				// partials layout: [M, S, VKQ[DV]] per query head
+				parials_chunk[0] = M;
+				parials_chunk[1] = S;
+				std::copy(VKQ.begin(), VKQ.end(), parials_chunk.begin() + 2);
+			});
+			scope.spawn(std::move(sender));
+		}
+	}
+	stdexec::sync_wait(scope.on_empty());
+	const float* partials_ptr = partials.data();
+	for (int64_t iq2 = 0; iq2 < n_head; iq2++) {
+		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=, &partials] {
+			float   M_final = -INFINITY;
+			float   S_final = 0.0f;
+			std::vector<float> VKQ_final(DV, 0);
+			// Combine partials from all chunks
+			const float* partial = partials_ptr;
+			for (int64_t chunk_idx = 0; chunk_idx < nth; ++chunk_idx, partial += partial_size) {
+				const float   M_chunk = partial[0];
+				const float   S_chunk = partial[1];
+				const float* VKQ_chunk = &partial[2];
+
+				if (S_chunk == 0.0f) continue;
+
+				const float M_new = fmaxf(M_final, M_chunk);
+				const float scale_old = expf(M_final - M_new);
+				const float scale_new = expf(M_chunk - M_new);
+
+				for (int64_t d = 0; d < DV; ++d) {
+					VKQ_final[d] = VKQ_final[d] * scale_old + VKQ_chunk[d] * scale_new;
+				}
+				S_final = S_final * scale_old + S_chunk * scale_new;
+				M_final = M_new;
+			}
+
+			// Normalize and write to output
+			if (S_final != 0.0f) {
+				const float S_inv = 1.0f / S_final;
+				for (auto& v : VKQ_final) v *= S_inv;
+			}
+			// iq1=0, iq3=0 for decode
+			for (int64_t i0 = 0; i0 < dst->ne[0]; i0++)
+				dst_data[0, 0, iq2, i0] = VKQ_final[i0];
+		});
+		scope.spawn(std::move(sender));
+		partials_ptr += nth * partial_size;
+	}
+	stdexec::sync_wait(scope.on_empty());
+}
+
 template <typename V_TYPE>
 static void ggml_compute_forward_flash_attn_ext(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
+	const flash_attn_context& ctx,
 	ggml_tensor* dst) {
 	const ggml_tensor* k = dst->src[1];
 	switch (k->type) {
 	case GGML_TYPE_F32: {
-		ggml_compute_forward_flash_attn_ext<V_TYPE, ggml_fp32_t>(pool, scope, dst);
+		if (ctx.use_split_kv_path) {
+			ggml_compute_forward_flash_attn_ext_vec_reduce<V_TYPE, ggml_fp32_t>(pool, scope, ctx, dst);
+		} 
+		else if (ctx.use_tiled) {
+			ggml_compute_forward_flash_attn_ext_tiled<ggml_fp32_t>(pool, scope, ctx, dst);
+		}
+		else {
+			ggml_compute_forward_flash_attn_ext_vec<V_TYPE, ggml_fp32_t>(pool, scope, ctx, dst);
+		}
 	} break;
 	case GGML_TYPE_F16: {
-		ggml_compute_forward_flash_attn_ext<V_TYPE, ggml_fp16_t>(pool, scope, dst);
+		if (ctx.use_split_kv_path) {
+			ggml_compute_forward_flash_attn_ext_vec_reduce<V_TYPE, ggml_fp16_t>(pool, scope, ctx, dst);
+		}
+		else if (ctx.use_tiled) {
+			ggml_compute_forward_flash_attn_ext_tiled<ggml_fp16_t>(pool, scope, ctx, dst);
+		}
+		else {
+			ggml_compute_forward_flash_attn_ext_vec<V_TYPE, ggml_fp16_t>(pool, scope, ctx, dst);
+		}
 	} break;
 	case GGML_TYPE_BF16: {
-		ggml_compute_forward_flash_attn_ext<V_TYPE, ggml_bf16_t>(pool, scope, dst);
+		ggml_compute_forward_flash_attn_ext_vec<V_TYPE, ggml_bf16_t>(pool, scope, ctx, dst);
 	} break;
 	case GGML_TYPE_Q4_0: {
-		ggml_compute_forward_flash_attn_ext<V_TYPE, block_q4_0>(pool, scope, dst);
+		ggml_compute_forward_flash_attn_ext_vec<V_TYPE, block_q4_0>(pool, scope, ctx, dst);
 	} break;
 	case GGML_TYPE_Q8_0: {
-		ggml_compute_forward_flash_attn_ext<V_TYPE, block_q8_0>(pool, scope, dst);
+		ggml_compute_forward_flash_attn_ext_vec<V_TYPE, block_q8_0>(pool, scope, ctx, dst);
 	} break;
 	default:
 		assert(false);
@@ -3941,23 +4407,24 @@ static void ggml_compute_forward_flash_attn_ext(
 static void ggml_compute_forward_flash_attn_ext_inner(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
+	const flash_attn_context& ctx,
 	ggml_tensor* dst) {
 	const ggml_tensor* v = dst->src[2];
 	switch (v->type) {
 	case GGML_TYPE_F32: {
-		ggml_compute_forward_flash_attn_ext<ggml_fp32_t>(pool, scope, dst);
+		ggml_compute_forward_flash_attn_ext<ggml_fp32_t>(pool, scope, ctx, dst);
 	} break;
 	case GGML_TYPE_F16: {
-		ggml_compute_forward_flash_attn_ext<ggml_fp16_t>(pool, scope, dst);
+		ggml_compute_forward_flash_attn_ext<ggml_fp16_t>(pool, scope, ctx, dst);
 	} break;
 	case GGML_TYPE_BF16: {
-		ggml_compute_forward_flash_attn_ext<ggml_bf16_t>(pool, scope, dst);
+		ggml_compute_forward_flash_attn_ext<ggml_bf16_t>(pool, scope, ctx, dst);
 	} break;
 	case GGML_TYPE_Q4_0: {
-		ggml_compute_forward_flash_attn_ext<block_q4_0>(pool, scope, dst);
+		ggml_compute_forward_flash_attn_ext<block_q4_0>(pool, scope, ctx, dst);
 	} break;
 	case GGML_TYPE_Q8_0: {
-		ggml_compute_forward_flash_attn_ext<block_q8_0>(pool, scope, dst);
+		ggml_compute_forward_flash_attn_ext<block_q8_0>(pool, scope, ctx, dst);
 	} break;
 	default:
 		GGML_ASSERT(false && "fattn: unsupported V-type");
@@ -3967,13 +4434,50 @@ static void ggml_compute_forward_flash_attn_ext_inner(
 static void ggml_compute_forward_flash_attn_ext(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
+	bool use_ref,
 	ggml_tensor* dst) {
+	const ggml_tensor* q = dst->src[0];
+	const ggml_tensor* k = dst->src[1];
+	const ggml_tensor* v = dst->src[2];
+	float scale = std::bit_cast<float>(dst->op_params[0]);
+	float max_bias = std::bit_cast<float>(dst->op_params[1]);
+	float logit_softcap = std::bit_cast<float>(dst->op_params[2]);
+	if (logit_softcap != 0.0) {
+		scale /= logit_softcap;
+	}
+	const uint32_t n_head = q->ne[2];
+	const uint32_t n_head_log2 = 1u << (uint32_t)floor(log2(n_head));
+	const bool kv_is_f32_or_f16 = (k->type == GGML_TYPE_F32 || k->type == GGML_TYPE_F16);
+	const bool k_v_type_equal = k->type == v->type;
+	const bool q_type_is_f32 = q->type == GGML_TYPE_F32;
+	const bool use_split_kv_path = !use_ref && (q->ne[1] == 1 && q->ne[3] == 1) 
+		&& kv_is_f32_or_f16 && k_v_type_equal && q_type_is_f32 && k->ne[1] >= 512;
+	static constexpr int64_t KV_TILE_SZ = ggml_fa_tile_config::KV;
+	static constexpr int64_t Q_TILE_SZ = ggml_fa_tile_config::Q;
+	const bool use_tiled = !use_ref &&
+		(q_type_is_f32 &&
+			kv_is_f32_or_f16 &&
+			k_v_type_equal &&
+			k->ne[1] % KV_TILE_SZ == 0 &&
+			q->ne[1] >= Q_TILE_SZ);
+	flash_attn_context ctx {
+		.use_split_kv_path = use_split_kv_path,
+		.use_tiled = use_tiled,
+		.scale = scale,
+		.max_bias = max_bias,
+		.logit_softcap = logit_softcap,
+		.n_head = n_head,
+		.n_head_log2 = n_head_log2,
+		.m0 = powf(2.0f, -(max_bias) / n_head_log2),
+		.m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2)
+	};
+
 	switch (dst->op_params[3]) {
 	case GGML_PREC_DEFAULT:
 	case GGML_PREC_F32:
 	{
 		// uses F32 accumulators
-		ggml_compute_forward_flash_attn_ext_inner(pool, scope, dst);
+		ggml_compute_forward_flash_attn_ext_inner(pool, scope, ctx, dst);
 	} break;
 	default:
 	{
@@ -4366,64 +4870,32 @@ static void apply_binary_op(
 	GGML_ASSERT(dst->nb[0] == sizeof(dst_t));
 	GGML_ASSERT(src0->nb[0] == sizeof(src0_t));
 
-	const bool is_src1_contiguous = (src1->nb[0] == sizeof(src1_t));
-
-	if (!is_src1_contiguous) { // broadcast not implemented yet for non-contiguous
-		GGML_ASSERT(ggml_are_same_shape(src0, src1));
-	}
-
-	stdexec::scheduler auto scheduler = pool.get_scheduler();
-
 	auto dst_data = make_strided_mdspan(static_cast<dst_t*>(dst->data), dst->ne, dst->nb);
 	auto src0_data = make_strided_mdspan(static_cast<const src0_t*>(src0->data), src0->ne, src0->nb);
 	auto src1_data = make_strided_mdspan(static_cast<const src1_t*>(src1->data), src1->ne, src1->nb);
 
-	if (is_src1_contiguous) {
-		for (int64_t i03 = 0; i03 < src0_data.extent(0); i03++) {
-			for (int64_t i02 = 0; i02 < src0_data.extent(1); i02++) {
-				for (int64_t i01 = 0; i01 < src0_data.extent(2); i01++) {
-					stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-						const int64_t i13 = i03 % src1_data.extent(0);
-						const int64_t i12 = i02 % src1_data.extent(1);
-						const int64_t i11 = i01 % src1_data.extent(2);
+	for (int64_t i03 = 0; i03 < src0_data.extent(0); i03++) {
+		for (int64_t i02 = 0; i02 < src0_data.extent(1); i02++) {
+			for (int64_t i01 = 0; i01 < src0_data.extent(2); i01++) {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+					const int64_t i13 = i03 % src1_data.extent(0);
+					const int64_t i12 = i02 % src1_data.extent(1);
+					const int64_t i11 = i01 % src1_data.extent(2);
 
-						// src1 is broadcastable across src0 and dst in i1, i2, i3
-						const int64_t nr0 = src0_data.extent(3) / src1_data.extent(3);
+					// src1 is broadcastable across src0 and dst in i1, i2, i3
+					const int64_t nr0 = src0_data.extent(3) / src1_data.extent(3);
 
-						for (int64_t r = 0; r < nr0; ++r) {
-							for (int64_t i = 0; i < src1_data.extent(3); i++) {
-								dst_data[i03, i02, i01, r * src1_data.extent(3) + i] =
-									fromFloat32<dst_t>(
-										op(
-											toFloat32(src0_data[i03, i02, i01, r * src1_data.extent(3) + i]),
-											toFloat32(src1_data[i13, i12, i11, i])));
-							}
+					for (int64_t r = 0; r < nr0; ++r) {
+						for (int64_t i = 0; i < src1_data.extent(3); i++) {
+							dst_data[i03, i02, i01, r * src1_data.extent(3) + i] =
+								fromFloat32<dst_t>(
+									op(
+										toFloat32(src0_data[i03, i02, i01, r * src1_data.extent(3) + i]),
+										toFloat32(src1_data[i13, i12, i11, i])));
 						}
-					});
-					scope.spawn(std::move(sender));
-				}
-			}
-		}
-	}
-	else {
-		for (int64_t i03 = 0; i03 < src0_data.extent(0); i03++) {
-			for (int64_t i02 = 0; i02 < src0_data.extent(1); i02++) {
-				for (int64_t i01 = 0; i01 < src0_data.extent(2); i01++) {
-					stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-						const int64_t i13 = i03 % src1_data.extent(0);
-						const int64_t i12 = i02 % src1_data.extent(1);
-						const int64_t i11 = i01 % src1_data.extent(2);
-
-						for (int64_t i = 0; i < dst_data.extent(3); i++) {
-							int64_t i10 = i % src1_data.extent(3);
-							dst_data[i03, i02, i01, i] = fromFloat32<dst_t>(
-								op(
-									toFloat32(src0_data[i03, i02, i01, i]),
-									toFloat32(src0_data[i13, i12, i11, i10 + i])));
-						}
-					});
-					scope.spawn(std::move(sender));
-				}
+					}
+				});
+				scope.spawn(std::move(sender));
 			}
 		}
 	}
@@ -5965,6 +6437,7 @@ void ggml_compute_forward(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	ggml_compute_params* params, 
+	bool use_ref,
 	ggml_tensor* tensor) {
 	GGML_ASSERT(params);
 
@@ -6239,7 +6712,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_FLASH_ATTN_EXT:
 	{
-		ggml_compute_forward_flash_attn_ext(pool, scope, tensor);
+		ggml_compute_forward_flash_attn_ext(pool, scope, use_ref, tensor);
 	} break;
 #if 0
 	case GGML_OP_FLASH_ATTN_BACK:
