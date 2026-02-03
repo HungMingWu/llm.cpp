@@ -221,6 +221,7 @@ namespace chatllm
         case MODEL_TYPE_MAYA1:
             return ChatModelAccessPoint::Text | ChatModelAccessPoint::AudioOutput;
         case MODEL_TYPE_GLM_ASR:
+        case MODEL_TYPE_QWEN3_ASR:
             return ChatModelAccessPoint::Text | ChatModelAccessPoint::AudioInput;
         case MODEL_TYPE_LLAMA_MULTI:
             return ChatModelAccessPoint::Text;

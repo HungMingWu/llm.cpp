@@ -217,6 +217,7 @@ namespace chatllm
         MODEL_TYPE_QWEN3_ReRanker = 0x1000010A,
         MODEL_TYPE_MAYA1 = 0x1000010B,
         MODEL_TYPE_GLM_ASR = 0x1000010D,
+        MODEL_TYPE_QWEN3_ASR = 0x1000010F,
 
         MODEL_TYPE_LLAMA_MULTI = 0x20000001,
 
@@ -420,6 +421,7 @@ namespace chatllm
         case MODEL_TYPE_MAYA1:
             return ModelPurpose::TTS;
         case MODEL_TYPE_GLM_ASR:
+        case MODEL_TYPE_QWEN3_ASR:
             return ModelPurpose::ASR;
         default:
             return (ModelPurpose)(GET_PURPOSE_TAG(model_type));
@@ -504,6 +506,11 @@ namespace chatllm
     std::unique_ptr<Linear> create_lm_head(InitContext* ctx, const BaseConfig& config, bool bias = false)
     {
         return std::make_unique<Linear>(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Epilog), config.hidden_size, config.vocab_size, bias);
+    }
+
+    std::unique_ptr<Linear> create_lm_head(InitContext* ctx, int hidden_size, int vocab_size, bool bias = false)
+    {
+        return std::make_unique<Linear>(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Epilog), hidden_size, vocab_size, bias);
     }
 
     class HeterogeneousModel;

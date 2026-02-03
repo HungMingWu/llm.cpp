@@ -661,7 +661,7 @@ namespace chatllm
         ggml::set_output(r);
         ggml::build_forward_expand(&ctx, r);
 
-        CHATLLM_CHECK(r->type == GGML_TYPE_F32) << "output type must be float: " << r->type;
+        CHATLLM_CHECK((r->type == GGML_TYPE_F32) || (r->type == GGML_TYPE_I32)) << "output type must be float/int32: " << r->type;
 
         output.resize(ggml::nbytes(r) / sizeof(output[0]));
 
@@ -975,6 +975,20 @@ namespace chatllm
         }
 
         return lm_logits;
+    }
+
+    void LMFinalSteps::set_read_last_n(int n)
+    {
+        last_n = n >= 1 ? n : 1;
+    }
+
+    void LMFinalSteps::set_do_orderring(bool flag)
+    {
+        do_orderring = flag;
+    }
+    ggml::tensor* LMFinalSteps::get_orderring_result(void)
+    {
+        return order;
     }
 
     ggml::tensor* EmbeddingPoolingFinalSteps::forward(HeterogeneousModel* model, ComputeContext* ctx, ggml::tensor* input_ids, ggml::tensor* hidden_states)

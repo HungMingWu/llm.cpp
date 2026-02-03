@@ -522,6 +522,11 @@ namespace audio
         return n_samples / hop_length;
     }
 
+    int64_t sample_len_for_mel_len(const int64_t n_mel, const int hop_length)
+    {
+        return n_mel * hop_length;
+    }
+
     void test_mel(void)
     {
         mel_filter_bank filters;
