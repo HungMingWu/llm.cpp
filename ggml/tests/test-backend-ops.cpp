@@ -962,20 +962,22 @@ static void init_tensor_kq_mask(ggml_tensor* tensor, float min = -1.0f, float ma
     const int blck0 = 128;
     const int blck1 = 64;
 
-    // number of INF blocks
-    const int n_inf_blocks = 0.1 * (tensor->ne[0] * tensor->ne[1] * tensor->ne[2] * tensor->ne[3]) / (blck0 * blck1);
+    // number of INF/zero blocks
+    const int n_inf_zero_blocks = 0.2 * (tensor->ne[0] * tensor->ne[1] * tensor->ne[2] * tensor->ne[3]) / (blck0 * blck1);
 
-    for (int b = 0; b < n_inf_blocks; b++) {
+    for (int b = 0; b < n_inf_zero_blocks; b++) {
         const int p3 = (rd() % tensor->ne[3]);
         const int p2 = (rd() % tensor->ne[2]);
         const int p1 = (rd() % tensor->ne[1]);
         const int p0 = (rd() % tensor->ne[0]);
 
+        bool inf = rd() & 1;
+
         for (int i1 = 0; i1 < blck1 && p1 + i1 < tensor->ne[1]; i1++) {
             const int idx = p3 * tensor->ne[2] * tensor->ne[1] * tensor->ne[0] + p2 * tensor->ne[1] * tensor->ne[0] + (p1 + i1) * tensor->ne[0] + p0;
 
             for (int i0 = 0; i0 < blck0 && p0 + i0 < tensor->ne[0]; i0++) {
-                data_f32[idx + i0] = -INFINITY;
+                data_f32[idx + i0] = inf ? -INFINITY : 0.0f;
             }
         }
     }
@@ -7997,6 +7999,8 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         for (int mode : {GGML_ROPE_TYPE_NORMAL, GGML_ROPE_TYPE_NEOX, GGML_ROPE_TYPE_MROPE, GGML_ROPE_TYPE_IMROPE, GGML_ROPE_TYPE_VISION}) {
             for (bool ff : {false, true}) {
                 test_cases.emplace_back(new test_rope(type, { 128,  32, 2, 1 }, 128, mode, 512, 1.4245f, 0.7465f, 1.4245f, ff, 0, true, true));
+                test_cases.emplace_back(new test_rope(type, { 128,  32, 2, 1 }, 128, mode, 512, 1.4245f, 0.7465f, 1.4245f, ff, 1, true, true));
+                test_cases.emplace_back(new test_rope(type, { 128,  32, 2, 3 }, 128, mode, 512, 1.4245f, 0.7465f, 1.4245f, ff, 1, true, true));
             }
         }
     }
@@ -8178,11 +8182,13 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
                         if (!mask && max_bias > 0.0f) continue;
                         for (float logit_softcap : {0.0f, 10.0f}) {
                             if (hsk != 128 && logit_softcap != 0.0f) continue;
-                            for (int nh : { 4, }) {
+                            for (int nh : { 1, 4 }) {
+                                if (nh == 1 && hsk != 576) continue; // GLM 4.7 Flash
                                 for (int nr3 : { 1, 3, }) {
                                     if (hsk > 64 && nr3 > 1) continue; // skip broadcast for large head sizes
-                                    for (int nr2 : { 1, 4, 12 }) {
+                                    for (int nr2 : { 1, 4, 12, 20 }) {
                                         if (nr2 == 12 && hsk != 128) continue;
+                                        if (nr2 == 20 && (nh != 1 || hsk != 576)) continue;
                                         //for (int kv : { 1, 17, 31, 33, 61, 113, 65, 127, 129, 130, 255, 260, 371, 380, 407, 512, 1024, }) {
                                         for (int kv : { 113, 512, 1024, }) {
                                             if (nr2 != 1 && kv != 512) continue;
@@ -8190,6 +8196,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
                                                 for (ggml_prec prec : {GGML_PREC_F32, GGML_PREC_DEFAULT}) {
                                                     if (hsk != 128 && prec == GGML_PREC_DEFAULT) continue;
                                                     for (ggml_type type_KV : {GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_BF16, GGML_TYPE_Q8_0, GGML_TYPE_Q4_0}) {
+                                                        if (type_KV != GGML_TYPE_F16 && hsk != 64 && hsk != 72) continue;
                                                         test_cases.emplace_back(new test_flash_attn_ext(
                                                             hsk, hsv, nh, { nr2, nr3 }, kv, nb, mask, sinks, max_bias, logit_softcap, prec, type_KV));
                                                         // run fewer test cases permuted
@@ -8555,6 +8562,8 @@ static bool test_backend(ggml_backend* backend, test_mode mode, const char* op_n
             output_printer->print_operation(info);
             return false;
         }
+        // Use reference implementation on the CPU backend for comparison
+        backend_cpu->set_use_ref(true);
 
         size_t n_ok = 0;
         size_t                   tests_run = 0;
