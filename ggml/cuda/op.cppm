@@ -142,7 +142,7 @@ namespace op
         const size_t ts_src1 = ggml_type_size(src1->type);
         const size_t ts_dst = ggml_type_size(dst->type);
 
-        GGML_ASSERT(!ids || src1->ne[2] == 1); // Implementation is only correct for  batch size 1.
+        GGML_ASSERT(!ids || src1->ne[2] <= MMVF_MAX_BATCH_SIZE);
         GGML_ASSERT(src1->ne[3] == dst->ne[3]);
 
         GGML_ASSERT(src0->nb[0] == ts_src0);
@@ -195,10 +195,11 @@ namespace op
         const int64_t ncols_dst = ids ? dst->ne[2] : dst->ne[1];
         const int64_t nchannels_y = ids ? src1->ne[1] : src1->ne[2];
         const int64_t nchannels_dst = ids ? dst->ne[1] : dst->ne[2];
+        const int64_t stride_col_dst = ids ? s2 : s1;
+        const int64_t stride_col_y = ids ? s12 : s11;
         const int64_t stride_channel_dst = ids ? s1 : s2;
         const int64_t stride_channel_y = ids ? s11 : s12;
-
-        GGML_ASSERT(!ids || ncols_dst == 1);
+        const int64_t ids_stride = ids ? ids->nb[1] / ggml_type_size(ids->type) : 0;
 
         mul_mat_vec_f_context ctx{
             .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
@@ -217,15 +218,15 @@ namespace op
             .ncols_dst = ncols_dst,
             .nchannels_y = ids ? src1->ne[1] : src1->ne[2],
             .nchannels_dst = ids ? dst->ne[1] : dst->ne[2],
+            .stride_col_dst = stride_col_dst,
+            .stride_col_y = stride_col_y,
             .stride_channel_dst = ids ? s1 : s2,
             .stride_channel_y = ids ? s11 : s12,
 
             .s01 = s01,
             .s02 = s02,
             .s03 = s03,
-            .s11 = s11,
             .s13 = s13,
-            .s1 = s1,
             .s3 = s3,
             .prec = std::bit_cast<internal::ggml_prec>(fast_fp16_available(cc) ? dst->op_params[0] : GGML_PREC_F32)
         };
@@ -853,7 +854,7 @@ namespace op
         GGML_ASSERT(dst->nb[0] == ts_dst);
         GGML_ASSERT(!ids || ids->nb[0] == ggml_type_size(ids->type));
 
-        GGML_ASSERT(!ids || src1->ne[2] == 1); // Implementation is only correct for  batch size 1.
+        GGML_ASSERT(!ids || src1->ne[2] <= MMVQ_MAX_BATCH_SIZE);
 
         const float* src1_d = (const float*)src1->data;
         const int32_t* ids_d = ids ? (const int32_t*)ids->data : nullptr;
@@ -917,6 +918,8 @@ namespace op
         const int64_t s12 = src1->ne[1] * s11;
         const int64_t s13 = src1->ne[2] * s12;
 
+        const int64_t ids_stride = ids ? ids->nb[1] / ggml_type_size(ids->type) : 0;
+
         // For MUL_MAT_ID the memory layout is different than for MUL_MAT:
 
         mat_vec_q_switch_context ctx{
@@ -942,7 +945,8 @@ namespace op
             .nsamples_dst = dst->ne[3],
             .stride_sample_x = s03,
             .stride_sample_y = s13,
-            .stride_sample_dst = s3
+            .stride_sample_dst = s3,
+            .ids_stride = ids_stride
         };
 
         mul_mat_vec_q_switch_type(ctx, stream);
@@ -962,14 +966,20 @@ namespace op
         const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
 
         if (src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
-            if (dst->ne[2] == 1) {
+            static_assert(MMVQ_MAX_BATCH_SIZE == MMVF_MAX_BATCH_SIZE);
+            if (dst->ne[2] <= MMVQ_MAX_BATCH_SIZE) {
                 if (ggml_is_quantized(src0->type)) {
-                    mul_mat_vec_q(pool, stream, src0, src1, ids, dst);
+                    if (dst->ne[2] <= 4) {
+                        mul_mat_vec_q(pool, stream, src0, src1, ids, dst);
+                        return;
+                    }
                 }
                 else {
-                    mul_mat_vec_f(stream, src0, src1, ids, dst);
+                    if (GGML_CUDA_CC_IS_AMD(cc)) {
+                        mul_mat_vec_f(stream, src0, src1, ids, dst);
+                        return;
+                    }
                 }
-                return;
             }
 
             if (utils::should_use_mmq(src0->type, cc, src1->ne[2], /*n_experts=*/src0->ne[2])) {

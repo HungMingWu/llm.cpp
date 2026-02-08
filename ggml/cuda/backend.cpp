@@ -922,16 +922,16 @@ void ggml_cuda_op_mul_mat_vec_f(
         .ncols_dst = src1_ncols,
         .nchannels_y = nchannels_y,
         .nchannels_dst = nchannels_dst,
+        .stride_col_dst = stride_col_dst,
+        .stride_col_y = stride_col_y,
         .stride_channel_dst = stride_channel_dst,
         .stride_channel_y = stride_channel_y,
         
         .s01 = stride_row,
         .s02 = stride_channel_x,
         .s03 = stride_sample_x,
-        .s11 = stride_col_y,
         .s13 = stride_sample_y,
-        .s1 = stride_col_dst,
-        .s3 = stride_sample_dst,
+        .ids_stride = 0,
         .prec = std::bit_cast<internal::ggml_prec>(fast_fp16_available(cc) ? dst->op_params[0] : GGML_PREC_F32)
     };
 
@@ -987,7 +987,8 @@ void ggml_cuda_op_mul_mat_vec_q(
         .nsamples_dst = 1,
         .stride_sample_x = 1,
         .stride_sample_y = 1,
-        .stride_sample_dst = 1
+        .stride_sample_dst = 1,
+        .ids_stride = 0
     };
 
     mul_mat_vec_q_switch_type(ctx1, stream);
@@ -2133,8 +2134,7 @@ static bool ggml_cuda_graph_node_properties_match(ggml_tensor* node, ggml_cuda_g
         }
     }
 
-    if ((node->op == GGML_OP_SCALE || node->op == GGML_OP_GLU) &&
-        memcmp(props->op_params, node->op_params, GGML_MAX_OP_PARAMS) != 0) {
+    if (memcmp(props->op_params, node->op_params, GGML_MAX_OP_PARAMS) != 0) {
         return false;
     }
 
