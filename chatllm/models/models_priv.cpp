@@ -13,120 +13,6 @@ import :models.base;
 
 namespace chatllm
 {
-    class LogitsPenalty
-    {
-    public:
-        LogitsPenalty()
-            : repeat_penalty_en(false),
-            freq_penalty_en(false),
-            inv_repeat_penalty(0.0f), repeat_penalty(0.0f), freq_penalty(0.0f), presence_penalty(0.0f)
-        {
-        }
-
-        LogitsPenalty(const GenerationConfig& gen_config)
-            : repeat_penalty_en((gen_config.penalty_window > 0) && (gen_config.repeat_penalty != 1.0f) && (gen_config.repeat_penalty > 0.0f)),
-            freq_penalty_en((gen_config.penalty_window > 0) && ((gen_config.frequency_penalty != 0.0f) || (gen_config.presence_penalty != 0.0f))),
-            inv_repeat_penalty(repeat_penalty_en ? 1 / gen_config.repeat_penalty : 0.0f),
-            repeat_penalty(gen_config.repeat_penalty),
-            freq_penalty(freq_penalty_en ? gen_config.frequency_penalty / gen_config.penalty_window : 0.0f),
-            presence_penalty(gen_config.presence_penalty)
-        {
-            if (gen_config.penalty_window > 0)
-            {
-                token_history.resize(gen_config.penalty_window);
-            }
-            reset();
-        }
-
-        virtual void skip_this(int token_id)
-        {
-            skip_tokens.emplace(token_id);
-        }
-
-        virtual void reset()
-        {
-            for (size_t i = 0; i < token_history.size(); i++)
-                token_history[i] = -1;
-            hist_write = 0;
-            memset(token_count.data(), 0, token_count.size() * sizeof(token_count[0]));
-        }
-
-        virtual void accept_choice(int token_id)
-        {
-            if (token_history.size() < 1) return;
-            int id = token_history[hist_write];
-            if ((0 <= id) && (id < (int)token_count.size()))
-                token_count[id]--;
-            token_history[hist_write++] = token_id;
-            if (hist_write >= token_history.size()) hist_write = 0;
-            if ((0 <= token_id) && (token_id < (int)token_count.size()))
-                token_count[token_id]++;
-        }
-
-        virtual void process(std::span<float> logits)
-        {
-            if (token_history.size() < 1) return;
-
-            if (logits.size() != (int)token_count.size())
-            {
-                token_count.resize(logits.size());
-            }
-
-            for (size_t i = 0; i < logits.size(); i++)
-            {
-                if (repeat_penalty_en)
-                {
-                    if (token_count[i] > 0)
-                        logits[i] *= logits[i] > 0 ? inv_repeat_penalty : repeat_penalty;
-                }
-
-                if (freq_penalty_en)
-                    logits[i] -= float(token_count[i]) * freq_penalty + float(token_count[i] > 0) * presence_penalty;
-            }
-        }
-
-    protected:
-        const bool repeat_penalty_en;
-        const bool freq_penalty_en;
-        const float inv_repeat_penalty;
-        const float repeat_penalty;
-        const float freq_penalty;
-        const float presence_penalty;
-        std::vector<int> token_history;
-        std::vector<int> token_count;
-        size_t hist_write;
-        std::set<int> skip_tokens;
-    };
-
-    class Sampler
-    {
-    public:
-        static const int ABORT = -1;
-        Sampler() : penalty() {}
-
-        Sampler(const GenerationConfig& gen_config)
-            : penalty(gen_config)
-        {
-        }
-        virtual ~Sampler() = default;
-    public:
-        virtual void seed(int x)
-        {
-            gen.seed((unsigned int)x);
-        }
-
-        virtual void reset()
-        {
-            penalty.reset();
-        }
-
-        virtual int sampling(std::span<float> logits, float* confidence_level = nullptr) = 0;
-    public:
-        LogitsPenalty penalty;
-    protected:
-        std::mt19937 gen;
-    };
-
     class NonGreedySampler : public Sampler
     {
     public:
@@ -327,27 +213,23 @@ namespace chatllm
         }
     };
 
-    class SamplerFactory
+    std::unique_ptr<Sampler> SamplerFactory::Create(const GenerationConfig& gen_config)
     {
-    public:
-        static std::unique_ptr<Sampler> Create(const GenerationConfig& gen_config, int seed)
-        {
-             auto r = [&]() -> std::unique_ptr<Sampler>  {
-                if (gen_config.do_sample)
-                {
-                    if (gen_config.sampling == "top_p")
-                        return std::make_unique<TopPSampler>(gen_config, gen_config.temperature, gen_config.top_k, gen_config.top_p);
-                    else if (gen_config.sampling == "tfs")
-                        return std::make_unique<FreeTailSampler>(gen_config, gen_config.temperature, gen_config.top_k, gen_config.tfs_z);
-                    else if (gen_config.sampling != "greedy")
-                        CHATLLM_CHECK(false) << "unknown sampling algorithm: " << gen_config.sampling;
-                }
-                return std::make_unique<GreedySampler>();
-            }();
-            r->seed(seed);
-            return r;
-        }
-    };
+        auto r = [&]() -> std::unique_ptr<Sampler>  {
+            if (gen_config.do_sample)
+            {
+                if (gen_config.sampling == "top_p")
+                    return std::make_unique<TopPSampler>(gen_config, gen_config.temperature, gen_config.top_k, gen_config.top_p);
+                else if (gen_config.sampling == "tfs")
+                    return std::make_unique<FreeTailSampler>(gen_config, gen_config.temperature, gen_config.top_k, gen_config.tfs_z);
+                else if (gen_config.sampling != "greedy")
+                    CHATLLM_CHECK(false) << "unknown sampling algorithm: " << gen_config.sampling;
+            }
+            return std::make_unique<GreedySampler>();
+        }();
+        r->seed(gen_config.get_seed());
+        return r;
+    }
 
     BaseModelForConditionalGeneration::BaseModelForConditionalGeneration(ModelType model_type, BaseConfig config, const RuntimeConfig& runtime_config)
         : BaseModel(model_type, get_model_purpose(model_type)),
@@ -399,7 +281,7 @@ namespace chatllm
         //    printf("%d, ", input_ids[i]);
         //printf("\nn_past = %d, %d\n\n", n_past, continuous);
 
-        std::unique_ptr<Sampler> sampler = SamplerFactory::Create(gen_config, get_seed());
+        std::unique_ptr<Sampler> sampler = SamplerFactory::Create(gen_config);
 
         aborted = false;
 
@@ -939,8 +821,7 @@ namespace chatllm
         if (disable_head) return hidden_states;
 
         hidden_states = ctx->view(hidden_states, { batch, last_n, model->hidden_size },
-            { (size_t)ggml::row_size(hidden_states) * qlen,
-              (size_t)ggml::row_size(hidden_states) },
+            { ggml::row_size(hidden_states) * qlen, ggml::row_size(hidden_states) },
             (qlen - last_n) * ggml::row_size(hidden_states));
 
         ggml::tensor* transformer_outputs = model->final_layernorm->forward(ctx, hidden_states);
@@ -948,6 +829,7 @@ namespace chatllm
         // now, this is continous
         transformer_outputs = ctx->reshape(transformer_outputs, { last_n * batch, ggml::get_dim(transformer_outputs, 0) });
 
+        ggml::set_output(transformer_outputs);
         model->last_hidden_state = transformer_outputs;
         if (model->skip_lm_head)
             return transformer_outputs;
@@ -1001,18 +883,18 @@ namespace chatllm
     ggml::tensor* EmbeddingLastTokenFinalSteps::forward(HeterogeneousModel* model, ComputeContext* ctx, ggml::tensor* input_ids, ggml::tensor* hidden_states)
     {
         hidden_states = ctx->view(hidden_states, { 1, model->hidden_size },
-            { (size_t)ggml::row_size(hidden_states) },
+            { ggml::row_size(hidden_states) },
             (ggml::get_dim(input_ids, 0) - 1) * ggml::row_size(hidden_states));
         ggml::tensor* transformer_outputs = model->final_layernorm->forward(ctx, hidden_states);
         transformer_outputs = ggml::simple_norm(ctx, transformer_outputs, 1e-5f);
         return transformer_outputs;
     }
 
-    TensorGraphEvaluator::TensorGraphEvaluator(const RuntimeConfig& runtime_config, const std::string model_id)
+    TensorGraphEvaluator::TensorGraphEvaluator(const RuntimeConfig& runtime_config, const std::string model_id, int max_layers)
         : n_threads(runtime_config.n_threads)
     {
         model_gpu_layers = BackendContext::get_ngl_of_model(runtime_config.model_gpu_layers, model_id);
-        backend_context.init(model_gpu_layers, 1, n_threads);
+        backend_context.init(model_gpu_layers, max_layers, n_threads);
     }
 
     bool TensorGraphEvaluator::evaluate(const GenerationConfig& gen_config,

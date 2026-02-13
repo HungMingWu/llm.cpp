@@ -96,7 +96,7 @@ namespace chatllm::qwen::v3::audio_tower
             if (len < conv_chunksize)
                 len = len;
             auto block = ctx->view(input, { block_len, hidden_size, pad_window },
-                { (size_t)ggml::row_size(input) * (size_t)ggml::get_dim(input, 1), (size_t)ggml::row_size(input) },
+                { ggml::row_size(input) * ggml::get_dim(input, 1), ggml::row_size(input) },
                 ggml::row_size(input) * ggml::get_dim(input, 1) * offset);
             block = ctx->reshape(block, { ggml::get_dim(block, 2), 1, ggml::get_dim(block, 1), ggml::get_dim(block, 0) });
             block = conv2d1.forward(ctx, block);
@@ -119,11 +119,11 @@ namespace chatllm::qwen::v3::audio_tower
 
         // add pos emb
         len = ggml::get_dim(hidden_states, 1);
-        auto pos_emb = ctx->view(positional_embedding, { len, ggml::get_dim(hidden_states, 0) }, { (size_t)ggml::row_size(positional_embedding) }, 0);
+        auto pos_emb = ctx->view(positional_embedding, { len, ggml::get_dim(hidden_states, 0) }, { ggml::row_size(positional_embedding) }, 0);
         hidden_states = ggml::add(ctx, hidden_states, pos_emb, false);
 
         hidden_states = ctx->reshape(hidden_states, { ggml::get_dim(hidden_states, 1) * ggml::get_dim(hidden_states, 2), ggml::get_dim(hidden_states, 0) });
-        hidden_states = ctx->view(hidden_states, { emb_num, ggml::get_dim(hidden_states, 0) }, { (size_t)ggml::row_size(hidden_states) }, 0);
+        hidden_states = ctx->view(hidden_states, { emb_num, ggml::get_dim(hidden_states, 0) }, { ggml::row_size(hidden_states) }, 0);
 
         return hidden_states;
     }

@@ -133,6 +133,8 @@ export
 		return 1;
 	}
 
+	bool ggml_is_view(const ggml_tensor* tensor);
+
 	// true if the elements in dimension 0 are contiguous, or there is just 1 block of elements
 	bool ggml_is_contiguous_rows(const ggml_tensor* tensor)
 	{

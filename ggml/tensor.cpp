@@ -176,3 +176,7 @@ void ggml_flash_attn_ext_add_sinks(
 
 	a->src[4] = sinks;
 }
+
+bool ggml_is_view(const ggml_tensor* t) {
+	return t->view_src != nullptr;
+}

@@ -18,6 +18,7 @@ target_sources(chatllm
       models/models_priv.cppm
       models/qwen.cppm
       models/qwen_asr.cppm
+      models/qwen_tts.cppm
   PRIVATE
       audio_process.cpp
       backend.cpp
@@ -34,6 +35,7 @@ target_sources(chatllm
       models/models_priv.cpp
       models/qwen.cpp
       models/qwen_asr.cpp
+      models/qwen_tts.cpp
 )
 
 target_link_libraries(chatllm

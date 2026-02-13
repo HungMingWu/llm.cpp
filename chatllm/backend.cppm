@@ -32,8 +32,8 @@ export namespace chatllm
         int64_t nelements(const ggml::tensor* tensor);
         int64_t block_size(const ggml::tensor* tensor);
         int64_t block_size(ggml::type type);
-        int64_t row_size(const ggml::tensor* tensor);
-        int64_t row_size(ggml::type type, int64_t ne0);
+        size_t row_size(const ggml::tensor* tensor);
+        size_t row_size(ggml::type type, int64_t ne0);
         int64_t align_nelements(ggml::type type, int64_t ne0);
 
         int max_dims(void);

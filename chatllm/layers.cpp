@@ -98,12 +98,12 @@ namespace chatllm
         return ggml_blck_size(type);
     }
 
-    int64_t ggml::row_size(const ggml::tensor* tensor)
+    size_t ggml::row_size(const ggml::tensor* tensor)
     {
         return ggml::row_size(ggml::type_of(tensor), ggml::get_dim(tensor, 0));
     }
 
-    int64_t ggml::row_size(ggml::type type, int64_t ne0)
+    size_t ggml::row_size(ggml::type type, int64_t ne0)
     {
         return ggml_row_size(type, ne0);
     }
@@ -852,6 +852,9 @@ namespace chatllm
 
     ggml::tensor* ggml::add(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, bool inplace)
     {
+        //OPTIMIZE: some backends requires input to be continuous
+        a = ggml_is_contiguous(a) ? a : ggml::cont(ctx, a);
+        b = ggml_is_contiguous(b) ? b : ggml::cont(ctx, b);
         ggml::tensor* tensor = ggml_add(ctx->get_ctx(), a, b, inplace);
         ctx->cb_op_tensor(tensor);
         return tensor;
@@ -1154,6 +1157,8 @@ namespace chatllm
         ggml::tensor* output = nullptr;
         if (groups == 1)
         {
+            if (!ggml_is_contiguous(input))
+                input = ggml::cont(ctx, input);
             output = ggml::conv_1d(ctx, weight, input, stride, padding, dilation);
         }
         else if (groups == in_channels)
@@ -1258,10 +1263,11 @@ namespace chatllm
     {
         // TODO: Optimization needed.
         // `ggml::conv_transposed_1d` is not fully functional. So we do it manually for some configurations.
+        input = ggml_is_contiguous(input) ? input : ggml::cont(ctx, input);
         ggml::tensor* output = nullptr;
         if ((padding == 0) && (output_padding == 0) && (dilation == 1) && (groups == 1))
         {
-            output = ggml::conv_transposed_1d(ctx, weight, input, stride, 0, 0);
+            output = ggml::conv_transposed_1d(ctx, weight, input, stride, 0, 1);
         }
         else if (groups == 1)
         {
@@ -1340,6 +1346,10 @@ namespace chatllm
 
             // ggml won't be happy if we flatten a already 1-dim tensor: it won't assigned backend if this is the very first op in the graph
             ggml::tensor* flattend = ggml_n_dims(input) > 1 ? ggml::flatten(ctx, input) : input;
+
+            // some backends (e.g. Vulkan) complains if `ids` are a view with offsets
+            flattend = ggml_is_view(flattend) ? ggml::dup(ctx, flattend) : flattend;
+
             output = ggml::get_rows(ctx, weight, flattend);
             output = ggml::reshape(ctx, output, ggml::get_dim(output, 0),
                 ggml::get_dim(input, 0), ggml::get_dim(input, 1), ggml::get_dim(input, 2));
@@ -1351,7 +1361,7 @@ namespace chatllm
             if (num_padded_embeddings > 0)
             {
                 w = ctx->view(weight, { num_embeddings, ggml::get_dim(weight, 0) },
-                    { (size_t)ggml::row_size(ggml::type_of(weight), ggml::get_dim(weight, 0)) }, 0);
+                    { ggml::row_size(ggml::type_of(weight), ggml::get_dim(weight, 0)) }, 0);
             }
             output = ggml::mul_mat(ctx, w, input);
         }
@@ -1756,11 +1766,18 @@ namespace chatllm
         attn_scores = apply_pos_embedding_kq(ctx, attn_scores, hidden_size, qlen, pos);
 
         // attn_masked = mask_past(attn_scores)
-        ggml::tensor* attn_masked = causal ? ggml::diag_mask_inf(ctx, attn_scores, n_past, true)
-            : attn_scores;
-
         // attn_probs = soft_max(attn_masked)
-        ggml::tensor* attn_probs = ggml::soft_max(ctx, attn_masked, true);
+        ggml::tensor* attn_probs = nullptr;
+        if (mask)
+        {
+            attn_probs = ggml::soft_max_ext(ctx, attn_scores, mask, 1.0f, 0.0f);
+        }
+        else
+        {
+            ggml::tensor* attn_masked = causal ? ggml::diag_mask_inf(ctx, attn_scores, n_past, true)
+                : attn_scores;
+            attn_probs = ggml::soft_max(ctx, attn_masked, true);
+        }
 
         ggml::soft_max_attach_sinks(attn_probs, sinks);
 
@@ -2158,11 +2175,11 @@ namespace chatllm
     }
 
     ALiBiSelfAttention::ALiBiSelfAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int max_length)
-        : BaseAttention(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, false, false),
-        mask(ctx->new_tensor(GGML_TYPE_F32, { max_length, max_length }))
+        : BaseAttention(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, false, false)
     {
         bias_max = 8.0f;
         scale = 1.0f / sqrtf(float(hidden_size / num_attention_heads));
+        mask = ctx->new_tensor(GGML_TYPE_F32, { max_length, max_length });
 
         std::vector<float> v_mask;
         v_mask.resize(max_length * max_length);

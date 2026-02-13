@@ -16,7 +16,7 @@ import :chat;
 export namespace chatllm
 {
     void dump_weight_tensor(ggml::tensor* tensor);
-    void print_tensor(ggml::tensor* tensor, int offset = 0, bool full = false);
+    void print_tensor(ggml::tensor* tensor, int omul_mat_set_precffset = 0, bool full = false);
     void print_tensor_shape(const char* info, ggml::tensor* tensor);
     void inspect_tensor(ggml::tensor* tensor, std::string format);
     void clear_inspected_tensors(void);
@@ -1482,6 +1482,7 @@ export namespace chatllm
         const int num_attention_heads;
         const int num_kv_heads;
         ggml::tensor* pos;
+        ggml::tensor* mask = nullptr;
         const int max_length;
         float attn_scaling_factor;
         Block* attn_scores_pp;
@@ -3002,7 +3003,6 @@ export namespace chatllm
     public:
         float  bias_max;
         float  scale;
-        ggml::tensor* mask;
     };
 
     class BaichuanBlock : public LMBlock1<RMSNorm, ALiBiSelfAttention, RMSNorm, SiLUMLP>

@@ -45,10 +45,6 @@ static bool ggml_op_can_inplace(enum ggml_op op) {
 	}
 }
 
-static bool ggml_is_view(const ggml_tensor* t) {
-	return t->view_src != nullptr;
-}
-
 // this is a very naive implementation, but for our case the number of free blocks should be very small
 void ggml_dyn_tallocr::free_bytes(buffer_address addr, size_t size) {
 	size = aligned_offset(NULL, size, alignment);

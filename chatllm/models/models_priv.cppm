@@ -2,6 +2,7 @@ module;
 #include <string.h>
 #include <functional>
 #include <memory>
+#include <random>
 #include <ranges>
 #include <set>
 #include <span>
@@ -217,6 +218,7 @@ namespace chatllm
         MODEL_TYPE_QWEN3_ReRanker = 0x1000010A,
         MODEL_TYPE_MAYA1 = 0x1000010B,
         MODEL_TYPE_GLM_ASR = 0x1000010D,
+        MODEL_TYPE_QWEN3_TTS = 0x1000010E,
         MODEL_TYPE_QWEN3_ASR = 0x1000010F,
 
         MODEL_TYPE_LLAMA_MULTI = 0x20000001,
@@ -419,6 +421,7 @@ namespace chatllm
         case MODEL_TYPE_OUTE_TTS_LLAMA:
         case MODEL_TYPE_OUTE_TTS_QWEN3:
         case MODEL_TYPE_MAYA1:
+        case MODEL_TYPE_QWEN3_TTS:
             return ModelPurpose::TTS;
         case MODEL_TYPE_GLM_ASR:
         case MODEL_TYPE_QWEN3_ASR:
@@ -497,6 +500,12 @@ namespace chatllm
         return std::make_unique<Embedding>(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Prolog), config.vocab_size, config.hidden_size, config.max_length);
     }
 
+    template <class Embedding>
+    std::unique_ptr<Block> create_embedding(InitContext* ctx, int vocab_size, int hidden_size)
+    {
+        return std::make_unique<Embedding>(LayerMover(ctx, LayerAllocatorManager::MiscLayer::Prolog), vocab_size, hidden_size);
+    }
+
     template <class FinalNorm>
     std::unique_ptr<Block> create_final_norm(InitContext* ctx, const BaseConfig& config)
     {
@@ -527,7 +536,7 @@ namespace chatllm
     class TensorGraphEvaluator
     {
     public:
-        TensorGraphEvaluator(const RuntimeConfig& runtime_config, const std::string model_id = "main");
+        TensorGraphEvaluator(const RuntimeConfig& runtime_config, const std::string model_id = "main", int max_layers = 99);
         virtual bool evaluate(const GenerationConfig& gen_config,
             std::function<ggml::tensor* (ComputeContext* ctx)> make_graph,
             std::function<void(ComputeContext* ctx)> write_input_data,
@@ -744,5 +753,126 @@ namespace chatllm
     {
     public:
         ggml::tensor* forward(HeterogeneousModel* model, ComputeContext* ctx, ggml::tensor* input_ids, ggml::tensor* hidden_states) override;
+    };
+
+    class LogitsPenalty
+    {
+    public:
+        LogitsPenalty()
+            : repeat_penalty_en(false),
+            freq_penalty_en(false),
+            inv_repeat_penalty(0.0f), repeat_penalty(0.0f), freq_penalty(0.0f), presence_penalty(0.0f)
+        {
+        }
+
+        LogitsPenalty(const GenerationConfig& gen_config)
+            : repeat_penalty_en((gen_config.penalty_window > 0) && (gen_config.repeat_penalty != 1.0f) && (gen_config.repeat_penalty > 0.0f)),
+            freq_penalty_en((gen_config.penalty_window > 0) && ((gen_config.frequency_penalty != 0.0f) || (gen_config.presence_penalty != 0.0f))),
+            inv_repeat_penalty(repeat_penalty_en ? 1 / gen_config.repeat_penalty : 0.0f),
+            repeat_penalty(gen_config.repeat_penalty),
+            freq_penalty(freq_penalty_en ? gen_config.frequency_penalty / gen_config.penalty_window : 0.0f),
+            presence_penalty(gen_config.presence_penalty)
+        {
+            if (gen_config.penalty_window > 0)
+            {
+                token_history.resize(gen_config.penalty_window);
+            }
+            reset();
+        }
+
+        virtual void skip_this(int token_id)
+        {
+            skip_tokens.emplace(token_id);
+        }
+
+        virtual void reset()
+        {
+            for (size_t i = 0; i < token_history.size(); i++)
+                token_history[i] = -1;
+            hist_write = 0;
+            memset(token_count.data(), 0, token_count.size() * sizeof(token_count[0]));
+        }
+
+        virtual void accept_choice(int token_id)
+        {
+            if (token_history.size() < 1) return;
+            int id = token_history[hist_write];
+            if ((0 <= id) && (id < (int)token_count.size()))
+                token_count[id]--;
+            token_history[hist_write++] = token_id;
+            if (hist_write >= token_history.size()) hist_write = 0;
+            if ((0 <= token_id) && (token_id < (int)token_count.size()))
+                token_count[token_id]++;
+        }
+
+        virtual void process(std::span<float> logits)
+        {
+            if (token_history.size() < 1) return;
+
+            if (logits.size() != (int)token_count.size())
+            {
+                token_count.resize(logits.size());
+            }
+
+            for (size_t i = 0; i < logits.size(); i++)
+            {
+                if (repeat_penalty_en)
+                {
+                    if (token_count[i] > 0)
+                        logits[i] *= logits[i] > 0 ? inv_repeat_penalty : repeat_penalty;
+                }
+
+                if (freq_penalty_en)
+                    logits[i] -= float(token_count[i]) * freq_penalty + float(token_count[i] > 0) * presence_penalty;
+            }
+        }
+
+    protected:
+        const bool repeat_penalty_en;
+        const bool freq_penalty_en;
+        const float inv_repeat_penalty;
+        const float repeat_penalty;
+        const float freq_penalty;
+        const float presence_penalty;
+        std::vector<int> token_history;
+        std::vector<int> token_count;
+        size_t hist_write;
+        std::set<int> skip_tokens;
+    };
+
+    class Sampler
+    {
+    public:
+        static const int ABORT = -1;
+        Sampler() : penalty() {}
+
+        Sampler(const GenerationConfig& gen_config)
+            : penalty(gen_config)
+        {
+        }
+        virtual ~Sampler() = default;
+    public:
+        virtual void seed(int x)
+        {
+            gen.seed((unsigned int)x);
+        }
+
+        virtual void reset()
+        {
+            penalty.reset();
+        }
+
+        virtual int sampling(std::span<float> logits, float* confidence_level = nullptr) = 0;
+    public:
+        LogitsPenalty penalty;
+    protected:
+        std::mt19937 gen;
+    };
+
+
+    class SamplerFactory
+    {
+    public:
+        static std::unique_ptr<Sampler> Create(const GenerationConfig& gen_config);
     };
 }

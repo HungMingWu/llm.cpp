@@ -1560,14 +1560,6 @@ namespace chatllm::qwen::v2_5_vl
         const int image_id_start;
     };
 
-    class ExtendEmbedding
-    {
-    public:
-        ExtendEmbedding() : pad_arg(new BlockParams::PadEmbedding(4096, 4096)) {}
-    public:
-        BlockParams::PadEmbedding* pad_arg = nullptr;
-    };
-
     class ConditionalGeneration : public TensorPosHelperPrelude, public ExtendEmbedding, public v2::ConditionalGeneration
     {
     public:
@@ -1857,7 +1849,8 @@ namespace chatllm::qwen::v3
 
     typedef QWen3MoEBlock<128, 8> QWen3MoEBlock128_8;
 
-    ConditionalGeneration::ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config, ModelType type, const bool skip_lm_head, int extra_tensors)
+    ConditionalGeneration::ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config, ModelType type, const bool skip_lm_head, int extra_tensors,
+        const int vocab_size, const int hidden_size)
         : BaseModelForConditionalGeneration(type, config, runtime_config),
         config(config)
     {
@@ -1866,7 +1859,7 @@ namespace chatllm::qwen::v3
         if (skip_lm_head || config.tie_word_embeddings)
         {
             transformer = new ModelClass(&w_ctx_, config.num_hidden_layers, config.hidden_size,
-                create_embedding<Embedding>(&w_ctx_, config),
+                vocab_size <= 0 ? create_embedding<Embedding>(&w_ctx_, config) : create_embedding<Embedding>(&w_ctx_, vocab_size, hidden_size),
                 create_final_norm<RMSNorm>(&w_ctx_, config),
                 nullptr,
                 [&](InitContext* ctx, int layer_index) {
@@ -1876,7 +1869,7 @@ namespace chatllm::qwen::v3
         else
         {
             transformer = new ModelClass(&w_ctx_, config.num_hidden_layers, config.hidden_size,
-                create_embedding<Embedding>(&w_ctx_, config),
+                vocab_size <= 0 ? create_embedding<Embedding>(&w_ctx_, config) : create_embedding<Embedding>(&w_ctx_, vocab_size, hidden_size),
                 create_final_norm<RMSNorm>(&w_ctx_, config),
                 create_lm_head(&w_ctx_, config, false),
                 [&](InitContext* ctx, int layer_index) {
@@ -2336,7 +2329,7 @@ namespace chatllm::qwen::v3_vl::vit
 
                 auto target = ctx->view(deepstack_visual_embeds[idx].weight,
                     { ggml::get_dim(ds_feature, 1), lm_hidden_size },
-                    { (size_t)ggml::row_size(ds_feature) },
+                    { ggml::row_size(ds_feature) },
                     ggml::element_size(deepstack_visual_embeds[idx].weight) * lm_hidden_size * ds_emb_offset);
                 ggml::build_forward_expand(ctx, ggml::cpy(ctx, ds_feature, target));
             }
