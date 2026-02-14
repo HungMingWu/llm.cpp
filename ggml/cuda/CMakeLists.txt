@@ -1,21 +1,17 @@
 cmake_minimum_required(VERSION 3.18)  # for CMAKE_CUDA_ARCHITECTURES
-file(READ "${CUDAToolkit_INCLUDE_DIRS}/cuda_runtime_api.h" CUDART_HEADER_CONTENTS)
-string(REGEX MATCH "#define CUDART_VERSION[ \t]+([0-9]+)" _ ${CUDART_HEADER_CONTENTS})
-set(CUDART_VERSION "${CMAKE_MATCH_1}")
-message(STATUS "CUDART_VERSION: ${CUDART_VERSION}")
 
-if (CUDART_VERSION LESS 10000)
+if (CUDAToolkit_VERSION VERSION_LESS "10.0")
     message(FATAL_ERROR  "Minimum cuda version needs 10")
 endif()
 
-if (NOT DEFINED GGML_USE_HIP AND NOT DEFINED GGML_USE_MUSA AND CUDART_VERSION GREATER_EQUAL 11010)
+if (NOT DEFINED GGML_USE_HIP AND NOT DEFINED GGML_USE_MUSA AND CUDAToolkit_VERSION VERSION_GREATER_EQUAL "11.1")
     set(CUDA_USE_CUB TRUE)
     target_compile_definitions(libggml PRIVATE GGML_CUDA_USE_CUB)
 else()
     set(CUDA_USE_CUB FALSE)
 endif()
 
-if (CUDART_VERSION GREATER_EQUAL 12000)
+if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "12.0")
 target_include_directories(libggml
   PRIVATE
     ./cuda_rt/12000
@@ -27,7 +23,7 @@ target_include_directories(libggml
 )
 endif()
 
-if (CUDART_VERSION GREATER_EQUAL 12080)
+if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "12.8")
 target_include_directories(libggml
   PRIVATE
     ./cuda_rt/12080
