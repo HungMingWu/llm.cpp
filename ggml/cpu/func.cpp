@@ -4196,9 +4196,8 @@ static void ggml_compute_forward_flash_attn_ext_vec_reduce(
 	auto k_data = make_strided_mdspan(static_cast<const K_TYPE*>(k->data), k->ne, k->nb);
 	auto q_data = make_strided_mdspan(static_cast<const float*>(q->data), q->ne, q->nb);
 
-	int64_t ic_start = 0, ic_end = k->ne[1];
 	const int64_t iq1 = 0, iq3 = 0;
-	const int nth = 4;
+	const int64_t nth = pool.available_parallelism();
 	const int64_t chunks = (k->ne[1] + nth - 1) / nth;
 
 	// Partials buffer layout: [q_head][kv_chunk][M, S, VKQ]
@@ -4210,7 +4209,7 @@ static void ggml_compute_forward_flash_attn_ext_vec_reduce(
 			int64_t ic_end = std::min(ic_start + chunks, k->ne[1]);
 			std::span<float> parials_chunk = partials_span.first(partial_size);
 			partials_span = partials_span.subspan(partial_size);
-			stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+			stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=, &partials] {
 				std::vector<float> VKQ(DV); // FP32 VKQ accumulator
 				std::vector<float> V32(DV); // (temporary) FP32 V buffer
 				std::vector<q_to_vec_dot_t> Q_q(DK); // (temporary) buffer for Q converted to quantized/FP16
@@ -4321,18 +4320,15 @@ static void ggml_compute_forward_flash_attn_ext_vec_reduce(
 		}
 	}
 	stdexec::sync_wait(scope.on_empty());
-	std::span<const float> partials_span1(partials);
+	const float* partials_ptr = partials.data();
 	for (int64_t iq2 = 0; iq2 < n_head; iq2++) {
-		std::span<const float> row_partials_span = partials_span1.first(nth * partial_size);
-		partials_span1 = partials_span1.subspan(nth* partial_size);
-		//stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=, &partials] {
 			float   M_final = -INFINITY;
 			float   S_final = 0.0f;
 			std::vector<float> VKQ_final(DV, 0);
 			// Combine partials from all chunks
-			for (int64_t chunk_idx = 0; chunk_idx < nth; ++chunk_idx) {
-				std::span<const float> partial = row_partials_span.first(partial_size);
-				row_partials_span = row_partials_span.subspan(partial_size);
+			const float* partial = partials_ptr;
+			for (int64_t chunk_idx = 0; chunk_idx < nth; ++chunk_idx, partial += partial_size) {
 				const float   M_chunk = partial[0];
 				const float   S_chunk = partial[1];
 				const float* VKQ_chunk = &partial[2];
@@ -4356,11 +4352,11 @@ static void ggml_compute_forward_flash_attn_ext_vec_reduce(
 				for (auto& v : VKQ_final) v *= S_inv;
 			}
 			// iq1=0, iq3=0 for decode
-			//for (int64_t i0 = 0; i0 < dst->ne[1]; i0++)
-				//dst_data[0, iq2, 0, i0] = VKQ_final[i0];
-			memcpy((char*)dst->data + (0 * dst->ne[2] * dst->ne[1] + iq2 + 0 * dst->ne[1]) * dst->nb[1], VKQ_final.data(), dst->nb[1]);
-		//});
-		//scope.spawn(std::move(sender));
+			for (int64_t i0 = 0; i0 < dst->ne[0]; i0++)
+				dst_data[0, 0, iq2, i0] = VKQ_final[i0];
+		});
+		scope.spawn(std::move(sender));
+		partials_ptr += nth * partial_size;
 	}
 	stdexec::sync_wait(scope.on_empty());
 }
@@ -4372,19 +4368,12 @@ static void ggml_compute_forward_flash_attn_ext(
 	const flash_attn_context& ctx,
 	ggml_tensor* dst) {
 	const ggml_tensor* k = dst->src[1];
-	if (ctx.use_split_kv_path) {
-		switch (k->type) {
-		case GGML_TYPE_F16: {
-			ggml_compute_forward_flash_attn_ext_vec_reduce<V_TYPE, ggml_fp16_t>(pool, scope, ctx, dst);
-		} break;
-		default:
-			break;
-		}
-		return;
-	}
 	switch (k->type) {
 	case GGML_TYPE_F32: {
-		if (ctx.use_tiled) {
+		if (ctx.use_split_kv_path) {
+			ggml_compute_forward_flash_attn_ext_vec_reduce<V_TYPE, ggml_fp32_t>(pool, scope, ctx, dst);
+		} 
+		else if (ctx.use_tiled) {
 			ggml_compute_forward_flash_attn_ext_tiled<ggml_fp32_t>(pool, scope, ctx, dst);
 		}
 		else {
@@ -4392,7 +4381,10 @@ static void ggml_compute_forward_flash_attn_ext(
 		}
 	} break;
 	case GGML_TYPE_F16: {
-		if (ctx.use_tiled) {
+		if (ctx.use_split_kv_path) {
+			ggml_compute_forward_flash_attn_ext_vec_reduce<V_TYPE, ggml_fp16_t>(pool, scope, ctx, dst);
+		}
+		else if (ctx.use_tiled) {
 			ggml_compute_forward_flash_attn_ext_tiled<ggml_fp16_t>(pool, scope, ctx, dst);
 		}
 		else {
@@ -4470,9 +4462,6 @@ static void ggml_compute_forward_flash_attn_ext(
 			k_v_type_equal &&
 			k->ne[1] % KV_TILE_SZ == 0 &&
 			q->ne[1] >= Q_TILE_SZ);
-	if (use_split_kv_path) {
-		int a = 1;
-	}
 	flash_attn_context ctx {
 		.use_split_kv_path = use_split_kv_path,
 		.use_tiled = use_tiled,
