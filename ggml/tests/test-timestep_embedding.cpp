@@ -16,7 +16,7 @@ void set_timestep_embedding(
     ggml_tensor* timesteps,
     std::span<float> timesteps_span,
     ggml_tensor* embedding,
-	const std::mdspan<float, std::experimental::dims<2>>& embedding_mdspan,
+	const std::mdspan<float, std::dims<2>>& embedding_mdspan,
     int dim, int max_period = 10000) {
     // timesteps: [N,]
     // embedding: [dim, N]

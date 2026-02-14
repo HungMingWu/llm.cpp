@@ -8,11 +8,11 @@
 import ggml;
 
 void check_tensor(
-    const std::mdspan<float, std::experimental::dims<3>>& actual_mdspan,
-    const std::mdspan<float, std::experimental::dims<3>>& expected_mdspan)
+    const std::mdspan<float, std::dims<3>>& actual_mdspan,
+    const std::mdspan<float, std::dims<3>>& expected_mdspan)
 {
-    assert(actual_mdspan.extents() == expected_mdspan.extents());
-    for (int i2 = 0; i2 < actual_mdspan.extent(0); ++i2) {
+    assert(actual_mdspan.extents() ==expected_mdspan.extents());
+    for (int i2 = 0; i2 < actual_mdspan .extent(0); ++i2) {
         for (int i1 = 0; i1 < actual_mdspan.extent(1); ++i1) {
             for (int i0 = 0; i0 < actual_mdspan.extent(2); ++i0) {
                 float expected = expected_mdspan[i2, i1, i0];

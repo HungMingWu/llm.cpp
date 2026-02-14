@@ -13,12 +13,6 @@
 #include "mdspan.hpp"
 #include <array>
 
-namespace std {
-    // C++26
-    template <size_t N>
-    using dims = std::dextents<size_t, N>;
-}
-
 namespace details {
     template <size_t N, std::size_t... I>
     HOST DEVICE auto construct_extent_type(const std::span<const int64_t, N>& extents, std::index_sequence<I...>)
