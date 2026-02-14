@@ -4448,7 +4448,6 @@ static void ggml_compute_forward_flash_attn_ext(
 	}
 	const uint32_t n_head = q->ne[2];
 	const uint32_t n_head_log2 = 1u << (uint32_t)floor(log2(n_head));
-	use_ref = false;
 	const bool kv_is_f32_or_f16 = (k->type == GGML_TYPE_F32 || k->type == GGML_TYPE_F16);
 	const bool k_v_type_equal = k->type == v->type;
 	const bool q_type_is_f32 = q->type == GGML_TYPE_F32;
