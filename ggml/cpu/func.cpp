@@ -4198,139 +4198,171 @@ static void ggml_compute_forward_flash_attn_ext_vec_reduce(
 
 	int64_t ic_start = 0, ic_end = k->ne[1];
 	const int64_t iq1 = 0, iq3 = 0;
+	const int nth = 4;
+	const int64_t chunks = (k->ne[1] + nth - 1) / nth;
+
+	// Partials buffer layout: [q_head][kv_chunk][M, S, VKQ]
+	const int64_t partial_size = 2 + DV;
+	std::vector<float> partials(n_head * nth * partial_size);
+	std::span<float> partials_span(partials);
 	for (int64_t iq2 = 0; iq2 < n_head; iq2++) {
-		stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
-			std::vector<float> VKQ(DV); // FP32 VKQ accumulator
-			std::vector<float> V32(DV); // (temporary) FP32 V buffer
-			std::vector<q_to_vec_dot_t> Q_q(DK); // (temporary) buffer for Q converted to quantized/FP16
-			const uint32_t h = iq2; // head index
-			const float slope = (ctx.max_bias > 0.0f) ? h < ctx.n_head_log2 ? powf(ctx.m0, h + 1) : powf(ctx.m1, 2 * (h - ctx.n_head_log2) + 1) : 1.0f;
+		for (int64_t ic_start = 0; ic_start < k->ne[1]; ic_start += chunks) {
+			int64_t ic_end = std::min(ic_start + chunks, k->ne[1]);
+			std::span<float> parials_chunk = partials_span.first(partial_size);
+			partials_span = partials_span.subspan(partial_size);
+			stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+				std::vector<float> VKQ(DV); // FP32 VKQ accumulator
+				std::vector<float> V32(DV); // (temporary) FP32 V buffer
+				std::vector<q_to_vec_dot_t> Q_q(DK); // (temporary) buffer for Q converted to quantized/FP16
+				const uint32_t h = iq2; // head index
+				const float slope = (ctx.max_bias > 0.0f) ? h < ctx.n_head_log2 ? powf(ctx.m0, h + 1) : powf(ctx.m1, 2 * (h - ctx.n_head_log2) + 1) : 1.0f;
 
-			float S = 0.0f;      // sum
-			float M = -INFINITY; // maximum KQ value
+				float S = 0.0f;      // sum
+				float M = -INFINITY; // maximum KQ value
 
-			const ggml_fp16_t* mp = mask ? (ggml_fp16_t*)((char*)mask->data + iq1 * mask->nb[1] + (iq2 % mask->ne[2]) * mask->nb[2] + (iq3 % mask->ne[3]) * mask->nb[3]) : NULL;
+				const ggml_fp16_t* mp = mask ? (ggml_fp16_t*)((char*)mask->data + iq1 * mask->nb[1] + (iq2 % mask->ne[2]) * mask->nb[2] + (iq3 % mask->ne[3]) * mask->nb[3]) : NULL;
 
-			// k indices
-			const int ik3 = iq3 / rk3;
-			const int ik2 = iq2 / rk2;
+				// k indices
+				const int ik3 = iq3 / rk3;
+				const int ik2 = iq2 / rk2;
 
-			// v indices
-			const int iv3 = iq3 / rv3;
-			const int iv2 = iq2 / rv2;
+				// v indices
+				const int iv3 = iq3 / rv3;
+				const int iv2 = iq2 / rv2;
 
-			if constexpr (is_quant_type_v<q_to_vec_dot_t>) {
-				quantize_row(&q_data[iq3, iq2, iq1, 0], Q_q.data(), DK);
-			}
-			else {
-				from_float(&q_data[iq3, iq2, iq1, 0], Q_q.data(), DK);
-			}
-
-			// online softmax / attention
-			// loop over n_kv and n_head_kv
-			// ref: https://arxiv.org/pdf/2112.05682.pdf
-			for (int64_t ic = ic_start; ic < ic_end; ++ic) {
-				const float mv = mp ? slope * toFloat32(mp[ic]) : 0.0f;
-				if (mv == -INFINITY) {
-					continue;
+				if constexpr (is_quant_type_v<q_to_vec_dot_t>) {
+					quantize_row(&q_data[iq3, iq2, iq1, 0], Q_q.data(), DK);
 				}
-				
-				float s; // KQ value
-
-				ggml_vec_dot(DK, &s, 0, &k_data[ik3, ik2, ic, 0], 0, Q_q.data(), 0, 1);
-
-				s = s * ctx.scale; // scale KQ value
-
-				if (ctx.logit_softcap != 0.0f) {
-					s = ctx.logit_softcap * tanhf(s);
+				else {
+					from_float(&q_data[iq3, iq2, iq1, 0], Q_q.data(), DK);
 				}
 
-				s += mv; // apply mask
-
-				const float Mold = M;
-
-				float ms = 1.0f; // upon new higher max val, scale VKQ and KQ sum with this value
-				float vs = 1.0f; // post-softmax KQ value, expf(s - M)
-
-				if (s > M) {
-					// s is new maximum, ms < 1.0f, vs == expf(s - s) == 1.0f
-					M = s;
-					ms = expf(Mold - M);
-
-					// V = V*expf(Mold - M)
-					for (int i = 0; i < DV; ++i) {
-						VKQ[i] = VKQ[i] * ms;
+				// online softmax / attention
+				// loop over n_kv and n_head_kv
+				// ref: https://arxiv.org/pdf/2112.05682.pdf
+				for (int64_t ic = ic_start; ic < ic_end; ++ic) {
+					const float mv = mp ? slope * toFloat32(mp[ic]) : 0.0f;
+					if (mv == -INFINITY) {
+						continue;
 					}
+
+					float s; // KQ value
+					ggml_vec_dot(DK, &s, 0, &k_data[ik3, ik2, ic, 0], 0, Q_q.data(), 0, 1);
+
+					s = s * ctx.scale; // scale KQ value
+
+					if (ctx.logit_softcap != 0.0f) {
+						s = ctx.logit_softcap * tanhf(s);
+					}
+
+					s += mv; // apply mask
+
+					const float Mold = M;
+
+					float ms = 1.0f; // upon new higher max val, scale VKQ and KQ sum with this value
+					float vs = 1.0f; // post-softmax KQ value, expf(s - M)
+
+					if (s > M) {
+						// s is new maximum, ms < 1.0f, vs == expf(s - s) == 1.0f
+						M = s;
+						ms = expf(Mold - M);
+
+						// V = V*expf(Mold - M)
+						for (int i = 0; i < DV; ++i) {
+							VKQ[i] = VKQ[i] * ms;
+						}
+					}
+					else {
+						// no new maximum, ms == 1.0f, vs != 1.0f
+						vs = expf(s - M);
+					}
+
+					if constexpr (is_quant_type_v<V_TYPE>) {
+						dequantize_row(&v_data[iv3, iv2, ic, 0], V32.data(), DV);
+					}
+					else {
+						to_float(&v_data[iv3, iv2, ic, 0], V32.data(), DV);
+					}
+
+					// V += v*expf(s - M)
+					for (int i = 0; i < DV; ++i) {
+						VKQ[i] += V32[i] * vs;
+					}
+
+					S = S * ms + vs; // scale and increment sum with partial sum
 				}
-				else {
-					// no new maximum, ms == 1.0f, vs != 1.0f
-					vs = expf(s - M);
+
+				// sinks - apply only on the first kv-chunk
+				if (sinks && ic_start == 0) {
+					const float s = ((float*)((char*)sinks->data))[h];
+
+					float ms = 1.0f;
+					float vs = 1.0f;
+
+					if (s > M) {
+						ms = expf(M - s);
+						M = s;
+						for (auto& v : VKQ) v *= ms;
+					}
+					else {
+						vs = expf(s - M);
+					}
+
+					S = S * ms + vs;
 				}
 
-				if constexpr (is_quant_type_v<V_TYPE>) {
-					dequantize_row(&v_data[iv3, iv2, ic, 0], V32.data(), DV);
-				}
-				else {
-					to_float(&v_data[iv3, iv2, ic, 0], V32.data(), DV);
-				}
-
-				// V += v*expf(s - M)
-				for (int i = 0; i < DV; ++i) {
-					VKQ[i] += V32[i] * vs;
-				}
-
-				S = S * ms + vs; // scale and increment sum with partial sum
-			}
-
-			// sinks - apply only on the first kv-chunk
-			if (sinks && ic_start == 0) {
-				const float s = ((float*)((char*)sinks->data))[h];
-
-				float ms = 1.0f;
-				float vs = 1.0f;
-
-				if (s > M) {
-					ms = expf(M - s);
-					M = s;
-					for (auto& v : VKQ) v *= ms;
-				}
-				else {
-					vs = expf(s - M);
-				}
-
-				S = S * ms + vs;
-			}
-
-			if (false) {
-#if 0
 				// Write M, S, VKQ to partials for later reduction
 				// partials layout: [M, S, VKQ[DV]] per query head
-				float* partial = partials + ir * partial_stride;
-				partial[0] = M;
-				partial[1] = S;
-				memcpy(partial + 2, VKQ32, DV * sizeof(float));
-#endif
-			}
-			else {
-				// V /= S
-				const float S_inv = S == 0.0f ? 0.0f : 1.0f / S;
-				for (int i = 0; i < DV; ++i) {
-					VKQ[i] *= S_inv;
-				}
-
-				// dst indices
-				const int i1 = iq1;
-				const int i2 = iq2;
-				const int i3 = iq3;
-					
-				// permute(3, 1, 2, 0)
-				for (int64_t i0 = 0; i0 < DV; i0++) {
-					dst_data[i3, i1, i2, i0] = VKQ[i0];
-				}
-			}
-		});
-		scope.spawn(std::move(sender));
+				parials_chunk[0] = M;
+				parials_chunk[1] = S;
+				std::copy(VKQ.begin(), VKQ.end(), parials_chunk.begin() + 2);
+			});
+			scope.spawn(std::move(sender));
+		}
 	}
+	stdexec::sync_wait(scope.on_empty());
+	std::span<const float> partials_span1(partials);
+	for (int64_t iq2 = 0; iq2 < n_head; iq2++) {
+		std::span<const float> row_partials_span = partials_span1.first(nth * partial_size);
+		partials_span1 = partials_span1.subspan(nth* partial_size);
+		//stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+			float   M_final = -INFINITY;
+			float   S_final = 0.0f;
+			std::vector<float> VKQ_final(DV, 0);
+			// Combine partials from all chunks
+			for (int64_t chunk_idx = 0; chunk_idx < nth; ++chunk_idx) {
+				std::span<const float> partial = row_partials_span.first(partial_size);
+				row_partials_span = row_partials_span.subspan(partial_size);
+				const float   M_chunk = partial[0];
+				const float   S_chunk = partial[1];
+				const float* VKQ_chunk = &partial[2];
+
+				if (S_chunk == 0.0f) continue;
+
+				const float M_new = fmaxf(M_final, M_chunk);
+				const float scale_old = expf(M_final - M_new);
+				const float scale_new = expf(M_chunk - M_new);
+
+				for (int64_t d = 0; d < DV; ++d) {
+					VKQ_final[d] = VKQ_final[d] * scale_old + VKQ_chunk[d] * scale_new;
+				}
+				S_final = S_final * scale_old + S_chunk * scale_new;
+				M_final = M_new;
+			}
+
+			// Normalize and write to output
+			if (S_final != 0.0f) {
+				const float S_inv = 1.0f / S_final;
+				for (auto& v : VKQ_final) v *= S_inv;
+			}
+			// iq1=0, iq3=0 for decode
+			//for (int64_t i0 = 0; i0 < dst->ne[1]; i0++)
+				//dst_data[0, iq2, 0, i0] = VKQ_final[i0];
+			memcpy((char*)dst->data + (0 * dst->ne[2] * dst->ne[1] + iq2 + 0 * dst->ne[1]) * dst->nb[1], VKQ_final.data(), dst->nb[1]);
+		//});
+		//scope.spawn(std::move(sender));
+	}
+	stdexec::sync_wait(scope.on_empty());
 }
 
 template <typename V_TYPE>
