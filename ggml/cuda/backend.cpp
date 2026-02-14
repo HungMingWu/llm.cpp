@@ -1637,7 +1637,7 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
                 stream_ctx.concurrent_events.clear();
             }
 
-            for (size_t i = 0; i < cgraph->nodes.size(); i++) {
+            for (int i = 0; i < cgraph->nodes.size(); i++) {
                 auto node = cgraph->nodes[i];
 
                 if (is_concurrent_event_active) {
