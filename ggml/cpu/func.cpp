@@ -3506,7 +3506,7 @@ static void ggml_compute_forward_acc_f32(
 	const ggml_tensor* src1 = dst->src[1];
 
 	GGML_ASSERT(ggml_are_same_shape(src0, dst));
-	GGML_ASSERT(ggml_is_contiguous(dst) && ggml_is_contiguous(src0));
+	GGML_ASSERT(ggml_is_contiguous_rows(src0));
 
 	// view src0 and dst with these strides and data offset inbytes during acc
 	// nb0 is implicitly element_size because src0 and dst are contiguous
@@ -3596,8 +3596,7 @@ static void ggml_compute_forward_pad_f32(
 	ggml_tensor* dst) {
 	const ggml_tensor* src0 = dst->src[0];
 
-	GGML_ASSERT(src0->nb[0] == sizeof(float));
-	GGML_ASSERT(dst->nb[0] == sizeof(float));
+	assert(dst->nb[0] == sizeof(float));
 
 	const int32_t lp0 = ggml_get_op_params_i32(dst, 0);
 	const int32_t rp0 = ggml_get_op_params_i32(dst, 1);
@@ -4871,11 +4870,7 @@ static void apply_binary_op(
 	GGML_ASSERT(dst->nb[0] == sizeof(dst_t));
 	GGML_ASSERT(src0->nb[0] == sizeof(src0_t));
 
-	const bool is_src1_contiguous = (src1->nb[0] == sizeof(src1_t));
-
-	if (!is_src1_contiguous) { // broadcast not implemented yet for non-contiguous
-		GGML_ASSERT(ggml_are_same_shape(src0, src1));
-	}
+	const bool is_src1_contiguous_rows = ggml_is_contiguous_rows(src1);
 
 	stdexec::scheduler auto scheduler = pool.get_scheduler();
 
@@ -4883,7 +4878,7 @@ static void apply_binary_op(
 	auto src0_data = make_strided_mdspan(static_cast<const src0_t*>(src0->data), src0->ne, src0->nb);
 	auto src1_data = make_strided_mdspan(static_cast<const src1_t*>(src1->data), src1->ne, src1->nb);
 
-	if (is_src1_contiguous) {
+	if (is_src1_contiguous_rows) {
 		for (int64_t i03 = 0; i03 < src0_data.extent(0); i03++) {
 			for (int64_t i02 = 0; i02 < src0_data.extent(1); i02++) {
 				for (int64_t i01 = 0; i01 < src0_data.extent(2); i01++) {

@@ -198,9 +198,10 @@ static ggml_backend_reg* ggml_backend_load_best(std::u8string name_path, bool si
 
 	int best_score = 0;
 	fs::path best_path;
+	std::error_code ec;
 
 	for (const auto& search_path : search_paths) {
-		if (std::error_code ec; !fs::exists(search_path, ec)) {
+		if (!fs::exists(search_path, ec)) {
 			if (ec) {
 				GGML_LOG_DEBUG("{}: posix_stat({}) failure, error-message: {}\n", __func__, path_str(search_path), ec.message());
 			}
@@ -211,7 +212,7 @@ static ggml_backend_reg* ggml_backend_load_best(std::u8string name_path, bool si
 		}
 		fs::directory_iterator dir_it(search_path, fs::directory_options::skip_permission_denied);
 		for (const auto& entry : dir_it) {
-			if (entry.is_regular_file()) {
+			if (entry.is_regular_file(ec)) {
 				auto filename = entry.path().filename();
 				auto ext = entry.path().extension();
 				if (filename.native().find(file_prefix) == 0 && ext == file_extension) {

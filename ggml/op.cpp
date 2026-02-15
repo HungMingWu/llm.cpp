@@ -158,8 +158,9 @@ ggml_tensor* ggml_set(
 	size_t                nb1,
 	size_t                nb2,
 	size_t                nb3,
-	size_t                offset) {
-	return ggml_set_impl(ctx, a, b, nb1, nb2, nb3, offset, false);
+	size_t                offset,
+	bool inplace) {
+	return ggml_set_impl(ctx, a, b, nb1, nb2, nb3, offset, inplace);
 }
 
 ggml_tensor* ggml_cpy(
@@ -1124,7 +1125,7 @@ static ggml_tensor* ggml_unary_impl(
 	ggml_tensor* a,
 	ggml_unary_op op,
 	bool inplace) {
-	GGML_ASSERT(ggml_is_contiguous_1(a));
+	GGML_ASSERT(ggml_is_contiguous_rows(a));
 
 	ggml_tensor* result = inplace ? ggml_view_tensor(ctx, a) : ggml_dup_tensor(ctx, a);
 

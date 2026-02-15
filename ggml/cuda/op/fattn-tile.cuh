@@ -735,13 +735,13 @@ static __global__ void flash_attn_tile(
     if constexpr (flash_attn_available_v) {
 
         // Skip unused kernel variants for faster compilation:
-
-        if (
-#ifdef GGML_USE_WMMA_FATTN
-        (ncols2 != 1 && DV != 40 && DV != 72 && DV != 512) ||
-#endif // GGML_USE_WMMA_FATTN
-            (use_logit_softcap && !(DV == 128 || DV == 256))
-            ) {
+        constexpr bool emit_no_device_code_v = [=]() -> bool {
+            if constexpr (ggml_use_wmma_fattn_v) {
+                if (ncols2 != 1 && DV != 40 && DV != 72 && DV != 512) return true;
+            }
+            return use_logit_softcap && !(DV == 128 || DV == 256);
+        }();
+        if constexpr (emit_no_device_code_v) {
             NO_DEVICE_CODE;
             return;
         }

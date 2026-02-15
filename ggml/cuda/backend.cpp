@@ -1794,11 +1794,12 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
                         n_fuse++;
 
                         if (n_fuse > 1) {
+                            ggml_tensor fused_add_node;
                             for (int j = 0; j < n_fuse - 1; ++j) {
-                                node->src.push_back(cgraph->nodes[i + j + 1]->src[1]);
+                                fused_add_node.src.push_back(cgraph->nodes[i + j + 1]->src[1]);
                             }
-                            cgraph->nodes[i + n_fuse - 1]->data = node->data;
-                            fused::add(stream(), node, n_fuse);
+                            fused_add_node.data = cgraph->nodes[i + n_fuse - 1]->data;
+                            fused::add(stream(), &fused_add_node, n_fuse);
                             i += n_fuse - 1;
 
                             continue;
@@ -2242,6 +2243,7 @@ static bool ggml_cuda_graph_check_compability(ggml_cgraph* cgraph) {
     const std::string ffn_moe_down_bias_prefix = "ffn_moe_down_biased";
     const std::string nemotron_h_block_out_prefix = "nemotron_h_block_out";
     const std::string mamba2_y_add_d_prefix = "mamba2_y_add_d";
+    const std::string delta_net_prefix = "dnet_add";
 
     for (int i = 0; i < cgraph->nodes.size(); i++) {
         ggml_tensor* node = cgraph->nodes[i];
@@ -2279,7 +2281,9 @@ static bool ggml_cuda_graph_check_compability(ggml_cgraph* cgraph) {
             !node->name.starts_with(ffn_moe_up_bias_prefix) &&
             !node->name.starts_with(ffn_moe_down_bias_prefix) &&
             !node->name.starts_with(nemotron_h_block_out_prefix) &&
-            !node->name.starts_with(mamba2_y_add_d_prefix)) {
+            !node->name.starts_with(mamba2_y_add_d_prefix) &&
+            !node->name.starts_with(delta_net_prefix)
+            ) {
             // disable CUDA graphs for batch size > 1 for now while excluding the matrix-matrix addition as part of Gemma3n's `project_per_layer_input` operation
             // by means of matching node names. See
             // https://github.com/ggml-org/llama.cpp/blob/f9a31eea06a859e34cecb88b4d020c7f03d86cc4/src/llama-model.cpp#L10199-L10241 and

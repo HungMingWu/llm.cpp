@@ -2,26 +2,6 @@
 #include "common.cuh"
 #include "fattn-common.cuh"
 
-#if defined(GGML_USE_MUSA)
-#define GGML_USE_WMMA_FATTN
-#endif // defined(GGML_USE_MUSA)
-
-#if defined(GGML_HIP_ROCWMMA_FATTN)
-#if defined(CDNA) && (ROCWMMA_VERSION_MAJOR < 2 || ROCWMMA_VERSION_MINOR > 0 || ROCWMMA_VERSION_PATCH > 0)
-#define GGML_USE_WMMA_FATTN
-#elif defined(CDNA)
-#warning "rocwmma fattn on CDNA is broken on rocwmma v2.0.0, expect degraded performance"
-#endif // defined(CDNA) && (ROCWMMA_VERSION_MAJOR < 2 || ROCWMMA_VERSION_MINOR > 0 || ROCWMMA_VERSION_PATCH > 0)
-#if defined(RDNA3)
-#define GGML_USE_WMMA_FATTN
-#endif // defined(RDNA3)
-#if defined(RDNA4) && ROCWMMA_VERSION_MAJOR > 1
-#define GGML_USE_WMMA_FATTN
-#elif defined(RDNA4)
-#warning "rocwmma fattn is not suported on RDNA4 on rocwmma < v2.0.0, expect degraded performance"
-#endif // defined(RDNA4) && ROCWMMA_VERSION_MAJOR > 1
-#endif // defined(GGML_HIP_ROCWMMA_FATTN)
-
 // D == head size, VKQ_stride == num VKQ rows calculated in parallel:
 template<int D, int ncols, int nwarps, int VKQ_stride, typename KQ_acc_t, bool use_logit_softcap>
 __launch_bounds__(nwarps* ggml_cuda_get_physical_warp_size(), 1)
@@ -61,11 +41,19 @@ static __global__ void flash_attn_ext_f16(
     constexpr int frag_m = ncols == 8 ? 32 : 16;
     constexpr int frag_n = ncols == 8 ? 8 : 16;
     static_assert(D % frag_m == 0, "If ncols == 8 then D % frag_m must be 0.");
+#if defined(GGML_USE_HIP)
+    typedef wmma::fragment<wmma::matrix_a, frag_m, frag_n, 16, _Float16, wmma::row_major> frag_a_K;
+    typedef wmma::fragment<wmma::matrix_a, frag_m, frag_n, 16, _Float16, wmma::col_major> frag_a_V;
+    typedef wmma::fragment<wmma::matrix_b, frag_m, frag_n, 16, _Float16, wmma::col_major> frag_b;
+    typedef wmma::fragment<wmma::accumulator, frag_m, frag_n, 16, KQ_acc_t>                      frag_c_KQ;
+    typedef wmma::fragment<wmma::accumulator, frag_m, frag_n, 16, _Float16>                          frag_c_VKQ;
+#else
     typedef wmma::fragment<wmma::matrix_a, frag_m, frag_n, 16, half, wmma::row_major> frag_a_K;
     typedef wmma::fragment<wmma::matrix_a, frag_m, frag_n, 16, half, wmma::col_major> frag_a_V;
     typedef wmma::fragment<wmma::matrix_b, frag_m, frag_n, 16, half, wmma::col_major> frag_b;
     typedef wmma::fragment<wmma::accumulator, frag_m, frag_n, 16, KQ_acc_t>                      frag_c_KQ;
     typedef wmma::fragment<wmma::accumulator, frag_m, frag_n, 16, half>                          frag_c_VKQ;
+#endif
 
     constexpr int KQ_stride_tc = nwarps * frag_m; // Number of KQ rows calculated in parallel.
     constexpr int VKQ_ratio = KQ_stride_tc / VKQ_stride; // Number of parallel VKQ accumulators needed to keep all warps busy.
@@ -79,24 +67,21 @@ static __global__ void flash_attn_ext_f16(
     const int sequence = blockIdx.z / ne02;
     const int head = blockIdx.z - sequence * ne02;
     const int gqa_ratio = ne02 / ne12; // With grouped query attention there are > 1 Q matrices per K, V matrix.
-    const char* __restrict__ Q = (const char*)ctx.Q.data;
     const float* Q_f = (const float*)(Q + nb03 * sequence + nb02 * head + nb01 * ic0);
     const half* K_h = (const half*)(K + nb13 * sequence + nb12 * (head / gqa_ratio));
     const half* V_h = (const half*)(V + nb13 * sequence + nb12 * (head / gqa_ratio)); // K and V have same shape
-    const char* __restrict__ mask = (const char*)ctx.mask.data;
     const half* maskh = (const half*)(mask + nb33 * (sequence % ne33) + nb31 * ic0);
     const half2* mask2 = (const half2*)maskh;
-    const char* __restrict__ sinks = (const char*)ctx.sinks.data;
     const float* sinksf = (const float*)sinks;
 
     const int stride_Q = nb01 / sizeof(float);
     const int stride_KV = nb11 / sizeof(half);
 
-    const float slopef = get_alibi_slope(ctx.max_bias, head, n_head_log2, m0, m1);
+    const float slopef = get_alibi_slope(max_bias, head, n_head_log2, m0, m1);
     const half  slopeh = __float2half(slopef);
     const half2 slope2 = make_half2(slopef, slopef);
 
-    const half2 logit_softcap_2 = make_half2(ctx.logit_softcap, ctx.logit_softcap);
+    const half2 logit_softcap_2 = make_half2(logit_softcap, logit_softcap);
 
     frag_b Q_b[D / 16][ncols / frag_n];
 
@@ -127,6 +112,19 @@ static __global__ void flash_attn_ext_f16(
 
     __shared__ half VKQ[ncols * D_padded]; // Accumulator for final VKQ slice.
     half2* VKQ2 = (half2*)VKQ;
+
+#if defined(GGML_USE_HIP)
+    const _Float16* K_h_f16 = reinterpret_cast<const _Float16*>(K_h);
+    const _Float16* V_h_f16 = reinterpret_cast<const _Float16*>(V_h);
+    _Float16* KQ_f16 = reinterpret_cast<_Float16*>(KQ);
+    _Float16* VKQ_f16 = reinterpret_cast<_Float16*>(VKQ);
+#else
+    const half* K_h_f16 = K_h;
+    const half* V_h_f16 = V_h;
+    half* KQ_f16 = KQ;
+    half* VKQ_f16 = VKQ;
+#endif
+
 #pragma unroll
     for (int j0 = 0; j0 < ncols; j0 += nwarps) {
         const int j = j0 + threadIdx.y;
@@ -161,7 +159,7 @@ static __global__ void flash_attn_ext_f16(
     for (int i0 = 0; i0 < D; i0 += 16) {
 #pragma unroll
         for (int j0 = 0; j0 < ncols; j0 += frag_n) {
-            wmma::load_matrix_sync(Q_b[i0 / 16][j0 / frag_n], KQ + j0 * D_padded + i0, D_padded);
+            wmma::load_matrix_sync(Q_b[i0 / 16][j0 / frag_n], KQ_f16 + j0 * D_padded + i0, D_padded);
         }
     }
 
@@ -181,7 +179,7 @@ static __global__ void flash_attn_ext_f16(
 #pragma unroll
             for (int k_KQ_0 = 0; k_KQ_0 < D; k_KQ_0 += 16) {
                 frag_a_K K_a;
-                wmma::load_matrix_sync(K_a, K_h + int64_t(k_VKQ_0 + i_KQ_0 + frag_m * threadIdx.y) * stride_KV + k_KQ_0, stride_KV);
+                wmma::load_matrix_sync(K_a, K_h_f16 + int64_t(k_VKQ_0 + i_KQ_0 + frag_m * threadIdx.y) * stride_KV + k_KQ_0, stride_KV);
 #pragma unroll
                 for (int j = 0; j < ncols / frag_n; ++j) {
                     wmma::mma_sync(KQ_c[j], K_a, Q_b[k_KQ_0 / 16][j], KQ_c[j]);
@@ -210,7 +208,7 @@ static __global__ void flash_attn_ext_f16(
                     KQ_f_tmp[k0 / warp_size] = KQ_f[j * kqs_padded + k];
 
                     if (use_logit_softcap) {
-                        KQ_f_tmp[k0 / warp_size] = ctx.logit_softcap * tanhf(KQ_f_tmp[k0 / warp_size]);
+                        KQ_f_tmp[k0 / warp_size] = logit_softcap * tanhf(KQ_f_tmp[k0 / warp_size]);
                     }
                 }
 
@@ -312,7 +310,7 @@ static __global__ void flash_attn_ext_f16(
                 const int k = k0 + (threadIdx.y % VKQ_ratio) * 16;
                 wmma::load_matrix_sync(
                     KQ_b[k0 / (VKQ_ratio * 16)][j0 / frag_n],
-                    KQ + j0 * (kqar * kqs_padded) + k,
+                    KQ_f16 + j0 * (kqar * kqs_padded) + k,
                     kqar * kqs_padded);
             }
         }
@@ -330,7 +328,7 @@ static __global__ void flash_attn_ext_f16(
                 const int k = k0 + (threadIdx.y % VKQ_ratio) * 16;
 
                 frag_a_V v_a;
-                wmma::load_matrix_sync(v_a, V_h + int64_t(k_VKQ_0 + k) * stride_KV + i_VKQ_0 + frag_m * (threadIdx.y / VKQ_ratio), stride_KV);
+                wmma::load_matrix_sync(v_a, V_h_f16 + int64_t(k_VKQ_0 + k) * stride_KV + i_VKQ_0 + frag_m * (threadIdx.y / VKQ_ratio), stride_KV);
 #pragma unroll
                 for (int j = 0; j < ncols / frag_n; ++j) {
                     wmma::mma_sync(VKQ_c[i_VKQ_0 / VKQ_stride][j], v_a, KQ_b[k0 / (VKQ_ratio * 16)][j], VKQ_c[i_VKQ_0 / VKQ_stride][j]);
@@ -346,7 +344,7 @@ static __global__ void flash_attn_ext_f16(
 #pragma unroll
             for (int j0 = 0; j0 < ncols; j0 += frag_n) {
                 wmma::store_matrix_sync(
-                    KQ + offset_k + j0 * D_padded + i_KQ_0 + frag_m * (threadIdx.y / VKQ_ratio),
+                    KQ_f16 + offset_k + j0 * D_padded + i_KQ_0 + frag_m * (threadIdx.y / VKQ_ratio),
                     VKQ_c[i_KQ_0 / VKQ_stride][j0 / frag_n],
                     D_padded, wmma::mem_col_major);
             }
