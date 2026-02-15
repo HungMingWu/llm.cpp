@@ -3869,7 +3869,7 @@ struct test_l2_norm : public test_case {
     bool v;
 
     std::string vars() override {
-        return std::format("type={},ne={},v={}", type, ne, static_cast<int>(v));
+        return std::format("type={},ne={},eps={:6f},v={}", type, ne, eps, static_cast<int>(v));
     }
 
     test_l2_norm(ggml_type type = GGML_TYPE_F32,

@@ -4870,60 +4870,32 @@ static void apply_binary_op(
 	GGML_ASSERT(dst->nb[0] == sizeof(dst_t));
 	GGML_ASSERT(src0->nb[0] == sizeof(src0_t));
 
-	const bool is_src1_contiguous_rows = ggml_is_contiguous_rows(src1);
-
-	stdexec::scheduler auto scheduler = pool.get_scheduler();
-
 	auto dst_data = make_strided_mdspan(static_cast<dst_t*>(dst->data), dst->ne, dst->nb);
 	auto src0_data = make_strided_mdspan(static_cast<const src0_t*>(src0->data), src0->ne, src0->nb);
 	auto src1_data = make_strided_mdspan(static_cast<const src1_t*>(src1->data), src1->ne, src1->nb);
 
-	if (is_src1_contiguous_rows) {
-		for (int64_t i03 = 0; i03 < src0_data.extent(0); i03++) {
-			for (int64_t i02 = 0; i02 < src0_data.extent(1); i02++) {
-				for (int64_t i01 = 0; i01 < src0_data.extent(2); i01++) {
-					stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-						const int64_t i13 = i03 % src1_data.extent(0);
-						const int64_t i12 = i02 % src1_data.extent(1);
-						const int64_t i11 = i01 % src1_data.extent(2);
+	for (int64_t i03 = 0; i03 < src0_data.extent(0); i03++) {
+		for (int64_t i02 = 0; i02 < src0_data.extent(1); i02++) {
+			for (int64_t i01 = 0; i01 < src0_data.extent(2); i01++) {
+				stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+					const int64_t i13 = i03 % src1_data.extent(0);
+					const int64_t i12 = i02 % src1_data.extent(1);
+					const int64_t i11 = i01 % src1_data.extent(2);
 
-						// src1 is broadcastable across src0 and dst in i1, i2, i3
-						const int64_t nr0 = src0_data.extent(3) / src1_data.extent(3);
+					// src1 is broadcastable across src0 and dst in i1, i2, i3
+					const int64_t nr0 = src0_data.extent(3) / src1_data.extent(3);
 
-						for (int64_t r = 0; r < nr0; ++r) {
-							for (int64_t i = 0; i < src1_data.extent(3); i++) {
-								dst_data[i03, i02, i01, r * src1_data.extent(3) + i] =
-									fromFloat32<dst_t>(
-										op(
-											toFloat32(src0_data[i03, i02, i01, r * src1_data.extent(3) + i]),
-											toFloat32(src1_data[i13, i12, i11, i])));
-							}
+					for (int64_t r = 0; r < nr0; ++r) {
+						for (int64_t i = 0; i < src1_data.extent(3); i++) {
+							dst_data[i03, i02, i01, r * src1_data.extent(3) + i] =
+								fromFloat32<dst_t>(
+									op(
+										toFloat32(src0_data[i03, i02, i01, r * src1_data.extent(3) + i]),
+										toFloat32(src1_data[i13, i12, i11, i])));
 						}
-					});
-					scope.spawn(std::move(sender));
-				}
-			}
-		}
-	}
-	else {
-		for (int64_t i03 = 0; i03 < src0_data.extent(0); i03++) {
-			for (int64_t i02 = 0; i02 < src0_data.extent(1); i02++) {
-				for (int64_t i01 = 0; i01 < src0_data.extent(2); i01++) {
-					stdexec::sender auto sender = stdexec::schedule(scheduler) | stdexec::then([=] {
-						const int64_t i13 = i03 % src1_data.extent(0);
-						const int64_t i12 = i02 % src1_data.extent(1);
-						const int64_t i11 = i01 % src1_data.extent(2);
-
-						for (int64_t i = 0; i < dst_data.extent(3); i++) {
-							int64_t i10 = i % src1_data.extent(3);
-							dst_data[i03, i02, i01, i] = fromFloat32<dst_t>(
-								op(
-									toFloat32(src0_data[i03, i02, i01, i]),
-									toFloat32(src0_data[i13, i12, i11, i10 + i])));
-						}
-					});
-					scope.spawn(std::move(sender));
-				}
+					}
+				});
+				scope.spawn(std::move(sender));
 			}
 		}
 	}

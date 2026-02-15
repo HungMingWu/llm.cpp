@@ -216,7 +216,6 @@ namespace op {
 
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(dst->type == GGML_TYPE_F32);
-        GGML_ASSERT(ggml_is_contiguous(src0));
 
         const bool circular = dst->op_params[8];
         pad_context ctx{

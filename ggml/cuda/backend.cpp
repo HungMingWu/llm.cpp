@@ -1794,7 +1794,7 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
                         n_fuse++;
 
                         if (n_fuse > 1) {
-                            ggml_tensor fused_add_node;
+                            ggml_tensor fused_add_node = *node;
                             for (int j = 0; j < n_fuse - 1; ++j) {
                                 fused_add_node.src.push_back(cgraph->nodes[i + j + 1]->src[1]);
                             }

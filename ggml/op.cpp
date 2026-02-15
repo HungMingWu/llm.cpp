@@ -825,10 +825,6 @@ ggml_tensor* ggml_acc(
 
 	ggml_tensor* result = build(inplace, ctx, a, GGML_OP_ACC, a, b);
 	cpp26::inplace_vector<int32_t, 4> offsets(offset.begin(), offset.end());
-	GGML_ASSERT(offsets[0] + b->ne[0] <= a->ne[0]);
-	GGML_ASSERT(offsets[1] + b->ne[1] <= a->ne[1]);
-	GGML_ASSERT(offsets[2] + b->ne[2] <= a->ne[2]);
-	GGML_ASSERT(offsets[3] + b->ne[3] <= a->ne[3]);
 	uint32_t params[] = {
 		static_cast<uint32_t>(offsets[0]),
 		static_cast<uint32_t>(offsets[1]),
