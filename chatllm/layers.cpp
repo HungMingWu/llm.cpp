@@ -850,6 +850,17 @@ namespace chatllm
         return tensor;
     }
 
+    ggml::tensor* ggml::pad_reflect(ComputeContext* ctx, ggml::tensor* a,
+        int l0, int r0, int l1, int r1, int l2, int r2, int l3, int r3)
+    {
+        CHATLLM_CHECK((l1 == 0) && (r1 == 0));
+        CHATLLM_CHECK((l2 == 0) && (r2 == 0));
+        CHATLLM_CHECK((l3 == 0) && (r3 == 0));
+        ggml::tensor* tensor = ggml_pad_reflect_1d(ctx->get_ctx(), a, l0, r0);
+        ctx->cb_op_tensor(tensor);
+        return tensor;
+    }
+
     ggml::tensor* ggml::add(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* b, bool inplace)
     {
         //OPTIMIZE: some backends requires input to be continuous
@@ -1152,11 +1163,44 @@ namespace chatllm
     {
     }
 
+    void Conv1D::set_pad_same(void)
+    {
+        pad_same = true;
+    }
+
+    void Conv1D::set_pad_mode(PaddingMode mode)
+    {
+        padding_mode = mode;
+    }
+
     ggml::tensor* Conv1D::forward(ComputeContext* ctx, ggml::tensor* input)
     {
         ggml::tensor* output = nullptr;
         if (groups == 1)
         {
+            int padding = this->padding;
+            if (pad_same)
+            {
+                CHATLLM_CHECK(1 == stride) << "only support stride = 1 for pad = 'same'";
+                const int l0 = dilation * (kernel_size - 1) / 2;
+                const int r0 = dilation * (kernel_size - 1) - l0;
+                padding = 0;
+                if ((l0 != 0) || (r0 != 0))
+                {
+                    switch (padding_mode)
+                    {
+                    case PaddingMode::Zeros:
+                        input = ggml::pad(ctx, input, l0, r0);
+                        break;
+                    case PaddingMode::Reflect:
+                        input = ggml::pad_reflect(ctx, input, l0, r0);
+                        break;
+                    default:
+                        CHATLLM_CHECK(false) << "unpported padding_mode: " << padding_mode;
+                    }
+                }
+            }
+
             if (!ggml_is_contiguous(input))
                 input = ggml::cont(ctx, input);
             output = ggml::conv_1d(ctx, weight, input, stride, padding, dilation);
