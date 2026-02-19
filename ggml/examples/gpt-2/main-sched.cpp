@@ -93,11 +93,19 @@ void init_backends(gpt2_model& model, const gpt_params& params) {
     // initialize the backends
 #ifdef GGML_USE_CUDA
     if (params.n_gpu_layers > 0) {
+#if 0
         std::println(stderr, "{}: using CUDA backend", __func__);
         gpu_backend = ggml_backend_cuda_init(0);
         if (!gpu_backend) {
             std::println(stderr, "{}: ggml_backend_cuda_init() failed", __func__);
         }
+#else
+        std::println(stderr, "{}: using Fake CUDA backend", __func__);
+        gpu_backend = ggml_backend_cpu_init();
+        if (!gpu_backend) {
+            std::println(stderr, "{}: ggml_backend_cuda_init() failed", __func__);
+        }
+#endif
     }
 #endif
 
@@ -389,6 +397,8 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
             // note that the buffer can actually be a device buffer, depending on the backend
             alloc.alloc(model.memory_k);
             alloc.alloc(model.memory_v);
+            printf("Outer memory_v's pointer: %p %p %p\n", model.memory_v,
+                model.memory_v->data, (char*)model.memory_v->data + 0x2100000);
         }
     }
 
@@ -861,13 +871,21 @@ bool gpt2_eval(
     embd_w.resize(n_vocab);
     ggml_backend_tensor_get(inpL, embd_w.data(), (n_vocab * (N - 1)) * sizeof(float), sizeof(float) * n_vocab);
 
+#if 0
+    printf("The first 5 elements in embd_w: ");
+    for (int i = 0; i < 5; i++) {
+        printf("%.3f ", embd_w[i]);
+	}
+    printf("\n");
+#endif
     return true;
 }
 
 int main(int argc, char** argv) {
     Stopwatch main_sw;
     gpt_params params;
-    params.model = "models/gpt-2-117M/ggml-model.bin";
+    params.model = "D:\\gguf_test\\ggml-model-gpt-2-117M.bin";
+    params.n_gpu_layers = 1;
 
     if (gpt_params_parse(argc, argv, params) == false) {
         return 1;
@@ -881,7 +899,7 @@ int main(int argc, char** argv) {
 
     std::mt19937 rng(params.seed);
     if (params.prompt.empty()) {
-        params.prompt = gpt_random_prompt(rng);
+        params.prompt = "If";// gpt_random_prompt(rng);
     }
 
     int64_t t_load_us = 0;

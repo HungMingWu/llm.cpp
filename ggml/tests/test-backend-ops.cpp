@@ -878,6 +878,8 @@ static void init_tensor_uniform(ggml_tensor* tensor, float min = -1.0f, float ma
         }
     }
 
+    //float sum = 0.1;
+    //for (auto& v : data) v = sum;
     if (tensor->type == GGML_TYPE_F32 || tensor->type == GGML_TYPE_I32) {
         ggml_backend_tensor_set(tensor, data.data(), 0, nels * sizeof(float));
     }
@@ -6984,6 +6986,64 @@ static const ggml_type other_types[] = {
     GGML_TYPE_BF16,
 };
 
+static std::vector<std::unique_ptr<test_case>> test() {
+    std::vector<std::unique_ptr<test_case>> test_cases;
+    std::default_random_engine rng(0);
+    test_cases.emplace_back(new test_flash_attn_ext(
+        576, 512, 1, { 4, 1 }, 512, 32, 1, 1, 0.000000, 0.000000, GGML_PREC_F32, GGML_TYPE_F16));
+    return test_cases;
+
+    for (int hsk : { 40, 64, 72, 80, 96, 128, 192, 256, 576 }) {
+        for (int hsv : { 40, 64, 72, 80, 96, 128, 192, 256, 512 }) {
+            if (hsk != 192 && hsk != 576 && hsk != hsv) continue;
+            if (hsk == 192 && (hsv != 128 && hsv != 192)) continue;
+            if (hsk == 576 && hsv != 512) continue; // DeepSeek MLA
+
+            for (bool mask : { true, false }) {
+                for (bool sinks : { true, false }) {
+                    for (float max_bias : { 0.0f, 8.0f }) {
+                        if (!mask && max_bias > 0.0f) continue;
+                        for (float logit_softcap : {0.0f, 10.0f}) {
+                            if (hsk != 128 && logit_softcap != 0.0f) continue;
+                            for (int nh : { 1, 4 }) {
+                                if (nh == 1 && hsk != 576) continue; // GLM 4.7 Flash
+                                for (int nr3 : { 1, 3, }) {
+                                    if (hsk > 64 && nr3 > 1) continue; // skip broadcast for large head sizes
+                                    for (int nr2 : { 1, 4, 12, 20 }) {
+                                        if (nr2 == 12 && hsk != 128) continue;
+                                        if (nr2 == 20 && (nh != 1 || hsk != 576)) continue;
+                                        //for (int kv : { 1, 17, 31, 33, 61, 113, 65, 127, 129, 130, 255, 260, 371, 380, 407, 512, 1024, }) {
+                                        for (int kv : { 113, 512, 1024, }) {
+                                            if (nr2 != 1 && kv != 512) continue;
+                                            for (int nb : { 1, 3, 32, 35, }) {
+                                                for (ggml_prec prec : {GGML_PREC_F32, GGML_PREC_DEFAULT}) {
+                                                    if (hsk != 128 && prec == GGML_PREC_DEFAULT) continue;
+                                                    for (ggml_type type_KV : {GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_BF16, GGML_TYPE_Q8_0, GGML_TYPE_Q4_0}) {
+                                                        if (type_KV != GGML_TYPE_F16 && hsk != 64 && hsk != 72) continue;
+                                                        test_cases.emplace_back(new test_flash_attn_ext(
+                                                            hsk, hsv, nh, { nr2, nr3 }, kv, nb, mask, sinks, max_bias, logit_softcap, prec, type_KV));
+                                                        // run fewer test cases permuted
+                                                        if (mask == true && max_bias == 0.0f && logit_softcap == 0 && kv == 512) {
+                                                            test_cases.emplace_back(new test_flash_attn_ext(
+                                                                hsk, hsv, nh, { nr2, nr3 }, kv, nb, mask, sinks, max_bias, logit_softcap, prec, type_KV, { 0, 2, 1, 3 }));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return test_cases;
+}
+
 #ifdef _MSC_VER
 // Workaround long compile time with msvc
 #pragma optimize("", off)
@@ -6994,6 +7054,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     std::vector<std::unique_ptr<test_case>> test_cases;
     std::default_random_engine rng(0);
 
+    return test();
     // unary ops
     for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
         for (int v : {0, 1}) {

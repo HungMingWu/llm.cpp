@@ -462,7 +462,7 @@ gpt_vocab::id gpt_sample_top_k_top_p(
     //exit(0);
 
     std::discrete_distribution<> dist(probs.begin(), probs.end());
-    int idx = dist(rng);
+    int idx = 0; // dist(rng);
 
     return logits_id[idx].second;
 }

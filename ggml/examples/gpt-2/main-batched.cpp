@@ -930,6 +930,7 @@ int main(int argc, char** argv) {
     Stopwatch main_sw;
     gpt_params params;
 
+    params.model = "D:\\gguf_test\\ggml-model-gpt-2-117M.bin";
     if (gpt_params_parse(argc, argv, params) == false) {
         return 1;
     }
