@@ -7,7 +7,7 @@ static constexpr std::initializer_list<int> cuda_arch_list {__CUDA_ARCH_LIST__};
 int ggml_cuda_highest_compiled_arch(const int arch) {
     int result = -1;
     for (auto& cur : cuda_arch_list) {
-        if (result <= arch && result > cur)
+        if (cur <= arch && cur > result)
             result = cur;
     }
     return result;
