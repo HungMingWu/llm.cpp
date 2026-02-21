@@ -404,7 +404,7 @@ static __device__ __forceinline__ void flash_attn_ext_f16_load_mask(
     }
 }
 
-int calc_KQ_idx(int l)
+__device__ int calc_KQ_idx(int l)
 {
     if constexpr (amd_wmma_available_v) return 0;
     // Turing + Volta:
