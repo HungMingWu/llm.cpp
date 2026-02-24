@@ -351,7 +351,7 @@ static __device__ __forceinline__ void flash_attn_tile_load_tile(
                     half2* out = tile_KV + i * (J / 2 + J_padding) + j;
 #pragma unroll
                     for (int l = 0; l < cpy_ne; ++l) {
-                        half2 tmp_h2 = (!oob_check || i < i_sup) ? KV(i, j) : half2{};
+                        half2 tmp_h2 = (!oob_check || i < i_sup) ? KV(i, j + l) : half2{};
                         *out++ = tmp_h2;
                     }
                 }
@@ -403,7 +403,7 @@ static __device__ __forceinline__ void flash_attn_tile_load_tile(
                     float* out = tile_KV + i * (J + J_padding) + 2 * j;
 #pragma unroll
                     for (int l = 0; l < cpy_ne / 2; ++l) {
-                        half2 tmp_h2 = (!oob_check || i < i_sup) ? KV(i, j) : half2{};
+                        half2 tmp_h2 = (!oob_check || i < i_sup) ? KV(i, j + l) : half2{};
                         float2 tmp_f2 = __half22float2(tmp_h2);
                         *out++ = tmp_f2.x;
                         *out++ = tmp_f2.y;
