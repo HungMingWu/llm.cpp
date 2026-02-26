@@ -885,6 +885,11 @@ namespace chatllm::qwen::ds_r1_distill
 
 namespace chatllm::qwen::vit
 {
+    Config::Config()
+    {
+        memset(this, 0, sizeof(Config));
+    }
+
     PatchEmbedding::PatchEmbedding(InitContext* ctx, const Config& config)
         : proj0(ctx, 3, config.hidden_size, config.patch_size, config.patch_size, 0, 1, 1, false),
         proj1(ctx, 3, config.hidden_size, config.patch_size, config.patch_size, 0, 1, 1, false)
@@ -1377,8 +1382,10 @@ namespace chatllm::qwen::vit
         const auto vis_cfg = config["config.json"]["vision_config"];
         if (!vis_cfg.IsObject()) return false;
 
+        int full_cnt = 0;
+
         vis_config.dtype = dtype;
-        vis_config.is_ver_2_0 = vis_cfg["model_type"].ToString() == "qwen2_vl";
+        vis_config.is_ver_2_0 = config["config.json"]["model_type"].ToString() == "qwen2_vl";
 
         vis_config.patch_size = (int)vis_cfg["patch_size"].ToInt();
         vis_config.num_attention_heads = (int)vis_cfg["num_heads"].ToInt();
@@ -1406,7 +1413,10 @@ namespace chatllm::qwen::vit
             auto indices = vis_cfg["fullatt_block_indexes"];
             CHATLLM_CHECK((int)indices.length() <= VIT_MAX_LAYERS);
             for (int i = 0; i < (int)indices.length(); i++)
+            {
+                full_cnt += 1;
                 vis_config.fullatt_block_indices[indices[i].ToInt()] = true;
+            }
         }
 
         auto pp_cfg = config["preprocessor_config.json"];

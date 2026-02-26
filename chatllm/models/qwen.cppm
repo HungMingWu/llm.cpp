@@ -397,6 +397,8 @@ namespace chatllm::qwen
             int min_pixels;
             int max_pixels;
             int merge_size;
+
+            Config();
         };
 
         class PatchEmbedding : public Block
