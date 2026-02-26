@@ -1,6 +1,7 @@
 module;
 #include <assert.h>
 #include <bit>
+#include <span>
 #include <vector>
 #include "common.h"
 #include "op/cuda_func.h"

@@ -9,6 +9,7 @@ module;
 #include "../JSON.h"
 
 module chatllm;
+import ggml;
 import :models.qwen_tts;
 
 namespace chatllm::qwen::tts

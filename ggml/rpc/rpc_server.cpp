@@ -8,6 +8,7 @@ module;
 #include <memory>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define LOG_DBG(...)

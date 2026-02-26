@@ -175,3 +175,8 @@ target_compile_options(libggml
         $<$<NOT:$<BOOL:GGML_CUDA_DEBUG>>:-lineinfo>
     >
 )
+
+set_target_properties(libggml PROPERTIES
+    CUDA_SEPARATE_COMPILATION ON
+    POSITION_INDEPENDENT_CODE ON
+)

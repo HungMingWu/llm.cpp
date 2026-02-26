@@ -1,4 +1,5 @@
 ﻿module;
+#include <string.h>
 #include <optional>
 #include <sstream>
 #include "../audio_process.h"
@@ -9,6 +10,7 @@
 #include "../unicode.h"
 
 module chatllm;
+import ggml;
 import :models.qwen;
 import :models.qwen_asr;
 

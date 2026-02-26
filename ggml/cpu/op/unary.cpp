@@ -2,6 +2,7 @@ module;
 #include <assert.h>
 #include <math.h>
 #include <print>
+#include <ranges>
 #include "mdspan_helper.h"
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)

@@ -1,5 +1,6 @@
 module;
 #include "common.h"
+#include <map>
 #define GGML_ASSERT(...)
 
 module ggml;

@@ -1,6 +1,7 @@
 module;
 #include <assert.h>
 #include <stdint.h>
+#include <ranges>
 #include "mdspan.hpp"
 #include "mdspan_helper.h"
 #define GGML_ABORT(...)
