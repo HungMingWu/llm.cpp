@@ -966,11 +966,12 @@ namespace op
 
         const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
 
+        // [TAG_MUL_MAT_ID_CUDA_GRAPHS]
         if (src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
             static_assert(MMVQ_MAX_BATCH_SIZE == MMVF_MAX_BATCH_SIZE);
             if (dst->ne[2] <= MMVQ_MAX_BATCH_SIZE) {
                 if (ggml_is_quantized(src0->type)) {
-                    if (dst->ne[2] <= 4) {
+                    if (dst->ne[2] <= MMVQ_MMID_MAX_BATCH_SIZE) {
                         mul_mat_vec_q(pool, stream, src0, src1, ids, dst);
                         return;
                     }
@@ -994,6 +995,8 @@ namespace op
             }
         }
 
+        // note: this path should not be reached when recording CUDA graphs, because it requires stream synchronization
+        // TODO: add asserts to verify this. should work with CUDA, HIP, etc.
         GGML_ASSERT(src1->nb[2] % src1->nb[1] == 0);
         GGML_ASSERT(dst->nb[2] % dst->nb[1] == 0);
 

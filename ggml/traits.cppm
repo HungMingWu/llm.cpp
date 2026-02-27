@@ -655,7 +655,9 @@ export
     }
 
     std::string_view ggml_type_name(enum ggml_type type) {
-        return type < GGML_TYPE_COUNT ? type_traits[type].type_name : "NONE";
+        assert(type >= 0);
+        assert(type < GGML_TYPE_COUNT);
+        return type_traits[type].type_name;
     }
 
     size_t ggml_type_size(enum ggml_type type) {
@@ -668,6 +670,8 @@ export
     }
 
     bool ggml_is_quantized(enum ggml_type type) {
+        assert(type >= 0);
+        assert(type < GGML_TYPE_COUNT);
         return type_traits[type].is_quantized;
     }
 
@@ -697,7 +701,8 @@ export
     }
 
     const struct ggml_type_traits* ggml_get_type_traits(enum ggml_type type) {
-        //GGML_ASSERT(type < GGML_TYPE_COUNT);
+        assert(type >= 0);
+        assert(type < GGML_TYPE_COUNT);
         return &type_traits[type];
     }
 

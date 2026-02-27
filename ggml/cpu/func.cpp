@@ -3719,8 +3719,8 @@ static void ggml_compute_forward_timestep_embedding(
 	}
 }
 
-#define GGML_FA_TILE_Q  32
-#define GGML_FA_TILE_KV 16
+#define GGML_FA_TILE_Q  64
+#define GGML_FA_TILE_KV 64
 
 struct ggml_fa_tile_config {
 	static constexpr size_t Q = GGML_FA_TILE_Q;
@@ -3738,6 +3738,113 @@ struct flash_attn_context {
 	const float m0;
 	const float m1;
 };
+
+static constexpr bool use_simd_v = true;
+// Here is the AVX2 workaround solution before C++26 SIMD
+static constexpr size_t GGML_F32_EPR = 16;
+#define GGML_F32x16         __m512
+#define GGML_F32_VEC        GGML_F32x16
+#define GGML_F32x16_FMA(a, b, c) _mm512_fmadd_ps(b, c, a)
+#define GGML_F32_VEC_FMA    GGML_F32x16_FMA
+#define GGML_F32x16_LOAD    _mm512_loadu_ps
+#define GGML_F32_VEC_LOAD   GGML_F32x16_LOAD
+#define GGML_F32x16_SET1(x) _mm512_set1_ps(x)
+#define GGML_F32_VEC_SET1   GGML_F32x16_SET1
+#define GGML_F32x16_STORE   _mm512_storeu_ps
+#define GGML_F32_VEC_STORE  GGML_F32x16_STORE
+
+template <int RM, int RN>
+static inline void simd_gemm_ukernel(
+	float* C,
+	const float* A,
+	const float* B,
+	int K, int N)
+{
+	static constexpr int KN = GGML_F32_EPR;
+
+	GGML_F32_VEC acc[RM][RN];
+	for (int64_t i = 0; i < RM; i++) {
+		for (int r = 0; r < RN; r++) {
+			acc[i][r] = GGML_F32_VEC_LOAD(C + i * N + r * KN);
+		}
+	}
+
+	for (int64_t kk = 0; kk < K; kk++) {
+		GGML_F32_VEC Bv[RN];
+		for (int r = 0; r < RN; r++) {
+			Bv[r] = GGML_F32_VEC_LOAD(B + kk * N + r * KN);
+		}
+		for (int64_t i = 0; i < RM; i++) {
+			GGML_F32_VEC p = GGML_F32_VEC_SET1(A[i * K + kk]);
+			for (int r = 0; r < RN; r++) {
+				acc[i][r] = GGML_F32_VEC_FMA(acc[i][r], Bv[r], p);
+			}
+		}
+	}
+
+	for (int64_t i = 0; i < RM; i++) {
+		for (int r = 0; r < RN; r++) {
+			GGML_F32_VEC_STORE(C + i * N + r * KN, acc[i][r]);
+		}
+	}
+}
+
+static constexpr int GEMM_RM = 4;
+static constexpr int GEMM_RN = 4; // 16+4+1 = 25/32
+
+// C[M x N] += A[M x K] * B[K x N]
+static void simd_gemm(
+	float* C,
+	const float* A,
+	const float* B,
+	int M, int K, int N)
+{
+	static constexpr int KN = GGML_F32_EPR;
+
+	int64_t ii = 0;
+	for (; ii + GEMM_RM <= M; ii += GEMM_RM) {
+		int64_t jj = 0;
+		for (; jj + GEMM_RN * KN <= N; jj += GEMM_RN * KN) {
+			simd_gemm_ukernel<GEMM_RM, GEMM_RN>(C + jj, A, B + jj, K, N);
+		}
+		for (; jj + KN <= N; jj += KN) {
+			simd_gemm_ukernel<GEMM_RM, 1>(C + jj, A, B + jj, K, N);
+		}
+		for (; jj < N; jj++) {
+			for (int64_t i = 0; i < GEMM_RM; i++) {
+				float a = C[i * N + jj];
+				for (int64_t kk = 0; kk < K; kk++) {
+					a += A[i + kk] * B[kk * N + jj];
+				}
+				C[i * N + jj] = a;
+			}
+		}
+
+		A += GEMM_RM * K;
+		C += GEMM_RM * N;
+	}
+
+	// Tail rows: one at a time
+	for (; ii < M; ii++) {
+		int64_t jj = 0;
+		for (; jj + GEMM_RN * KN <= N; jj += GEMM_RN * KN) {
+			simd_gemm_ukernel<1, GEMM_RN>(C + jj, A, B + jj, K, N);
+		}
+		for (; jj + KN <= N; jj += KN) {
+			simd_gemm_ukernel<1, 1>(C + jj, A, B + jj, K, N);
+		}
+		for (; jj < N; jj++) {
+			float a = C[jj];
+			for (int64_t kk = 0; kk < K; kk++) {
+				a += A[kk] * B[kk * N + jj];
+			}
+			C[jj] = a;
+		}
+
+		A += K;
+		C += N;
+	}
+}
 
 template <typename kv_type>
 static void ggml_compute_forward_flash_attn_ext_tiled(
@@ -3785,8 +3892,6 @@ static void ggml_compute_forward_flash_attn_ext_tiled(
 	static constexpr int Q_TILE_SZ = ggml_fa_tile_config::Q;
 	static constexpr int KV_TILE_SZ = ggml_fa_tile_config::KV;
 
-	GGML_ASSERT(k->ne[1] % KV_TILE_SZ == 0 && "KV sequence length must be divisible by KV_TILE_SZ");
-
 	// q indices for the start of this tile
 	for (int64_t iq3 = 0; iq3 < q->ne[3]; iq3++) {
 		for (int64_t iq2 = 0; iq2 < q->ne[2]; iq2++) {
@@ -3810,15 +3915,19 @@ static void ggml_compute_forward_flash_attn_ext_tiled(
 					}
 
 					// Per-thread scratch layout:
-					// Q_q:    Q_TILE_SZ * DK (converted Q tile in KV type)
+					// Q_q:    Q_TILE_SZ * DK (converted Q tile ¡X F32 for GEMM, KV type for scalar)
 					// KQ:     Q_TILE_SZ * KV_TILE_SZ (attention scores in float)
 					// mask:   Q_TILE_SZ * KV_TILE_SZ (mask in float)
 					// VKQ32:  Q_TILE_SZ * DV (FP32 output accumulator)
+					// V32:    KV_TILE_SZ * DV (F32 buffer for V tile)
+					// K_f32:  KV_TILE_SZ * DK (F32 buffer for K tile ¡X GEMM path)
 
-					std::vector<kv_type> Q_q(Q_TILE_SZ * DK);
+					std::vector<float> Q_q(Q_TILE_SZ * DK);
 					std::vector<float> KQ(Q_TILE_SZ * KV_TILE_SZ);
 					std::vector<float> mask32(Q_TILE_SZ * KV_TILE_SZ, 0);
 					std::vector<float> VKQ32(Q_TILE_SZ * DV, 0);
+					std::vector<float> V32(KV_TILE_SZ * DV, 0);
+					std::vector<float> K_f32(KV_TILE_SZ * DK, 0);
 					std::mdspan Q_q_mdspan(Q_q.data(), Q_TILE_SZ, DK);
 					std::mdspan mask32_mdspan(mask32.data(), Q_TILE_SZ, KV_TILE_SZ);
 					std::mdspan VKQ32_mdspan(VKQ32.data(), Q_TILE_SZ, DV);
@@ -3836,23 +3945,23 @@ static void ggml_compute_forward_flash_attn_ext_tiled(
 						auto q_data = make_strided_mdspan(static_cast<const float*>(q->data), q->ne, q->nb);
 						if (tq < tile_rows) {
 							for (int64_t i = 0; i < DK; i++)
-								Q_q_mdspan[tq, i] = fromFloat32<kv_type>(q_data[iq3, iq2, iq1 + tq, i]);
+								Q_q_mdspan[tq, i] = q_data[iq3, iq2, iq1 + tq, i];
 						}
 						else {
-							// Zero-pad remaining rows
 							for (int64_t i = 0; i < DK; i++)
-								Q_q_mdspan[tq, i] = kv_type{ 0 };
+								Q_q_mdspan[tq, i] = 0;
 						}
 					}
 
 					for (int64_t ic = 0; ic < k->ne[1]; ic += KV_TILE_SZ) {
+						const int kv_tile = (int)std::min((int64_t)KV_TILE_SZ, k->ne[1] - ic);
 
 						// skip the tile entirely if all the masks are -inf
 						if (mask) {
 							bool can_skip = true;
 							for (int tq = 0; tq < tile_rows; tq++) {
 								auto mask_data = make_strided_mdspan(static_cast<const ggml_fp16_t*>(mask->data), mask->ne, mask->nb);
-								for (int tk = 0; tk < KV_TILE_SZ; tk++) {
+								for (int tk = 0; tk < kv_tile; tk++) {
 									mask32_mdspan[tq, tk] = slope * toFloat32(mask_data[iq3 % mask->ne[3], iq2 % mask->ne[2], iq1 + tq, ic + tk]);
 									if (mask32_mdspan[tq, tk] != -INFINITY) {
 										can_skip = false;
@@ -3865,14 +3974,23 @@ static void ggml_compute_forward_flash_attn_ext_tiled(
 							}
 						}
 
-						for (int tq = 0; tq < Q_TILE_SZ; tq++) {
-							auto k_data = make_strided_mdspan(static_cast<const kv_type*>(k->data), k->ne, k->nb);
-							for (int tk = 0; tk < KV_TILE_SZ; tk++) {
-								float s;
-								ggml_vec_dot(DK, &s, 0, &k_data[ik3, ik2, ic + tk, 0], 0, &Q_q_mdspan[tq, 0], 0, 1);
-								KQ_mdspan[tq, tk] = s * ctx.scale;
-								if (ctx.logit_softcap != 0.0f) KQ_mdspan[tq, tk] = tanhf(KQ_mdspan[tq, tk]) * ctx.logit_softcap;
-								if (mask && tq < tile_rows) KQ_mdspan[tq, tk] += mask32_mdspan[tq, tk];
+						// Pack K tile transposed: K_f32[dk][kv] so KV_TILE is contiguous (SIMD dim)
+						// Zero-pad the last tile so the GEMM always operates on KV_TILE_SZ columns
+						auto k_data = make_strided_mdspan(static_cast<const kv_type*>(k->data), k->ne, k->nb);
+						std::mdspan K_f32_mdspan(K_f32.data(), DK, KV_TILE_SZ);
+						for (int tk = 0; tk < kv_tile; tk++) {
+							for (int i = 0; i < DK; i++)
+								K_f32_mdspan[i, tk] = toFloat32(k_data[ik3, ik2, ic + tk, i]);
+						}
+						std::fill(KQ.begin(), KQ.end(), 0);
+						simd_gemm(KQ.data(), Q_q.data(), K_f32.data(), Q_TILE_SZ, DK, KV_TILE_SZ);
+						for (int i = 0; i < Q_TILE_SZ; i++) {
+							for (int j = 0; j < KV_TILE_SZ; j++) {
+								// Set padded KQ entries to -inf so softmax gives them zero weight
+								float input = (j < kv_tile) ? KQ_mdspan[i, j] * ctx.scale : -INFINITY;
+								if (ctx.logit_softcap != 0.0f) input = tanhf(input) * ctx.logit_softcap;
+								if (i < tile_rows && mask) input = input + mask32_mdspan[i, j];
+								KQ_mdspan[i, j] = input;
 							}
 						}
 
@@ -3909,16 +4027,20 @@ static void ggml_compute_forward_flash_attn_ext_tiled(
 							S[tq] += sum;
 						}
 
-						// Convert V tile to F32 first (if F16), then do MAD
-						for (int tq = 0; tq < Q_TILE_SZ; tq++) {
-							if (skip[tq]) continue;
-							auto v_data = make_strided_mdspan(static_cast<const kv_type*>(v->data), v->ne, v->nb);
-							for (int tk = 0; tk < KV_TILE_SZ; tk++) {
-								for (int i = 0; i < DV; ++i) {
-									VKQ32_mdspan[tq, i] += toFloat32(v_data[iv3, iv2, ic + tk, i]) * KQ_mdspan[tq, tk];
-								}
-							}
+						// V accumulation: VKQ32 += softmax(KQ) * V
+						// Pack V tile to contiguous F32, zero-padded
+						auto v_data = make_strided_mdspan(static_cast<const kv_type*>(v->data), v->ne, v->nb);
+						std::mdspan V32_mdspan(V32.data(), KV_TILE_SZ, DV);
+						for (int tk = 0; tk < kv_tile; tk++) {
+							for (int i = 0; i < DV; i++)
+								V32_mdspan[tk, i] = toFloat32(v_data[iv3, iv2, ic + tk, i]);
 						}
+						for (int tq = 0; tq < Q_TILE_SZ; tq++) {
+							if (!skip[tq]) continue;
+							for (int i = 0; i < KV_TILE_SZ; i++)
+								KQ_mdspan[tq, i] = 0;
+						}
+						simd_gemm(VKQ32.data(), KQ.data(), V32.data(), Q_TILE_SZ, KV_TILE_SZ, DV);
 					}
 
 					// sinks (apply only to valid rows in the tile)
@@ -4452,14 +4574,16 @@ static void ggml_compute_forward_flash_attn_ext(
 	const bool q_type_is_f32 = q->type == GGML_TYPE_F32;
 	const bool use_split_kv_path = !use_ref && (q->ne[1] == 1 && q->ne[3] == 1) 
 		&& kv_is_f32_or_f16 && k_v_type_equal && q_type_is_f32 && k->ne[1] >= 512;
-	static constexpr int64_t KV_TILE_SZ = ggml_fa_tile_config::KV;
 	static constexpr int64_t Q_TILE_SZ = ggml_fa_tile_config::Q;
-	const bool use_tiled = !use_ref &&
-		(q_type_is_f32 &&
+	const bool use_tiled = [=]() -> bool {
+		if (use_ref) return false;
+		bool use_tiled = q_type_is_f32 &&
 			kv_is_f32_or_f16 &&
 			k_v_type_equal &&
-			k->ne[1] % KV_TILE_SZ == 0 &&
-			q->ne[1] >= Q_TILE_SZ);
+			q->ne[1] >= Q_TILE_SZ;
+		if constexpr (use_simd_v) use_tiled &= (v->ne[0] % GGML_F32_EPR == 0);
+		return use_tiled;
+	}();
 	flash_attn_context ctx {
 		.use_split_kv_path = use_split_kv_path,
 		.use_tiled = use_tiled,

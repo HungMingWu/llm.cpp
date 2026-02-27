@@ -2080,24 +2080,6 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
     }
 }
 
-static bool ggml_cuda_graph_set_enabled(int device, ggml_cuda_graph& graph) {
-    if constexpr (use_cuda_graph_v) {
-        if (graph.graph == nullptr) {
-            if (ggml_cuda_info().devices[device].cc < GGML_CUDA_CC_AMPERE) {
-                if (!graph.disable_due_to_gpu_arch) {
-                    GGML_LOG_DEBUG("%s: disabling CUDA graphs due to GPU architecture\n", __func__);
-                }
-                graph.disable_due_to_gpu_arch = true;
-            }
-        }
-
-        return graph.is_enabled();
-    }
-    else {
-        return false;
-    }
-}
-
 static bool ggml_cuda_graph_node_properties_match(ggml_tensor* node, ggml_cuda_graph_node_properties* props) {
     if (node->data != props->node_data && node->op != GGML_OP_VIEW) {
         return false;
@@ -2236,15 +2218,6 @@ static bool ggml_cuda_graph_check_compability(ggml_cgraph* cgraph) {
     bool use_cuda_graph = true;
     // Loop over nodes in GGML graph to obtain info needed for CUDA graph
 
-    const std::string gemma3n_per_layer_proj_src0_name = "inp_per_layer_selected";
-    const std::string gemma3n_per_layer_proj_src1_name = "per_layer_proj";
-    const std::string ffn_moe_gate_bias_prefix = "ffn_moe_gate_biased";
-    const std::string ffn_moe_up_bias_prefix = "ffn_moe_up_biased";
-    const std::string ffn_moe_down_bias_prefix = "ffn_moe_down_biased";
-    const std::string nemotron_h_block_out_prefix = "nemotron_h_block_out";
-    const std::string mamba2_y_add_d_prefix = "mamba2_y_add_d";
-    const std::string delta_net_prefix = "dnet_add";
-
     for (int i = 0; i < cgraph->nodes.size(); i++) {
         ggml_tensor* node = cgraph->nodes[i];
 
@@ -2257,41 +2230,22 @@ static bool ggml_cuda_graph_check_compability(ggml_cgraph* cgraph) {
             if (!node->src[0]->buffer) return false;
             auto type = node->src[0]->buffer->get_type();
             return dynamic_cast<cuda_split_backend_buffer_type*>(type) != nullptr;
-
         }();
         if (is_cuda_split_buffer_type) {
             use_cuda_graph = false; // Split buffers are not supported by CUDA graph capture
 #ifndef NDEBUG
-            GGML_LOG_DEBUG("%s: disabling CUDA graphs due to split buffer\n", __func__);
+            GGML_LOG_DEBUG("{}: disabling CUDA graphs due to split buffer\n", __func__);
 #endif
         }
 
-        if (node->op == GGML_OP_MUL_MAT_ID && node->ne[2] != 1) {
-            use_cuda_graph = false; // This node type is not supported by CUDA graph capture
-#ifndef NDEBUG
-            GGML_LOG_DEBUG("%s: disabling CUDA graphs due to unsupported node type\n", __func__);
-#endif
-        }
-
-        if (node->op == GGML_OP_ADD &&
-            node->src[1] && node->src[1]->ne[1] > 1 &&
-            (node->src[0] ? node->src[0]->name != gemma3n_per_layer_proj_src0_name : true) &&
-            (node->src[1] ? node->src[1]->name != gemma3n_per_layer_proj_src1_name : true) &&
-            !node->name.starts_with(ffn_moe_gate_bias_prefix) &&
-            !node->name.starts_with(ffn_moe_up_bias_prefix) &&
-            !node->name.starts_with(ffn_moe_down_bias_prefix) &&
-            !node->name.starts_with(nemotron_h_block_out_prefix) &&
-            !node->name.starts_with(mamba2_y_add_d_prefix) &&
-            !node->name.starts_with(delta_net_prefix)
-            ) {
-            // disable CUDA graphs for batch size > 1 for now while excluding the matrix-matrix addition as part of Gemma3n's `project_per_layer_input` operation
-            // by means of matching node names. See
-            // https://github.com/ggml-org/llama.cpp/blob/f9a31eea06a859e34cecb88b4d020c7f03d86cc4/src/llama-model.cpp#L10199-L10241 and
-            // https://github.com/huggingface/transformers/blob/bda75b4011239d065de84aa3e744b67ebfa7b245/src/transformers/models/gemma3n/modeling_gemma3n.py#L1773,
-            // Generally, changes in batch size or context size can cause changes to the grid size of some kernels.
+        // [TAG_MUL_MAT_ID_CUDA_GRAPHS]
+        if (node->op == GGML_OP_MUL_MAT_ID && (!ggml_is_quantized(node->src[0]->type) || node->ne[2] > MMVQ_MMID_MAX_BATCH_SIZE)) {
+            // under these conditions, the mul_mat_id operation will need to synchronize the stream, so we cannot use CUDA graphs
+            // TODO: figure out a way to enable for larger batch sizes, without hurting performance
+            // ref: https://github.com/ggml-org/llama.cpp/pull/18958
             use_cuda_graph = false;
 #ifndef NDEBUG
-            GGML_LOG_DEBUG("%s: disabling CUDA graphs due to batch size > 1 [%s] [%ld %ld %ld %ld]\n", __func__, node->name, node->ne[0], node->ne[1], node->ne[2], node->ne[3]);
+            GGML_LOG_DEBUG("{}: disabling CUDA graphs due to unsupported node type\n", __func__);
 #endif
         }
 
@@ -2316,13 +2270,36 @@ enum ggml_status ggml_backend_cuda::graph_compute_impl(ggml_cgraph* cgraph)
 
         ggml_cuda_graph& graph = *cuda_graph(graph_key);
 
-        use_cuda_graph = ggml_cuda_graph_set_enabled(device, graph);
+        graph_set_enabled(graph_key);
 
         if (graph.is_enabled()) {
-            cuda_graph_update_required = ggml_cuda_graph_update_required(graph, cgraph);
-            use_cuda_graph = ggml_cuda_graph_check_compability(cgraph);
+            const bool graph_compatible = ggml_cuda_graph_check_compability(cgraph);
+            if (graph_compatible) {
+                const bool properties_changed = ggml_cuda_graph_update_required(graph, cgraph);
 
-            graph.record_update(use_cuda_graph, cuda_graph_update_required);
+                if (!graph.warmup_complete) {
+                    // Warmup: need at least 2 calls with no property change on the 2nd call
+                    if (!properties_changed) {
+                        graph.warmup_complete = true;
+                        GGML_LOG_DEBUG("{}: CUDA graph warmup complete\n", __func__);
+                        use_cuda_graph = true;
+                        cuda_graph_update_required = true;
+                    }
+                    // else: properties changed or first call - execute directly (use_cuda_graph stays false)
+                }
+                else {
+                    // Post-warmup: normal CUDA graph operation
+                    if (properties_changed) {
+                        // Properties changed - reset warmup, execute directly until stable again
+                        graph.warmup_complete = false;
+                        GGML_LOG_DEBUG("{}: CUDA graph warmup reset\n", __func__);
+                    }
+                    else {
+                        use_cuda_graph = true;
+                        cuda_graph_update_required = graph.instance == nullptr;
+                    }
+                }
+            }
         }
     }
 

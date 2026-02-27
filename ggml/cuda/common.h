@@ -49,6 +49,7 @@
 #define GGML_CUDA_CC_IS_PH1(cc)      (cc >= GGML_CUDA_CC_PH1)
 
 static constexpr int64_t MMVQ_MAX_BATCH_SIZE = 8; // Max. batch size for which to use MMVQ kernels.
+static constexpr int64_t MMVQ_MMID_MAX_BATCH_SIZE = 4; // Max. batch size for which to use MMVQ kernels for MUL_MAT_ID
 #define MUL_MAT_SRC1_COL_STRIDE 128
 #define MMQ_DP4A_MAX_BATCH_SIZE 64 // Max. batch size to use for dp4a MMQ kernels when FP16 tensor co
 

@@ -1144,8 +1144,10 @@ static void launch_fattn_tile_switch_ncols2(const flash_attn_ext_context& ctx) {
     GGML_ASSERT(ctx.Q.ne[2] % ctx.K.ne2 == 0);
     const int gqa_ratio = ctx.Q.ne[2] / ctx.K.ne2;
 
+    // On NVIDIA (Pascal and older) the GQA optimizations seem to be detrimental in some cases.
+    // However, for DKQ == 576, DV == 512 only the kernel variant with GQA optimizations is implemented.
     const bool nvidia = GGML_CUDA_CC_IS_NVIDIA(ggml_cuda_info().devices[ggml_cuda_get_device()].cc);
-    const int gqa_limit = nvidia && gqa_ratio <= 4 ? 16 : INT_MAX;
+    const int gqa_limit = nvidia && gqa_ratio <= 4 && DV <= 256 ? 16 : INT_MAX;
     const bool use_gqa_opt = ctx.mask.exist && ctx.max_bias == 0.0f && ctx.Q.ne[1] <= gqa_limit && ctx.K.ne1 % FATTN_KQ_STRIDE == 0;
 
     if constexpr (DV == 512) {
