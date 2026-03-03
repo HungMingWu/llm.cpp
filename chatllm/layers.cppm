@@ -922,6 +922,7 @@ export namespace chatllm
     template <class AttentionBlock> class LMAttentionBlock : public Block
     {
     public:
+        LMAttentionBlock() = default;
         LMAttentionBlock(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size,
             int max_length)
             : attention(ctx, hidden_size, num_attention_heads, max_length) {
@@ -966,6 +967,11 @@ export namespace chatllm
         LMAttentionBlock(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size, int num_kv_heads,
             int max_length, bool qkv_bias, bool o_bias)
             : attention(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, qkv_bias, o_bias) {
+        }
+
+        LMAttentionBlock(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size, int num_kv_heads,
+            int head_dim, int max_length, bool qkv_bias, bool o_bias)
+            : attention(ctx, hidden_size, num_attention_heads, num_kv_heads, head_dim, max_length, qkv_bias, o_bias) {
         }
 
         void shift_cache(int shift, int total) override
@@ -1275,6 +1281,7 @@ export namespace chatllm
     private:
         typedef LMAttentionBlock<AttentionBlock> Base;
     public:
+        LMBlock4() = default;
         LMBlock4(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size,
             int max_length)
             : Base(ctx, hidden_size, num_attention_heads, intermediate_size, max_length),
@@ -1308,6 +1315,16 @@ export namespace chatllm
         LMBlock4(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size, int num_kv_heads,
             int max_length, bool qkv_bias, bool o_bias)
             : Base(ctx, hidden_size, num_attention_heads, intermediate_size, num_kv_heads, max_length, qkv_bias, o_bias),
+            pre_attention_layernorm(ctx, hidden_size),
+            post_attention_layernorm(ctx, hidden_size),
+            pre_mlp_layernorm(ctx, hidden_size),
+            mlp(ctx, hidden_size, intermediate_size),
+            post_mlp_layernorm(ctx, hidden_size) {
+        }
+
+        LMBlock4(InitContext* ctx, int hidden_size, int num_attention_heads, int intermediate_size, int num_kv_heads,
+            int head_dim, int max_length, bool qkv_bias, bool o_bias)
+            : Base(ctx, hidden_size, num_attention_heads, intermediate_size, num_kv_heads, head_dim, max_length, qkv_bias, o_bias),
             pre_attention_layernorm(ctx, hidden_size),
             post_attention_layernorm(ctx, hidden_size),
             pre_mlp_layernorm(ctx, hidden_size),
@@ -1707,33 +1724,73 @@ export namespace chatllm
         Linear o_proj;
     };
 
-    class BaseNormedAttention : public BaseAttention
+    template <class Norm, class BaseAttn> class RootNormedAttention : public BaseAttn
     {
     public:
-        BaseNormedAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length, bool qkv_bias, bool o_bias)
-            : BaseAttention(ctx, hidden_size, num_attention_heads, num_kv_heads, head_dim, max_length, qkv_bias, o_bias),
-            q_norm(ctx, hidden_size),
-            k_norm(ctx, hidden_size / num_attention_heads * num_kv_heads)
+        RootNormedAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length, bool qkv_bias, bool o_bias,
+            int q_norm_shape, int k_norm_shape)
+            : BaseAttn(ctx, hidden_size, num_attention_heads, num_kv_heads, head_dim, max_length, qkv_bias, o_bias),
+            q_norm(ctx, q_norm_shape),
+            k_norm(ctx, k_norm_shape)
         {
         }
 
         int64_t get_param_num(bool effective_only) const override
         {
-            int64_t r = BaseAttention::get_param_num(effective_only);
+            int64_t r = BaseAttn::get_param_num(effective_only);
             r += q_norm.get_param_num(effective_only);
             r += k_norm.get_param_num(effective_only);
             return r;
         }
 
         using Block::forward;
-        ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* hidden_states, int n_past) override;
 
-        void load(const std::string& path, TensorLoader* loader) override;
+        void load(const std::string& path, TensorLoader* loader) override
+        {
+            BaseAttn::load(path, loader);
+            q_norm.load(path + "q_norm.", loader);
+            k_norm.load(path + "k_norm.", loader);
+        }
 
     public:
         RMSNorm q_norm;
         RMSNorm k_norm;
     };
+
+    template <class Norm, class BaseAttn> class BaseNormedAttention : public RootNormedAttention<Norm, BaseAttn>
+    {
+    public:
+        BaseNormedAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length, bool qkv_bias, bool o_bias)
+            : RootNormedAttention<Norm, BaseAttn>(ctx, hidden_size, num_attention_heads, num_kv_heads, head_dim, max_length, qkv_bias, o_bias,
+                hidden_size, hidden_size / num_attention_heads * num_kv_heads)
+        {
+        }
+
+        using Block::forward;
+        ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* hidden_states, int n_past) override
+        {
+            typedef RootNormedAttention<Norm, BaseAttn> Base;
+
+            const int hidden_size = Base::o_proj.in_features();
+            const int qlen = (int)hidden_states->ne[1];
+
+            Base::before_forward(ctx, n_past, qlen);
+
+            ggml::tensor* tmpq = Base::q_proj.forward(ctx, hidden_states);
+            tmpq = Base::q_norm.forward(ctx, tmpq);
+
+            ggml::tensor* tmpk = Base::k_proj.forward(ctx, hidden_states);
+            tmpk = Base::k_norm.forward(ctx, tmpk);
+
+            ggml::tensor* tmpv = Base::v_proj.forward(ctx, hidden_states);
+
+            ggml::tensor* scores = Base::cross_attention(ctx, hidden_size, n_past, qlen, tmpq, tmpk, tmpv);
+
+            ggml::tensor* attn_output = Base::o_proj.forward(ctx, scores);
+            return attn_output;
+        }
+    };
+
 
     class BaseCachelessAttention : public BaseAttention
     {
@@ -3206,33 +3263,39 @@ export namespace chatllm
         }
     };
 
-    template <class Norm, class BaseAttn> class QKNormedAttention : public RoPESelfAttention<BaseAttn>
+    template <class Norm, class BaseAttn> class QKNormedAttention : public BaseAttn
     {
     public:
         QKNormedAttention() : BaseAttn() {}
 
         QKNormedAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length, bool qkv_bias, bool o_bias)
-            : RoPESelfAttention<BaseAttn>(ctx, hidden_size, num_attention_heads, num_kv_heads, head_dim, max_length, qkv_bias, o_bias),
+            : BaseAttn(ctx, hidden_size, num_attention_heads, num_kv_heads, head_dim, max_length, qkv_bias, o_bias),
             k_layernorm(ctx, head_dim),
             q_layernorm(ctx, head_dim),
             post_norm(false)
         {
-            RoPESelfAttention<BaseAttn>::rope_mode = RoPEMode::Original;
         }
 
         QKNormedAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int max_length, bool qkv_bias, bool o_bias)
-            : RoPESelfAttention<BaseAttn>(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, qkv_bias, o_bias),
+            : BaseAttn(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, qkv_bias, o_bias),
             k_layernorm(ctx, hidden_size / num_attention_heads),
             q_layernorm(ctx, hidden_size / num_attention_heads),
             post_norm(false)
         {
-            RoPESelfAttention<BaseAttn>::rope_mode = RoPEMode::Original;
+        }
+
+        QKNormedAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int max_length, bool qkv_bias, bool o_bias)
+            : BaseAttn(ctx, hidden_size, num_attention_heads, max_length, qkv_bias, o_bias),
+            k_layernorm(ctx, hidden_size / num_attention_heads),
+            q_layernorm(ctx, hidden_size / num_attention_heads),
+            post_norm(false)
+        {
         }
 
         int64_t get_param_num(bool effective_only) const override
         {
             int64_t r = 0;
-            r += RoPESelfAttention<BaseAttn>::get_param_num(effective_only);
+            r += BaseAttn::get_param_num(effective_only);
             r += k_layernorm.get_param_num(effective_only);
             r += q_layernorm.get_param_num(effective_only);
             return r;
@@ -3240,7 +3303,7 @@ export namespace chatllm
 
         void load(const std::string& path, TensorLoader* loader) override
         {
-            RoPESelfAttention<BaseAttn>::load(path, loader);
+            BaseAttn::load(path, loader);
             k_layernorm.load(path + "k_norm.", loader);
             q_layernorm.load(path + "q_norm.", loader);
         }
@@ -3249,11 +3312,9 @@ export namespace chatllm
         // input & output: [qlen, heads, head_size]
         ggml::tensor* apply_pos_embedding_k(ComputeContext* ctx, ggml::tensor* k, int hidden_size, int qlen, ggml::tensor* past) const override
         {
-            if (!RoPESelfAttention<BaseAttn>::use_rope) return k;
-
             if (!post_norm)
                 k = const_cast<QKNormedAttention*>(this)->k_layernorm.forward(ctx, k);
-            k = RoPESelfAttention<BaseAttn>::apply_pos_embedding_k(ctx, k, hidden_size, qlen, past);    // [qlen, heads, head_size]
+            k = BaseAttn::apply_pos_embedding_k(ctx, k, hidden_size, qlen, past);    // [qlen, heads, head_size]
             if (post_norm)
                 k = const_cast<QKNormedAttention*>(this)->k_layernorm.forward(ctx, k);
             return k;
@@ -3261,11 +3322,9 @@ export namespace chatllm
 
         ggml::tensor* apply_pos_embedding_q(ComputeContext* ctx, ggml::tensor* q, int hidden_size, int qlen, ggml::tensor* past) const override
         {
-            if (!RoPESelfAttention<BaseAttn>::use_rope) return q;
-
             if (!post_norm)
                 q = const_cast<QKNormedAttention*>(this)->q_layernorm.forward(ctx, q);
-            q = RoPESelfAttention<BaseAttn>::apply_pos_embedding_q(ctx, q, hidden_size, qlen, past);    // [qlen, heads, head_size];
+            q = BaseAttn::apply_pos_embedding_q(ctx, q, hidden_size, qlen, past);    // [qlen, heads, head_size];
             if (post_norm)
                 q = const_cast<QKNormedAttention*>(this)->q_layernorm.forward(ctx, q);
             return q;
@@ -3277,8 +3336,46 @@ export namespace chatllm
         bool post_norm;
     };
 
+    template <class Norm, class BaseAttn> class QKNormedRoPEAttention : public QKNormedAttention<Norm, RoPESelfAttention<BaseAttn>>
+    {
+    public:
+        typedef QKNormedAttention<Norm, RoPESelfAttention<BaseAttn>> Base;
+
+        QKNormedRoPEAttention() : BaseAttn() {}
+
+        QKNormedRoPEAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length, bool qkv_bias, bool o_bias)
+            : Base(ctx, hidden_size, num_attention_heads, num_kv_heads, head_dim, max_length, qkv_bias, o_bias)
+        {
+            RoPESelfAttention<BaseAttn>::rope_mode = RoPEMode::Original;
+        }
+
+        QKNormedRoPEAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int max_length, bool qkv_bias, bool o_bias)
+            : Base(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, qkv_bias, o_bias)
+        {
+            RoPESelfAttention<BaseAttn>::rope_mode = RoPEMode::Original;
+        }
+
+    protected:
+        // input & output: [qlen, heads, head_size]
+        ggml::tensor* apply_pos_embedding_k(ComputeContext* ctx, ggml::tensor* k, int hidden_size, int qlen, ggml::tensor* past) const override
+        {
+            if (!RoPESelfAttention<BaseAttn>::use_rope) return k;
+
+            k = Base::apply_pos_embedding_k(ctx, k, hidden_size, qlen, past);
+            return k;
+        }
+
+        ggml::tensor* apply_pos_embedding_q(ComputeContext* ctx, ggml::tensor* q, int hidden_size, int qlen, ggml::tensor* past) const override
+        {
+            if (!RoPESelfAttention<BaseAttn>::use_rope) return q;
+
+            q = Base::apply_pos_embedding_q(ctx, q, hidden_size, qlen, past);
+            return q;
+        }
+    };
+
     // FIXME: this seems problemic. LayerNorm is used in `apply_pos_embedding_xx`, while not `inplace`.
-    class PersimmonSelfAttention : public QKNormedAttention<LayerNorm, BaseAttention>
+    class PersimmonSelfAttention : public QKNormedRoPEAttention<LayerNorm, BaseAttention>
     {
     public:
         PersimmonSelfAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int max_length)
@@ -3286,7 +3383,7 @@ export namespace chatllm
         }
 
         PersimmonSelfAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int max_length)
-            : QKNormedAttention<LayerNorm, BaseAttention>(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, true, true) {}
+            : QKNormedRoPEAttention<LayerNorm, BaseAttention>(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, true, true) {}
     };
 
     class PersimmonMLP : public TheMLP

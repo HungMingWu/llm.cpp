@@ -223,13 +223,14 @@ namespace chatllm
 
         MODEL_TYPE_LLAMA_MULTI = 0x20000001,
 
-        MODEL_TYPE_LLAMA4 = MODEL_TYPE_TAG_ChatImageIn + 0x00001,
-        MODEL_TYPE_GEMMA3Vis = MODEL_TYPE_TAG_ChatImageIn + 0x00011,
-        MODEL_TYPE_DOTS_OCR = MODEL_TYPE_TAG_ChatImageIn + 0x00020,
-        MODEL_TYPE_MISTRAL3 = MODEL_TYPE_TAG_ChatImageIn + 0x00030,
-        MODEL_TYPE_STEP_VL = MODEL_TYPE_TAG_ChatImageIn + 0x00040,
+        MODEL_TYPE_LLAMA4           = MODEL_TYPE_TAG_ChatImageIn + 0x00001,
+        MODEL_TYPE_GEMMA3Vis        = MODEL_TYPE_TAG_ChatImageIn + 0x00011,
+        MODEL_TYPE_DOTS_OCR         = MODEL_TYPE_TAG_ChatImageIn + 0x00020,
+        MODEL_TYPE_MISTRAL3         = MODEL_TYPE_TAG_ChatImageIn + 0x00030,
+        MODEL_TYPE_STEP_VL          = MODEL_TYPE_TAG_ChatImageIn + 0x00040,
+        MODEL_TYPE_GLM_OCR          = MODEL_TYPE_TAG_ChatImageIn + 0x00050,
 
-        MODEL_TYPE_QWEN2_AUDIO = MODEL_TYPE_TAG_ChatAudioIn + 0x00001,
+        MODEL_TYPE_QWEN2_AUDIO      = MODEL_TYPE_TAG_ChatAudioIn + 0x00001,
 
         MODEL_TYPE_QWEN2_5_VL = MODEL_TYPE_TAG_ChatImageInVideoIn + 0x00001,
         MODEL_TYPE_GLM4V = MODEL_TYPE_TAG_ChatImageInVideoIn + 0x00040,
