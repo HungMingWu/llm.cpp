@@ -320,7 +320,7 @@ static constexpr __device__ int ggml_cuda_fattn_tile_get_nbatch_K(const int DKQ,
 // TODO: deduplicate with mma-f16
 template<int warp_size, int nwarps, int I, int J, int J_padding, bool oob_check>
 static __device__ __forceinline__ void flash_attn_tile_load_tile(
-    mdspan_stiride_t<const half2, 2> KV, half2* const __restrict__ tile_KV, const int i_sup) {
+    mdspan_stiride_t<const half2, 2> KV, half2* const __restrict__ tile_KV) {
     constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
     constexpr int cpy_ne = cpy_nb / 4;
 
@@ -351,7 +351,7 @@ static __device__ __forceinline__ void flash_attn_tile_load_tile(
                     half2* out = tile_KV + i * (J / 2 + J_padding) + j;
 #pragma unroll
                     for (int l = 0; l < cpy_ne; ++l) {
-                        half2 tmp_h2 = (!oob_check || i < i_sup) ? KV(i, j + l) : half2{};
+                        half2 tmp_h2 = (!oob_check || i < KV.extent(0)) ? KV(i, j + l) : half2{};
                         *out++ = tmp_h2;
                     }
                 }
@@ -372,7 +372,7 @@ static __device__ __forceinline__ void flash_attn_tile_load_tile(
 
 template<int warp_size, int nwarps, int I, int J, int J_padding, bool oob_check>
 static __device__ __forceinline__ void flash_attn_tile_load_tile(
-    mdspan_stiride_t<const half2, 2> KV, float* const __restrict__ tile_KV, const int i_sup) {
+    mdspan_stiride_t<const half2, 2> KV, float* const __restrict__ tile_KV) {
     constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
     constexpr int cpy_ne = cpy_nb / 4;
 
@@ -403,7 +403,7 @@ static __device__ __forceinline__ void flash_attn_tile_load_tile(
                     float* out = tile_KV + i * (J + J_padding) + 2 * j;
 #pragma unroll
                     for (int l = 0; l < cpy_ne / 2; ++l) {
-                        half2 tmp_h2 = (!oob_check || i < i_sup) ? KV(i, j + l) : half2{};
+                        half2 tmp_h2 = (!oob_check || i < KV.extent(0)) ? KV(i, j + l) : half2{};
                         float2 tmp_f2 = __half22float2(tmp_h2);
                         *out++ = tmp_f2.x;
                         *out++ = tmp_f2.y;
@@ -440,7 +440,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter_KQ(
     constexpr int np = nwarps > ncols ? nwarps / ncols : 1; // number of parallel warps per Q column
 
     flash_attn_tile_load_tile<warp_size, nwarps, nbatch_fa, nbatch_K, cpy_ne, oob_check>
-        (K_h2, KV_tmp, k_VKQ_sup);
+        (K_h2, KV_tmp);
     __syncthreads();
 
     static constexpr size_t nbatch_div = fast_fp16_available_v ? 2 : 1;
@@ -642,7 +642,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
 #pragma unroll
     for (int k0 = 0; k0 < nbatch_fa; k0 += nbatch_V) {
         flash_attn_tile_load_tile<warp_size, nwarps, nbatch_V, DV, 0, oob_check>
-            (std::submdspan(V_h2, std::pair{ k0, k0 + nbatch_V }, std::full_extent), KV_tmp, k_VKQ_sup - k0);
+            (std::submdspan(V_h2, std::pair{ k0, k_VKQ_sup - k0 }, std::full_extent), KV_tmp);
         __syncthreads();
 
         if constexpr (fast_fp16_available_v) {
