@@ -184,6 +184,11 @@ target_link_libraries(libggml
     STDEXEC::stdexec
 )
 
+target_compile_options(libggml
+PUBLIC
+  $<$<OR:$<C_COMPILER_ID:GNU>,$<C_COMPILER_ID:Clang>>:-mavx512f>
+)
+
 if (WIN32)
 target_link_libraries(libggml
   PRIVATE

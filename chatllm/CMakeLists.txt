@@ -39,7 +39,7 @@ target_sources(chatllm
 )
 
 target_link_libraries(chatllm
-  PRIVATE
+  PUBLIC
     libllm
 )
 

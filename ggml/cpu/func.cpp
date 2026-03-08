@@ -16,6 +16,7 @@ module;
 #include "block.h"
 #include "mdspan.hpp"
 #include "mdspan_helper.h"
+#include <immintrin.h>
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 #define GGML_ABORT(...)

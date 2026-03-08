@@ -24,6 +24,6 @@ target_compile_features(libllm
 )
 
 target_link_libraries(libllm
-  PRIVATE
+  PUBLIC
     libggml
 )

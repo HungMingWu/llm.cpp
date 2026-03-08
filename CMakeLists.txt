@@ -44,7 +44,7 @@ target_sources(tutorial
 )
 
 target_link_libraries(tutorial
-  PRIVATE
+  PUBLIC
     libllm
 )
 
