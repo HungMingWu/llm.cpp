@@ -512,12 +512,20 @@ namespace chatllm
 
     }
 
+    void BaseModelForConditionalGeneration::before_run_model(std::span<const int> input_ids,
+        const GenerationConfig& gen_config,
+        int past)
+    {
+    }
+
     bool BaseModelForConditionalGeneration::run_model(std::span<const int> input_ids,
         const GenerationConfig& gen_config,
         int past,
         std::vector<float>& output, const int batch_size,
         std::function<ggml::tensor* (ComputeContext*, ggml::tensor*)> func_epilog)
     {
+        before_run_model(input_ids, gen_config, past);
+
         ForwardContext ctx(&backend_context);
         ctx.user_options = w_ctx_.user_options;
 

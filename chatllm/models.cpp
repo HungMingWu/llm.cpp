@@ -94,7 +94,8 @@ namespace chatllm
                 std::println("[{:3}] = {:+3.18f}", i, t);
                 //printf("[%3d] = %08x\n", (int)i, *(uint32_t *)(p + i));
             }
-            if (flag) exit(-1);
+            if (flag)
+                exit(-1);
         }
         break;
         case GGML_TYPE_I32:
@@ -113,12 +114,24 @@ namespace chatllm
         {
             ggml_fp16_t* p = (ggml_fp16_t*)data.data();
             const size_t n = ggml::nbytes(tensor) / sizeof(ggml_fp16_t);
+            bool flag = false;
+            for (size_t i = 0; i < n; i++)
+            {
+                if (std::isnan(toFloat32(p[i])))
+                {
+                    flag = true;
+                    break;
+                }
+            }
+            //if (!flag) break;
             for (size_t i = 0; i < n; i++)
             {
                 if (!full && ((PRINT_CNT < i) && (i < n - PRINT_CNT))) continue;
 
                 std::println("[{:3}] = {:+3.18f}", i, toFloat32(p[i]));
             }
+            if (flag)
+                exit(-1);
         }
         break;
         case GGML_TYPE_Q8_0:
@@ -173,13 +186,13 @@ namespace chatllm
 
         if (dbg_w)
         {
-            std::print("\n--------------- dbg_w");
+            std::print("\n#-------------- dbg_w");
             print_tensor(dbg_w);
 
             dbg_w = nullptr;
         }
 
-        std::print("\n--------------- {}", it->second);
+        std::print("\n#-------------- {}", it->second);
         bool full = true;
         print_tensor(tensor, 0, full);
 

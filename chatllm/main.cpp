@@ -100,6 +100,7 @@ struct Args
     int penalty_window = 256;
     int max_new_tokens = -1;
     bool single_turn = false;
+    bool opt_speed = true;
 };
 
 #define MULTI_LINE_END_MARKER_W  L"\\."
@@ -192,6 +193,7 @@ void usage(const std::string& prog)
         << "                          note: trade-off between prompt throughput and memory usage.\n"
         << "  --re_quantize Q         re-quantize model weights during loading (Q ::= q8_0 | q4_0 | q4_1 | q4_k | ...) (default: no re-quantization)\n"
         << "                          note: it does not make sense to re-quantize to a larger size.\n"
+        << "  -Os                     optimize for size (default: optimize for speed). Use by MLA.\n"
         << "Sampling options:\n"
         << "  --sampling ALG          sampling algorithm (ALG = greedy | top_p | tfs) (default: top_p) \n"
         << "                          where, tfs = Tail Free Sampling\n"
@@ -347,6 +349,10 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
             else if (utils::is_same_command_option(arg, "--hide_banner"))
             {
                 args.show_banner = false;
+            }
+            else if (utils::is_same_command_option(arg, "-Os"))
+            {
+                args.opt_speed = false;
             }
             handle_flag(tokenize)
             handle_flag(hide_reference)
@@ -909,7 +915,8 @@ static void run_qa_ranker(Args& args, chatllm::Pipeline& pipeline, TextStreamer&
 #define DEF_ExtraArgs(pipe_args, args)  \
     chatllm::ModelObject::extra_args pipe_args(args.max_length, args.layer_spec, args.moe_on_cpu, args.num_threads, args.batch_size, args.cache_dtype, args.re_quantize);\
     pipe_args.model_n_gpu_layers = args.model_n_gpu_layers; \
-    pipe_args.additional = args.additional
+    pipe_args.additional = args.additional; \
+    pipe_args.opt_speed = args.opt_speed;
 
 chatllm::BaseStreamer* get_streamer_for_log(void);
 

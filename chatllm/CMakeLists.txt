@@ -36,6 +36,7 @@ target_sources(chatllm
       models/qwen.cpp
       models/qwen_asr.cpp
       models/qwen_tts.cpp
+      models/qwen3_5.cpp
 )
 
 target_link_libraries(chatllm

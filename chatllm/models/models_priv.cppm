@@ -336,6 +336,9 @@ namespace chatllm
         // load config
         Config config;
 
+        // assign some global parameters
+        BlockParams::Optimization::speed = args.opt_speed;
+
         load_config<Config>(loader, config, args);
 
         // load tokenizer
@@ -466,6 +469,10 @@ namespace chatllm
         virtual void before_generate(const GenerationConfig& gen_config);
         virtual void after_generate(void);
         virtual void do_build_graph(ForwardContext& ctc, const std::vector<int>& input_ids,
+            const GenerationConfig& gen_config,
+            int past);
+
+        virtual void before_run_model(std::span<const int> input_ids,
             const GenerationConfig& gen_config,
             int past);
 

@@ -563,19 +563,45 @@ namespace chatllm
 
     ggml::tensor* ggml::repeat_interleave(ComputeContext* ctx, ggml::tensor* a, int repeat, int dim)
     {
-        CHATLLM_CHECK(dim == 0) << "only works for dim=0 now";
         CHATLLM_CHECK(a->ne[3] == 1) << "too many dimensions";
 
         if (repeat <= 1) return a;
 
-        ggml::tensor* b = ctx->new_tensor(ggml::type_of(a), { a->ne[3],  a->ne[2], a->ne[1],  repeat * a->ne[0] });
-        ggml::tensor* r = ggml::repeat(ctx, a, b);
-        r = ctx->reshape(r, { a->ne[2], a->ne[1], repeat, a->ne[0] });
-        r = permute(ctx, r, 1, 0, 2, 3);
-        r = cont(ctx, r);
-        r = ctx->reshape(r, { a->ne[2], a->ne[1], a->ne[0] * repeat });
+        if (0 == dim)
+        {
+            ggml::tensor* r = ggml::repeat(ctx, a, repeat * a->ne[0], a->ne[1], a->ne[2]);
+            r = ctx->reshape(r, { a->ne[2], a->ne[1], repeat, a->ne[0] });
+            r = permute(ctx, r, 1, 0, 2, 3);
+            r = cont(ctx, r);
+            r = ctx->reshape(r, { a->ne[2], a->ne[1], a->ne[0] * repeat });
 
-        return r;
+            return r;
+        }
+        else if (1 == dim)
+        {
+            ggml::tensor* r = ggml::repeat(ctx, a, a->ne[0], repeat * a->ne[1], a->ne[2]);
+            r = ctx->reshape(r, { a->ne[2], repeat, a->ne[1], a->ne[0] });
+            r = permute(ctx, r, 0, 2, 1, 3);
+            r = cont(ctx, r);
+            r = ctx->reshape(r, { a->ne[2], repeat * a->ne[1], a->ne[0] });
+
+            return r;
+        }
+        else if (2 == dim)
+        {
+            ggml::tensor* r = ggml::repeat(ctx, a, a->ne[0], a->ne[1], repeat * a->ne[2]);
+            r = ctx->reshape(r, { repeat, a->ne[2], a->ne[1], a->ne[0] });
+            r = permute(ctx, r, 0, 1, 3, 2);
+            r = cont(ctx, r);
+            r = ctx->reshape(r, { repeat * a->ne[2], a->ne[1], a->ne[0] });
+
+            return r;
+        }
+        else
+        {
+            CHATLLM_CHECK(false) << "unsupported dim = " << dim;
+            return nullptr;
+        }
     }
 
     ggml::tensor* ggml::permute(ComputeContext* ctx, ggml::tensor* a, int axis0, int axis1, int axis2, int axis3)
@@ -779,6 +805,52 @@ namespace chatllm
         return tensor;
     }
 
+
+    ggml::tensor* ggml::sum(ComputeContext* ctx, ggml::tensor* a, int dim)
+    {
+        if (dim == 0) return sum_rows(ctx, a);
+        int axis0 = 0;
+        int axis1 = 1;
+        int axis2 = 2;
+        int axis3 = 3;
+        int64_t ne0 = ggml::get_dim(a, 0);
+        int64_t ne1 = ggml::get_dim(a, 1);
+        int64_t ne2 = ggml::get_dim(a, 2);
+        int64_t ne3 = ggml::get_dim(a, 3);
+        switch (dim)
+        {
+        case 1:
+            axis0 = 1;
+            axis1 = 0;
+            ne1 = ne2;
+            ne2 = ne3;
+            ne3 = 1;
+            break;
+        case 2:
+            axis0 = 2;
+            axis2 = 0;
+            ne2 = ne3;
+            ne3 = 1;
+            break;
+        default:
+            axis0 = 3;
+            axis3 = 0;
+            ne3 = 1;
+            break;
+        }
+
+        a = ggml::permute(ctx, a, axis0, axis1, axis2, axis3);
+        // PERFORMANCE: make sum_rows happy.
+        if (ggml::type_of(a) != ggml::type::GGML_TYPE_F32)
+            a = ggml::cast(ctx, a, ggml::type::GGML_TYPE_F32);
+        else
+            a = ggml::cont(ctx, a);
+        a = ggml::sum_rows(ctx, a);
+        a = ggml::permute(ctx, a, axis0, axis1, axis2, axis3);
+        a = ggml::reshape(ctx, a, ne0, ne1, ne2, ne3);
+        return a;
+    }
+
     ggml::tensor* ggml::mean(ComputeContext* ctx, ggml::tensor* a)
     {
         ggml::tensor* tensor = ggml_mean(ctx->get_ctx(), a);
@@ -840,6 +912,17 @@ namespace chatllm
         ggml::tensor* tensor = ggml_concat(ctx->get_ctx(), a, b, dim);
         ctx->cb_op_tensor(tensor);
         return tensor;
+    }
+
+    ggml::tensor* ggml::concat(ComputeContext* ctx, std::vector<ggml::tensor*> tensors, int dim)
+    {
+        // TODO: waiting for ggml new OP
+        auto r = tensors[0];
+        for (int i = 1; i < (int)tensors.size(); i++)
+        {
+            r = ggml::concat(ctx, r, tensors[i], dim);
+        }
+        return r;
     }
 
     ggml::tensor* ggml::pad(ComputeContext* ctx, ggml::tensor* a,
@@ -938,6 +1021,13 @@ namespace chatllm
             { 1, ggml::get_dim(a, 1), ggml::get_dim(a, 2), ggml::get_dim(a, 3) }, { a }, ggml_custom_logsumexp{});
     }
 
+    ggml::tensor* ggml::softplus(ComputeContext* ctx, ggml::tensor* a)
+    {
+        ggml::tensor* tensor = ggml_softplus(ctx->get_ctx(), a, false);
+        ctx->cb_op_tensor(tensor);
+        return tensor;
+    }
+
     ggml::tensor* ggml::categorical_entropy(ComputeContext* ctx, ggml::tensor* probs, ggml::tensor* logits)
     {
         CHATLLM_CHECK((probs != nullptr) ^ (logits != nullptr));
@@ -1028,6 +1118,7 @@ namespace chatllm
     int  BlockParams::MoE::num_experts = 0;
     int  BlockParams::MoE::experts_per_tok = 0;
     float BlockParams::Epsilon::rms_norm = 1e-5f;
+    bool BlockParams::Optimization::speed = true;
 
     BlockParams::OverrideKProjBiased::OverrideKProjBiased(bool biased)
     {
@@ -1530,6 +1621,12 @@ namespace chatllm
     {
         Block::load(path, loader);
         loader->read_tensor(path + "weight", weight);
+    }
+
+    void RMSNormWeightPlus1::load(const std::string& path, TensorLoader* loader)
+    {
+        RMSNorm::load(path, loader);
+        loader->map_tensor_element(weight, [](float v) { return v + 1.0f; });
     }
 
     ggml::tensor* L2Norm::forward(ComputeContext* ctx, ggml::tensor* input)
@@ -2397,6 +2494,49 @@ namespace chatllm
         CHATLLM_CHECK(rope_dim == factor_len * 2) << "factor_len mismatch!";
 
         Backend::write_tensor_data(freq_factors, factors);
+    }
+
+    BaseCombinedMLP::BaseCombinedMLP(InitContext* ctx, Block* mlp1, Block* mlp2)
+        : mlp1(mlp1), mlp2(mlp2)
+    {
+    }
+
+    ggml::tensor* BaseCombinedMLP::forward(ComputeContext* ctx, ggml::tensor* hidden_states)
+    {
+        ggml::tensor* r1 = mlp1->forward(ctx, hidden_states);
+        ggml::tensor* r2 = mlp2->forward(ctx, hidden_states);
+        ggml::tensor* r = ggml::add(ctx, r1, r2, false);
+        return r;
+    }
+
+    ggml::tensor* BaseCombinedMLP::forward(ComputeContext* ctx, ggml::tensor* hidden_states, ggml::tensor* hidden_states2)
+    {
+        ggml::tensor* r1 = mlp1->forward(ctx, hidden_states, hidden_states2);
+        ggml::tensor* r2 = mlp2->forward(ctx, hidden_states);
+        ggml::tensor* r = ggml::add(ctx, r1, r2, false);
+        return r;
+    }
+
+    int64_t BaseCombinedMLP::get_param_num(bool effective_only) const
+    {
+        int64_t r = 0;
+        r += mlp1->get_param_num(effective_only);
+        r += mlp2->get_param_num(effective_only);
+        return r;
+    }
+
+    void BaseCombinedMLP::set_id(int id)
+    {
+        Block::set_id(id);
+        mlp1->set_id(id);
+        mlp2->set_id(id);
+    }
+
+    void BaseCombinedMLP::load(const std::string& path, TensorLoader* loader)
+    {
+        Block::load(path, loader);
+        mlp1->load(path + "mlp1.", loader);
+        mlp2->load(path + "mlp2.", loader);
     }
 
     MultiMLP::MultiMLP(InitContext* ctx, int hidden_size, int intermediate_size, int num_local_experts, int num_experts_per_tok,
