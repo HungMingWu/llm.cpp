@@ -549,21 +549,23 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
         for (int i_KQ_0 = 0; i_KQ_0 < nbatch_fa; i_KQ_0 += np * warp_size) {
             const int i_KQ = i_KQ_0 + (threadIdx.y % np) * warp_size + threadIdx.x;
 
+            auto &value = KQ_acc(i_KQ_0 / (np * warp_size), jc0);
+
             if constexpr (fast_fp16_available_v && !v_dot2_f32_f16_available_v) {
                 // Without the v_dot2_f32_f16 instruction there is a higher risk of numerical overflow in the KQ calculation.
                 // Therefore, scale down Q values and apply the inverse scale the FP32 KQ values afterwards again.
-                KQ_acc(i_KQ_0 / (np * warp_size), jc0) *= 4.0f;
+                value *= 4.0f;
             }
 
             if (use_logit_softcap) {
-                KQ_acc((i_KQ_0 / (np * warp_size)), jc0) = logit_softcap * tanhf(KQ_acc((i_KQ_0 / (np * warp_size)), jc0));
+                value = logit_softcap * tanhf(value);
             }
 
             if (!oob_check || i_KQ < k_VKQ_sup) {
-                KQ_acc((i_KQ_0 / (np * warp_size)), jc0) += (ncols2 > 1 || !mask.empty()) ?
+                value += (ncols2 > 1 || !mask.empty()) ?
                     slope * __half2float(mask(j, i_KQ)) : 0.0f;
 
-                KQ_max_new[jc0] = fmaxf(KQ_max_new[jc0], KQ_acc((i_KQ_0 / (np * warp_size)), jc0) + FATTN_KQ_MAX_OFFSET);
+                KQ_max_new[jc0] = fmaxf(KQ_max_new[jc0], value + FATTN_KQ_MAX_OFFSET);
             }
         }
 
