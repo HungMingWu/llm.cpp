@@ -64,6 +64,7 @@ struct Args
     std::string re_quantize;
     std::map<std::string, std::string> model_n_gpu_layers;
     int max_length = -1;
+    int max_proj_length = -1;
     int max_context_length = 512;
     bool interactive = false;
     bool show = false;
@@ -159,6 +160,9 @@ void usage(const std::string& prog)
         << "                          generally, this is used to reduce KV cache size.\n"
         << "                          for models that does not show its max context window in `config.json`,\n"
         << "                          use this to enlarge it (use with caution!).\n"
+        << "  --max_proj_length N     max number of projected embeddings. (default: model specific)\n"
+        << "                          for vision, larger value means lossless, but intermediate tensors might to too large\n"
+        << "                          to be handled by GPU.\n"
         << "  --layer_spec LAYERS     select/redesign layers.\n"
         << "                          LAYERS=S0,S1,.... where S0/S1/... are like slices of Python, `start:stop[:step]`,\n"
         << "                          negative values in `start` and `stop` can be used referencing layers in reversed order,\n"
@@ -452,53 +456,54 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
                 }
             }
             handle_param("--model", "-m", model_path, std::string)
-                handle_param("--prompt", "-p", prompt, std::string)
-                handle_para0("--prompt_file", prompt, load_txt)
-                handle_param("--system", "-s", system, std::string)
-                handle_para0("--sys_file", system, load_txt)
-                handle_para0("--ai_prefix", ai_prefix, std::string)
-                handle_param("--max_length", "-l", max_length, std::stoi)
-                handle_param("--max_context_length", "-c", max_context_length, std::stoi)
-                handle_para0("--extending", extending, parse_extending_method)
-                handle_para0("--sampling", sampling, std::string)
-                handle_param("--top_k", "-k", top_k, std::stoi)
-                handle_param("--top_p", "-q", top_p, std::stof)
-                handle_para0("--tfs_z", tfs_z, std::stof)
-                handle_param("--temp", "-t", temp, std::stof)
-                handle_para0("--presence_penalty", presence_penalty, std::stof)
-                handle_para0("--repeat_penalty", repeat_penalty, std::stof)
-                handle_para0("--frequency_penalty", frequency_penalty, std::stof)
-                handle_para0("--penalty_window", penalty_window, std::stoi)
-                handle_param("--threads", "-n", num_threads, std::stoi)
-                handle_para0("--seed", seed, std::stoi)
-                handle_para0("--test", test_fn, std::string)
-                handle_para0("--set_vs_name", cur_vs_name, std::string)
-                handle_para0("--embedding_model", embedding_model_path, std::string)
-                handle_para0("--distance_strategy", vc, ParseDistanceStrategy)
-                handle_para0("--retrieve_top_n", retrieve_top_n, std::stoi)
-                handle_para0("--reranker_model", reranker_model_path, std::string)
-                handle_para0("--retrieve_rewrite_template", retrieve_rewrite_template, std::string)
-                handle_para0("--rerank_score_thres", rerank_score_thres, std::stof)
-                handle_para0("--rerank_top_n", rerank_top_n, std::stoi)
-                handle_para0("--rag_post_extending", rag_post_extending, std::stoi)
-                handle_para0("--rag_template", rag_template, std::string)
-                handle_para0("--rag_context_sep", rag_context_sep, std::string)
-                handle_para0("--emb_rank_query_sep", emb_rank_query_sep, std::string)
-                handle_para0("--init_vs", vector_store_in, std::string)
-                handle_para0("--merge_vs", merge_vs, std::string)
-                handle_para0("--layer_spec", layer_spec, std::string)
-                handle_para0("--load_session", load_session, std::string)
-                handle_para0("--dump_dot", dump_dot, std::string)
-                handle_para0("--beam_size", beam_size, std::stoi)
-                handle_para0("--log_level", log_level, std::stoi)
-                handle_para0("--rpc_endpoints", rpc_endpoints, std::string)
-                handle_para0("--serve_rpc", serve_rpc, std::string)
-                handle_para0("--ggml_dir", ggml_dir, std::string)
-                handle_para0("--cache_dtype", cache_dtype, std::string)
-                handle_para0("--batch_size", batch_size, std::stoi)
-                handle_para0("--tts_export", tts_export, std::string)
-                handle_para0("--re_quantize", re_quantize, std::string)
-                handle_para0("--max_new_tokens", max_new_tokens, std::stoi)
+            handle_param("--prompt", "-p", prompt, std::string)
+            handle_para0("--prompt_file", prompt, load_txt)
+            handle_param("--system", "-s", system, std::string)
+            handle_para0("--sys_file", system, load_txt)
+            handle_para0("--ai_prefix", ai_prefix, std::string)
+            handle_param("--max_length", "-l", max_length, std::stoi)
+            handle_para0("--max_proj_length", max_proj_length, std::stoi)
+            handle_param("--max_context_length", "-c", max_context_length, std::stoi)
+            handle_para0("--extending", extending, parse_extending_method)
+            handle_para0("--sampling", sampling, std::string)
+            handle_param("--top_k", "-k", top_k, std::stoi)
+            handle_param("--top_p", "-q", top_p, std::stof)
+            handle_para0("--tfs_z", tfs_z, std::stof)
+            handle_param("--temp", "-t", temp, std::stof)
+            handle_para0("--presence_penalty", presence_penalty, std::stof)
+            handle_para0("--repeat_penalty", repeat_penalty, std::stof)
+            handle_para0("--frequency_penalty", frequency_penalty, std::stof)
+            handle_para0("--penalty_window", penalty_window, std::stoi)
+            handle_param("--threads", "-n", num_threads, std::stoi)
+            handle_para0("--seed", seed, std::stoi)
+            handle_para0("--test", test_fn, std::string)
+            handle_para0("--set_vs_name", cur_vs_name, std::string)
+            handle_para0("--embedding_model", embedding_model_path, std::string)
+            handle_para0("--distance_strategy", vc, ParseDistanceStrategy)
+            handle_para0("--retrieve_top_n", retrieve_top_n, std::stoi)
+            handle_para0("--reranker_model", reranker_model_path, std::string)
+            handle_para0("--retrieve_rewrite_template", retrieve_rewrite_template, std::string)
+            handle_para0("--rerank_score_thres", rerank_score_thres, std::stof)
+            handle_para0("--rerank_top_n", rerank_top_n, std::stoi)
+            handle_para0("--rag_post_extending", rag_post_extending, std::stoi)
+            handle_para0("--rag_template", rag_template, std::string)
+            handle_para0("--rag_context_sep", rag_context_sep, std::string)
+            handle_para0("--emb_rank_query_sep", emb_rank_query_sep, std::string)
+            handle_para0("--init_vs", vector_store_in, std::string)
+            handle_para0("--merge_vs", merge_vs, std::string)
+            handle_para0("--layer_spec", layer_spec, std::string)
+            handle_para0("--load_session", load_session, std::string)
+            handle_para0("--dump_dot", dump_dot, std::string)
+            handle_para0("--beam_size", beam_size, std::stoi)
+            handle_para0("--log_level", log_level, std::stoi)
+            handle_para0("--rpc_endpoints", rpc_endpoints, std::string)
+            handle_para0("--serve_rpc", serve_rpc, std::string)
+            handle_para0("--ggml_dir", ggml_dir, std::string)
+            handle_para0("--cache_dtype", cache_dtype, std::string)
+            handle_para0("--batch_size", batch_size, std::stoi)
+            handle_para0("--tts_export", tts_export, std::string)
+            handle_para0("--re_quantize", re_quantize, std::string)
+            handle_para0("--max_new_tokens", max_new_tokens, std::stoi)
             else
                 break;
 
@@ -916,7 +921,8 @@ static void run_qa_ranker(Args& args, chatllm::Pipeline& pipeline, TextStreamer&
     chatllm::ModelObject::extra_args pipe_args(args.max_length, args.layer_spec, args.moe_on_cpu, args.num_threads, args.batch_size, args.cache_dtype, args.re_quantize);\
     pipe_args.model_n_gpu_layers = args.model_n_gpu_layers; \
     pipe_args.additional = args.additional; \
-    pipe_args.opt_speed = args.opt_speed;
+    pipe_args.opt_speed = args.opt_speed;   \
+    pipe_args.max_proj_length = args.max_proj_length;
 
 chatllm::BaseStreamer* get_streamer_for_log(void);
 
