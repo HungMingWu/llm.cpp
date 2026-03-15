@@ -320,7 +320,7 @@ static constexpr __device__ int ggml_cuda_fattn_tile_get_nbatch_K(const int DKQ,
 // TODO: deduplicate with mma-f16
 template<int warp_size, int nwarps, int I, int J, int J_padding, bool oob_check>
 static __device__ __forceinline__ void flash_attn_tile_load_tile(
-    mdspan_stiride_t<const half2, 2> KV, half2* const __restrict__ tile_KV) {
+    mdspan_stiride_t<const half2, 2> KV, half2* const __restrict__ tile_KV, const int i_sup) {
     constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
     constexpr int cpy_ne = cpy_nb / 4;
 
@@ -351,7 +351,7 @@ static __device__ __forceinline__ void flash_attn_tile_load_tile(
                     half2* out = tile_KV + i * (J / 2 + J_padding) + j;
 #pragma unroll
                     for (int l = 0; l < cpy_ne; ++l) {
-                        half2 tmp_h2 = (!oob_check || i < KV.extent(0)) ? KV(i, j + l) : half2{};
+                        half2 tmp_h2 = (!oob_check || i < i_sup) ? KV(i, j + l) : half2{};
                         *out++ = tmp_h2;
                     }
                 }
@@ -372,7 +372,7 @@ static __device__ __forceinline__ void flash_attn_tile_load_tile(
 
 template<int warp_size, int nwarps, int I, int J, int J_padding, bool oob_check>
 static __device__ __forceinline__ void flash_attn_tile_load_tile(
-    mdspan_stiride_t<const half2, 2> KV, float* const __restrict__ tile_KV) {
+    mdspan_stiride_t<const half2, 2> KV, float* const __restrict__ tile_KV, const int i_sup) {
     constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
     constexpr int cpy_ne = cpy_nb / 4;
 
@@ -403,7 +403,7 @@ static __device__ __forceinline__ void flash_attn_tile_load_tile(
                     float* out = tile_KV + i * (J + J_padding) + 2 * j;
 #pragma unroll
                     for (int l = 0; l < cpy_ne / 2; ++l) {
-                        half2 tmp_h2 = (!oob_check || i < KV.extent(0)) ? KV(i, j + l) : half2{};
+                        half2 tmp_h2 = (!oob_check || i < i_sup) ? KV(i, j + l) : half2{};
                         float2 tmp_f2 = __half22float2(tmp_h2);
                         *out++ = tmp_f2.x;
                         *out++ = tmp_f2.y;
@@ -429,6 +429,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter_KQ(
     T_vec_dot* const Q_tmp,
     mdspan_stiride_t<const half2, 2> K_h2,
     T_vec_dot* const KV_tmp,
+    const int k_VKQ_sup,
     const int k_KQ_0,
     mdspan_t<float, 2> KQ_acc) {
     constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
@@ -439,7 +440,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter_KQ(
     constexpr int np = nwarps > ncols ? nwarps / ncols : 1; // number of parallel warps per Q column
 
     flash_attn_tile_load_tile<warp_size, nwarps, nbatch_fa, nbatch_K, cpy_ne, oob_check>
-        (K_h2, KV_tmp);
+        (K_h2, KV_tmp, k_VKQ_sup);
     __syncthreads();
 
     static constexpr size_t nbatch_div = fast_fp16_available_v ? 2 : 1;
@@ -500,6 +501,8 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
     float* const KQ_max,
     float* const KQ_sum,
     T_acc* const VKQ,
+    const int k_VKQ_0,
+    const int k_VKQ_max,
     const int col_Q_0) {
     constexpr int cpy_nb = ggml_cuda_get_max_cpy_bytes();
     constexpr int cpy_ne = cpy_nb / 4;
@@ -515,7 +518,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
     static constexpr size_t factor = fast_fp16_available_v ? 2 : 1;
     constexpr int KQ_cs = cpw < factor * cpy_ne ? cpw : factor * cpy_ne;
     static_assert(cpw % KQ_cs == 0, "bad KQ_cs");
-    const int k_VKQ_sup = K_h2.extent(0);//k_VKQ_max - k_VKQ_0; // k supremum, only smaller k values have valid KV data
+    const int k_VKQ_sup = k_VKQ_max - k_VKQ_0; // k supremum, only smaller k values have valid KV data
 
     float KQ_max_new[cpw];
 #pragma unroll
@@ -531,13 +534,13 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
     for (int k_KQ_0 = 0; k_KQ_0 < DKQ - nbatch_K_last; k_KQ_0 += nbatch_K) {
         std::pair colRanges{ k_KQ_0 / 2, (k_KQ_0 + nbatch_K) / 2 };
         flash_attn_tile_iter_KQ<warp_size, nwarps, ncols1, ncols2, DKQ, nbatch_fa, nbatch_K, use_logit_softcap, oob_check>(
-            Q_tmp, std::submdspan(K_h2, std::full_extent, colRanges), KV_tmp, k_KQ_0, KQ_acc.mdspan());
+            Q_tmp, std::submdspan(K_h2, std::full_extent, colRanges), KV_tmp, k_VKQ_sup, k_KQ_0, KQ_acc.mdspan());
     }
     if (nbatch_K_last > 0) {
         constexpr int k_KQ_0 = DKQ - nbatch_K_last;
         std::pair colRanges{ k_KQ_0 / 2, DKQ / 2 };
         flash_attn_tile_iter_KQ<warp_size, nwarps, ncols1, ncols2, DKQ, nbatch_fa, nbatch_K_last, use_logit_softcap, oob_check>(
-            Q_tmp, std::submdspan(K_h2, std::full_extent, colRanges), KV_tmp, k_KQ_0, KQ_acc.mdspan());
+            Q_tmp, std::submdspan(K_h2, std::full_extent, colRanges), KV_tmp, k_VKQ_sup, k_KQ_0, KQ_acc.mdspan());
     }
 
     // Apply logit softcap + mask, update KQ_max:
@@ -562,8 +565,8 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
             }
 
             if (!oob_check || i_KQ < k_VKQ_sup) {
-                value += (ncols2 > 1 || !mask.empty()) ?
-                    slope * __half2float(mask(j, i_KQ)) : 0.0f;
+                KQ_acc((i_KQ_0 / (np * warp_size)), jc0) += (ncols2 > 1 || !mask.empty()) ?
+                    slope * __half2float(mask(j, k_VKQ_0 + i_KQ)) : 0.0f;
 
                 KQ_max_new[jc0] = fmaxf(KQ_max_new[jc0], value + FATTN_KQ_MAX_OFFSET);
             }
@@ -641,7 +644,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
 #pragma unroll
     for (int k0 = 0; k0 < nbatch_fa; k0 += nbatch_V) {
         flash_attn_tile_load_tile<warp_size, nwarps, nbatch_V, DV, 0, oob_check>
-            (std::submdspan(V_h2, std::pair{ k0, k_VKQ_sup - k0 }, std::full_extent), KV_tmp);
+            (std::submdspan(V_h2, std::pair{ k0, k0 + nbatch_V }, std::full_extent), KV_tmp, k_VKQ_sup - k0);
         __syncthreads();
 
         if constexpr (fast_fp16_available_v) {
@@ -874,34 +877,31 @@ static __global__ void flash_attn_tile(
             int k_VKQ_0 = blockIdx.y * nbatch_fa;
             while (k_VKQ_0 < k_VKQ_max - nbatch_fa) {
                 constexpr bool oob_check = false;
-                std::pair rowRanges{ k_VKQ_0, k_VKQ_max };
-                mdspan_stiride_t<const half, 2> submask = std::submdspan(maskh, std::full_extent, std::pair { k_VKQ_0, maskh.extent(1) });
+                std::pair rowRanges{ k_VKQ_0, k_VKQ_0 + gridDim.y * nbatch_fa };
                 flash_attn_tile_iter<warp_size, nwarps, ncols1, ncols2, DKQ, DV, nbatch_fa, nbatch_K, use_logit_softcap, oob_check>
                     (Q_tmp, std::submdspan(K_h2, rowRanges, std::full_extent), std::submdspan(V_h2, rowRanges, std::full_extent),
-                        submask, ne01, ctx.logit_softcap, slope, KQ, KV_tmp,
-                        KQ_max, KQ_sum, VKQ, col_Q_0);
+                        maskh, ne01, ctx.logit_softcap, slope, KQ, KV_tmp,
+                        KQ_max, KQ_sum, VKQ, k_VKQ_0, k_VKQ_max, col_Q_0);
                 k_VKQ_0 += gridDim.y * nbatch_fa;
             }
             if (k_VKQ_0 < k_VKQ_max) {
                 constexpr bool oob_check = true;
                 std::pair rowRanges{ k_VKQ_0, k_VKQ_max };
-                mdspan_stiride_t<const half, 2> submask = std::submdspan(maskh, std::full_extent, std::pair { k_VKQ_0, maskh.extent(1) });
                 flash_attn_tile_iter<warp_size, nwarps, ncols1, ncols2, DKQ, DV, nbatch_fa, nbatch_K, use_logit_softcap, oob_check>
                     (Q_tmp, std::submdspan(K_h2, rowRanges, std::full_extent), std::submdspan(V_h2, rowRanges, std::full_extent),
-                        submask, ne01, ctx.logit_softcap, slope, KQ, KV_tmp,
-                        KQ_max, KQ_sum, VKQ, col_Q_0);
+                        maskh, ne01, ctx.logit_softcap, slope, KQ, KV_tmp,
+                        KQ_max, KQ_sum, VKQ, k_VKQ_0, k_VKQ_max, col_Q_0);
             }
         }
         else {
             // Branch without out-of-bounds checks.
             for (int k_VKQ_0 = blockIdx.y * nbatch_fa; k_VKQ_0 < k_VKQ_max; k_VKQ_0 += gridDim.y * nbatch_fa) {
                 constexpr bool oob_check = false;
-                std::pair rowRanges{ k_VKQ_0, k_VKQ_max };
-                mdspan_stiride_t<const half, 2> submask = std::submdspan(maskh, std::full_extent, std::pair { k_VKQ_0, maskh.extent(1) });
+                std::pair rowRanges{ k_VKQ_0, k_VKQ_0 + gridDim.y * nbatch_fa };
                 flash_attn_tile_iter<warp_size, nwarps, ncols1, ncols2, DKQ, DV, nbatch_fa, nbatch_K, use_logit_softcap, oob_check>
                     (Q_tmp, std::submdspan(K_h2, rowRanges, std::full_extent), std::submdspan(V_h2, rowRanges, std::full_extent),
-                        submask, ne01, ctx.logit_softcap, slope, KQ, KV_tmp,
-                        KQ_max, KQ_sum, VKQ, col_Q_0);
+                        maskh, ne01, ctx.logit_softcap, slope, KQ, KV_tmp,
+                        KQ_max, KQ_sum, VKQ, k_VKQ_0, k_VKQ_max, col_Q_0);
             }
         }
 
