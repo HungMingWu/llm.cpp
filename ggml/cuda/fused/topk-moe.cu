@@ -1,5 +1,6 @@
 #include <assert.h>
 #include "common.cuh"
+#include "reduce.cuh"
 #include "fused.h"
 #define GGML_ASSERT(x) assert(x)
 
@@ -35,7 +36,8 @@ __device__ void softmax_warp_inplace(float(&vals)[experts_per_thread], const int
         }
     }
 
-    sum = warp_reduce_sum(sum);
+    auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(cooperative_groups::this_thread_block());
+    sum = cooperative_groups::reduce(tile, sum, cooperative_groups::plus<float>());
 
     const float inv_sum = 1.0f / sum;
 
@@ -206,7 +208,8 @@ __launch_bounds__(4 * WARP_SIZE, 1) __global__ void topk_moe_cuda(topk_moe_conte
     }
 
     if (config.with_norm) {
-        wt_sum = warp_reduce_sum(wt_sum);
+        auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(cooperative_groups::this_thread_block());
+        wt_sum = cooperative_groups::reduce(tile, wt_sum, cooperative_groups::plus<float>());
         wt_sum = max(wt_sum, ctx.clamp_val);
         const float inv_sum = 1.0f / wt_sum;
 

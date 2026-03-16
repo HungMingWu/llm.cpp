@@ -1,5 +1,6 @@
 #include "../common.h"
 #include "common.cuh"
+#include "reduce.cuh"
 #include "vecdotq.cuh"
 #include "cuda_func.h"
 #include "unary.cuh"
@@ -115,6 +116,9 @@ static __global__ void mul_mat_vec_q(
     constexpr int nwarps = calc_nwarps(ncols_dst, table_id);
     constexpr int rows_per_cuda_block = calc_rows_per_block(ncols_dst, table_id);
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+
+    auto block = cooperative_groups::this_thread_block();
+    auto tile = cooperative_groups::tiled_partition<warp_size>(block);
 
     const     int tid = warp_size * threadIdx.y + threadIdx.x;
     const     int row0 = rows_per_cuda_block * blockIdx.x;
@@ -271,10 +275,10 @@ static __global__ void mul_mat_vec_q(
                     }
                 }
             }
-            tmp[j][i] = warp_reduce_sum<warp_size>(tmp[j][i]);
+            tmp[j][i] = cooperative_groups::reduce(tile, tmp[j][i], cooperative_groups::plus<float>());
             if constexpr (has_fusion) {
                 if (use_gate) {
-                    tmp_gate[j][i] = warp_reduce_sum<warp_size>(tmp_gate[j][i]);
+                    tmp_gate[j][i] = cooperative_groups::reduce(tile, tmp_gate[j][i], cooperative_groups::plus<float>());
                 }
             }
         }

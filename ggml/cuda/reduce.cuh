@@ -1,6 +1,10 @@
 #pragma once
 #include <cooperative_groups/reduce.h>
 
+#if defined(__CUDACC__) && !defined(GGML_USE_HIP)
+#include <cuda_fp16.h>
+#endif
+
 template <template<typename> class Op, typename block_t, typename tile_t, typename T>
 __device__ __forceinline__ auto reduceWithBlock(block_t block, tile_t tile, T initial_val, T val, T* buffer)
 {
@@ -28,5 +32,13 @@ struct cooperative_groups::plus<float2>
 {
     __device__ float2 operator()(float2 a, float2 b) {
         return make_float2(a.x + b.x, a.y + b.y);
+    }
+};
+
+template <>
+struct cooperative_groups::plus<half2>
+{
+    __device__ half2 operator()(half2 a, half2 b) {
+        return __hadd2(a, b);
     }
 };

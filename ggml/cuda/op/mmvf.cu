@@ -3,6 +3,7 @@
 #include "common.cuh"
 #include "cuda_func.h"
 #include "convert.cuh"
+#include "reduce.cuh"
 #include "unary.cuh"
 #define GGML_ASSERT(x) assert(x)
 
@@ -41,6 +42,8 @@ static __global__ void mul_mat_vec_f(
     const int sample_y = sample_dst;
 
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    auto block = cooperative_groups::this_thread_block();
+    auto tile = cooperative_groups::tiled_partition<warp_size>(block);
 
     x += int64_t(sample_x) * stride_sample_x + channel_x * stride_channel_x + row * stride_row;
     y += int64_t(sample_y) * stride_sample_y + channel_y * stride_channel_y;
@@ -310,11 +313,11 @@ static __global__ void mul_mat_vec_f(
 
 #pragma unroll
     for (int j = 0; j < ncols_dst; ++j) {
-        sumf[j] = warp_reduce_sum<warp_size>(sumf[j]);
+        sumf[j] = cooperative_groups::reduce(tile, sumf[j], cooperative_groups::plus<float>());
 
         if constexpr (has_fusion) {
             if (use_gate) {
-                sumf_gate[j] = warp_reduce_sum<warp_size>(sumf_gate[j]);
+                sumf_gate[j] = cooperative_groups::reduce(tile, sumf_gate[j], cooperative_groups::plus<float>());
             }
         }
 
@@ -328,11 +331,11 @@ static __global__ void mul_mat_vec_f(
             __syncthreads();
             if (tid < warp_size) {
                 sumf[j] = buf_iw[tid];
-                sumf[j] = warp_reduce_sum<warp_size>(sumf[j]);
+                sumf[j] = cooperative_groups::reduce(tile, sumf[j], cooperative_groups::plus<float>());
                 if constexpr (has_fusion) {
                     if (use_gate) {
                         sumf_gate[j] = buf_iw_gate[tid];
-                        sumf_gate[j] = warp_reduce_sum<warp_size>(sumf_gate[j]);
+                        sumf_gate[j] = cooperative_groups::reduce(tile, sumf_gate[j], cooperative_groups::plus<float>());
                     }
                 }
             }

@@ -1,5 +1,6 @@
 #pragma once
 #include "mdspan_helper.h"
+#include "reduce.cuh"
 
 // nbatch_fa == number of KQ rows to process per iteration
 // nbatch_K == number of K columns to load in parallel for KQ calculation
@@ -907,7 +908,8 @@ static __global__ void flash_attn_tile(
 
 #pragma unroll
         for (int jc0 = 0; jc0 < cpw; ++jc0) {
-            KQ_sum[jc0] = warp_reduce_sum<warp_size>(KQ_sum[jc0]);
+            auto tile = cooperative_groups::tiled_partition<warp_size>(cooperative_groups::this_thread_block());
+            KQ_sum[jc0] = cooperative_groups::reduce(tile, KQ_sum[jc0], cooperative_groups::plus<float>());
         }
 
         if constexpr (np > 1) {

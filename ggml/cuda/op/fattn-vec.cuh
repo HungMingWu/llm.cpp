@@ -1,6 +1,7 @@
 #pragma once
 #include <float.h>
 #include "common.cuh"
+#include "reduce.cuh"
 
 static int ggml_cuda_fattn_vec_get_nthreads_host(const int /*cc*/) {
     return 128;
@@ -107,6 +108,10 @@ static __global__ void flash_attn_ext_vec(
     using t2 = std::conditional_t<v_dot2_f32_f16_available_v, half2, float2>;
     t2 VKQ[ncols][(D / 2) / nthreads_V] = { {{0.0f, 0.0f}} };
     __shared__ t1   KQ[ne_KQ > ne_combine ? ne_KQ : ne_combine];
+
+    auto block = cooperative_groups::this_thread_block();
+    auto tile_warp = cooperative_groups::tiled_partition<WARP_SIZE>(block);
+    auto tile_KQ = cooperative_groups::tiled_partition<nthreads_KQ>(block);
 
     float KQ_max[ncols];
     float KQ_sum[ncols];
@@ -246,7 +251,7 @@ static __global__ void flash_attn_ext_vec(
 #pragma unroll
             for (int j = 0; j < ncols; ++j) {
                 float sum = vec_dot_KQ(K + i_KQ * nb11, Q_reg[j], Q_i32[j], Q_ds[j]);
-                sum = warp_reduce_sum<nthreads_KQ>(sum);
+                sum = cooperative_groups::reduce(tile_KQ, sum, cooperative_groups::plus<float>());
 
                 if (use_logit_softcap) {
                     sum = ctx.logit_softcap * tanhf(sum);
@@ -442,7 +447,7 @@ static __global__ void flash_attn_ext_vec(
         }
 
         KQ_sum[j_VKQ] *= kqmax_scale;
-        KQ_sum[j_VKQ] = warp_reduce_sum(KQ_sum[j_VKQ]);
+        KQ_sum[j_VKQ] = cooperative_groups::reduce(tile_warp, KQ_sum[j_VKQ], cooperative_groups::plus<float>());
         if (threadIdx.x == 0) {
             KQ_sum_shared[j_VKQ][threadIdx.y] = KQ_sum[j_VKQ];
         }
@@ -451,7 +456,7 @@ static __global__ void flash_attn_ext_vec(
 
         if (nthreads <= D || tid < D) {
             KQ_sum[j_VKQ] = KQ_sum_shared[j_VKQ][threadIdx.x];
-            KQ_sum[j_VKQ] = warp_reduce_sum(KQ_sum[j_VKQ]);
+            KQ_sum[j_VKQ] = cooperative_groups::reduce(tile_warp, KQ_sum[j_VKQ], cooperative_groups::plus<float>());
 
 #pragma unroll
             for (int i0 = 0; i0 < D; i0 += nthreads) {

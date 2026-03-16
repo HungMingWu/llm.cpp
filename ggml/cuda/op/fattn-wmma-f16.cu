@@ -1,6 +1,7 @@
 #include "cuda_func.h"
 #include "common.cuh"
 #include "fattn-common.cuh"
+#include "reduce.cuh"
 
 // D == head size, VKQ_stride == num VKQ rows calculated in parallel:
 template<int D, int ncols, int nwarps, int VKQ_stride, typename KQ_acc_t, bool use_logit_softcap>
@@ -243,7 +244,10 @@ static __global__ void flash_attn_ext_f16(
                     KQ_rowsum_add += KQ_f_tmp[k0 / warp_size];
                     KQ[j * (kqar * kqs_padded) + k] = KQ_f_tmp[k0 / warp_size];
                 }
-                KQ_rowsum_add = warp_reduce_sum<warp_size>(KQ_rowsum_add);
+                {
+                    auto tile = cooperative_groups::tiled_partition<warp_size>(cooperative_groups::this_thread_block());
+                    KQ_rowsum_add = cooperative_groups::reduce(tile, KQ_rowsum_add, cooperative_groups::plus<float>());
+                }
 
                 // Scale previous KQ_rowsum to account for a potential increase in KQ_max:
                 KQ_rowsum_f[j0 / nwarps] = KQ_max_scale_f[j0 / nwarps] * KQ_rowsum_f[j0 / nwarps] + KQ_rowsum_add;
@@ -293,7 +297,10 @@ static __global__ void flash_attn_ext_f16(
                     KQ_rowsum_add += KQ2_tmp[k0 / warp_size];
                     KQ2[j * (kqs_padded / 2) + k] = KQ2_tmp[k0 / warp_size];
                 }
-                KQ_rowsum_add = warp_reduce_sum<warp_size>(KQ_rowsum_add);
+                {
+                    auto tile = cooperative_groups::tiled_partition<warp_size>(cooperative_groups::this_thread_block());
+                    KQ_rowsum_add = cooperative_groups::reduce(tile, KQ_rowsum_add, cooperative_groups::plus<half2>());
+                }
 
                 // Scale previous KQ_rowsum to account for a potential increase in KQ_max:
                 KQ_rowsum_h2[j0 / nwarps] = KQ_max_scale_h2[j0 / nwarps] * KQ_rowsum_h2[j0 / nwarps] + KQ_rowsum_add;

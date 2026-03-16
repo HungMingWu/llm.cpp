@@ -1,4 +1,5 @@
 #include "common.cuh"
+#include "reduce.cuh"
 #define GGML_ASSERT(x) assert(x)
 
 // To reduce shared memory use, store "it" and "iex_used" with 22/10 bits each.
@@ -93,7 +94,10 @@ static __global__ void mm_ids_helper(
             it_compact += __shfl_sync(0xFFFFFFFF, it_compact_add_lower + it_compact_add_self, warp_size - 1, warp_size);
         }
     }
-    nex_prev = warp_reduce_sum<warp_size>(nex_prev);
+    {
+        auto tile = cooperative_groups::tiled_partition<warp_size>(cooperative_groups::this_thread_block());
+        nex_prev = cooperative_groups::reduce(tile, nex_prev, cooperative_groups::plus<int>());
+    }
 
     for (int itc = threadIdx.x; itc < it_compact; itc += warp_size) {
         const mm_ids_helper_store store_it = store[itc];

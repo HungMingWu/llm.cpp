@@ -1,6 +1,7 @@
 #include <bit>
 #include "cuda_func.h"
 #include "common.cuh"
+#include "reduce.cuh"
 #include "block.h"
 #include "ds.h"
 #include "quantize_mmq_mxfp4.h"
@@ -79,7 +80,10 @@ static __global__ void quantize_q8_1(
     float sum = xi;
 
     amax = warp_reduce_max<QK8_1>(amax);
-    sum = warp_reduce_sum<QK8_1>(sum);
+    {
+        auto tile = cooperative_groups::tiled_partition<QK8_1>(cooperative_groups::this_thread_block());
+        sum = cooperative_groups::reduce(tile, sum, cooperative_groups::plus<float>());
+    }
 
     const float  d = amax / 127.0f;
     const int8_t q = amax == 0.0f ? 0 : roundf(xi / d);

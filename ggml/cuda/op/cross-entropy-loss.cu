@@ -1,5 +1,6 @@
 #include "cuda_func.h"
 #include "common.cuh"
+#include "reduce.cuh"
 
 template <bool use_shared>
 static __global__ void cross_entropy_loss_f32(
@@ -27,7 +28,10 @@ static __global__ void cross_entropy_loss_f32(
         const float logit_i = use_shared ? tmp[i] : logits[i];
         sum += expf(logit_i - max_logit);
     }
-    sum = warp_reduce_sum(sum);
+    {
+        auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(cooperative_groups::this_thread_block());
+        sum = cooperative_groups::reduce(tile, sum, cooperative_groups::plus<float>());
+    }
     sum = logf(sum);
 
     // log(exp(logits - max) / sum) = (logits - max) - log(sum)
@@ -36,7 +40,10 @@ static __global__ void cross_entropy_loss_f32(
         const float logit_i = use_shared ? tmp[i] : logits[i];
         loss += (logit_i - max_logit - sum) * labels[i];
     }
-    loss = -warp_reduce_sum(loss) / (float)k;
+    {
+        auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(cooperative_groups::this_thread_block());
+        loss = -cooperative_groups::reduce(tile, loss, cooperative_groups::plus<float>()) / (float)k;
+    }
 
     if (threadIdx.x != 0) {
         return;
@@ -100,7 +107,8 @@ static __global__ void cross_entropy_loss_back_f32(
             dst[i] = val;
         }
     }
-    sum = warp_reduce_sum(sum);
+    auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(cooperative_groups::this_thread_block());
+    sum = cooperative_groups::reduce(tile, sum, cooperative_groups::plus<float>());
     const float sm_scale = 1.0f / sum;
 
     const float d_by_nrows = *grad / gridDim.x;

@@ -1,5 +1,6 @@
 #include "../common.h"
 #include "common.cuh"
+#include "reduce.cuh"
 
 #if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 #define USE_CUB
@@ -179,10 +180,13 @@ ssm_scan_f32_group(
             state[j] = (state[j] * dA) + (B_val * x_dt);
             state_sum += state[j] * C_val;
         }
-
+ 
         // parallel accumulation for output
-        state_sum = warp_reduce_sum(state_sum);
-
+        {
+            auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(cooperative_groups::this_thread_block());
+            state_sum = cooperative_groups::reduce(tile, state_sum, cooperative_groups::plus<float>());
+        }
+ 
         if (lane == 0) {
             y_warp[i * stride_y] = state_sum;
         }
