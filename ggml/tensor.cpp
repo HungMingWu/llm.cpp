@@ -16,17 +16,15 @@ static bool ggml_is_contiguous_n(const ggml_tensor* tensor, int n) {
 	}
 	next_nb *= tensor->ne[0] / ggml_blck_size(tensor->type);
 	for (int i = 1; i < GGML_MAX_DIMS; i++) {
-		if (tensor->ne[i] != 1) {
-			if (i > n) {
-				if (tensor->nb[i] != next_nb) {
-					return false;
-				}
-				next_nb *= tensor->ne[i];
+		if (i > n) {
+			if (tensor->ne[i] != 1 && tensor->nb[i] != next_nb) {
+				return false;
 			}
-			else {
-				// this dimension does not need to be contiguous
-				next_nb = tensor->ne[i] * tensor->nb[i];
-			}
+			next_nb *= tensor->ne[i];
+		}
+		else {
+			// this dimension does not need to be contiguous
+			next_nb = tensor->ne[i] * tensor->nb[i];
 		}
 	}
 	return true;

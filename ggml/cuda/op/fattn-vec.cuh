@@ -26,7 +26,7 @@ constexpr size_t getnthreads_KQ_q()
     }
 }
 
-// Currenlty llvm with the amdgcn target does not support unrolling loops
+// Currently llvm with the amdgcn target does not support unrolling loops
 // that contain a break that can not be resolved at compile time.
 #ifdef __clang__
 #pragma clang diagnostic push

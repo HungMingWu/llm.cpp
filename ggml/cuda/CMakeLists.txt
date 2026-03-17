@@ -95,6 +95,7 @@ target_sources(libggml
       op/fattn-wmma-f16.cu
       op/fattn.cu
       op/fill.cu
+      op/gated_delta_net.cu
       op/getrows.cu
       op/gla.cu
       op/im2col.cu

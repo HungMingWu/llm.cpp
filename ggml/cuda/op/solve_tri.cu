@@ -56,7 +56,7 @@ void solve_tri_f32_cublas(const solve_tri_context &ctx, ggml_cuda_pool& pool, cu
 // ======================
 // When ncols_template == 0 the bounds for the loops in this function are not
 // known and can't be unrolled. As we want to keep pragma unroll for all other
-// cases we supress the clang transformation warning here.
+// cases we suppress the clang transformation warning here.
 #ifdef __clang__
 #    pragma clang diagnostic push
 #    pragma clang diagnostic ignored "-Wpass-failed"

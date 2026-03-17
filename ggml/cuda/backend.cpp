@@ -235,6 +235,69 @@ namespace
         return std::make_unique<ggml_cuda_pool_leg>(device);
     }
 
+    // returns whether the write (out) nodes overwrite the read nodes in operation
+    static bool ggml_cuda_check_fusion_memory_ranges(ggml_cgraph* cgraph,
+        int           node_idx,
+        int           node_count,
+        int* out_nodes,
+        int           out_count) {
+        auto nodes_overlap = [&](const ggml_tensor* a, const ggml_tensor* b) {
+            const int64_t a_start = (int64_t)a->data;
+            const int64_t a_end = a_start + a->nbytes();
+
+            const int64_t b_start = (int64_t)b->data;
+            const int64_t b_end = b_start + b->nbytes();
+
+            if ((b_start <= a_start && a_start < b_end) || (a_start <= b_start && b_start < a_end)) {
+                return true;
+            }
+
+            return false;
+        };
+
+        bool is_ok = true;
+        // for nrows=1, all fusion operations correctly read the src before writing dst or do it elementwise, so we should be ok
+        if (ggml_nrows(cgraph->nodes[node_idx]) == 1) {
+            return true;
+        }
+
+        for (int i = 0; i < out_count; ++i) {
+            const ggml_tensor* dst = cgraph->nodes[out_nodes[i]];
+
+            for (int j = node_idx; j < node_idx + node_count; ++j) {
+                // Loop over all srcs of all nodes in the fusion. If the src overlaps
+                // the destination and the src is not an intermediate node that's being
+                // elided, then disable fusion.
+
+                for (int src_idx = 0; src_idx < GGML_MAX_SRC; ++src_idx) {
+                    const ggml_tensor* src = cgraph->nodes[j]->src[src_idx];
+
+                    if (!src || src->op == GGML_OP_NONE) {
+                        continue;
+                    }
+
+                    if (nodes_overlap(dst, src)) {
+                        bool found = false;
+
+                        for (int k = node_idx; k < j; ++k) {
+                            if (cgraph->nodes[k] == src) {
+                                found = true;
+                                break;
+                            }
+                        }
+
+                        if (!found) {
+                            is_ok = false;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return is_ok;
+    }
+
     cudaError_t ggml_cuda_Memcpy2DPeerAsync(
         void* dst, int dstDevice, size_t dpitch, void* src, int srcDevice, size_t spitch, size_t width, size_t height, cudaStream_t stream) {
 
@@ -684,6 +747,35 @@ static void ggml_cuda_op_mul_mat_q(
     ggml_cuda_mul_mat_q_switch_type(ctx.pool(id), args, stream);
 }
 
+struct cublas_force_compute_type {
+    bool fp32 = false;
+    bool fp16 = false;
+};
+
+static const cublas_force_compute_type& ggml_cuda_cublas_get_force_compute_type() {
+    static const cublas_force_compute_type compute_type = [] {
+        cublas_force_compute_type result;
+
+        const bool ggml_cuda_force_cublas_compute_32f_env = getenv("GGML_CUDA_FORCE_CUBLAS_COMPUTE_32F") != nullptr;
+        const bool ggml_cuda_force_cublas_compute_16f_env = getenv("GGML_CUDA_FORCE_CUBLAS_COMPUTE_16F") != nullptr;
+
+        GGML_ASSERT(ggml_cuda_force_cublas_compute_16f_env == false || ggml_cuda_force_cublas_compute_32f_env == false);
+
+        if (ggml_cuda_force_cublas_compute_32f_env) {
+            GGML_LOG_INFO("Detected GGML_CUDA_FORCE_CUBLAS_COMPUTE_32F");
+            result.fp32 = true;
+        }
+        else if (ggml_cuda_force_cublas_compute_16f_env) {
+            GGML_LOG_INFO("Detected GGML_CUDA_FORCE_CUBLAS_COMPUTE_16F");
+            result.fp16 = true;
+        }
+
+        return result;
+    }();
+
+    return compute_type;
+}
+
 static void ggml_cuda_op_mul_mat_cublas(
     ggml_backend_cuda& ctx,
     ggml_tensor* dst, const char* src0_dd_i, const float* src1_ddf_i,
@@ -790,7 +882,13 @@ static void ggml_cuda_op_mul_mat_cublas(
 
         CUBLAS_CHECK(cublasSetStream(ctx.cublas_handle(id), stream));
 
-        if (GGML_CUDA_CC_IS_CDNA(cc) || GGML_CUDA_CC_IS_RDNA4(cc)) {
+        const auto& force_compute_type = ggml_cuda_cublas_get_force_compute_type();
+
+        if (!force_compute_type.fp16 && (GGML_CUDA_CC_IS_CDNA(cc)
+            || GGML_CUDA_CC_IS_RDNA4(cc)
+            || cc == GGML_CUDA_CC_VOLTA
+            || force_compute_type.fp32))
+        {
             const float alpha = 1.0f;
             const float beta = 0.0f;
             CUBLAS_CHECK(
@@ -1073,10 +1171,23 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
     cudaDataType_t cu_data_type = data_type;
     const void* alpha = &alphaVal<src0_type>;
     const void* beta = &betaVal<src0_type>;
-    const float alpha_f32 = 1.0f;
-    const float beta_f32 = 0.0f;
 
-    if (dst->op_params[0] == GGML_PREC_DEFAULT) {
+    const auto& force_compute_type = ggml_cuda_cublas_get_force_compute_type();
+
+    int id = ggml_cuda_get_device();
+    const int cc = ggml_cuda_info().devices[id].cc;
+    static constexpr bool is_src0_type_f16 = src0_type == GGML_TYPE_F16;
+
+    // bf16 and fp32 are already being computed in fp32 (ensure it using static_assert),
+    // so checking necessity of forced fp32 only for fp16 src0_type
+    static_assert(is_src0_type_f16 || compute_type == CUBLAS_COMPUTE_32F);
+
+    const bool need_compute_32f = is_src0_type_f16 && !force_compute_type.fp16 && (GGML_CUDA_CC_IS_CDNA(cc)
+        || GGML_CUDA_CC_IS_RDNA4(cc)
+        || cc == GGML_CUDA_CC_VOLTA
+        || force_compute_type.fp32);
+
+    if (dst->op_params[0] == GGML_PREC_DEFAULT && !need_compute_32f) {
         if constexpr (src0_type == GGML_TYPE_F32) {
             dst_t = (char*)dst_ddf;  // Direct F32 output
         }
@@ -1090,16 +1201,8 @@ static void ggml_cuda_mul_mat_batched_cublas_impl(ggml_backend_cuda& ctx, const 
         dst_t = (char*)dst_ddf;
         cu_compute_type = CUBLAS_COMPUTE_32F;
         cu_data_type = CUDA_R_32F;
-        alpha = &alpha_f32;
-        beta = &beta_f32;
-    }
-
-    int id = ggml_cuda_get_device();
-    const int cc = ggml_cuda_info().devices[id].cc;
-    if (GGML_CUDA_CC_IS_CDNA(cc) || GGML_CUDA_CC_IS_RDNA4(cc)) {
-        cu_compute_type = CUBLAS_COMPUTE_32F;
-        alpha = &alpha_f32;
-        beta = &beta_f32;
+        alpha = &alphaVal<GGML_TYPE_F32>;
+        beta = &betaVal<GGML_TYPE_F32>;
     }
 
     GGML_ASSERT(src1->ne[2] % src0->ne[2] == 0);
@@ -1740,7 +1843,8 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
                                 out_nodes[1] = i + ops.size() - 1;
 
                                 if (fused::ggml_can_fuse_subgraph(cgraph, i, ops.size(), ops.data(), out_nodes, 2) &&
-                                    fused::should_use_topk_moe(node, logits, weights, ids)) {
+                                    fused::should_use_topk_moe(node, logits, weights, ids) &&
+                                    ggml_cuda_check_fusion_memory_ranges(cgraph, i, ops.size(), out_nodes, 2)) {
                                     fused::topk_moe(stream(), logits, weights, ids, clamp, scale, bias, args);
                                     i += ops.size() - 1;
                                     continue;
@@ -2005,6 +2109,20 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
                     if (fused::ggml_cuda_can_fuse(cgraph, i, { GGML_OP_RMS_NORM, GGML_OP_MUL, GGML_OP_ADD }, {})) {
                         fused::rms_norm_add(stream(), node, cgraph->nodes[i + 1], cgraph->nodes[i + 2]);
                         i += 2;
+                        continue;
+                    }
+
+                    if (fused::ggml_cuda_can_fuse(cgraph, i, { GGML_OP_SSM_CONV, GGML_OP_UNARY }, { GGML_UNARY_OP_SILU })) {
+                        op::ssm_conv(stream(), node, cgraph->nodes[i + 1]);
+                        i++;
+                        continue;
+                    }
+
+                    if (fused::ggml_cuda_can_fuse(cgraph, i, { GGML_OP_UNARY, GGML_OP_MUL }, { GGML_UNARY_OP_SILU }) ||
+                        fused::ggml_cuda_can_fuse(cgraph, i, { GGML_OP_UNARY, GGML_OP_MUL }, { GGML_UNARY_OP_SIGMOID }) ||
+                        fused::ggml_cuda_can_fuse(cgraph, i, { GGML_OP_UNARY, GGML_OP_MUL }, { GGML_UNARY_OP_SOFTPLUS })) {
+                        op::unary_mul(stream(), node, cgraph->nodes[i + 1]);
+                        i++;
                         continue;
                     }
 
@@ -2601,6 +2719,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         break;
     case GGML_OP_GATED_LINEAR_ATTN:
         op::gated_linear_attn(stream(), dst);
+        break;
+    case GGML_OP_GATED_DELTA_NET:
+        op::gated_delta_net(stream(), dst);
         break;
     case GGML_OP_RWKV_WKV7:
         op::rwkv_wkv7(stream(), dst);

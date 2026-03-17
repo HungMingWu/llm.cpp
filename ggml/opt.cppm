@@ -183,6 +183,8 @@ export
         ggml_tensor* get_inputs() { return inputs; }
         ggml_tensor* get_labels() { return labels; }
         ggml_opt_optimizer_type get_optimizer_type() const { return optimizer; }
+
+        // set gradients to zero, initialize loss, and optionally reset the optimizer
         void reset(bool optimizer);
         void eval(ggml_opt_result* result);
         ggml_tensor* get_grad_acc(ggml_tensor* node);

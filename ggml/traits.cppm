@@ -224,6 +224,15 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
             .blck_size = block_mxfp4::block_size,
             .type_size = sizeof(block_mxfp4),
             .is_quantized = true,
+        }
+    },
+    {
+        GGML_TYPE_NVFP4,
+        {
+            .type_name = "nvfp4",
+            .blck_size = QK_NVFP4,
+            .type_size = sizeof(block_nvfp4),
+            .is_quantized = true,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q8_1_ref,
         }
     },
@@ -498,6 +507,7 @@ static const char* GGML_OP_NAME[GGML_OP_COUNT] = {
     "GATED_LINEAR_ATTN",
     "RWKV_WKV7",
     "SOLVE_TRI",
+    "GATED_DELTA_NET",
 
     "UNARY",
 

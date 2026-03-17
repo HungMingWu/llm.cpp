@@ -602,4 +602,125 @@ namespace op {
 
         rope_cuda(ctx, stream);
     }
+
+    void gated_delta_net(cudaStream_t stream, ggml_tensor* dst) {
+        ggml_tensor* src_q = dst->src[0];
+        ggml_tensor* src_k = dst->src[1];
+        ggml_tensor* src_v = dst->src[2];
+        ggml_tensor* src_g = dst->src[3];
+        ggml_tensor* src_beta = dst->src[4];
+        ggml_tensor* src_state = dst->src[5];
+
+        const int64_t S_v = src_v->ne[0];
+
+        const bool kda = (src_g->ne[0] == S_v);
+
+        GGML_ASSERT(src_q->ne[1] == src_k->ne[1]);
+
+        GGML_ASSERT(ggml_is_contiguous_rows(src_q));
+        GGML_ASSERT(ggml_is_contiguous_rows(src_k));
+        GGML_ASSERT(ggml_is_contiguous_rows(src_v));
+        GGML_ASSERT(ggml_are_same_stride(src_q, src_k));
+        GGML_ASSERT(src_g->ne[0] == 1 || kda);
+        GGML_ASSERT(ggml_is_contiguous(src_g));
+        GGML_ASSERT(ggml_is_contiguous(src_beta));
+        GGML_ASSERT(ggml_is_contiguous(src_state));
+
+
+        gated_delta_net_context ctx {
+            .kda = kda,
+            .q_d = (const float*)src_q->data,
+            .k_d = (const float*)src_k->data,
+            .v_d = (const float*)src_v->data,
+            .g_d = (const float*)src_g->data,
+            .b_d = (const float*)src_beta->data,
+            .s_d = (const float*)src_state->data,
+            .dst_d = (float*)dst->data,
+            .S_v = S_v,
+            .H = src_v->ne[1],
+            .n_tokens = src_v->ne[2],
+            .n_seqs = src_v->ne[3],
+            // strides in floats (beta strides used for both g and beta offset computation)
+            .sq1 = static_cast<int64_t>(src_q->nb[1] / sizeof(float)),
+            .sq2 = static_cast<int64_t>(src_q->nb[2] / sizeof(float)),
+            .sq3 = static_cast<int64_t>(src_q->nb[3] / sizeof(float)),
+            .sv1 = static_cast<int64_t>(src_v->nb[1] / sizeof(float)),
+            .sv2 = static_cast<int64_t>(src_v->nb[2] / sizeof(float)),
+            .sv3 = static_cast<int64_t>(src_v->nb[3] / sizeof(float)),
+            .sb1 = static_cast<int64_t>(src_beta->nb[1] / sizeof(float)),
+            .sb2 = static_cast<int64_t>(src_beta->nb[2] / sizeof(float)),
+            .sb3 = static_cast<int64_t>(src_beta->nb[3] / sizeof(float)),
+            .neqk1 = src_q->ne[1],
+            .rq3 = src_v->ne[3] / src_q->ne[3],
+            .scale = 1.0f / sqrtf((float)S_v)
+        };
+
+        gated_delta_net_cuda(ctx, stream);
+    }
+
+    void unary_mul(cudaStream_t stream, ggml_tensor* unary_node, ggml_tensor* mul_node) {
+        // unary_node: UNARY op applied to unary_node->src[0]
+        // mul_node:   MUL(a, b) where one of a/b is unary_node
+        // Output goes to mul_node->data
+
+        const ggml_tensor* unary_src = unary_node->src[0];  // input to the unary op
+        const ggml_tensor* other_src = (mul_node->src[0] == unary_node) ? mul_node->src[1] : mul_node->src[0];
+
+        GGML_ASSERT(ggml_is_contiguous_1(unary_src));
+        GGML_ASSERT(unary_src->nb[0] == ggml_element_size(unary_src));
+        GGML_ASSERT(ggml_is_contiguous_1(other_src));
+        GGML_ASSERT(other_src->nb[0] == ggml_element_size(other_src));
+        GGML_ASSERT(ggml_are_same_shape(unary_src, other_src));
+
+        GGML_ASSERT(unary_src->type == GGML_TYPE_F32 || unary_src->type == GGML_TYPE_F16);
+        GGML_ASSERT(unary_src->type == other_src->type);
+        GGML_ASSERT(unary_src->type == mul_node->type);
+        unary_mul_context ctx {
+			.op = std::bit_cast<internal::ggml_unary_op>(ggml_get_unary_op(unary_node)),
+            .unary_src_type = std::bit_cast<internal::ggml_type>(unary_src->type),
+            .k = mul_node->nelements(),
+            .nc = unary_src->ne[0],
+            .unary_stride = static_cast<int64_t>(unary_src->nb[1]),
+            .other_stride = static_cast<int64_t>(other_src->nb[1]),
+            .unary_src_data = unary_src->data,
+			.other_src_data = other_src->data,
+			.mul_node_data = mul_node->data
+        };
+        unary_mul_cuda(ctx, stream);
+    }
+
+    void ssm_conv(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* silu_dst) {
+        const ggml_tensor* src0 = dst->src[0];  // conv_x
+        const ggml_tensor* src1 = dst->src[1];  // conv1d.weight
+        const bool fuse_silu = silu_dst != nullptr;
+
+        // When fusing, write to silu_dst (the node downstream references).
+        const ggml_tensor* out = fuse_silu ? silu_dst : dst;
+
+        GGML_ASSERT(out->ne[0] == src0->ne[1]);
+        GGML_ASSERT(src0->nb[0] == sizeof(float));
+        GGML_ASSERT(src1->nb[0] == sizeof(float));
+        GGML_ASSERT(src0->nb[1] == src0->ne[0] * sizeof(float));
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(out->type == GGML_TYPE_F32);
+
+        ssm_conv_context ctx {
+            .fuse_silu = fuse_silu,
+            .src0_d = (const float*)src0->data,
+            .src1_d = (const float*)src1->data,
+            .out_d = (float*)out->data,
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .src1_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
+            .out_ne = { out->ne[0], out->ne[1], out->ne[2], out->ne[3] },
+            .out_nb = { out->nb[0], out->nb[1], out->nb[2], out->nb[3] },
+            .nc = src1->ne[0],                // d_conv
+            .nr = src0->ne[1],                // d_inner
+            .n_t = out->ne[1],                // tokens per sequence
+            .n_s = out->ne[2]                 // number of sequences in the batch
+        };
+        ssm_conv_f32_cuda(ctx, stream);
+    }
 }

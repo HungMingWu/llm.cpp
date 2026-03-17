@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <float.h>
 #include "common.cuh"
 #include "reduce.cuh"
 #include "fused.h"
@@ -104,6 +105,18 @@ __launch_bounds__(4 * WARP_SIZE, 1) __global__ void topk_moe_cuda(topk_moe_conte
         }
         else {
             softmax_warp_inplace<experts_per_thread, false>(wt, n_experts, threadIdx.x);
+        }
+    }
+
+    // Sanitize NaN to -FLT_MAX so the iterative argmax produces unique expert IDs.
+    // NaN comparisons always return false, which would cause the same expert to be
+    // selected repeatedly. -FLT_MAX compares normally and is still excluded by the
+    // -INFINITY sentinel used after each selection round.
+    // More relevant for the cuBLAS path. See https://github.com/ggml-org/llama.cpp/issues/19659
+#pragma unroll
+    for (int i = 0; i < experts_per_thread; i++) {
+        if (__isnanf(wt[i])) {
+            wt[i] = -FLT_MAX;
         }
     }
 

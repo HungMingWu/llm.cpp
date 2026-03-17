@@ -571,6 +571,12 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_GATED_LINEAR_ATTN:
     case GGML_OP_RWKV_WKV7:
         return true;
+    case GGML_OP_GATED_DELTA_NET:
+        //TODO: enable once MUSA compiler is solved https://github.com/ggml-org/llama.cpp/pull/19504#issuecomment-4018634327
+        if constexpr (ggml_use_musa_v)
+            return false;
+        else
+            return true;
     case GGML_OP_FLASH_ATTN_EXT:
         return op::ggml_cuda_flash_attn_ext_supported(device, op);
     case GGML_OP_CROSS_ENTROPY_LOSS:

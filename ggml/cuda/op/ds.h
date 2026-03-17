@@ -47,7 +47,8 @@ namespace internal {
         GGML_TYPE_IQ4_NL_4_8 = 37, // support has been removed
         GGML_TYPE_IQ4_NL_8_8 = 38, // support has been removed
         GGML_TYPE_MXFP4 = 39, // MXFP4 (1 block)
-        GGML_TYPE_COUNT = 40,
+        GGML_TYPE_NVFP4 = 40, // NVFP4 (4 blocks, E4M3 scale)
+        GGML_TYPE_COUNT = 41,
     };
 
     // precision
@@ -83,6 +84,33 @@ namespace internal {
         GGML_TRI_TYPE_UPPER = 1,
         GGML_TRI_TYPE_LOWER_DIAG = 2,
         GGML_TRI_TYPE_LOWER = 3
+    };
+
+    enum ggml_unary_op {
+        GGML_UNARY_OP_ABS,
+        GGML_UNARY_OP_SGN,
+        GGML_UNARY_OP_NEG,
+        GGML_UNARY_OP_STEP,
+        GGML_UNARY_OP_TANH,
+        GGML_UNARY_OP_ELU,
+        GGML_UNARY_OP_RELU,
+        GGML_UNARY_OP_SIGMOID,
+        GGML_UNARY_OP_GELU,
+        GGML_UNARY_OP_GELU_QUICK,
+        GGML_UNARY_OP_SILU,
+        GGML_UNARY_OP_HARDSWISH,
+        GGML_UNARY_OP_HARDSIGMOID,
+        GGML_UNARY_OP_EXP,
+        GGML_UNARY_OP_EXPM1,
+        GGML_UNARY_OP_SOFTPLUS,
+        GGML_UNARY_OP_GELU_ERF,
+        GGML_UNARY_OP_XIELU,
+        GGML_UNARY_OP_FLOOR,
+        GGML_UNARY_OP_CEIL,
+        GGML_UNARY_OP_ROUND,
+        GGML_UNARY_OP_TRUNC,
+
+        GGML_UNARY_OP_COUNT,
     };
 }
 

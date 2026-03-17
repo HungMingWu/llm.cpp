@@ -7,7 +7,7 @@ import :ds;
 
 constexpr uint8_t RPC_PROTO_MAJOR_VERSION = 3;
 constexpr uint8_t RPC_PROTO_MINOR_VERSION = 6;
-constexpr uint8_t RPC_PROTO_PATCH_VERSION = 0;
+constexpr uint8_t RPC_PROTO_PATCH_VERSION = 1;
 
 // all RPC structures must be packed
 #pragma pack(push, 1)

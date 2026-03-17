@@ -423,3 +423,35 @@ void xielu_cuda(internal::ggml_type src0_type, const void* src0_d, void* dst_d, 
         xielu_cuda((const float*)src0_d, (float*)dst_d, src0_elements, alpha_n, alpha_p, beta, eps, stream);
     }
 }
+
+/* fused unary + mul */
+
+template <float (*op)(float)>
+static void ggml_cuda_op_unary_mul_impl(const unary_mul_context& ctx, cudaStream_t stream) {
+    if (ctx.unary_src_type == internal::GGML_TYPE_F16) {
+        unary_gated_cuda<op>((const half *) ctx.unary_src_data, (const half *) ctx.other_src_data,
+                             (half *) ctx.mul_node_data, ctx.k, ctx.nc,
+                             ctx.unary_stride / sizeof(half), ctx.other_stride / sizeof(half), stream);
+    } else {
+        unary_gated_cuda<op>((const float *) ctx.unary_src_data, (const float *) ctx.other_src_data,
+                             (float *) ctx.mul_node_data, ctx.k, ctx.nc,
+                             ctx.unary_stride / sizeof(float), ctx.other_stride / sizeof(float), stream);
+    }
+}
+
+void unary_mul_cuda(const unary_mul_context& ctx, cudaStream_t stream)
+{
+    switch (ctx.op) {
+        case internal::GGML_UNARY_OP_SILU:
+            ggml_cuda_op_unary_mul_impl<silu>(ctx, stream);
+            break;
+        case internal::GGML_UNARY_OP_SIGMOID:
+            ggml_cuda_op_unary_mul_impl<sigmoid>(ctx, stream);
+            break;
+        case internal::GGML_UNARY_OP_SOFTPLUS:
+            ggml_cuda_op_unary_mul_impl<softplus>(ctx, stream);
+            break;
+        default:
+            GGML_ABORT("Unsupported unary op for fused unary+mul");
+    }
+}

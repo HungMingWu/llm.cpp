@@ -12,10 +12,10 @@ module;
 #include "inplace_vector.hpp"
 
 export module ggml:ds;
-constexpr size_t GGML_MAX_OP_PARAMS = 64;
-constexpr size_t GGML_MAX_SRC = 10;
 
 export {
+    constexpr size_t GGML_MAX_OP_PARAMS = 64;
+    constexpr size_t GGML_MAX_SRC = 10;
     // NOTE: always add types at the end of the enum to keep backward compatibility
     enum ggml_type : int {
         GGML_TYPE_F32 = 0,
@@ -58,7 +58,8 @@ export {
         GGML_TYPE_IQ4_NL_4_8 = 37, // support has been removed
         GGML_TYPE_IQ4_NL_8_8 = 38, // support has been removed
         GGML_TYPE_MXFP4 = 39, // MXFP4 (1 block)
-        GGML_TYPE_COUNT = 40,
+        GGML_TYPE_NVFP4 = 40, // NVFP4 (4 blocks, E4M3 scale)
+        GGML_TYPE_COUNT = 41,
     };
 
     // precision
@@ -216,6 +217,7 @@ export {
         GGML_OP_GATED_LINEAR_ATTN,
         GGML_OP_RWKV_WKV7,
         GGML_OP_SOLVE_TRI,
+        GGML_OP_GATED_DELTA_NET,
 
         GGML_OP_UNARY,
 
@@ -258,6 +260,7 @@ export {
         GGML_FTYPE_MOSTLY_IQ1_M = 23, // except 1d tensors
         GGML_FTYPE_MOSTLY_BF16 = 24, // except 1d tensors
         GGML_FTYPE_MOSTLY_MXFP4 = 25, // except 1d tensors
+        GGML_FTYPE_MOSTLY_NVFP4 = 26, // except 1d tensors
     };
 
     //
@@ -716,7 +719,7 @@ export {
         ggml_tensor* get_tensor(std::string_view name);
         int32_t get_use_count(int node_idx) const;
 
-        // build forward mutiple tensors and select one of them for computing
+        // build forward multiple tensors and select one of them for computing
         // this is useful for creating graphs that have constant topology but compute different things based on the input
         // ref: https://github.com/ggml-org/llama.cpp/pull/18550
         //

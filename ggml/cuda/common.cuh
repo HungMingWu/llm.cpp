@@ -206,6 +206,9 @@ static __device__ __forceinline__ uint2 fast_div_modulo(uint32_t n, const uint3 
 #define QI_MXFP4 (block_mxfp4::block_size / (4 * QR_MXFP4))
 #define QR_MXFP4 2
 
+#define QI_NVFP4 (QK_NVFP4 / (4 * QR_NVFP4))
+#define QR_NVFP4 2
+
 #define QI5_0 (block_q5_0::block_size / (4 * QR5_0))
 #define QR5_0 2
 

@@ -120,6 +120,33 @@ void ggml_vec_dot(int n, float* s, size_t /*bs*/, const block_mxfp4* x, size_t /
     *s = sumf;
 }
 
+void ggml_vec_dot(int n, float* s, size_t /*bs*/, const block_nvfp4* x, size_t /*bx*/, const block_q8_0* y, size_t /*by*/, int nrc) {
+    assert(nrc == 1);
+    assert(n % QK_NVFP4 == 0);
+
+    // Each NVFP4 super-block (64 elements) spans 2 q8_0 blocks
+    const int nb = n / QK_NVFP4;
+
+    float sumf = 0;
+
+    for (int ib = 0; ib < nb; ++ib) {
+        for (int si = 0; si < 4; ++si) {
+            const float d = toFloat32(std::bit_cast<ggml_ue4m3_t>(x[ib].d[si]));
+            const int q8b = si / 2;
+            const int q8o = (si % 2) * QK_NVFP4_SUB;
+            const float dy = toFloat32(std::bit_cast<ggml_fp16_t>(y[2 * ib + q8b].d));
+
+            int sumi_lo = 0, sumi_hi = 0;
+            for (int j = 0; j < QK_NVFP4_SUB / 2; ++j) {
+                const uint8_t qv = x[ib].qs[si * (QK_NVFP4_SUB / 2) + j];
+                sumi_lo += y[2 * ib + q8b].qs[q8o + j + 0] * kvalues_mxfp4[qv & 0xf];
+                sumi_hi += y[2 * ib + q8b].qs[q8o + j + QK_NVFP4_SUB / 2] * kvalues_mxfp4[qv >> 4];
+            }
+            sumf += dy * d * (sumi_lo + sumi_hi);
+        }
+    }
+    * s = sumf;
+}
 
 void ggml_vec_dot(int n, float* s, size_t bs, const block_q5_0* x, size_t bx, const block_q8_0* y, size_t by, int nrc)
 {

@@ -887,4 +887,13 @@ export {
 	ggml_tensor* ggml_diag(
 		ggml_context* ctx,
 		ggml_tensor* a);
+
+	ggml_tensor* ggml_gated_delta_net(
+		ggml_context* ctx,
+		ggml_tensor* q,
+		ggml_tensor* k,
+		ggml_tensor* v,
+		ggml_tensor* g,
+		ggml_tensor* beta,
+		ggml_tensor* state);
 }

@@ -582,12 +582,52 @@ namespace fused
                 return false;
             }
 
-            //rms_norm kernel assumes contigous rows
+            //rms_norm kernel assumes contiguous rows
             if (!ggml_is_contiguous_rows(mul->src[0]) || !ggml_is_contiguous_rows(mul->src[1])) {
                 return false;
             }
 
             if (add && (!ggml_is_contiguous(add->src[0]) || !ggml_is_contiguous_rows(add->src[1]))) {
+                return false;
+            }
+
+            return true;
+        }
+
+        if (ops.size() == 2 && ops.begin()[0] == GGML_OP_SSM_CONV && ops.begin()[1] == GGML_OP_UNARY
+            && unary_ops.size() == 1 && unary_ops.begin()[0] == GGML_UNARY_OP_SILU) {
+            const ggml_tensor* ssm_conv = cgraph->nodes[node_idx];
+            const ggml_tensor* silu = cgraph->nodes[node_idx + 1];
+
+            if (ssm_conv->type != GGML_TYPE_F32 || silu->type != GGML_TYPE_F32) {
+                return false;
+            }
+
+            return true;
+        }
+
+        if (ops.size() == 2 && ops.begin()[0] == GGML_OP_UNARY && ops.begin()[1] == GGML_OP_MUL
+            && unary_ops.size() == 1 && (unary_ops.begin()[0] == GGML_UNARY_OP_SILU || unary_ops.begin()[0] == GGML_UNARY_OP_SIGMOID || unary_ops.begin()[0] == GGML_UNARY_OP_SOFTPLUS)) {
+            const ggml_tensor* unary = cgraph->nodes[node_idx];
+            const ggml_tensor* mul = cgraph->nodes[node_idx + 1];
+
+            if (ggml_get_unary_op(unary) != unary_ops.begin()[0]) {
+                return false;
+            }
+
+            if (unary->type != GGML_TYPE_F32 && unary->type != GGML_TYPE_F16) {
+                return false;
+            }
+
+            if (unary->type != mul->type) {
+                return false;
+            }
+
+            const ggml_tensor* other = (mul->src[0] == unary) ? mul->src[1] : mul->src[0];
+            if (other->type != unary->type) {
+                return false;
+            }
+            if (!ggml_is_contiguous_1(other) || !ggml_is_contiguous_1(unary->src[0]) || !ggml_are_same_shape(other, unary)) {
                 return false;
             }
 

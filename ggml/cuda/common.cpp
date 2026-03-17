@@ -101,7 +101,14 @@ static ggml_cuda_device_info ggml_cuda_init() {
     GGML_ASSERT(info.device_count <= GGML_CUDA_MAX_DEVICES);
 
     int64_t total_vram = 0;
-    GGML_LOG_INFO("{}: found {} " GGML_CUDA_NAME " devices:", __func__, info.device_count);
+    for (int id = 0; id < info.device_count; ++id) {
+        cudaDeviceProp prop;
+        CUDA_CHECK(cudaGetDeviceProperties(&prop, id));
+        total_vram += prop.totalGlobalMem;
+    }
+    GGML_LOG_INFO("{}: found {} " GGML_CUDA_NAME " devices (Total VRAM: {} MiB):\n",
+        __func__, info.device_count, (size_t)(total_vram / (1024 * 1024)));
+    total_vram = 0;
 
     std::vector<std::pair<int, std::string>> turing_devices_without_mma;
     for (int id = 0; id < info.device_count; ++id) {
@@ -153,22 +160,24 @@ static ggml_cuda_device_info ggml_cuda_init() {
                 info.devices[id].cc += prop.minor * 0x10;
             }
         }
-        GGML_LOG_INFO("  Device {}: {}, {} (0x{:x}), VMM: {}, Wave Size: {}",
+        GGML_LOG_INFO("  Device {}: {}, {} (0x{:x}), VMM: {}, Wave Size: {}, VRAM: %zu MiB",
             id, prop.name, prop.gcnArchName, info.devices[id].cc & 0xffff,
-            device_vmm ? "yes" : "no", prop.warpSize);
+            device_vmm ? "yes" : "no", prop.warpSize, (size_t)(prop.totalGlobalMem / (1024 * 1024)));
 #elif defined(GGML_USE_MUSA)
         // FIXME: Ensure compatibility with varying warp sizes across different MUSA archs.
         info.devices[id].warp_size = 32;
         info.devices[id].smpbo = prop.sharedMemPerBlockOptin;
         info.devices[id].cc = GGML_CUDA_CC_OFFSET_MTHREADS + prop.major * 0x100;
         info.devices[id].cc += prop.minor * 0x10;
-        GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}",
-            id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no");
+        GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}, VRAM: {} MiB",
+            id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no",
+            (size_t)(prop.totalGlobalMem / (1024 * 1024)));
 #else
         info.devices[id].smpbo = prop.sharedMemPerBlockOptin;
         info.devices[id].cc = 100 * prop.major + 10 * prop.minor;
-        GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}",
-            id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no");
+        GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}, VRAM: {} MiB",
+            id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no",
+            (size_t)(prop.totalGlobalMem / (1024 * 1024)));
         std::string device_name(prop.name);
         if (device_name == "NVIDIA GeForce MX450") {
             turing_devices_without_mma.push_back({ id, device_name });
@@ -185,6 +194,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
         // TODO: Check for future drivers the default scheduling strategy and
         // remove this call again when cudaDeviceScheduleSpin is default.
         if (prop.major == 12 && prop.minor == 1) {
+            CUDA_CHECK(cudaSetDevice(id));
             CUDA_CHECK(cudaSetDeviceFlags(cudaDeviceScheduleSpin));
         }
 

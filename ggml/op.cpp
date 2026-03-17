@@ -2590,3 +2590,53 @@ ggml_tensor* ggml_diag(
 
 	return result;
 }
+
+ggml_tensor* ggml_gated_delta_net(
+	ggml_context* ctx,
+	ggml_tensor* q,
+	ggml_tensor* k,
+	ggml_tensor* v,
+	ggml_tensor* g,
+	ggml_tensor* beta,
+	ggml_tensor* state)
+{
+	GGML_ASSERT(ggml_is_contiguous_rows(q));
+	GGML_ASSERT(ggml_is_contiguous_rows(k));
+	GGML_ASSERT(ggml_is_contiguous_rows(v));
+	GGML_ASSERT(ggml_is_contiguous(g));
+	GGML_ASSERT(ggml_is_contiguous(beta));
+	GGML_ASSERT(ggml_is_contiguous(state));
+
+	GGML_ASSERT(q->type == GGML_TYPE_F32);
+	GGML_ASSERT(k->type == GGML_TYPE_F32);
+	GGML_ASSERT(v->type == GGML_TYPE_F32);
+	GGML_ASSERT(g->type == GGML_TYPE_F32);
+	GGML_ASSERT(beta->type == GGML_TYPE_F32);
+	GGML_ASSERT(state->type == GGML_TYPE_F32);
+
+	const int64_t S_v = v->ne[0];
+	const int64_t H = v->ne[1];
+	const int64_t n_tokens = v->ne[2];
+	const int64_t n_seqs = v->ne[3];
+
+	// gate: scalar [1, H, T, B] or vector [S_v, H, T, B] (KDA)
+	GGML_ASSERT(g->ne[0] == 1 || g->ne[0] == S_v);
+	GGML_ASSERT(beta->ne[0] == 1);
+
+	GGML_ASSERT(state->nelements() == S_v * S_v * H * n_seqs);
+
+	// concat output and new_state into a single tensor
+	// output: S_v * H * n_tokens * n_seqs, state: S_v * S_v * H * n_seqs
+	const int64_t ne[4] = { S_v * H, n_tokens * n_seqs + S_v * n_seqs, 1, 1 };
+	ggml_tensor* result = ctx->create(GGML_TYPE_F32, ne);
+
+	result->op = GGML_OP_GATED_DELTA_NET;
+	result->src.push_back(q);
+	result->src.push_back(k);
+	result->src.push_back(v);
+	result->src.push_back(g);
+	result->src.push_back(beta);
+	result->src.push_back(state);
+
+	return result;
+}

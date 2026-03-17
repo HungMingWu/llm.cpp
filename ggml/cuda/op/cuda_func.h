@@ -185,6 +185,18 @@ void geglu_erf_cuda(const gated_context* ctx);
 void geglu_quick_cuda(const gated_context* ctx);
 void leaky_relu_cuda(bool, const void*, void*, const int, const float, cudaStream_t);
 
+struct unary_mul_context {
+    internal::ggml_unary_op op;
+    internal::ggml_type unary_src_type;
+    const int64_t k;
+    const int64_t nc;
+    const int64_t unary_stride, other_stride;
+    const void* unary_src_data;
+	const void* other_src_data;
+    void* mul_node_data;
+};
+void unary_mul_cuda(const unary_mul_context&, cudaStream_t);
+
 // get_row
 struct get_row_context {
     const void* src0_d;
@@ -686,15 +698,16 @@ void opt_step_adamw_f32_cuda(
 
 // ssm-conv
 struct ssm_conv_context {
+    bool fuse_silu;
     const float* src0_d;
     const float* src1_d;
-    float* dst_d;
+    float* out_d;
     int64_t src0_ne[4];
     size_t src0_nb[4];
     int64_t src1_ne[4];
     size_t src1_nb[4];
-    int64_t dst_ne[4];
-    size_t dst_nb[4];
+    int64_t out_ne[4];
+    size_t out_nb[4];
     const int64_t nc, nr, n_t, n_s;
 };
 void ssm_conv_f32_cuda(const ssm_conv_context &ctx, cudaStream_t stream);
@@ -956,3 +969,23 @@ struct top_k_context {
     const int64_t k;
 };
 void top_k_cuda(const top_k_context& ctx, cudaStream_t  stream);
+
+// gated_delta_net.cu
+struct gated_delta_net_context {
+    const bool kda;
+    const float* q_d;
+    const float* k_d;
+    const float* v_d;
+    const float* g_d;
+    const float* b_d;
+    const float* s_d;
+    float* dst_d;
+    const int64_t S_v, H, n_tokens, n_seqs;
+    const int64_t sq1, sq2, sq3;
+    const int64_t sv1, sv2, sv3;
+    const int64_t sb1, sb2, sb3;
+    const int64_t neqk1, rq3;
+    const float scale;
+};
+
+void gated_delta_net_cuda(const gated_delta_net_context& ctx, cudaStream_t  stream);

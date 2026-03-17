@@ -64,7 +64,7 @@ void ggml_compute_forward_repeat(ggml_tensor* dst) {
 	{
 		ggml_compute_forward_repeat<ggml_fp32_t>(dst);
 	} break;
-	// TODO: templateify the implemenation and support for I64
+	// TODO: templateify the implementation and support for I64
 	//       ref https://github.com/ggml-org/llama.cpp/pull/14274#discussion_r2169492225
 	//case GGML_TYPE_I64:
 	//    {
