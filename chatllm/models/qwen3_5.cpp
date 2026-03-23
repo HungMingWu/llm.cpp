@@ -100,10 +100,10 @@ namespace chatllm::qwen::v3_5
         bool vit_loaded = false;
     };
 
-    class QwenGatedAttention : public QKNormedRoPEAttention<RMSNormWeightPlus1, BaseAttention>
+    class QwenGatedAttention : public QKNormedRoPEAttention<RMSNormInplaceWeightPlus1, BaseAttention>
     {
     public:
-        typedef QKNormedRoPEAttention<RMSNormWeightPlus1, BaseAttention> Base;
+        typedef QKNormedRoPEAttention<RMSNormInplaceWeightPlus1, BaseAttention> Base;
         QwenGatedAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length);
         int64_t get_param_num(bool effective_only) const override;
         ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* input, int n_past) override;

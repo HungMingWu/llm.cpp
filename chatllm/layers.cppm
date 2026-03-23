@@ -134,7 +134,7 @@ export namespace chatllm
 
         ggml::tensor* norm(ComputeContext* ctx, ggml::tensor* a, float eps, bool inplace);
         ggml::tensor* norm_p2(ComputeContext* ctx, ggml::tensor* a, float eps);
-        ggml::tensor* group_norm(ComputeContext* ctx, ggml::tensor* a, int n_groups, float eps);
+        ggml::tensor* group_norm(ComputeContext* ctx, ggml::tensor* a, int n_groups, float eps, bool inplace);
         ggml::tensor* rms_norm(ComputeContext* ctx, ggml::tensor* a, float eps, bool inplace);
         ggml::tensor* simple_norm(ComputeContext* ctx, ggml::tensor* a, float eps); // p=2 normalization
 
@@ -692,6 +692,8 @@ export namespace chatllm
         ggml::tensor* bias;   // [normalized_shape]
         const float eps;
         const int num_groups;
+    protected:
+        bool inplace = false;
     };
 
     class LayerNorm : public GroupNorm
@@ -705,6 +707,21 @@ export namespace chatllm
 
         LayerNorm(InitContext* ctx, int normalized_shape, bool use_bias)
             : GroupNorm(ctx, normalized_shape, normalized_shape, use_bias) {
+        }
+    };
+
+    class LayerNormInplace : public LayerNorm
+    {
+    public:
+        LayerNormInplace(InitContext* ctx, int normalized_shape)
+            : LayerNormInplace(ctx, normalized_shape, true)
+        {
+        }
+
+        LayerNormInplace(InitContext* ctx, int normalized_shape, bool use_bias)
+            : LayerNorm(ctx, normalized_shape, use_bias)
+        {
+            inplace = true;
         }
     };
 
@@ -812,8 +829,24 @@ export namespace chatllm
     class RMSNormWeightPlus1 : public RMSNorm
     {
     public:
-        using RMSNorm::RMSNorm;
+        RMSNormWeightPlus1(InitContext* ctx, int normalized_shape) :
+            RMSNormWeightPlus1(ctx, normalized_shape, false) {
+        }
+    protected:
+        RMSNormWeightPlus1(InitContext* ctx, int normalized_shape, bool inplace) :
+            RMSNorm(ctx, normalized_shape, inplace)
+        {
+        }
+    public:
         void load(const std::string& path, TensorLoader* loader) override;
+    };
+
+    class RMSNormInplaceWeightPlus1 : public RMSNormWeightPlus1
+    {
+    public:
+        RMSNormInplaceWeightPlus1(InitContext* ctx, int normalized_shape) :
+            RMSNormWeightPlus1(ctx, normalized_shape, true) {
+        }
     };
 
     class L2Norm : public Block
@@ -1055,6 +1088,23 @@ export namespace chatllm
         AttentionBlock attention;
     };
 
+    class LMBlock1Forward
+    {
+    public:
+        LMBlock1Forward(Block* input_layernorm, Block* attention, Block* post_attention_layernorm, Block* mlp, int id, float scale_depth);
+        ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* hidden_states, int n_past);
+        ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* hidden_states, ggml::tensor* hidden_states2, int n_past);
+    public:
+        ggml::tensor* last_result_post_attn_norm = nullptr;
+    protected:
+        const int id;
+        const float scale_depth;
+        Block* input_layernorm;
+        Block* attention;
+        Block* post_attention_layernorm;
+        Block* mlp;
+    };
+
     template <class InputNormBlock,
         class AttentionBlock,
         class PostNormBlock,
@@ -1158,69 +1208,17 @@ export namespace chatllm
         using Block::forward;
         ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* hidden_states, int n_past) override
         {
-            ggml::tensor* residual = hidden_states;
-
-            hidden_states = input_layernorm.forward(ctx, hidden_states);
-            hidden_states = Base::attention.forward(ctx, hidden_states, n_past);
-            if (Base::get_id() == 0)
-            {
-                //inspect_tensor(hidden_states, "attention");
-            }
-
-            if (scale_depth > 0.0f)
-            {
-                hidden_states = ggml::scale(ctx, hidden_states, scale_depth, false);
-            }
-
-            hidden_states = ggml::add(ctx, hidden_states, residual, false);
-            residual = hidden_states;
-
-            hidden_states = post_attention_layernorm.forward(ctx, hidden_states);
-            last_result_post_attn_norm = hidden_states;
-
-            hidden_states = mlp.forward(ctx, hidden_states);
-
-            if (scale_depth > 0.0f)
-            {
-                hidden_states = ggml::scale(ctx, hidden_states, scale_depth, false);
-            }
-
-            hidden_states = ggml::add(ctx, hidden_states, residual, false);
-
+            LMBlock1Forward eval(&input_layernorm, &(Base::attention), &post_attention_layernorm, &mlp, Base::get_id(), scale_depth);
+            hidden_states = eval.forward(ctx, hidden_states, n_past);
+            last_result_post_attn_norm = eval.last_result_post_attn_norm;
             return hidden_states;
         }
 
         ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* hidden_states, ggml::tensor* hidden_states2, int n_past) override
         {
-            ggml::tensor* residual = hidden_states;
-
-            hidden_states = input_layernorm.forward(ctx, hidden_states);
-            hidden_states = Base::attention.forward(ctx, hidden_states, n_past);
-            if (Base::get_id() == 0)
-            {
-                //inspect_tensor(hidden_states, "attention");
-            }
-
-            if (scale_depth > 0.0f)
-            {
-                hidden_states = ggml::scale(ctx, hidden_states, scale_depth, false);
-            }
-
-            hidden_states = ggml::add(ctx, hidden_states, residual, false);
-            residual = hidden_states;
-
-            hidden_states = post_attention_layernorm.forward(ctx, hidden_states);
-            last_result_post_attn_norm = hidden_states;
-
-            hidden_states = mlp.forward(ctx, hidden_states, hidden_states2);
-
-            if (scale_depth > 0.0f)
-            {
-                hidden_states = ggml::scale(ctx, hidden_states, scale_depth, false);
-            }
-
-            hidden_states = ggml::add(ctx, hidden_states, residual, false);
-
+            LMBlock1Forward eval(&input_layernorm, &(Base::attention), &post_attention_layernorm, &mlp, Base::get_id(), scale_depth);
+            hidden_states = eval.forward(ctx, hidden_states, hidden_states2, n_past);
+            last_result_post_attn_norm = eval.last_result_post_attn_norm;
             return hidden_states;
         }
 
@@ -3289,6 +3287,7 @@ export namespace chatllm
         }
     };
 
+    // CAUTION: Norm must be `inplace` when cache is used.
     template <class Norm, class BaseAttn> class QKNormedAttention : public BaseAttn
     {
     public:
@@ -3400,8 +3399,7 @@ export namespace chatllm
         }
     };
 
-    // FIXME: this seems problemic. LayerNorm is used in `apply_pos_embedding_xx`, while not `inplace`.
-    class PersimmonSelfAttention : public QKNormedRoPEAttention<LayerNorm, BaseAttention>
+    class PersimmonSelfAttention : public QKNormedRoPEAttention<LayerNormInplace, BaseAttention>
     {
     public:
         PersimmonSelfAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int max_length)
@@ -3409,7 +3407,7 @@ export namespace chatllm
         }
 
         PersimmonSelfAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int max_length)
-            : QKNormedRoPEAttention<LayerNorm, BaseAttention>(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, true, true) {}
+            : QKNormedRoPEAttention<LayerNormInplace, BaseAttention>(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, true, true) {}
     };
 
     class PersimmonMLP : public TheMLP

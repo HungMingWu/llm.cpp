@@ -753,7 +753,7 @@ namespace chatllm::qwen
 
         typedef v2::Tokenizer Tokenizer;
 
-        class QWen3SelfAttention : public QKNormedRoPEAttention<RMSNorm, BaseAttention>
+        class QWen3SelfAttention : public QKNormedRoPEAttention<RMSNormInplace, BaseAttention>
         {
         public:
             QWen3SelfAttention(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length);
