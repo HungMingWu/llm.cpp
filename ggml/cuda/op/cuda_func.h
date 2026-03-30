@@ -57,6 +57,10 @@ void quantize_mmq_mxfp4_cuda(const float* x,
 
 // From mmvq.cu
 
+// Returns the maximum batch size for which MMVQ should be used for MUL_MAT_ID,
+// based on the quantization type and GPU architecture (compute capability).
+int get_mmvq_mmid_max_batch(internal::ggml_type type, int cc);
+
 struct mat_vec_q_switch_context {
     internal::ggml_type  type_x;
     const void* vx;

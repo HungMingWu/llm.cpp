@@ -373,6 +373,46 @@ void dequantize_block_cuda(const convert_context& ctx, const void* x, dst_t* y, 
 }
 
 template <typename dst_t>
+static __global__ void dequantize_block_nvfp4(
+        const void * __restrict__ vx,
+        dst_t * __restrict__ yy,
+        const int64_t ne) {
+    const int64_t i = blockIdx.x;
+    const int     tid = threadIdx.x;
+
+    const int64_t base = i * QK_NVFP4;
+    if (base >= ne) {
+        return;
+    }
+
+    const block_nvfp4 * x = (const block_nvfp4 *) vx;
+    const block_nvfp4 & xb = x[i];
+
+    const int sub = tid / (QK_NVFP4_SUB / 2);
+    const int j = tid % (QK_NVFP4_SUB / 2);
+
+    const float d = ggml_cuda_ue4m3_to_fp32(xb.d[sub]);
+    const uint8_t q = xb.qs[sub * (QK_NVFP4_SUB / 2) + j];
+
+    const int64_t y0 = base + sub * QK_NVFP4_SUB + j;
+    const int64_t y1 = y0 + QK_NVFP4_SUB / 2;
+
+    yy[y0] = ggml_cuda_cast<dst_t>(d * kvalues_mxfp4[q & 0x0F]);
+    yy[y1] = ggml_cuda_cast<dst_t>(d * kvalues_mxfp4[q >> 4]);
+}
+
+template <typename dst_t>
+static void dequantize_row_nvfp4_cuda(
+        const void * vx,
+        dst_t * y,
+        const int64_t k,
+        cudaStream_t stream) {
+    assert(k % QK_NVFP4 == 0);
+    const int nb = k / QK_NVFP4;
+    dequantize_block_nvfp4<<<nb, 32, 0, stream>>>(vx, y, k);
+}
+
+template <typename dst_t>
 static void convert_to(const convert_context& ctx, const void* x, dst_t* y, cudaStream_t stream)
 {
     switch (ctx.src_type) {
@@ -422,6 +462,8 @@ static void convert_to(const convert_context& ctx, const void* x, dst_t* y, cuda
         return dequantize_block_cuda<block_iq4_xs>(ctx, x, y, stream);
     case internal::GGML_TYPE_MXFP4:
         return dequantize_block_cuda<block_mxfp4>(ctx, x, y, stream);
+    case internal::GGML_TYPE_NVFP4:
+        return dequantize_row_nvfp4_cuda(x, y, ctx.src_ne[0] * ctx.src_ne[1] * ctx.src_ne[2] * ctx.src_ne[3], stream);
     default:
         assert(false);
         return GGML_ABORT("Fatal error");

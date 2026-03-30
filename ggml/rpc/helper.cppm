@@ -16,9 +16,11 @@ rpc_tensor serialize_tensor(const ggml_tensor* tensor) {
     result.type = tensor->type;
     if (auto rpc_buffer = dynamic_cast<rpc_backend_buffer*>(tensor->buffer)) {
         result.buffer = rpc_buffer->remote_ptr;
+        result.data = reinterpret_cast<uint64_t>(tensor->data);
     }
     else {
         result.buffer = 0;
+        result.data = 0;
     }
     for (uint32_t i = 0; i < GGML_MAX_DIMS; i++) {
         result.ne[i] = tensor->ne[i];
@@ -34,7 +36,6 @@ rpc_tensor serialize_tensor(const ggml_tensor* tensor) {
     }
     result.view_src = reinterpret_cast<uint64_t>(tensor->view_src);
     result.view_offs = tensor->view_offs;
-    result.data = reinterpret_cast<uint64_t>(tensor->data);
 
     // Avoid sending uninitialized data over the wire
     memset(result.name, 0, sizeof(result.name));

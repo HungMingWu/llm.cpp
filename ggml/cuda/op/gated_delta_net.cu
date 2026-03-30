@@ -5,7 +5,8 @@
 #define GGML_ABORT(...)
 
 template <int S_v, bool KDA>
-__global__ void gated_delta_net_cuda(const float * q,
+__global__ void __launch_bounds__((ggml_cuda_get_physical_warp_size() < S_v ? ggml_cuda_get_physical_warp_size() : S_v) * 4, 2)
+gated_delta_net_cuda(const float * q,
                                      const float * k,
                                      const float * v,
                                      const float * g,
@@ -42,7 +43,7 @@ __global__ void gated_delta_net_cuda(const float * q,
 
     const int64_t state_offset = (sequence * H + h_idx) * S_v * S_v;
     state += state_offset;
-    curr_state += state_offset;
+    curr_state += state_offset + col * S_v;
     attn_data += (sequence * n_tokens * H + h_idx) * S_v;
 
     constexpr int warp_size = ggml_cuda_get_physical_warp_size() < S_v ? ggml_cuda_get_physical_warp_size() : S_v;
@@ -56,7 +57,7 @@ __global__ void gated_delta_net_cuda(const float * q,
 #pragma unroll
     for (int r = 0; r < rows_per_lane; r++) {
         const int i = r * warp_size + lane;
-        s_shard[r]  = curr_state[col * S_v + i];
+        s_shard[r]  = curr_state[i];
     }
 
     for (int t = 0; t < n_tokens; t++) {
@@ -70,6 +71,16 @@ __global__ void gated_delta_net_cuda(const float * q,
 
         const float beta_val = *beta_t;
 
+        // Cache k and q in registers
+        float k_reg[rows_per_lane];
+        float q_reg[rows_per_lane];
+#pragma unroll
+        for (int r = 0; r < rows_per_lane; r++) {
+            const int i = r * warp_size + lane;
+            k_reg[r] = k_t[i];
+            q_reg[r] = q_t[i];
+        }
+
         if constexpr (!KDA) {
             const float g_val = expf(*g_t);
 
@@ -77,8 +88,7 @@ __global__ void gated_delta_net_cuda(const float * q,
             float kv_shard = 0.0f;
 #pragma unroll
             for (int r = 0; r < rows_per_lane; r++) {
-                const int i = r * warp_size + lane;
-                kv_shard += s_shard[r] * k_t[i];
+                kv_shard += s_shard[r] * k_reg[r];
             }
             float kv_col = cooperative_groups::reduce(tile, kv_shard, cooperative_groups::plus<float>());
 
@@ -90,9 +100,8 @@ __global__ void gated_delta_net_cuda(const float * q,
             float attn_partial = 0.0f;
 #pragma unroll
             for (int r = 0; r < rows_per_lane; r++) {
-                const int i = r * warp_size + lane;
-                s_shard[r]  = g_val * s_shard[r] + k_t[i] * delta_col;
-                attn_partial += s_shard[r] * q_t[i];
+                s_shard[r]  = g_val * s_shard[r] + k_reg[r] * delta_col;
+                attn_partial += s_shard[r] * q_reg[r];
             }
 
             float attn_col = cooperative_groups::reduce(tile, attn_partial, cooperative_groups::plus<float>());
@@ -106,7 +115,7 @@ __global__ void gated_delta_net_cuda(const float * q,
 #pragma unroll
             for (int r = 0; r < rows_per_lane; r++) {
                 const int i = r * warp_size + lane;
-                kv_shard += expf(g_t[i]) * s_shard[r] * k_t[i];
+                kv_shard += expf(g_t[i]) * s_shard[r] * k_reg[r];
             }
 
             float kv_col = cooperative_groups::reduce(tile, kv_shard, cooperative_groups::plus<float>());
@@ -120,8 +129,8 @@ __global__ void gated_delta_net_cuda(const float * q,
 #pragma unroll
             for (int r = 0; r < rows_per_lane; r++) {
                 const int i = r * warp_size + lane;
-                s_shard[r]  = expf(g_t[i]) * s_shard[r] + k_t[i] * delta_col;
-                attn_partial += s_shard[r] * q_t[i];
+                s_shard[r]  = expf(g_t[i]) * s_shard[r] + k_reg[r] * delta_col;
+                attn_partial += s_shard[r] * q_reg[r];
             }
 
             float attn_col = cooperative_groups::reduce(tile, attn_partial, cooperative_groups::plus<float>());

@@ -151,6 +151,12 @@ ggml_tensor* rpc_server::deserialize_tensor(struct ggml_context* ctx, const rpc_
         return nullptr;
     }
 
+    // Fix: Prevent division by zero if blck_size is 0 (e.g., deprecated types)
+    if (ggml_blck_size((enum ggml_type)tensor->type) == 0) {
+        GGML_LOG_ERROR("[{}] invalid tensor type received (blck_size is 0): {}", __func__, tensor->type);
+        return nullptr;
+    }
+
     ggml_tensor* result = ctx->create((ggml_type)tensor->type,
         tensor->ne[0], tensor->ne[1], tensor->ne[2], tensor->ne[3]);
 
@@ -300,7 +306,9 @@ bool rpc_server::init_tensor(const rpc_msg_init_tensor_req& request) {
         buffer->init_tensor(tensor);
     }
     else {
-        GGML_LOG_ERROR("Null buffer for tensor passed to init_tensor function");
+        if (!buffer) {
+            GGML_LOG_ERROR("Tensor with null buffer passed to init_tensor function\n");
+        }
     }
 
     if (tensor->extra != nullptr) {
@@ -391,6 +399,10 @@ ggml_tensor* rpc_server::create_node(uint64_t id,
 
     struct ggml_tensor* result = deserialize_tensor(ctx, tensor);
     if (result == nullptr) {
+        return nullptr;
+    }
+    if (result->buffer == nullptr && result->data != nullptr) {
+        GGML_LOG_ERROR("[{}] invalid data ptr", __func__);
         return nullptr;
     }
     tensor_map[id] = result;

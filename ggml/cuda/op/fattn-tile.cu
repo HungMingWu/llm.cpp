@@ -41,6 +41,10 @@ void ggml_cuda_flash_attn_ext_tile(const flash_attn_ext_context& ctx)
         GGML_ASSERT(ctx.V.ne0 ==ctx.K.ne0);
         ggml_cuda_flash_attn_ext_tile_case<256, 256>(ctx);
     } break;
+    case 512: {
+        GGML_ASSERT(ctx.V.ne0 ==ctx.K.ne0);
+        ggml_cuda_flash_attn_ext_tile_case<512, 512>(ctx);
+    } break;
     case 576: {
         GGML_ASSERT(ctx.V.ne0 == 512);
         ggml_cuda_flash_attn_ext_tile_case<576, 512>(ctx);

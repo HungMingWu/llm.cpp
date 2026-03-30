@@ -99,6 +99,9 @@ void to_float(ggml_type type, const void* x, float* y, int64_t n)
 		case GGML_TYPE_MXFP4:
 			dequantize_row(static_cast<const block_mxfp4*>(x), y, n);
 			break;
+		case GGML_TYPE_NVFP4:
+			dequantize_row(static_cast<const block_nvfp4*>(x), y, n);
+			break;
 		default:
 			assert(false);
 			GGML_ABORT("unsupported type for to_float");

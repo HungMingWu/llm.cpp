@@ -275,6 +275,7 @@ static constexpr int VDR_Q5_0_Q8_1_MMVQ = 2;
 static constexpr int VDR_Q5_1_Q8_1_MMVQ = 2;
 static constexpr int VDR_Q8_0_Q8_1_MMVQ = 2;
 static constexpr int VDR_MXFP4_Q8_1_MMVQ = 2;
+static constexpr int VDR_NVFP4_Q8_1_MMVQ = 4;
 static constexpr int VDR_Q2_K_Q8_1_MMVQ = 1;
 static constexpr int VDR_Q3_K_Q8_1_MMVQ = 1;
 static constexpr int VDR_Q4_K_Q8_1_MMVQ = 2;
@@ -336,6 +337,14 @@ struct ggml_cuda_type_traits<block_mxfp4> {
     static constexpr int qr = QR_MXFP4;
     static constexpr int qi = QI_MXFP4;
     static constexpr int mmvq = VDR_MXFP4_Q8_1_MMVQ;
+};
+
+template<>
+struct ggml_cuda_type_traits<block_nvfp4> {
+    static constexpr int qk = QK_NVFP4;
+    static constexpr int qr = QR_NVFP4;
+    static constexpr int qi = QI_NVFP4;
+    static constexpr int mmvq = VDR_NVFP4_Q8_1_MMVQ;
 };
 
 template<>
@@ -626,6 +635,36 @@ static __device__ __forceinline__ void ggml_cuda_mad(float& acc, const half2 v, 
         acc += tmpv.y * tmpu.y;
     }
 #endif // defined(GGML_USE_HIP) && (defined(RDNA2)  || defined(RDNA3) || defined(RDNA4) || defined(GCN5) || defined(CDNA))
+}
+
+static __device__ __forceinline__ float ggml_cuda_ue4m3_to_fp32(uint8_t x) {
+#if defined(GGML_USE_HIP) && defined(CDNA3) && defined(FP8_AVAILABLE) && HIP_VERSION >= 60200000
+    // ROCm does not support fp8 in software on devices with fp8 hardware,
+    // but CDNA3 supports only e4m3_fnuz (no inf).
+    const uint32_t bits = x * (x != 0x7F && x != 0xFF); // Convert NaN to 0.0f to match CPU implementation.
+    const __hip_fp8_e4m3_fnuz xf = *reinterpret_cast<const __hip_fp8_e4m3_fnuz*>(&bits);
+    return static_cast<float>(xf) / 2;
+#else
+#if defined(FP8_AVAILABLE) && !defined(GGML_USE_HIP)
+    const uint32_t bits = x * (x != 0x7F && x != 0xFF); // Convert NaN to 0.0f to match CPU implementation.
+    const __nv_fp8_e4m3 xf = *reinterpret_cast<const __nv_fp8_e4m3*>(&bits);
+    return static_cast<float>(xf) / 2;
+#else
+    if (x == 0 || (x == 0x7F && x != 0xFF)) { // Convert NaN to 0.0f
+        return 0.0f;
+    }
+    const int exp = (x >> 3) & 0xF;
+    const int man = x & 0x7;
+    float raw;
+    if (exp == 0) {
+        raw = ldexpf((float)man, -9);
+    }
+    else {
+        raw = ldexpf(1.0f + (float)man / 8.0f, exp - 7);
+    }
+    return static_cast<float>(raw / 2);
+#endif // defined(FP8_AVAILABLE) && !defined(GGML_USE_HIP)
+#endif // defined(GGML_USE_HIP) && defined(CDNA3) && defined(FP8_AVAILABLE) && HIP_VERSION >= 60200000
 }
 
 __device__ __forceinline__ uint8_t ggml_cuda_float_to_fp4_e2m1(float x, float e) {

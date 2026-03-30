@@ -69,17 +69,17 @@ static __global__ void flash_attn_ext_vec(
     constexpr int nthreads_V_q = (D / 4 < 32 ? D / 4 : 32);
 
     constexpr int nthreads = ggml_cuda_fattn_vec_get_nthreads_device();
-    constexpr int nthreads_KQ = type_K == internal::GGML_TYPE_F16 ? 128 / cpy_nb : nthreads_KQ_q;
-    constexpr int nthreads_V = type_V == internal::GGML_TYPE_F16 ? 128 / cpy_nb : nthreads_V_q;
+    constexpr int nthreads_KQ = (type_K == internal::GGML_TYPE_F16 || type_K == internal::GGML_TYPE_BF16) ? 128 / cpy_nb : nthreads_KQ_q;
+    constexpr int nthreads_V  = (type_V == internal::GGML_TYPE_F16 || type_V == internal::GGML_TYPE_BF16) ? 128 / cpy_nb : nthreads_V_q;
 
     static_assert(WARP_SIZE % nthreads_KQ == 0, "bad nthreads_K");
-    static_assert(WARP_SIZE % nthreads_V == 0, "bad nthreads_V");
+    static_assert(WARP_SIZE % nthreads_V  == 0, "bad nthreads_V");
 
-    constexpr int V_rows_per_thread = type_V == internal::GGML_TYPE_F16 ? 2 * cpy_ne : 4;
-    constexpr int V_cols_per_iter = WARP_SIZE / nthreads_V;
+    constexpr int V_rows_per_thread = (type_V == internal::GGML_TYPE_F16 || type_V == internal::GGML_TYPE_BF16) ? 2*cpy_ne : 4;
+    constexpr int V_cols_per_iter   = WARP_SIZE / nthreads_V;
 
     constexpr vec_dot_KQ_t vec_dot_KQ = get_vec_dot_KQ<type_K, D, nthreads_KQ>();
-    constexpr bool Q_q8_1 = type_K != internal::GGML_TYPE_F16;
+    constexpr bool Q_q8_1 = type_K != internal::GGML_TYPE_F16 && type_K != internal::GGML_TYPE_BF16;
     using t1 = std::conditional_t<v_dot2_f32_f16_available_v, half, float>;
     constexpr dequantize_V_t dequantize_V = get_dequantize_V<type_V, t1, V_rows_per_thread>();
 
@@ -314,8 +314,18 @@ static __global__ void flash_attn_ext_vec(
 #pragma unroll
                 for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2; i_VKQ_0 += nthreads_V * V_rows_per_thread / 2) {
                     half2 tmp[V_rows_per_thread / 2];
-                    dequantize_V(V + k * nb21, tmp,
-                        2 * i_VKQ_0 + (nthreads_V == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_V) * V_rows_per_thread);
+                    if constexpr (type_V == internal::GGML_TYPE_BF16) {
+                        float2 tmp_f[V_rows_per_thread / 2];
+                        dequantize_V(V + k * nb21, tmp_f,
+                            2 * i_VKQ_0 + (nthreads_V == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_V) * V_rows_per_thread);
+#pragma unroll
+                        for (int i_VKQ_1 = 0; i_VKQ_1 < V_rows_per_thread/2; ++i_VKQ_1) {
+                            tmp[i_VKQ_1] = __float22half2_rn(tmp_f[i_VKQ_1]);
+                        }
+                    } else {
+                        dequantize_V(V + k * nb21, tmp,
+                            2 * i_VKQ_0 + (nthreads_V == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_V) * V_rows_per_thread);
+                    }
 #pragma unroll
                     for (int i_VKQ_1 = 0; i_VKQ_1 < V_rows_per_thread / 2; ++i_VKQ_1) {
 #pragma unroll

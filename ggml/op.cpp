@@ -896,6 +896,7 @@ ggml_tensor* ggml_flash_attn_ext(
 	GGML_ASSERT(q->ne[3] == v->ne[3]);
 
 	if (mask) {
+		GGML_ASSERT(mask->type == GGML_TYPE_F16);
 		GGML_ASSERT(ggml_is_contiguous(mask));
 		//GGML_ASSERT(ggml_can_repeat_rows(mask, qk));
 
@@ -1661,6 +1662,7 @@ static ggml_tensor* ggml_interpolate_impl(
 	GGML_ASSERT((mode & 0xFF) < GGML_SCALE_MODE_COUNT);
 	// TODO: implement antialias for modes other than bilinear
 	GGML_ASSERT(!(mode & GGML_SCALE_FLAG_ANTIALIAS) || (mode & 0xFF) == GGML_SCALE_MODE_BILINEAR);
+	GGML_ASSERT(a->type == GGML_TYPE_F32);
 
 	ggml_tensor* result = ctx->create(a->type, ne0, ne1, ne2, ne3);
 

@@ -358,6 +358,9 @@ static void ggml_compute_forward_mul_mat(
 	case GGML_TYPE_MXFP4: {
 		ggml_compute_forward_mul_mat<block_mxfp4>(pool, scope, dst);
 	} break;
+	case GGML_TYPE_NVFP4: {
+		ggml_compute_forward_mul_mat<block_nvfp4>(pool, scope, dst);
+	} break;
 	case GGML_TYPE_Q5_0: {
 		ggml_compute_forward_mul_mat<block_q5_0>(pool, scope, dst);
 	} break;
@@ -2812,6 +2815,9 @@ static void ggml_compute_forward_mul_mat_id(
 	} break;
 	case GGML_TYPE_MXFP4: {
 		ggml_compute_forward_mul_mat_id<block_mxfp4>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_NVFP4: {
+		ggml_compute_forward_mul_mat_id<block_nvfp4>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q8_1:
 	default:

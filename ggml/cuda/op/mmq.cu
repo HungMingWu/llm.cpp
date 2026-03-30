@@ -22,6 +22,9 @@ void ggml_cuda_mul_mat_q_switch_type(ggml_cuda_pool& pool, const mmq_args& args,
     case internal::GGML_TYPE_MXFP4:
         mul_mat_q_case<internal::GGML_TYPE_MXFP4, block_mxfp4>(pool, args, stream);
         break;
+    case internal::GGML_TYPE_NVFP4:
+        mul_mat_q_case<internal::GGML_TYPE_NVFP4, block_nvfp4>(pool, args, stream);
+        break;
     case internal::GGML_TYPE_Q2_K:
         mul_mat_q_case<internal::GGML_TYPE_Q2_K, block_q2_K>(pool, args, stream);
         break;

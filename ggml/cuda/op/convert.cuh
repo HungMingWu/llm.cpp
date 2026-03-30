@@ -25,6 +25,17 @@ __host__ __device__ inline dst_t ggml_cuda_cast(src_t x) {
     else if constexpr (std::is_same_v<src_t, float2> && std::is_same_v<dst_t, half2>) {
         return __float22half2_rn(x);
     }
+    else if constexpr(std::is_same_v<src_t, nv_bfloat162> && std::is_same_v<dst_t, float2>) {
+        if constexpr (ggml_use_hip_v) {
+            return make_float2(__bfloat162float(__low2bfloat16(x)), __bfloat162float(__high2bfloat16(x)));
+        } else {
+#if __CUDA_ARCH__ >= 800
+        return __bfloat1622float2(x);
+#else
+        return make_float2(__bfloat162float(x.x), __bfloat162float(x.y));
+#endif // __CUDA_ARCH__ >= 800
+        }
+    } 
     else if constexpr (std::is_same_v<src_t, float2> && std::is_same_v<dst_t, nv_bfloat162>) {
         // bypass compile error on cuda 12.0.1
         if constexpr (ggml_use_hip_v) {

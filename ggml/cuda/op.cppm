@@ -971,7 +971,8 @@ namespace op
             static_assert(MMVQ_MAX_BATCH_SIZE == MMVF_MAX_BATCH_SIZE);
             if (dst->ne[2] <= MMVQ_MAX_BATCH_SIZE) {
                 if (ggml_is_quantized(src0->type)) {
-                    if (dst->ne[2] <= MMVQ_MMID_MAX_BATCH_SIZE) {
+                    const int mmvq_mmid_max = get_mmvq_mmid_max_batch(std::bit_cast<internal::ggml_type>(src0->type), cc);
+                    if (dst->ne[2] <= mmvq_mmid_max) {
                         mul_mat_vec_q(pool, stream, src0, src1, ids, dst);
                         return;
                     }
@@ -1562,6 +1563,14 @@ namespace op
                 return BEST_FATTN_KERNEL_NONE;
             }
             break;
+        case 512:
+            if (V->ne[0] != K->ne[0]) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            if (!gqa_opt_applies) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            break;
         case 576:
             if (V->ne[0] != 512) {
                 return BEST_FATTN_KERNEL_NONE;
@@ -1592,6 +1601,7 @@ namespace op
             }
         case GGML_TYPE_Q4_0:
         case GGML_TYPE_Q8_0:
+        case GGML_TYPE_BF16:
             break;
         default:
             return BEST_FATTN_KERNEL_NONE;
@@ -1647,7 +1657,7 @@ namespace op
         }
 
         // Use the WMMA kernel if possible:
-        if (ggml_cuda_should_use_wmma_fattn(cc) && K->ne[1] % FATTN_KQ_STRIDE == 0 && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[0] != 576) {
+        if (ggml_cuda_should_use_wmma_fattn(cc) && K->ne[1] % FATTN_KQ_STRIDE == 0 && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[0] != 512 && Q->ne[0] != 576) {
             if (can_use_vector_kernel && Q->ne[1] <= 2) {
                 return BEST_FATTN_KERNEL_VEC;
             }
@@ -1681,7 +1691,7 @@ namespace op
         }
 
         // Use MFMA flash attention for CDNA (MI100+):
-        if (amd_mfma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[0] != 256 && Q->ne[0] != 576) {
+        if (amd_mfma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[0] != 256 && Q->ne[0] != 512 && Q->ne[0] != 576) {
             const int64_t eff_nq = Q->ne[1] * (gqa_opt_applies ? gqa_ratio : 1);
             // MMA vs tile crossover benchmarked on MI300X @ d32768:
             //   hsk=64  (gqa=4): MMA wins at eff >= 128 (+11%)
