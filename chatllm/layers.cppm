@@ -394,6 +394,19 @@ export namespace chatllm
         }
     };
 
+    class ActivationBlock : public Block
+    {
+    public:
+        ActivationBlock(ActFunc act) : act(act) {}
+
+        ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* input) override
+        {
+            return ggml::act(ctx, act, input);
+        }
+    public:
+        ActFunc act;
+    };
+
     class Sequential : public Block
     {
     public:
@@ -1094,6 +1107,8 @@ export namespace chatllm
         LMBlock1Forward(Block* input_layernorm, Block* attention, Block* post_attention_layernorm, Block* mlp, int id, float scale_depth);
         ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* hidden_states, int n_past);
         ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* hidden_states, ggml::tensor* hidden_states2, int n_past);
+        void set_attn_scaling(ggml::tensor* weight);
+        void set_mlp_scaling(ggml::tensor* weight);
     public:
         ggml::tensor* last_result_post_attn_norm = nullptr;
     protected:
@@ -1103,6 +1118,8 @@ export namespace chatllm
         Block* attention;
         Block* post_attention_layernorm;
         Block* mlp;
+        ggml::tensor* attn_scale = nullptr;
+        ggml::tensor* mlp_scale = nullptr;
     };
 
     template <class InputNormBlock,

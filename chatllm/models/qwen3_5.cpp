@@ -345,10 +345,7 @@ namespace chatllm::qwen::v3_5
         // beta  = reshape(ctx, beta);
         // g     = reshape(ctx, g);
 
-        const int k_head_dim = (int)ggml::get_dim(key, 0);
         const int sequence_length = (int)ggml::get_dim(key, 1);
-        const int num_heads = (int)ggml::get_dim(key, 2);
-        const int v_head_dim = (int)ggml::get_dim(value, 0);
 
         const float scale = 1.0f / sqrtf((float)ggml::get_dim(query, 0));
         query = ggml::scale(ctx, query, scale, false);

@@ -2057,6 +2057,16 @@ namespace chatllm
     {
     }
 
+    void LMBlock1Forward::set_attn_scaling(ggml::tensor* weight)
+    {
+        attn_scale = weight;
+    }
+
+    void LMBlock1Forward::set_mlp_scaling(ggml::tensor* weight)
+    {
+        mlp_scale = weight;
+    }
+
     ggml::tensor* LMBlock1Forward::forward(ComputeContext* ctx, ggml::tensor* hidden_states, int n_past)
     {
         ggml::tensor* residual = hidden_states;
@@ -2068,10 +2078,15 @@ namespace chatllm
             //inspect_tensor(hidden_states, "attention");
         }
 
-        if (scale_depth > 0.0f)
+        if (attn_scale)
+        {
+            hidden_states = ggml::mul(ctx, hidden_states, attn_scale, false);
+        }
+        else if (scale_depth > 0.0f)
         {
             hidden_states = ggml::scale(ctx, hidden_states, scale_depth, false);
         }
+        else;
 
         hidden_states = ggml::add(ctx, hidden_states, residual, false);
         residual = hidden_states;
@@ -2081,10 +2096,15 @@ namespace chatllm
 
         hidden_states = mlp->forward(ctx, hidden_states);
 
-        if (scale_depth > 0.0f)
+        if (attn_scale)
+        {
+            hidden_states = ggml::mul(ctx, hidden_states, mlp_scale, false);
+        }
+        else if (scale_depth > 0.0f)
         {
             hidden_states = ggml::scale(ctx, hidden_states, scale_depth, false);
         }
+        else;
 
         hidden_states = ggml::add(ctx, hidden_states, residual, false);
 
@@ -2273,7 +2293,6 @@ namespace chatllm
         // expected from v_cache: [batch, heads, head_size, qlen]
         {
             const int max_length = cache_length / batch;
-            const int head_size = v_hidden_size / num_kv_heads;
 
             ggml::tensor* Vcur = ggml::transpose(ctx, v);
             ggml::tensor* v_cache_view = ctx->view(v_cache, { batch, v_hidden_size, qlen },
@@ -2286,7 +2305,6 @@ namespace chatllm
 
         // save k
         {
-            const int max_length = cache_length / batch;
             const int head_size = k_hidden_size / num_kv_heads;
             const size_t k_cache_row_size = ggml::row_size(ggml::type_of(k_cache), head_size);
 
@@ -2406,7 +2424,7 @@ namespace chatllm
         const int head_size = hidden_size / num_attention_heads;
 
         // [qlen, hidden_size] -> [qlen, head_size, heads]
-        ggml::tensor* r = ctx->reshape(raw_v, { qlen, num_kv_heads, head_size });  // -> [qlen, heads, head_size]
+        ggml::tensor* r = ctx->reshape(raw_v, { ggml::get_dim(raw_v, 2), qlen, num_kv_heads, head_size });  // -> [qlen, heads, head_size, batch]
         r = ggml::permute(ctx, r, 1, 2, 0, 3);   // [heads, head_size, qlen]
         r = ggml::cont(ctx, r);
         return r;

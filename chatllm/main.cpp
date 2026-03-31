@@ -807,8 +807,6 @@ static void run_tts(Args& args, chatllm::Pipeline& pipeline, TextStreamer& strea
 static void run_asr_ocr(Args& args, chatllm::Pipeline& pipeline, TextStreamer& streamer, const chatllm::GenerationConfig& gen_config, const std::string& tag)
 {
     std::vector<int16_t> result;
-    int sample_rate = 0;
-    int channels = 0;
 
     const std::string opening = "{{";
     const std::string closing = "}}";

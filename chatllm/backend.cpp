@@ -868,6 +868,8 @@ namespace chatllm
 
     ggml::tensor* ComputeContext::reshape(ggml::tensor* a, std::initializer_list<int64_t> ne)
     {
+        if (!ggml_is_contiguous(a))
+            a = ggml::cont(this, a);
         std::vector<int64_t> reverse_ne{ ne.begin(), ne.end() };
         std::ranges::reverse(reverse_ne);
         ggml::tensor* tensor = [&]() {

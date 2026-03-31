@@ -836,7 +836,6 @@ namespace utils
     {
         std::vector<float> cdf;
         cdf.resize(dist_dim + 1);
-        float sum = 0.0f;
         cdf[0] = 0.0f;
         for (int i = 0; i < dist_dim; i++)
         {

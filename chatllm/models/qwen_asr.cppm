@@ -110,7 +110,6 @@ namespace chatllm::qwen::v3::audio_tower
     protected:
         bool run_model(const GenerationConfig& gen_config, BaseTokenizer* tok, ggml::type dtype, const BaseTokenizer::MediaAsEmbeddingVector& audio, std::vector<uint8_t>& buf);
     protected:
-        const int max_llm_tokens;
         std::unique_ptr<AudioTransformer> model;
         TensorGraphEvaluator eval;
         InitContext _ctx; // weight context

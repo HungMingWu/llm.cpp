@@ -308,7 +308,7 @@ namespace chatllm
     }
 
     Messages::Messages(const std::string& opening, const std::string& closing)
-        : cursor(0), sep(""), auto_aggregate(true), round(-1), mm_opening(opening), mm_closing(closing)
+        : sep(""), auto_aggregate(true), round(-1), mm_opening(opening), mm_closing(closing)
     {
     }
 
@@ -401,7 +401,7 @@ namespace chatllm
 
     void Messages::shrink(int size)
     {
-        while (history.size() > size)
+        while ((int64_t)history.size() > size)
             history.pop_back();
         move_cursor_to_end();
     }

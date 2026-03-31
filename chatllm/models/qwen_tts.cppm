@@ -239,8 +239,8 @@ namespace chatllm::qwen::tts
     public:
         SnakeBeta act1;
         SnakeBeta act2;
-        Qwen3TTSTokenizerV2CausalConvNet conv2;
         Qwen3TTSTokenizerV2CausalConvNet conv1;
+        Qwen3TTSTokenizerV2CausalConvNet conv2;
     };
 
     class Qwen3TTSTokenizerV2DecoderDecoderBlock : public Block

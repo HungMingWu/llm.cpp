@@ -193,7 +193,6 @@ namespace chatllm::qwen::v3::audio_tower
     }
 
     AudioEmbeddingGeneration::AudioEmbeddingGeneration(const RuntimeConfig& runtime_config, size_t GRAPH_SIZE) :
-        max_llm_tokens(max_llm_tokens),
         eval(runtime_config, "aud"),
         _ctx(eval.get_backend_context())
     {
@@ -293,7 +292,7 @@ namespace chatllm::qwen::v3::audio_tower
         std::vector<int> r;
         for (auto x : input_lengths)
             r.push_back(get_feat_extract_output_lengths(x));
-        return std::move(r);
+        return r;
     }
 
     int pad_mel_len(int len)
