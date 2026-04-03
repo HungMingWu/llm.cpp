@@ -15,7 +15,7 @@
 
 template<typename T, int BLOCK_SIZE>
 static __global__ void cumsum_cub_kernel(
-    mdspan_stiride_t<const T, 4> src_data, mdspan_stiride_t<T, 4> dst_data) {
+    mdspan_stride_t<const T, 4> src_data, mdspan_stride_t<T, 4> dst_data) {
 #ifdef GGML_CUDA_USE_CUB
     using BlockScanT = cub::BlockScan<T, BLOCK_SIZE>;
     auto block = cooperative_groups::this_thread_block();
@@ -82,7 +82,7 @@ static __global__ void cumsum_cub_kernel(
 // Fallback kernel implementation
 template <typename T>
 static __global__ void cumsum_kernel(
-    mdspan_stiride_t<const T, 4> src_data, mdspan_stiride_t<T, 4> dst_data) {
+    mdspan_stride_t<const T, 4> src_data, mdspan_stride_t<T, 4> dst_data) {
 
     const int tid = threadIdx.x;
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
