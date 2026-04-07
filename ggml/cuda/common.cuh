@@ -35,15 +35,6 @@ static __device__ void no_device_code(
 #define NO_DEVICE_CODE //GGML_ABORT("NO_DEVICE_CODE not valid in host code.")
 #endif // __CUDA_ARCH__
 
-template<int width = WARP_SIZE>
-static __device__ __forceinline__ float warp_reduce_max(float x) {
-#pragma unroll
-    for (int offset = width / 2; offset > 0; offset >>= 1) {
-        x = fmaxf(x, __shfl_xor_sync(0xffffffff, x, offset, width));
-    }
-    return x;
-}
-
 template<typename T, int width = WARP_SIZE>
 static __device__ __forceinline__ T warp_prefix_inclusive_sum(T x) {
     const int lane_id = threadIdx.x % width;

@@ -419,7 +419,7 @@ static __global__ void flash_attn_ext_vec(
         }
 
         float kqmax_new = KQ_max_shared[j_VKQ][threadIdx.x];
-        kqmax_new = warp_reduce_max(kqmax_new);
+        kqmax_new = cooperative_groups::reduce(tile_warp, kqmax_new, cooperative_groups::greater<float>());
         const float kqmax_scale = expf(KQ_max[j_VKQ] - kqmax_new);
         KQ_max[j_VKQ] = kqmax_new;
 

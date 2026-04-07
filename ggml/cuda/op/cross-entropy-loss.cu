@@ -20,7 +20,10 @@ static __global__ void cross_entropy_loss_f32(
             tmp[i] = val;
         }
     }
-    max_logit = warp_reduce_max(max_logit);
+    {
+        auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(cooperative_groups::this_thread_block());
+        max_logit = cooperative_groups::reduce(tile, max_logit, cooperative_groups::greater<float>());
+    }
 
     // Calculate log(softmax(logits)) which is just logits - max:
     float sum = 0.0f;
@@ -93,7 +96,10 @@ static __global__ void cross_entropy_loss_back_f32(
             tmp[i] = val;
         }
     }
-    maxval = warp_reduce_max(maxval);
+    {
+        auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(cooperative_groups::this_thread_block());
+        maxval = cooperative_groups::reduce(tile, maxval, cooperative_groups::greater<float>());
+    }
 
     float sum = 0.0f;
     for (int i = threadIdx.x; i < nclasses; i += WARP_SIZE) {

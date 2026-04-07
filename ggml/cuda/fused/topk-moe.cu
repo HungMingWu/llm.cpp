@@ -19,7 +19,10 @@ __device__ void softmax_warp_inplace(float(&vals)[experts_per_thread], const int
         }
     }
 
-    max_val = warp_reduce_max(max_val);
+    {
+        auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(cooperative_groups::this_thread_block());
+        max_val = cooperative_groups::reduce(tile, max_val, cooperative_groups::greater<float>());
+    }
 
     float sum = 0.f;
 
@@ -37,8 +40,10 @@ __device__ void softmax_warp_inplace(float(&vals)[experts_per_thread], const int
         }
     }
 
-    auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(cooperative_groups::this_thread_block());
-    sum = cooperative_groups::reduce(tile, sum, cooperative_groups::plus<float>());
+    {
+        auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(cooperative_groups::this_thread_block());
+        sum = cooperative_groups::reduce(tile, sum, cooperative_groups::plus<float>());
+    }
 
     const float inv_sum = 1.0f / sum;
 

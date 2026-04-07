@@ -81,7 +81,10 @@ static __global__ void quantize_q8_1(
     float amax = fabsf(xi);
     float sum = xi;
 
-    amax = warp_reduce_max<QK8_1>(amax);
+    {
+        auto tile = cooperative_groups::tiled_partition<QK8_1>(cooperative_groups::this_thread_block());
+        amax = cooperative_groups::reduce(tile, amax, cooperative_groups::greater<float>());
+    }
     {
         auto tile = cooperative_groups::tiled_partition<QK8_1>(cooperative_groups::this_thread_block());
         sum = cooperative_groups::reduce(tile, sum, cooperative_groups::plus<float>());

@@ -222,7 +222,10 @@ static __global__ void flash_attn_ext_f16(
                         __half2float(slopeh * maskh[j * (nb31 / sizeof(half)) + k_VKQ_0 + k]) : 0.0f;
                     KQ_max_new = max(KQ_max_new, KQ_f_tmp[k0 / warp_size] + FATTN_KQ_MAX_OFFSET);
                 }
-                KQ_max_new = warp_reduce_max<warp_size>(KQ_max_new);
+                {
+                    auto tile = cooperative_groups::tiled_partition<warp_size>(cooperative_groups::this_thread_block());
+                    KQ_max_new = cooperative_groups::reduce(tile, KQ_max_new, cooperative_groups::greater<float>());
+                }
 
                 const float diff = KQ_max_f[j0 / nwarps] - KQ_max_new;
                 KQ_max_scale_f[j0 / nwarps] = expf(diff);
@@ -278,7 +281,11 @@ static __global__ void flash_attn_ext_f16(
                     KQ2_tmp[k0 / warp_size] += mask && ic0 + j < int(ne01.z) ? slope2 * mask2[(j * ne11 + k_VKQ_0) / 2 + k] : make_half2(0.0f, 0.0f);
                     KQ_max_new = ggml_cuda_hmax2(KQ_max_new, KQ2_tmp[k0 / warp_size]);
                 }
-                KQ_max_new = __half2half2(warp_reduce_max<warp_size>(ggml_cuda_hmax(__low2half(KQ_max_new), __high2half(KQ_max_new))));
+                {
+                    auto tile = cooperative_groups::tiled_partition<warp_size>(cooperative_groups::this_thread_block());
+                    const float tmp = ggml_cuda_hmax(__low2half(KQ_max_new), __high2half(KQ_max_new));
+                    KQ_max_new = __half2half2(cooperative_groups::reduce(tile, tmp, cooperative_groups::greater<float>()));
+                }
                 const half2 diff = KQ_max_h2[j0 / nwarps] - KQ_max_new;
                 KQ_max_scale_h2[j0 / nwarps] = h2exp(diff);
                 const uint32_t ftz_mask = __hgt2_mask(diff, make_half2(SOFTMAX_FTZ_THRESHOLD, SOFTMAX_FTZ_THRESHOLD));

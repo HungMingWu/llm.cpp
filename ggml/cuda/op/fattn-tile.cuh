@@ -590,7 +590,10 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
             }
         }
 
-        KQ_max_new[jc0] = warp_reduce_max<warp_size>(KQ_max_new[jc0]);
+        {
+            auto tile = cooperative_groups::tiled_partition<warp_size>(cooperative_groups::this_thread_block());
+            KQ_max_new[jc0] = cooperative_groups::reduce(tile, KQ_max_new[jc0], cooperative_groups::greater<float>());
+        }
     }
 
     if constexpr (np == 1) {
@@ -604,7 +607,10 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
         }
         __syncthreads();
         KQ_max_new[0] = KQ_max_new_shared[(threadIdx.y & ~(np - 1)) + threadIdx.x % np];
-        KQ_max_new[0] = warp_reduce_max<np>(KQ_max_new[0]);
+        {
+            auto tile = cooperative_groups::tiled_partition<np>(cooperative_groups::this_thread_block());
+            KQ_max_new[0] = cooperative_groups::reduce(tile, KQ_max_new[0], cooperative_groups::greater<float>());
+        }
     }
 
     static_assert(ncols % KQ_cs == 0, "bad KQ_cs");
