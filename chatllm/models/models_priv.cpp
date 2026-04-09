@@ -565,6 +565,7 @@ namespace chatllm
             exit(-1);
         }
 
+        transformer->before_eval(&ctx);
         ctx.compute();
         Backend::read_tensor_data(r, output.data());
         ctx.reset();
@@ -661,6 +662,14 @@ namespace chatllm
 
         ctx->move_to_layer(LayerAllocatorManager::Epilog);
         return final_steps->forward(this, ctx, input_ids, hidden_states);
+    }
+
+    void HeterogeneousModel::before_eval(ComputeContext* ctx)
+    {
+        for (auto& layer : layers)
+        {
+            layer->before_eval(ctx);
+        }
     }
 
     void HeterogeneousModel::set_ctx(int n_ctx)

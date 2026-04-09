@@ -963,6 +963,7 @@ namespace chatllm
 
         write_media_tensor(media_emb, media);
 
+        model->before_eval(&ctx);
         ctx.compute();
 
         size_t offset = buf.size();

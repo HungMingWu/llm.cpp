@@ -339,6 +339,7 @@ namespace chatllm
 
         // assign some global parameters
         BlockParams::Optimization::speed = args.opt_speed;
+        BlockParams::FlashAttention::push(args.flash_attention);
         BlockParams::set_padded_embedding_num(args.max_proj_length);
 
         load_config<Config>(loader, config, args);
@@ -618,6 +619,7 @@ namespace chatllm
         ~HeterogeneousModel();
 
         ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* input_ids, int n_past) override;
+        void before_eval(ComputeContext* ctx) override;
         void set_ctx(int n_ctx) override;
 
         void shift_cache(int shift, int total) override;
@@ -646,8 +648,6 @@ namespace chatllm
             size_t cache_size;
         };
     protected:
-        virtual void before_forward(ComputeContext* ctx, ggml::tensor* input_ids, int n_past) {}
-
         virtual int64_t get_param_num_of_layers(bool effective_only) const;
 
     public:

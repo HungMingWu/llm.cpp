@@ -194,6 +194,26 @@ export namespace chatllm
         // accept either probs or logits, but not both
         ggml::tensor* categorical_entropy(ComputeContext* ctx, ggml::tensor* probs, ggml::tensor* logits);
 
+        // q:    [n_embd_k, n_batch, n_head,    ne3 ]
+        // k:    [n_embd_k, n_kv,    n_head_kv, ne3 ]
+        // v:    [n_embd_v, n_kv,    n_head_kv, ne3 ] !! not transposed !!
+        // mask: [n_kv,     n_batch, ne32,      ne33]
+        // res:  [n_embd_v, n_head,  n_batch,   ne3 ] !! permuted !!
+        //
+        // broadcast:
+        //   n_head % n_head_kv == 0
+        //   n_head % ne32      == 0
+        //   ne3    % ne33      == 0
+        //
+        ggml::tensor* flash_attention(ComputeContext* ctx,
+            ggml::tensor* q,
+            ggml::tensor* k,
+            ggml::tensor* v,
+            ggml::tensor* mask,
+            float           scale,
+            float           max_bias = 0.0f,
+            float           logit_softcap = 0.0f);
+
         ggml::tensor* map_custom(ComputeContext* ctx, std::initializer_list<ggml::tensor*> srcs, ggml_custom_op_cb fun);
 
         // Note: these `inplace` might not work when GPU is used
@@ -253,6 +273,19 @@ export namespace chatllm
             static bool is_disabled(void);
         protected:
             static bool disabled;
+        };
+
+        class FlashAttention
+        {
+        public:
+            FlashAttention(const std::string& mode);
+
+            static void push(const std::string& mode);
+            static void pop(void);
+            static bool is_enabled(void);
+            static std::string get(void);
+        protected:
+            static std::vector<std::string> mode;
         };
 
         class CoreAttentionUseSinks
@@ -328,6 +361,11 @@ export namespace chatllm
             CHATLLM_THROW << "forward(ComputeContext *ctx, ggml::tensor *input1, ggml::tensor *input2, int n_past): not implemented";
             return NULL;
         }
+
+        virtual void before_forward(ComputeContext* ctx, ggml::tensor* input, int n_past) {}
+        virtual void before_forward(ComputeContext* ctx, const int n_past, const int qlen) {}
+        virtual void before_eval(ComputeContext* ctx) {}
+
         virtual void set_ctx(int n_ctx) {}
         virtual void shift_cache(int shift, int total) {}
 
@@ -1097,6 +1135,11 @@ export namespace chatllm
             attention.load(path + "self_attn.", loader);
         }
 
+        void before_eval(ComputeContext* ctx) override
+        {
+            attention.before_eval(ctx);
+        }
+
     public:
         AttentionBlock attention;
     };
@@ -1483,7 +1526,13 @@ export namespace chatllm
     class CoreAttention : public Block
     {
     public:
-        CoreAttention() : def_pos_helper(0), num_attention_heads(0), num_kv_heads(0), max_length(0) {}
+        enum VShapeFromCache
+        {
+            Len_HeadSize_Heads_Batch,       // ggml[qlen, head_size, heads, batch] for eager attention
+            HeadSize_Len_Heads_Batch,       // ggml[head_size, qlen, heads, batch] for flash attention
+        };
+    public:
+        CoreAttention() : def_pos_helper(0), num_attention_heads(0), num_kv_heads(0), use_flash_attn(false), v_shape(VShapeFromCache::Len_HeadSize_Heads_Batch), max_length(0) {}
 
         CoreAttention(InitContext* ctx, int num_attention_heads, int num_kv_heads, int max_length)
             : CoreAttention(ctx, num_attention_heads, num_kv_heads, max_length, TensorPosHelperParam::get(max_length))
@@ -1494,13 +1543,15 @@ export namespace chatllm
             : def_pos_helper(max_length),
             num_attention_heads(num_attention_heads),
             num_kv_heads(num_kv_heads),
+            use_flash_attn(BlockParams::FlashAttention::is_enabled()),
+            v_shape(BlockParams::FlashAttention::is_enabled() || !BlockParams::Optimization::speed ? VShapeFromCache::HeadSize_Len_Heads_Batch : VShapeFromCache::Len_HeadSize_Heads_Batch),
             pos(nullptr),
             max_length(max_length),
             attn_scaling_factor(-1.0f),
             attn_scores_pp(nullptr),
+            causal(true),
             shift_pending(),
             attn_scaling(true),
-            causal(true),
             last_attn_scores(nullptr),
             sinks(BlockParams::CoreAttentionUseSinks::get() > 0 ?
                 ctx->new_tensor(ggml::type::GGML_TYPE_F32, { BlockParams::CoreAttentionUseSinks::get() })
@@ -1526,6 +1577,9 @@ export namespace chatllm
 
         void load(const std::string& path, TensorLoader* loader) override;
 
+        void before_forward(ComputeContext* ctx, const int n_past, const int qlen) override;
+        void before_eval(ComputeContext* ctx) override;
+
     protected:
         virtual void allocate_pos_tensor(InitContext* ctx);
         virtual void prepare_pos_tensor(ComputeContext* ctx, const int n_past, const int qlen);
@@ -1544,17 +1598,16 @@ export namespace chatllm
         virtual ggml::tensor* apply_pos_embedding_q(ComputeContext* ctx, ggml::tensor* q, int hidden_size, int qlen, ggml::tensor* past) const { return q; }
         virtual ggml::tensor* apply_pos_embedding_kq(ComputeContext* ctx, ggml::tensor* kq, int hidden_size, int qlen, ggml::tensor* past) const { return kq; }
 
-        virtual void before_forward(ComputeContext* ctx, const int n_past, const int qlen);
-
         // k: [qlen, heads, head_size]
         // v: [qlen, hidden_size]
         virtual void save_to_cache(ComputeContext* ctx, const int n_past, const int qlen, ggml::tensor* k, ggml::tensor* v) = 0;
 
-        // output: [heads, qlen, head_size]
+        // output: [batch, heads, qlen, head_size], aka VShapeFromCache::HeadSize_Len_Heads_Batch
         virtual ggml::tensor* get_k_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen) = 0;
 
-        // output: [heads, head_size, klen]
+        // output: v_shape
         virtual ggml::tensor* get_v_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen) = 0;
+        virtual ggml::tensor* get_shaped_v_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen, VShapeFromCache shape);
 
         virtual ggml::tensor* cross_attention_after_pe(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen,
             ggml::tensor* query_layer, ggml::tensor* key_layer, ggml::tensor* v);
@@ -1576,19 +1629,23 @@ export namespace chatllm
     public:
         const int num_attention_heads;
         const int num_kv_heads;
+        const bool use_flash_attn;
+        const VShapeFromCache v_shape;
         ggml::tensor* pos;
         ggml::tensor* mask = nullptr;
         const int max_length;
         float attn_scaling_factor;
         Block* attn_scores_pp;
+        bool causal;
 
     protected:
         ShiftPending shift_pending;
         bool attn_scaling;
-        bool causal;
         ggml::tensor* last_attn_scores;
         ggml::tensor* sinks;
         std::unique_ptr<BaseTensorPosHelper> pos_helper;
+        ggml::tensor* rt_mask = nullptr; // mask created in runtime (flash attention)
+
     };
 
     class KVCacheAttention : public CoreAttention
@@ -1597,31 +1654,7 @@ export namespace chatllm
         KVCacheAttention() : CoreAttention(), k_hidden_size(0), v_hidden_size(0), cache_length(0) {}
 
         KVCacheAttention(InitContext* ctx, int num_attention_heads, int num_kv_heads, int k_hidden_size, int v_hidden_size, int max_length,
-            int cache_length)
-            : CoreAttention(ctx, num_attention_heads, num_kv_heads, max_length),
-            k_hidden_size(k_hidden_size),
-            v_hidden_size(v_hidden_size),
-            cache_length(BlockParams::DisableCache::is_disabled() ? 0 : cache_length),
-            k_cache(nullptr), v_cache(nullptr), raw_k(nullptr), raw_v(nullptr)
-        {
-            if (cache_length > 0)
-            {
-                if (BlockParams::DisableCache::is_disabled())
-                {
-                    k_cache = ctx->new_tensor(ggml::type::GGML_TYPE_F16, { 1, 1 });
-                    v_cache = ctx->new_tensor(ggml::type::GGML_TYPE_F16, { 1, 1 });
-                }
-                else
-                {
-                    k_cache = ctx->new_tensor(ggml::type_fallback(ctx->cache_dtype, k_hidden_size), { cache_length, k_hidden_size });
-                    v_cache = ctx->new_tensor(ggml::type::GGML_TYPE_F16, { v_hidden_size, cache_length } );
-                }
-
-                ggml::set_name(k_cache, "k_cache");
-                ggml::set_name(v_cache, "v_cache");
-            }
-            else;
-        }
+            int cache_length);
 
         size_t get_cache_size(void) const override
         {
@@ -1651,6 +1684,8 @@ export namespace chatllm
         size_t read_cache_data(std::span<std::byte> buffer) const override;
         size_t write_cache_data(std::span<const std::byte> buffer) override;
 
+        void before_eval(ComputeContext* ctx) override;
+
     protected:
         void before_forward(ComputeContext* ctx, const int n_past, const int qlen) override;
 
@@ -1674,6 +1709,8 @@ export namespace chatllm
     private:
         ggml::tensor* raw_k;
         ggml::tensor* raw_v;
+        ggml::tensor* rt_kv_pos = nullptr;
+        int           rt_n_past;
     };
 
     class BaseConsolidatedQKVAttention : public KVCacheAttention
@@ -1883,198 +1920,29 @@ export namespace chatllm
     void fill_pos_vector(ComputeContext* ctx, std::vector<int>& v_pos, ggml::tensor* pos, int n_past, int qlen);
     void fill_pos_vector(ComputeContext* ctx, std::vector<float>& v_pos, ggml::tensor* pos, int n_past, int qlen);
 
-    // qlen must be 1.
-    // This is just a proof of concept.
-    template <int sliding_window_len> class BaseSlidingWindowAttentionRingCache : public BaseAttention
+    class BaseBaseSlidingWindowAttentionPartialCache : public BlockParams::FlashAttention, public BaseAttention
     {
     public:
-        BaseSlidingWindowAttentionRingCache(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int max_length, bool qkv_bias, bool o_bias)
-            : BaseAttention(ctx, hidden_size, num_attention_heads, num_kv_heads, max_length, qkv_bias, o_bias, sliding_window_len),
-            cache_offset(0),
-            indices(ctx->new_tensor(GGML_TYPE_I32, { sliding_window_len }))
-        {
-            v_indices.resize(sliding_window_len);
+        BaseBaseSlidingWindowAttentionPartialCache(InitContext* ctx, int sliding_window_len, int extra_len,
+            int hidden_size, int num_attention_heads, int num_kv_heads, int max_length, bool qkv_bias, bool o_bias);
+        BaseBaseSlidingWindowAttentionPartialCache(InitContext* ctx, int sliding_window_len, int extra_len,
+            int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length, bool qkv_bias, bool o_bias);
 
-            ctx->get_allocator()->alloc(indices);
-        }
+        void before_forward(ComputeContext* ctx, const int n_past, const int qlen) override;
+        void before_eval(ComputeContext* ctx) override;
 
-    protected:
-        void before_forward(ComputeContext* ctx, const int n_past, const int qlen) override
-        {
-            if (n_past == 0) cache_offset = 0;
-
-            pos_helper->prepare_pos_tensor(ctx, pos, n_past, qlen);
-
-            // shift cache
-            if (shift_pending.shift > 0)
-            {
-                cache_offset += shift_pending.shift;
-                shift_pending.clear();
-            }
-        }
-
-        void save_to_cache(ComputeContext* ctx, const int n_past, const int qlen, ggml::tensor* k, ggml::tensor* v) override
-        {
-            GGML_ASSERT(cache_length > qlen);
-
-            const int write_offset = (cache_offset + n_past) % cache_length;
-            const int empty = cache_length - write_offset;
-            const int write_len = empty >= qlen ? qlen : empty;
-            const int remain = qlen - write_len;
-
-            {
-                ggml::tensor* k_cache_view = ctx->view(k_cache, { write_len * k_hidden_size }, {},
-                    ggml::row_size(k_cache) * write_offset);
-
-                ggml::tensor* v_cache_view = ctx->view(v_cache, { write_len * v_hidden_size }, {},
-                    ggml::element_size(v_cache) * v_hidden_size * write_offset);
-
-                ggml::tensor* k_view = ctx->view(k, { write_len * k_hidden_size }, {}, 0);
-                ggml::tensor* v_view = ctx->view(v, { write_len * v_hidden_size }, {}, 0);
-
-                ggml::build_forward_expand(ctx, ggml::cpy(ctx, k_view, k_cache_view));
-                ggml::build_forward_expand(ctx, ggml::cpy(ctx, v_view, v_cache_view));
-            }
-
-            if (remain > 0)
-            {
-                ggml::tensor* k_cache_view = ctx->view(k_cache, { remain * k_hidden_size }, {}, 0);
-
-                ggml::tensor* v_cache_view = ctx->view(v_cache, { remain * v_hidden_size }, {},  0);
-
-                ggml::tensor* k_view = ctx->view(k, { remain * k_hidden_size }, {}, write_len * k_hidden_size * ggml::element_size(k));
-
-                ggml::tensor* v_view = ctx->view(v, { remain * v_hidden_size }, {}, write_len * v_hidden_size * ggml::element_size(v));
-
-                ggml::build_forward_expand(ctx, ggml::cpy(ctx, k_view, k_cache_view));
-                ggml::build_forward_expand(ctx, ggml::cpy(ctx, v_view, v_cache_view));
-            }
-
-            {
-                const int total = n_past + qlen > cache_length ? cache_length : n_past + qlen;
-                const int start = (cache_offset + n_past + qlen - total) % cache_length;
-
-                for (int i = 0; i < total; i++)
-                    v_indices[i] = (start + i) % cache_length;
-
-                Backend::write_tensor_data(indices, v_indices.data(), 0, total * sizeof(v_indices[0]));
-            }
-        }
-
-        // output: [heads, qlen, head_size]
-        ggml::tensor* get_k_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen) override
-        {
-            const int head_size = hidden_size / num_attention_heads;
-            const int repeat = num_attention_heads / num_kv_heads;
-
-            const int total = n_past + qlen > cache_length ? cache_length : n_past + qlen;
-
-            ggml::tensor* indices_view = ctx->view(indices, { total }, {}, 0);
-            ggml::tensor* k_cache_view = ctx->view(k_cache, { cache_length, k_hidden_size },
-                { ggml::row_size(k_cache) }, 0);
-            ggml::tensor* key_layer = ggml::get_rows(ctx, k_cache_view, indices_view);
-
-            key_layer = ctx->reshape(key_layer, { total, num_kv_heads, head_size });  // [qlen, heads, head_size]
-            key_layer = ggml::permute(ctx, key_layer, 0, 2, 1, 3);                         // [heads, qlen, head_size]
-            if (ggml::is_quantized(key_layer))
-                key_layer = ggml::cont(ctx, key_layer);
-
-            return key_layer;
-        }
-
-        // output: [heads, head_size, klen]
-        ggml::tensor* get_v_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen) override
-        {
-            const int head_size = hidden_size / num_attention_heads;
-            const int repeat = num_attention_heads / num_kv_heads;
-
-            const int total = n_past + qlen > cache_length ? cache_length : n_past + qlen;
-
-            ggml::tensor* indices_view = ctx->view(indices, { total }, {}, 0);
-            ggml::tensor* v_cache_view = ctx->view(v_cache, { cache_length, v_hidden_size  },
-                { v_hidden_size * ggml::element_size(v_cache) }, 0);
-            ggml::tensor* value_layer = ggml::get_rows(ctx, v_cache_view, indices_view);
-
-            value_layer = ctx->reshape(value_layer, { total, num_kv_heads, head_size });  // [qlen, heads, head_size]
-            value_layer = ggml::permute(ctx, value_layer, 1, 2, 0, 3);                         // [heads, head_size, klen]
-            value_layer = ggml::cont(ctx, value_layer);
-
-            return value_layer;
-        }
-
+        void save_to_cache(ComputeContext* ctx, const int n_past, const int qlen, ggml::tensor* k, ggml::tensor* v) override;
+        ggml::tensor* get_k_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen) override;
+        ggml::tensor* get_v_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen) override;
+    private:
+        const int sliding_window_len;
+        const int extra_len;
     public:
+        ggml::tensor* indices;
         int cache_offset;
-        ggml::tensor* indices;
-        std::vector<int> v_indices;
     };
 
-    template <int sliding_window_len> class BaseSlidingWindowAttentionFullCache : public BaseAttention
-    {
-    public:
-        BaseSlidingWindowAttentionFullCache(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int max_length, bool qkv_bias, bool o_bias)
-            : BaseSlidingWindowAttentionFullCache(ctx, hidden_size, num_attention_heads, num_kv_heads, hidden_size / num_attention_heads, max_length, qkv_bias, o_bias)
-        {
-        }
-
-        BaseSlidingWindowAttentionFullCache(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length, bool qkv_bias, bool o_bias)
-            : BaseAttention(ctx, hidden_size, num_attention_heads, num_kv_heads, head_dim, max_length, qkv_bias, o_bias, max_length),
-            indices(ctx->new_tensor(GGML_TYPE_I32, { 1 })) // to ensure number of tensors are the same
-        {
-        }
-
-    protected:
-
-        // output: [heads, qlen, head_size]
-        ggml::tensor* get_k_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen) override
-        {
-            const int head_size = hidden_size / num_attention_heads;
-            const int repeat = num_attention_heads / num_kv_heads;
-            // Note: `qlen` must be 1.
-            int64_t len = n_past + qlen;
-            int64_t offset = 0;
-            if (len > sliding_window_len)
-            {
-                offset = len - sliding_window_len;
-                len = sliding_window_len;
-            }
-
-            ggml::tensor* key_layer = nullptr;
-
-            key_layer = ctx->view(k_cache, { len * k_hidden_size }, {}, offset * ggml::row_size(k_cache));
-            key_layer = ctx->reshape(key_layer, { len, num_kv_heads, head_size });  // [qlen, heads, head_size]
-            key_layer = ggml::permute(ctx, key_layer, 0, 2, 1, 3);                       // [heads, qlen, head_size]
-            if (ggml::is_quantized(key_layer))
-                key_layer = ggml::cont(ctx, key_layer);
-
-            return key_layer;
-        }
-
-        // output: [heads, head_size, klen]
-        ggml::tensor* get_v_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen) override
-        {
-            const int head_size = hidden_size / num_attention_heads;
-            int64_t len = n_past + qlen;
-            int64_t offset = 0;
-            if (len > sliding_window_len)
-            {
-                offset = len - sliding_window_len;
-                len = sliding_window_len;
-            }
-
-            ggml::tensor* value_layer = ctx->view(
-                v_cache,
-                { num_kv_heads, head_size, len },
-                { cache_length * ggml::element_size(v_cache) * head_size,
-                  cache_length * ggml::element_size(v_cache) },
-                offset * ggml::element_size(v_cache)); // [heads, head_size, klen]
-            return value_layer;
-        }
-
-    public:
-        ggml::tensor* indices;
-    };
-
-    template <int sliding_window_len, int extra_len = 512> class BaseSlidingWindowAttentionPartialCache : public BaseAttention
+    template <int _sliding_window_len, int _extra_len = 512> class BaseSlidingWindowAttentionPartialCache : public BaseBaseSlidingWindowAttentionPartialCache
     {
     public:
         BaseSlidingWindowAttentionPartialCache(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int max_length, bool qkv_bias, bool o_bias)
@@ -2083,133 +1951,9 @@ export namespace chatllm
         }
 
         BaseSlidingWindowAttentionPartialCache(InitContext* ctx, int hidden_size, int num_attention_heads, int num_kv_heads, int head_dim, int max_length, bool qkv_bias, bool o_bias)
-            : BaseAttention(ctx, hidden_size, num_attention_heads, num_kv_heads, head_dim, max_length, qkv_bias, o_bias, sliding_window_len + extra_len),
-            indices(ctx->new_tensor(GGML_TYPE_I32, { 1 })), // to ensure number of tensors are the same
-            cache_offset(0)
+            : BaseBaseSlidingWindowAttentionPartialCache(ctx, _sliding_window_len, _extra_len, hidden_size, num_attention_heads, num_kv_heads, head_dim, max_length, qkv_bias, o_bias)
         {
         }
-
-    protected:
-
-        void before_forward(ComputeContext* ctx, const int n_past, const int qlen) override
-        {
-            if (n_past == 0) cache_offset = 0;
-
-            pos_helper->prepare_pos_tensor(ctx, pos, n_past, qlen);
-
-            // shift cache
-            if (shift_pending.shift > 0)
-            {
-                // do nothing
-                shift_pending.clear();
-            }
-        }
-
-        void save_to_cache(ComputeContext* ctx, const int n_past, const int qlen, ggml::tensor* k, ggml::tensor* v) override
-        {
-            CHATLLM_CHECK(qlen == 1) << "qlen must be 1";
-
-            {
-                const int write_offset = cache_offset + n_past;
-                const int empty = cache_length - write_offset;
-
-                if (empty < qlen)
-                {
-                    int remain = sliding_window_len - qlen;
-                    int shift = cache_length - remain;
-
-                    ggml::tensor* k_cache_remain = ctx->view(k_cache, { remain * k_hidden_size }, {},
-                        ggml::row_size(k_cache) * shift);
-                    ggml::tensor* k_cache_1d = ctx->view(k_cache, { remain * k_hidden_size }, {}, 0);
-
-                    ggml::tensor* k_remain_dup = ggml::dup(ctx, k_cache_remain);
-
-                    ggml::tensor* v_cache_remain = ctx->view(v_cache, { v_hidden_size, remain  },
-                        { cache_length * ggml::element_size(v_cache) },
-                        shift * ggml::element_size(v_cache));
-                    ggml::tensor* v_cache_2d = ctx->view(v_cache, { v_hidden_size, remain  },
-                        { cache_length * ggml::element_size(v_cache) }, 0);
-
-                    ggml::tensor* v_remain_dup = ggml::dup(ctx, v_cache_remain);
-
-                    ggml::build_forward_expand(ctx, ggml::cpy(ctx, k_remain_dup, k_cache_1d));
-                    ggml::build_forward_expand(ctx, ggml::cpy(ctx, v_remain_dup, v_cache_2d));
-
-                    cache_offset -= shift;
-                }
-            }
-
-            // patch n_past for memory estimation
-            const int write_offset = cache_offset + n_past < cache_length ? cache_offset + n_past : cache_length - qlen;
-            if (cache_offset + n_past >= cache_length) cache_offset = 0;
-
-            // compute the transposed [N, n_embd] V matrix
-            ggml::tensor* Vcur = ggml::transpose(ctx, v); // ggml::reshape_2d(ctx, tmpv, kv_hidden_size, qlen));
-
-            ggml::tensor* k_cache_view = ctx->view(k_cache, { qlen * k_hidden_size }, {},
-                ggml::row_size(k_cache) * write_offset);
-
-            ggml::tensor* v_cache_view = ctx->view(v_cache, { v_hidden_size, qlen },
-                { cache_length * ggml::element_size(v_cache) }, write_offset* ggml::element_size(v_cache));
-
-            ggml::tensor* k_view = ctx->view(k, { qlen * k_hidden_size }, {}, 0);
-
-            // important: storing RoPE-ed version of K in the KV cache!
-            ggml::build_forward_expand(ctx, ggml::cpy(ctx, k_view, k_cache_view));
-            ggml::build_forward_expand(ctx, ggml::cpy(ctx, Vcur, v_cache_view));
-        }
-
-        // output: [heads, qlen, head_size]
-        ggml::tensor* get_k_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen) override
-        {
-            const int head_size = hidden_size / num_attention_heads;
-            int64_t len = n_past + qlen;
-            if (len > sliding_window_len)
-                len = sliding_window_len;
-            int64_t offset = cache_offset + n_past + qlen - len;
-
-            // patch memory estimation
-            if (offset + len > cache_length)
-                offset = 0;
-
-            CHATLLM_CHECK(offset >= 0) << "offset must >= 0";
-
-            ggml::tensor* key_layer = nullptr;
-
-            key_layer = ctx->view(k_cache, { len * k_hidden_size }, {}, offset * ggml::row_size(k_cache));
-            key_layer = ctx->reshape(key_layer, { len, num_kv_heads, head_size });  // [qlen, heads, head_size]
-            key_layer = ggml::permute(ctx, key_layer, 0, 2, 1, 3);                       // [heads, qlen, head_size]
-            if (ggml::is_quantized(key_layer))
-                key_layer = ggml::cont(ctx, key_layer);
-
-            return key_layer;
-        }
-
-        // output: [heads, head_size, klen]
-        ggml::tensor* get_v_from_cache(ComputeContext* ctx, const int hidden_size, const int n_past, const int qlen) override
-        {
-            const int head_size = hidden_size / num_attention_heads;
-            int64_t len = n_past + qlen;
-            if (len > sliding_window_len)
-                len = sliding_window_len;
-            int64_t offset = cache_offset + n_past + qlen - len;
-
-            // patch for memory estimation
-            if (offset + len > cache_length)
-                offset = 0;
-
-            ggml::tensor* value_layer = ctx->view(
-                v_cache,
-                { num_kv_heads, head_size, len },
-                { cache_length * ggml::element_size(v_cache) * head_size,
-                  cache_length * ggml::element_size(v_cache) },
-                offset * ggml::element_size(v_cache)); // [heads, head_size, klen]
-            return value_layer;
-        }
-
-    public:
-        ggml::tensor* indices;
-        int cache_offset;
     };
 
     enum RoPEMode

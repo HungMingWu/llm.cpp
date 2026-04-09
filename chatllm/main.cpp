@@ -102,6 +102,7 @@ struct Args
     int max_new_tokens = -1;
     bool single_turn = false;
     bool opt_speed = true;
+    std::string flash_attention = "";
 };
 
 #define MULTI_LINE_END_MARKER_W  L"\\."
@@ -192,12 +193,14 @@ void usage(const std::string& prog)
         << "  +moe_on_cpu             alway use CPU for sparse operations (MoE) (default: off)\n"
         << "  --rpc_endpoints EP..    RPC endpoints (i.e. servers) for distributed inference (default: empty)\n"
         << "                          EP1;EP2, where EP ::= host:port\n"
-        << "  --cache_dtype T         cache data type, T ::= f32 | f16 (default: f16)\n"
+        << "  --cache_dtype T         cache data type, T ::= f32 | f16 | q4_1 | q3_k | ... (default: f16)\n"
         << "  --batch_size N          batch size (default: " << args.batch_size << ")\n"
         << "                          note: trade-off between prompt throughput and memory usage.\n"
         << "  --re_quantize Q         re-quantize model weights during loading (Q ::= q8_0 | q4_0 | q4_1 | q4_k | ...) (default: no re-quantization)\n"
         << "                          note: it does not make sense to re-quantize to a larger size.\n"
         << "  -Os                     optimize for size (default: optimize for speed). Use by MLA.\n"
+        << "  -fa, --flash_attn MODE  flash attention mode (default: 0, disabled).\n"
+        << "                          MODE ::= 0 | off | 1 | on\n"
         << "Sampling options:\n"
         << "  --sampling ALG          sampling algorithm (ALG = greedy | top_p | tfs) (default: top_p) \n"
         << "                          where, tfs = Tail Free Sampling\n"
@@ -504,6 +507,7 @@ static size_t parse_args(Args& args, const std::vector<std::string>& argv)
             handle_para0("--tts_export", tts_export, std::string)
             handle_para0("--re_quantize", re_quantize, std::string)
             handle_para0("--max_new_tokens", max_new_tokens, std::stoi)
+            handle_param("--flash_attn", "-fa", flash_attention, std::string)
             else
                 break;
 
@@ -920,6 +924,7 @@ static void run_qa_ranker(Args& args, chatllm::Pipeline& pipeline, TextStreamer&
     pipe_args.model_n_gpu_layers = args.model_n_gpu_layers; \
     pipe_args.additional = args.additional; \
     pipe_args.opt_speed = args.opt_speed;   \
+    pipe_args.flash_attention = args.flash_attention;   \
     pipe_args.max_proj_length = args.max_proj_length;
 
 chatllm::BaseStreamer* get_streamer_for_log(void);

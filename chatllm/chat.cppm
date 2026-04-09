@@ -1264,6 +1264,7 @@ export namespace chatllm
             int cache_type;
             int re_quantize;
             bool opt_speed;
+            std::string flash_attention;
             std::map<std::string, std::string> model_n_gpu_layers;
             std::map<std::string, std::string> additional;
             extra_args(int max_length, const std::string& layer_spec, bool moe_on_cpu, int n_threads, int batch_size, const std::string& cache_type,
@@ -1272,7 +1273,8 @@ export namespace chatllm
                 batch_size(batch_size),
                 cache_type(ggml::str_to_type(cache_type, ggml::type::GGML_TYPE_F16)),
                 re_quantize(ggml::str_to_type(re_quantize)),
-                opt_speed(true)
+                opt_speed(true),
+                flash_attention("")
             {
             }
             extra_args() : extra_args(-1, "", false, 1, 0, "") {}
