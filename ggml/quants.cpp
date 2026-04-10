@@ -2498,6 +2498,22 @@ static void quantize_row_iq4_nl_impl(const int super_block_size, const int block
     }
 }
 
+size_t quantize_q1_0(const float* src, void* dst, int64_t nrow, int64_t n_per_row, const float* quant_weights)
+{
+    if (!quant_weights) {
+        quantize_row_q1_0_ref(src, static_cast<block_q1_0*>(dst), (int64_t)nrow * n_per_row);
+        return nrow * ggml_row_size(GGML_TYPE_Q1_0, n_per_row);
+    }
+    size_t row_size = ggml_row_size(GGML_TYPE_Q1_0, n_per_row);
+    char* qrow = (char*)dst;
+    for (int64_t row = 0; row < nrow; ++row) {
+        quantize_row_q1_0_ref(src, (block_q1_0*)qrow, n_per_row);
+        src += n_per_row;
+        qrow += row_size;
+    }
+    return nrow * row_size;
+}
+
 size_t quantize_q4_0(const float* src, void* dst, int64_t nrow, int64_t n_per_row, const float* quant_weights)
 {
     if (!quant_weights) {
@@ -2837,6 +2853,40 @@ size_t quantize_iq4_xs(const float* src, void* dst, int64_t nrow, int64_t n_per_
         qrow += nblock * sizeof(block_iq4_xs);
     }
     return nrow * nblock * sizeof(block_iq4_xs);
+}
+
+void quantize_row_q1_0_ref(const float* x, block_q1_0* y, int64_t k) {
+    static const int qk = QK1_0;
+
+    assert(k % qk == 0);
+
+    const int nb = k / qk;
+
+    for (int i = 0; i < nb; i++) {
+        float sum_abs = 0.0f;
+        for (int j = 0; j < qk; j++) {
+            sum_abs += fabsf(x[i * qk + j]);
+        }
+        const float d = sum_abs / qk;
+
+        y[i].d = std::bit_cast<uint16_t>(fromFloat32<ggml_fp16_t>(d));
+
+        // Clear all bits first
+        for (int j = 0; j < qk / 8; ++j) {
+            y[i].qs[j] = 0;
+        }
+
+        // Just store sign of each weight directly (no normalization)
+        for (int j = 0; j < qk; ++j) {
+            const int bit_index = j;
+            const int byte_index = bit_index / 8;
+            const int bit_offset = bit_index % 8;
+
+            if (x[i * qk + j] >= 0.0f) {
+                y[i].qs[byte_index] |= (1 << bit_offset);
+            }
+        }
+    }
 }
 
 void quantize_row_q4_0_ref(const float* x, block_q4_0* y, int64_t k) {
@@ -3669,6 +3719,9 @@ void quantize_row_tq2_0_ref(const float* x, block_tq2_0* y, int64_t k) {
     }
 }
 
+void quantize_row(const float* x, block_q1_0* y, int64_t k) {
+
+}
 void quantize_row(const float* x, block_q4_0* y, int64_t k) {
     quantize_row_q4_0_ref(x, y, k);
 }
@@ -3743,7 +3796,25 @@ void quantize_row(const float* x, block_iq4_xs* y, int64_t k) {
     quantize_iq4_xs(x, y, 1, k, NULL);
 }
 
-// AAAAAAAAAAAAAAAAAAA
+void dequantize_row(const block_q1_0* x, float* y, int64_t k) {
+    static const int qk = QK1_0;
+
+    assert(k % qk == 0);
+
+    const int nb = k / qk;
+
+    for (int i = 0; i < nb; i++) {
+        const float d = toFloat32(std::bit_cast<ggml_fp16_t>(x[i].d));
+        const float neg_d = -d;
+
+        for (int j = 0; j < qk; ++j) {
+            const int byte_index = j / 8;
+            const int bit_offset = j % 8;
+            const uint8_t bit = (x[i].qs[byte_index] >> bit_offset) & 1;
+            y[i * qk + j] = bit ? d : neg_d;
+        }
+    }
+}
 
 void dequantize_row(const block_q4_0* x, float* y, int64_t k)
 {

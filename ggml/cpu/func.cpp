@@ -1487,6 +1487,9 @@ static void ggml_compute_forward_get_rows(
 	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
+	case GGML_TYPE_Q1_0: {
+		ggml_compute_forward_get_rows<block_q1_0>(pool, scope, dst);
+	} break;
 	case GGML_TYPE_Q4_0: {
 		ggml_compute_forward_get_rows<block_q4_0>(pool, scope, dst);
 	} break;
@@ -2880,6 +2883,7 @@ static void ggml_compute_forward_clamp(
 		ggml_compute_forward_clamp<ggml_fp16_t>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_BF16:
+	case GGML_TYPE_Q1_0:
 	case GGML_TYPE_Q4_0:
 	case GGML_TYPE_Q4_1:
 	case GGML_TYPE_Q5_0:

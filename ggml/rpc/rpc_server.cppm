@@ -38,7 +38,7 @@ public:
     bool get_device_memory(const rpc_msg_get_device_memory_req& request, rpc_msg_get_device_memory_rsp& response);
 
     struct stored_graph {
-        ggml_context* ctx_ptr;
+        std::vector<uint8_t>   buffer;
         ggml_cgraph* graph;
     };
 

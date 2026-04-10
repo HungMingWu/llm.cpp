@@ -42,4 +42,11 @@ namespace fused
 		const ggml_tensor* experts,
 		const ggml_tensor* weights,
 		ggml_tensor* dst);
+
+	bool ggml_cuda_check_fusion_memory_ranges(const ggml_cgraph* cgraph,
+		const int           node_idx,
+		const int           node_count,
+		const int* out_nodes,
+		const int           out_count,
+		const bool          is_topk_moe = false);
 }

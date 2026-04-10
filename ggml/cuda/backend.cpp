@@ -8,7 +8,6 @@ module;
 #include <mutex>
 #include <span>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #include "block.h"
 #include "common.h"
@@ -233,69 +232,6 @@ namespace
             }
         }
         return std::make_unique<ggml_cuda_pool_leg>(device);
-    }
-
-    // returns whether the write (out) nodes overwrite the read nodes in operation
-    static bool ggml_cuda_check_fusion_memory_ranges(ggml_cgraph* cgraph,
-        int           node_idx,
-        int           node_count,
-        int* out_nodes,
-        int           out_count) {
-        auto nodes_overlap = [&](const ggml_tensor* a, const ggml_tensor* b) {
-            const int64_t a_start = (int64_t)a->data;
-            const int64_t a_end = a_start + a->nbytes();
-
-            const int64_t b_start = (int64_t)b->data;
-            const int64_t b_end = b_start + b->nbytes();
-
-            if ((b_start <= a_start && a_start < b_end) || (a_start <= b_start && b_start < a_end)) {
-                return true;
-            }
-
-            return false;
-        };
-
-        bool is_ok = true;
-        // for nrows=1, all fusion operations correctly read the src before writing dst or do it elementwise, so we should be ok
-        if (ggml_nrows(cgraph->nodes[node_idx]) == 1) {
-            return true;
-        }
-
-        for (int i = 0; i < out_count; ++i) {
-            const ggml_tensor* dst = cgraph->nodes[out_nodes[i]];
-
-            for (int j = node_idx; j < node_idx + node_count; ++j) {
-                // Loop over all srcs of all nodes in the fusion. If the src overlaps
-                // the destination and the src is not an intermediate node that's being
-                // elided, then disable fusion.
-
-                for (int src_idx = 0; src_idx < GGML_MAX_SRC; ++src_idx) {
-                    const ggml_tensor* src = cgraph->nodes[j]->src[src_idx];
-
-                    if (!src || src->op == GGML_OP_NONE) {
-                        continue;
-                    }
-
-                    if (nodes_overlap(dst, src)) {
-                        bool found = false;
-
-                        for (int k = node_idx; k < j; ++k) {
-                            if (cgraph->nodes[k] == src) {
-                                found = true;
-                                break;
-                            }
-                        }
-
-                        if (!found) {
-                            is_ok = false;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        return is_ok;
     }
 
     cudaError_t ggml_cuda_Memcpy2DPeerAsync(
@@ -1849,7 +1785,7 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
 
                                 if (fused::ggml_can_fuse_subgraph(cgraph, i, ops.size(), ops.data(), out_nodes, 2) &&
                                     fused::should_use_topk_moe(node, logits, weights, ids) &&
-                                    ggml_cuda_check_fusion_memory_ranges(cgraph, i, ops.size(), out_nodes, 2)) {
+                                    fused::ggml_cuda_check_fusion_memory_ranges(cgraph, i, ops.size(), out_nodes, 2, /*is_topk_moe=*/ true)) {
                                     fused::topk_moe(stream(), logits, weights, ids, clamp, scale, bias, args);
                                     i += ops.size() - 1;
                                     continue;
@@ -1865,7 +1801,8 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
 
                                 int out_nodes[2] = { i + 1, i + 5 };
                                 if (fused::ggml_can_fuse_subgraph(cgraph, i, ops.size(), ops.data(), out_nodes, 2) &&
-                                    fused::should_use_topk_moe(softmax, logits, weights, ids)) {
+                                    fused::should_use_topk_moe(softmax, logits, weights, ids) &&
+                                    fused::ggml_cuda_check_fusion_memory_ranges(cgraph, i, ops.size(), out_nodes, 2, /*is_topk_moe=*/ true)) {
                                     fused::topk_moe(stream(), logits, weights, ids, clamp, scale, bias, args);
                                     i += ops.size() - 1;
                                     continue;
@@ -2203,74 +2140,6 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
     }
 }
 
-static bool ggml_cuda_graph_node_properties_match(ggml_tensor* node, ggml_cuda_graph_node_properties* props) {
-    if (node->data != props->node_data && node->op != GGML_OP_VIEW) {
-        return false;
-    }
-
-    if (node->op != props->node_op) {
-        return false;
-    }
-
-    if (node->type != props->node_type) {
-        return false;
-    }
-
-    for (int i = 0; i < GGML_MAX_DIMS; i++) {
-        if (node->ne[i] != props->ne[i]) {
-            return false;
-        }
-        if (node->nb[i] != props->nb[i]) {
-            return false;
-        }
-    }
-
-    if (node->op != GGML_OP_VIEW) {
-        for (int i = 0; i < GGML_MAX_SRC; i++) {
-            if (!node->src[i]) {
-                if (props->src_data[i] != nullptr) {
-                    return false;
-                }
-                continue;
-            }
-
-            if (node->src[i]->data != props->src_data[i]) {
-                return false;
-            }
-        }
-    }
-
-    if (memcmp(props->op_params, node->op_params, GGML_MAX_OP_PARAMS) != 0) {
-        return false;
-    }
-
-    if ((node->flags & GGML_TENSOR_FLAG_COMPUTE) != (props->flags & GGML_TENSOR_FLAG_COMPUTE)) {
-        return false;
-    }
-
-    return true;
-}
-
-static void ggml_cuda_graph_node_set_properties(ggml_cuda_graph_node_properties* props, ggml_tensor* node) {
-    memset(props, 0, sizeof(ggml_cuda_graph_node_properties));
-    props->node_data = node->data;
-    props->node_op = node->op;
-    props->node_type = node->type;
-    props->flags = node->flags;
-    for (int i = 0; i < GGML_MAX_DIMS; i++) {
-        props->ne[i] = node->ne[i];
-        props->nb[i] = node->nb[i];
-    }
-    for (int i = 0; i < GGML_MAX_SRC; i++) {
-        if (!node->src[i]) {
-            continue;
-        }
-
-        props->src_data[i] = node->src[i]->data;
-    }
-    memcpy(props->op_params, node->op_params, GGML_MAX_OP_PARAMS);
-}
-
 static const void* ggml_cuda_graph_get_key(ggml_cgraph* cgraph) {
     return cgraph->nodes[0];
 }
@@ -2285,52 +2154,25 @@ static bool ggml_cuda_graph_update_required(ggml_cuda_graph& graph, ggml_cgraph*
     }
 
     // Check if the graph size has changed
-    if (graph.props.size() != (size_t)cgraph->nodes.size()) {
+    if ((int)graph.node_props.size() != cgraph->nodes.size()) {
         res = true;
-        graph.props.resize(cgraph->nodes.size());
+        graph.node_props.resize(cgraph->nodes.size());
     }
 
-    // Loop over nodes in GGML graph to determine if CUDA graph update is required
-    // and store properties to allow this comparison for the next token
-    std::unordered_set<ggml_tensor*> seen_node;
-    std::vector<ggml_tensor*> srcs_extra;
     for (int i = 0; i < cgraph->nodes.size(); i++) {
-        bool props_match = true;
+        ggml_cuda_graph::node_properties prop = {};
+        memcpy(&prop.node, cgraph->nodes[i], sizeof(ggml_tensor));
 
-        seen_node.insert(cgraph->nodes[i]);
-
-        if (!res) {
-            props_match = ggml_cuda_graph_node_properties_match(cgraph->nodes[i], &graph.props[i]);
+        // if the backend scheduler is making copies of CPU tensors, the src pointers can be the same but with different data, see:
+        // https://github.com/ggml-org/llama.cpp/pull/21472#discussion_r3052235188
+        for (int j = 0; j < GGML_MAX_SRC; ++j) {
+            prop.node_src_data_ptrs[j] = cgraph->nodes[i]->src[j] ? cgraph->nodes[i]->src[j]->data : nullptr;
         }
-        if (!props_match) {
+
+        if (!res && memcmp(&graph.node_props[i], &prop, sizeof(prop)) != 0) {
             res = true;
         }
-        ggml_cuda_graph_node_set_properties(&graph.props[i], cgraph->nodes[i]);
-
-        for (int src_idx = 0; src_idx < GGML_MAX_SRC; ++src_idx) {
-            ggml_tensor* src = cgraph->nodes[i]->src[src_idx];
-            if (src && seen_node.find(src) == seen_node.end()) {
-                srcs_extra.push_back(src);
-            }
-        }
-    }
-
-    if (graph.extra.size() != (size_t)srcs_extra.size()) {
-        res = true;
-        graph.extra.resize(srcs_extra.size());
-    }
-
-    for (size_t i = 0; i < srcs_extra.size(); ++i) {
-        bool props_match = true;
-
-        if (!res) {
-            props_match = ggml_cuda_graph_node_properties_match(srcs_extra[i], &graph.extra[i]);
-        }
-
-        if (!props_match) {
-            res = true;
-        }
-        ggml_cuda_graph_node_set_properties(&graph.extra[i], srcs_extra[i]);
+        graph.node_props[i] = prop;
     }
 
     return res;

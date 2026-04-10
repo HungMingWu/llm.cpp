@@ -498,7 +498,6 @@ bool rpc_server::graph_compute(const std::vector<uint8_t>& input) {
     ggml_status status = backends[device]->graph_compute(graph.get());
     GGML_ASSERT(status == GGML_STATUS_SUCCESS && "Unsuccessful graph computations are not supported with RPC");
 #if 0
-    stored_graphs[device].ctx_ptr.swap(ctx_ptr);
     stored_graphs[device].graph = graph.get();
 #endif
     return true;

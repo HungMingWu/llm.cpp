@@ -22,6 +22,10 @@ export
             .vec_dot_type = GGML_TYPE_F16,
             .nrows = 1,
         }},
+        {GGML_TYPE_Q1_0, {
+            .vec_dot_type = GGML_TYPE_Q8_0,
+            .nrows = 1,
+        }},
         {GGML_TYPE_Q4_0, {
             .vec_dot_type = GGML_TYPE_Q8_0,
 #if defined (__ARM_FEATURE_MATMUL_INT8)

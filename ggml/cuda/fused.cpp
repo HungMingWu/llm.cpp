@@ -492,6 +492,70 @@ namespace fused
         return true;
     }
 
+    // returns whether the write (out) nodes overwrite the read nodes in operation
+    bool ggml_cuda_check_fusion_memory_ranges(const ggml_cgraph* cgraph,
+        const int           node_idx,
+        const int           node_count,
+        const int* out_nodes,
+        const int           out_count,
+        const bool          is_topk_moe) {
+        auto nodes_overlap = [&](const ggml_tensor* a, const ggml_tensor* b) {
+            const int64_t a_start = (int64_t)a->data;
+            const int64_t a_end = a_start + a->buffer->get_alloc_size(a);
+
+            const int64_t b_start = (int64_t)b->data;
+            const int64_t b_end = b_start + b->buffer->get_alloc_size(b);
+
+            if ((b_start <= a_start && a_start < b_end) || (a_start <= b_start && b_start < a_end)) {
+                return true;
+            }
+
+            return false;
+        };
+
+        bool is_ok = true;
+        // exception for topk-moe, as each row is read entirely before writing
+        if (ggml_nrows(cgraph->nodes[node_idx]) == 1 && is_topk_moe) {
+            return true;
+        }
+
+        for (int i = 0; i < out_count; ++i) {
+            const ggml_tensor* dst = cgraph->nodes[out_nodes[i]];
+
+            for (int j = node_idx; j < node_idx + node_count; ++j) {
+                // Loop over all srcs of all nodes in the fusion. If the src overlaps
+                // the destination and the src is not an intermediate node that's being
+                // elided, then disable fusion.
+
+                for (int src_idx = 0; src_idx < GGML_MAX_SRC; ++src_idx) {
+                    const ggml_tensor* src = cgraph->nodes[j]->src[src_idx];
+
+                    if (!src || src->op == GGML_OP_NONE) {
+                        continue;
+                    }
+
+                    if (nodes_overlap(dst, src)) {
+                        bool found = false;
+
+                        for (int k = node_idx; k < j; ++k) {
+                            if (cgraph->nodes[k] == src) {
+                                found = true;
+                                break;
+                            }
+                        }
+
+                        if (!found) {
+                            is_ok = false;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return is_ok;
+    }
+
     bool ggml_cuda_can_fuse(const ggml_cgraph* cgraph,
         int                                       node_idx,
         std::initializer_list<enum ggml_op>       ops,
@@ -521,7 +585,8 @@ namespace fused
             const ggml_tensor* glu = cgraph->nodes[node_idx + 4];
 
             if (ggml_cuda_should_fuse_mul_mat(ffn_up, ffn_gate, glu, ffn_up_bias, ffn_gate_bias)) {
-                return true;
+                int out_nodes[] = { node_idx + 4 };
+                return ggml_cuda_check_fusion_memory_ranges(cgraph, node_idx, (int)ops.size(), out_nodes, 1);
             }
         }
 
@@ -532,7 +597,8 @@ namespace fused
             const ggml_tensor* glu = cgraph->nodes[node_idx + 2];
 
             if (ggml_cuda_should_fuse_mul_mat(ffn_up, ffn_gate, glu)) {
-                return true;
+                int out_nodes[] = { node_idx + 2 };
+                return ggml_cuda_check_fusion_memory_ranges(cgraph, node_idx, (int)ops.size(), out_nodes, 1);
             }
         }
 

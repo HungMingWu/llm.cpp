@@ -6,6 +6,7 @@ module;
 
 module ggml:quants;
 
+void quantize_row(const float* x, block_q1_0* y, int64_t k);
 void quantize_row(const float* x, block_q4_0* y, int64_t k);
 void quantize_row(const float* x, block_q4_1* y, int64_t k);
 void quantize_row(const float* x, block_mxfp4* y, int64_t k);
@@ -25,6 +26,7 @@ void quantize_row(const float* x, block_tq2_0* y, int64_t k);
 void quantize_row(const float* x, block_iq4_nl* y, int64_t k);
 void quantize_row(const float* x, block_iq4_xs* y, int64_t k);
 
+void dequantize_row(const block_q1_0* x, float* y, int64_t k);
 void dequantize_row(const block_q4_0* x, float* y, int64_t k);
 void dequantize_row(const block_q4_1* x, float* y, int64_t k);
 void dequantize_row(const block_mxfp4* x, float* y, int64_t k);
@@ -49,6 +51,7 @@ void dequantize_row(const block_iq1_m* x, float* y, int64_t k);
 void dequantize_row(const block_iq4_nl* x, float* y, int64_t k);
 void dequantize_row(const block_iq4_xs* x, float* y, int64_t k);
 
+void quantize_row_q1_0_ref(const float* x, block_q1_0* y, int64_t k);
 void quantize_row_q4_0_ref(const float* x, block_q4_0* y, int64_t k);
 void quantize_row_q4_1_ref(const float* x, block_q4_1* y, int64_t k);
 void quantize_row_mxfp4_ref(const float* x, block_mxfp4* y, int64_t k);
@@ -69,6 +72,7 @@ constexpr bool is_one_of_type = (false || ... || std::is_same_v<T, Types>);
 
 template <typename T>
 constexpr bool is_quant_type_v = is_one_of_type<T,
+	block_q1_0,
 	block_q4_0,
 	block_q4_1,
 	block_mxfp4,
@@ -95,6 +99,7 @@ constexpr bool is_quant_type_v = is_one_of_type<T,
 	block_iq4_nl,
 	block_iq4_xs>;
 
+size_t quantize_q1_0(const float* src, void* dst, int64_t nrow, int64_t n_per_row, const float* quant_weights);
 size_t quantize_q4_0(const float* src, void* dst, int64_t nrow, int64_t n_per_row, const float* quant_weights);
 size_t quantize_q4_1(const float* src, void* dst, int64_t nrow, int64_t n_per_row, const float* quant_weights);
 size_t quantize_mxfp4(const float* src, void* dst, int64_t nrows, int64_t n_per_row, const float* imatrix);

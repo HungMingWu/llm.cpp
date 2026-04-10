@@ -188,6 +188,9 @@ static __device__ __forceinline__ uint2 fast_div_modulo(uint32_t n, const uint3 
 // QR = QK / number of values before dequantization
 // QI = number of 32 bit integers before dequantization
 
+#define QI1_0 (QK1_0 / 32)
+#define QR1_0 1
+
 #define QI4_0 (block_q4_0::block_size / (4 * QR4_0))
 #define QR4_0 2
 

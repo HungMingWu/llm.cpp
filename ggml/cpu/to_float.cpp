@@ -45,6 +45,9 @@ void to_float(ggml_type type, const void* x, float* y, int64_t n)
 		case GGML_TYPE_Q3_K:
 			dequantize_row(static_cast<const block_q3_K*>(x), y, n);
 			break;
+		case GGML_TYPE_Q1_0:
+			dequantize_row(static_cast<const block_q1_0*>(x), y, n);
+			break;
 		case GGML_TYPE_Q4_0:
 			dequantize_row(static_cast<const block_q4_0*>(x), y, n);
 			break;
