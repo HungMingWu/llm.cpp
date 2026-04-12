@@ -52,10 +52,13 @@ static __global__ void flash_attn_ext_vec(
     [[maybe_unused]] const int32_t nb21, [[maybe_unused]] const int32_t nb22, [[maybe_unused]] const int64_t nb23,
     [[maybe_unused]] const int32_t ne31, [[maybe_unused]] const int32_t ne32, [[maybe_unused]] const int32_t ne33,
     [[maybe_unused]] const int32_t nb31, [[maybe_unused]] const int32_t nb32, [[maybe_unused]] const int64_t nb33) {
-#ifdef FLASH_ATTN_AVAILABLE
 
     // Skip unused kernel variants for faster compilation:
-    if (use_logit_softcap && !(D == 128 || D == 256)) {
+    constexpr bool emit_no_device_code_v = [=]() -> bool {
+        if (!flash_attn_available_v) return true;
+        return use_logit_softcap && !(D == 128 || D == 256);
+    }();
+    if constexpr (emit_no_device_code_v) {
         NO_DEVICE_CODE;
         return;
     }
@@ -494,9 +497,6 @@ static __global__ void flash_attn_ext_vec(
     if (gridDim.y != 1 && tid < ncols && (ncols == 1 || ic0 + tid < int(ne01.z))) {
         dst_meta[((sequence * int(ne01.z) + ic0 + tid) * ne02 + head) * gridDim.y + blockIdx.y] = make_float2(KQ_max[tid], KQ_sum[tid]);
     }
-#else
-    NO_DEVICE_CODE;
-#endif // FLASH_ATTN_AVAILABLE
 }
 #ifdef __clang__
 #pragma clang diagnostic pop
