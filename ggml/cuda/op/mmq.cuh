@@ -2264,14 +2264,15 @@ static __device__ __forceinline__ void load_tiles(const block_nvfp4* __restrict_
     constexpr int nwarps = mmq_get_nwarps_device();
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
 
-#if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int* x_qs = (int*)x_tile;
-    float* x_df = (float*)(x_qs + MMQ_TILE_NE_K * 2);
-#else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_NVFP4, mmq_y);
-    int* x_qs = (int*)x_tile;
-    float* x_df = (float*)(x_qs + txs.qs);
-#endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
+    float* x_df = [=]() {
+        if constexpr (amd_mfma_available_v || turing_mma_available_v || amd_wmma_available_v) {
+            return (float*)(x_qs + MMQ_TILE_NE_K * 2);
+        } else {
+            constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(internal::GGML_TYPE_NVFP4, mmq_y);
+            return (float*)(x_qs + txs.qs); 
+        }
+    }();
 
     constexpr int threads_per_row = MMQ_ITER_K / block_nvfp4::block_size;
     constexpr int rows_per_warp = warp_size / threads_per_row;
