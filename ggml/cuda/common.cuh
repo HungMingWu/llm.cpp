@@ -200,7 +200,7 @@ static __device__ __forceinline__ uint2 fast_div_modulo(uint32_t n, const uint3 
 #define QI_MXFP4 (block_mxfp4::block_size / (4 * QR_MXFP4))
 #define QR_MXFP4 2
 
-#define QI_NVFP4 (QK_NVFP4 / (4 * QR_NVFP4))
+#define QI_NVFP4 (block_nvfp4::block_size / (4 * QR_NVFP4))
 #define QR_NVFP4 2
 
 #define QI5_0 (block_q5_0::block_size / (4 * QR5_0))
@@ -327,7 +327,7 @@ struct ggml_cuda_type_traits<block_q8_0> {
 
 template<>
 struct ggml_cuda_type_traits<block_mxfp4> {
-    static constexpr int qk = block_mxfp4::block_size;;
+    static constexpr int qk = block_mxfp4::block_size;
     static constexpr int qr = QR_MXFP4;
     static constexpr int qi = QI_MXFP4;
     static constexpr int mmvq = VDR_MXFP4_Q8_1_MMVQ;
@@ -335,7 +335,7 @@ struct ggml_cuda_type_traits<block_mxfp4> {
 
 template<>
 struct ggml_cuda_type_traits<block_nvfp4> {
-    static constexpr int qk = QK_NVFP4;
+    static constexpr int qk = block_nvfp4::block_size;
     static constexpr int qr = QR_NVFP4;
     static constexpr int qi = QI_NVFP4;
     static constexpr int mmvq = VDR_NVFP4_Q8_1_MMVQ;

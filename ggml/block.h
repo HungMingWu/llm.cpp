@@ -35,13 +35,13 @@ struct block_mxfp4 {
 };
 static_assert(sizeof(block_mxfp4) == sizeof(uint8_t) + block_mxfp4::block_size / 2, "wrong mxfp4 block size/padding");
 
-#define QK_NVFP4 64 // may change block_nvfp4::block_size later
 #define QK_NVFP4_SUB 16  // sub-block size for per-group scales
 struct block_nvfp4 {
-    uint8_t d[QK_NVFP4 / QK_NVFP4_SUB]; // UE4M3 scales (4 bytes, one per 16-element sub-block)
-    uint8_t qs[QK_NVFP4 / 2];           // packed 4-bit E2M1 values (32 bytes)
+    static constexpr int block_size = 64;
+    uint8_t d[block_size / QK_NVFP4_SUB]; // UE4M3 scales (4 bytes, one per 16-element sub-block)
+    uint8_t qs[block_size / 2];           // packed 4-bit E2M1 values (32 bytes)
 };
-static_assert(sizeof(block_nvfp4) == sizeof(uint8_t) * (QK_NVFP4 / QK_NVFP4_SUB) + QK_NVFP4 / 2, "wrong nvfp4 block size/padding");
+static_assert(sizeof(block_nvfp4) == sizeof(uint8_t) * (block_nvfp4::block_size / QK_NVFP4_SUB) + block_nvfp4::block_size / 2, "wrong nvfp4 block size/padding");
 
 struct block_q5_0 {
     static constexpr int block_size = 32;

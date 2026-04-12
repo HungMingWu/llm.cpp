@@ -3011,9 +3011,9 @@ void quantize_row_mxfp4_ref(const float* x, block_mxfp4* y, int64_t k) {
 }
 
 void quantize_row_nvfp4_ref(const float* x, block_nvfp4* y, int64_t k) {
-    static const int qk = QK_NVFP4;
+    static const int qk = block_nvfp4::block_size;
     static const int qk_sub = QK_NVFP4_SUB;
-    static const int n_sub = QK_NVFP4 / QK_NVFP4_SUB;
+    static const int n_sub = block_nvfp4::block_size / QK_NVFP4_SUB;
 
     assert(k % qk == 0);
 
@@ -3880,9 +3880,9 @@ void dequantize_row(const block_mxfp4* x, float* y, int64_t k) {
 }
 
 void dequantize_row(const block_nvfp4* x, float* y, int64_t k) {
-    static const int qk = QK_NVFP4;
+    static const int qk = block_nvfp4::block_size;
     static const int qk_sub = QK_NVFP4_SUB;
-    static const int n_sub = QK_NVFP4 / QK_NVFP4_SUB;
+    static const int n_sub = block_nvfp4::block_size / QK_NVFP4_SUB;
 
     assert(k % qk == 0);
 

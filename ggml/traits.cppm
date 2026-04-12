@@ -239,7 +239,7 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
         GGML_TYPE_NVFP4,
         {
             .type_name = "nvfp4",
-            .blck_size = QK_NVFP4,
+            .blck_size = block_nvfp4::block_size,
             .type_size = sizeof(block_nvfp4),
             .is_quantized = true,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q8_1_ref,

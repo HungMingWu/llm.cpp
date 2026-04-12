@@ -380,7 +380,7 @@ static __global__ void dequantize_block_nvfp4(
     const int64_t i = blockIdx.x;
     const int     tid = threadIdx.x;
 
-    const int64_t base = i * QK_NVFP4;
+    const int64_t base = i * block_nvfp4::block_size;
     if (base >= ne) {
         return;
     }
@@ -407,8 +407,8 @@ static void dequantize_row_nvfp4_cuda(
         dst_t * y,
         const int64_t k,
         cudaStream_t stream) {
-    assert(k % QK_NVFP4 == 0);
-    const int nb = k / QK_NVFP4;
+    assert(k % block_nvfp4::block_size == 0);
+    const int nb = k / block_nvfp4::block_size;
     dequantize_block_nvfp4<<<nb, 32, 0, stream>>>(vx, y, k);
 }
 

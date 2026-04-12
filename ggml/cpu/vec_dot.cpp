@@ -159,10 +159,10 @@ void ggml_vec_dot(int n, float* s, size_t /*bs*/, const block_mxfp4* x, size_t /
 
 void ggml_vec_dot(int n, float* s, size_t /*bs*/, const block_nvfp4* x, size_t /*bx*/, const block_q8_0* y, size_t /*by*/, int nrc) {
     assert(nrc == 1);
-    assert(n % QK_NVFP4 == 0);
+    assert(n % block_nvfp4::block_size == 0);
 
     // Each NVFP4 super-block (64 elements) spans 2 q8_0 blocks
-    const int nb = n / QK_NVFP4;
+    const int nb = n / block_nvfp4::block_size;
 
     float sumf = 0;
 

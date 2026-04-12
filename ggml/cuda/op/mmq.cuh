@@ -2273,7 +2273,7 @@ static __device__ __forceinline__ void load_tiles(const block_nvfp4* __restrict_
     float* x_df = (float*)(x_qs + txs.qs);
 #endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
 
-    constexpr int threads_per_row = MMQ_ITER_K / QK_NVFP4;
+    constexpr int threads_per_row = MMQ_ITER_K / block_nvfp4::block_size;
     constexpr int rows_per_warp = warp_size / threads_per_row;
     const int kbx = threadIdx.x % threads_per_row;
     const int row_in_warp = threadIdx.x / threads_per_row;
@@ -2292,7 +2292,7 @@ static __device__ __forceinline__ void load_tiles(const block_nvfp4* __restrict_
         const int ksc = 4 * kbx;
 
 #pragma unroll
-        for (int sub = 0; sub < QK_NVFP4 / QK_NVFP4_SUB; ++sub) {
+        for (int sub = 0; sub < block_nvfp4::block_size / QK_NVFP4_SUB; ++sub) {
             const int2 q0 = get_int_from_table_16(src_qs[2 * sub + 0], kvalues_mxfp4);
             const int2 q1 = get_int_from_table_16(src_qs[2 * sub + 1], kvalues_mxfp4);
 
