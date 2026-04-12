@@ -14,7 +14,7 @@ import :cpu.vec_dot;
 import :types;
 
 void ggml_vec_dot_q1_0_q8_0_generic(int n, float* s, size_t bs, const block_q1_0* x, size_t bx, const block_q8_0* y, size_t by, int nrc) {
-    const int qk = QK1_0;
+    const int qk = block_q1_0::block_size;
     const int nb = n / qk;
 
     assert(n % qk == 0);

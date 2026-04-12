@@ -161,7 +161,7 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
         GGML_TYPE_Q1_0,
         {
             .type_name = "q1_0",
-            .blck_size = QK1_0,
+            .blck_size = block_q1_0::block_size,
             .type_size = sizeof(block_q1_0),
             .is_quantized = true,
         }

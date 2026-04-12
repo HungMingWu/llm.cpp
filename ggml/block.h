@@ -7,12 +7,12 @@
 #define QK_K 256
 #define K_SCALE_SIZE 12
 
-#define QK1_0 128
 struct block_q1_0 {
+    static constexpr int block_size = 128;
     uint16_t d;           // delta
-    uint8_t qs[QK1_0 / 8]; // bits / quants
+    uint8_t qs[block_size / 8]; // bits / quants
 };
-static_assert(sizeof(block_q1_0) == sizeof(uint16_t) + QK1_0 / 8, "wrong q1_0 block size/padding");
+static_assert(sizeof(block_q1_0) == sizeof(uint16_t) + block_q1_0::block_size / 8, "wrong q1_0 block size/padding");
 
 struct block_q4_0 {
     static constexpr int block_size = 32;

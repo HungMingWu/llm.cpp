@@ -2856,7 +2856,7 @@ size_t quantize_iq4_xs(const float* src, void* dst, int64_t nrow, int64_t n_per_
 }
 
 void quantize_row_q1_0_ref(const float* x, block_q1_0* y, int64_t k) {
-    static const int qk = QK1_0;
+    static const int qk = block_q1_0::block_size;
 
     assert(k % qk == 0);
 
@@ -3797,7 +3797,7 @@ void quantize_row(const float* x, block_iq4_xs* y, int64_t k) {
 }
 
 void dequantize_row(const block_q1_0* x, float* y, int64_t k) {
-    static const int qk = QK1_0;
+    static const int qk = block_q1_0::block_size;
 
     assert(k % qk == 0);
 
