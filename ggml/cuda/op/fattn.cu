@@ -313,85 +313,85 @@ void ggml_cuda_flash_attn_ext_mma_f16(const flash_attn_ext_context& ctx) {
     }
 }
 
-#define FATTN_VEC_CASE(D, type_K, type_V)                                                                        \
+#define FATTN_VEC_CASE(D, type_K0, type_K, type_V0, type_V)                                                                        \
     {                                                                                                            \
-        const bool type_K_okay = ctx.K.type == (type_K) || (ctx.K.type == internal::GGML_TYPE_F32 && (type_K) == internal::GGML_TYPE_F16); \
-        const bool type_V_okay = ctx.V.type == (type_V) || (ctx.V.type == internal::GGML_TYPE_F32 && (type_V) == internal::GGML_TYPE_F16); \
+        const bool type_K_okay = ctx.K.type == (type_K0) || (ctx.K.type == internal::GGML_TYPE_F32 && (type_K0) == internal::GGML_TYPE_F16); \
+        const bool type_V_okay = ctx.V.type == (type_V0) || (ctx.V.type == internal::GGML_TYPE_F32 && (type_V0) == internal::GGML_TYPE_F16); \
         if (ctx.Q.ne[0] == (D) && type_K_okay && type_V_okay) {                                                     \
             ggml_cuda_flash_attn_ext_vec_case<D, type_K, type_V>(ctx);                                           \
             return;                                                                                              \
         }                                                                                                        \
     }                                                                  \
 
-#define FATTN_VEC_CASES_ALL_D(type_K, type_V) \
-    FATTN_VEC_CASE( 64, type_K, type_V)       \
-    FATTN_VEC_CASE(128, type_K, type_V)       \
-    FATTN_VEC_CASE(256, type_K, type_V)       \
+#define FATTN_VEC_CASES_ALL_D(type_K0, type_K, type_V0, type_V) \
+    FATTN_VEC_CASE( 64, type_K0, type_K, type_V0, type_V)       \
+    FATTN_VEC_CASE(128, type_K0, type_K, type_V0, type_V)       \
+    FATTN_VEC_CASE(256, type_K0, type_K, type_V0, type_V)       \
 
 void ggml_cuda_flash_attn_ext_vec(const flash_attn_ext_context& ctx)
 {
     if constexpr (ggml_cuda_fa_all_quants_v) {
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, internal::GGML_TYPE_F16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, internal::GGML_TYPE_F16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, internal::GGML_TYPE_F16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, internal::GGML_TYPE_F16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, internal::GGML_TYPE_F16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, internal::GGML_TYPE_F16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, internal::GGML_TYPE_F16)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, half, internal::GGML_TYPE_F16, half)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, block_q4_0, internal::GGML_TYPE_F16, half)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, block_q4_1, internal::GGML_TYPE_F16, half)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, block_q5_0, internal::GGML_TYPE_F16, half)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, block_q5_1, internal::GGML_TYPE_F16, half)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, block_q8_0, internal::GGML_TYPE_F16, half)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, nv_bfloat16, internal::GGML_TYPE_F16, half)
 
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, internal::GGML_TYPE_Q4_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, internal::GGML_TYPE_Q4_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, internal::GGML_TYPE_Q4_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, internal::GGML_TYPE_Q4_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, internal::GGML_TYPE_Q4_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, internal::GGML_TYPE_Q4_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, internal::GGML_TYPE_Q4_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, half, internal::GGML_TYPE_Q4_0, block_q4_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, block_q4_0, internal::GGML_TYPE_Q4_0, block_q4_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, block_q4_1, internal::GGML_TYPE_Q4_0, block_q4_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, block_q5_0, internal::GGML_TYPE_Q4_0, block_q4_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, block_q5_1, internal::GGML_TYPE_Q4_0, block_q4_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, block_q8_0, internal::GGML_TYPE_Q4_0, block_q4_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, nv_bfloat16, internal::GGML_TYPE_Q4_0, block_q4_0)
 
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, internal::GGML_TYPE_Q4_1)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, internal::GGML_TYPE_Q4_1)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, internal::GGML_TYPE_Q4_1)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, internal::GGML_TYPE_Q4_1)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, internal::GGML_TYPE_Q4_1)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, internal::GGML_TYPE_Q4_1)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, internal::GGML_TYPE_Q4_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, half, internal::GGML_TYPE_Q4_1, block_q4_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, block_q4_0, internal::GGML_TYPE_Q4_1, block_q4_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, block_q4_1, internal::GGML_TYPE_Q4_1, block_q4_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, block_q5_0, internal::GGML_TYPE_Q4_1, block_q4_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, block_q5_1, internal::GGML_TYPE_Q4_1, block_q4_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, block_q8_0, internal::GGML_TYPE_Q4_1, block_q4_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, nv_bfloat16, internal::GGML_TYPE_Q4_1, block_q4_1)
 
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, internal::GGML_TYPE_Q5_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, internal::GGML_TYPE_Q5_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, internal::GGML_TYPE_Q5_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, internal::GGML_TYPE_Q5_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, internal::GGML_TYPE_Q5_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, internal::GGML_TYPE_Q5_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, internal::GGML_TYPE_Q5_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, half, internal::GGML_TYPE_Q5_0, block_q5_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, block_q4_0, internal::GGML_TYPE_Q5_0, block_q5_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, block_q4_1, internal::GGML_TYPE_Q5_0, block_q5_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, block_q5_0, internal::GGML_TYPE_Q5_0, block_q5_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, block_q5_1, internal::GGML_TYPE_Q5_0, block_q5_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, block_q8_0, internal::GGML_TYPE_Q5_0, block_q5_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, nv_bfloat16, internal::GGML_TYPE_Q5_0, block_q5_0)
 
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, internal::GGML_TYPE_Q5_1)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, internal::GGML_TYPE_Q5_1)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, internal::GGML_TYPE_Q5_1)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, internal::GGML_TYPE_Q5_1)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, internal::GGML_TYPE_Q5_1)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, internal::GGML_TYPE_Q5_1)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, internal::GGML_TYPE_Q5_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, half, internal::GGML_TYPE_Q5_1, block_q5_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, block_q4_0, internal::GGML_TYPE_Q5_1, block_q5_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, block_q4_1, internal::GGML_TYPE_Q5_1, block_q5_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, block_q5_0, internal::GGML_TYPE_Q5_1, block_q5_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, block_q5_1, internal::GGML_TYPE_Q5_1, block_q5_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, block_q8_0, internal::GGML_TYPE_Q5_1, block_q5_1)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, nv_bfloat16, internal::GGML_TYPE_Q5_1, block_q5_1)
 
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, internal::GGML_TYPE_Q8_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, internal::GGML_TYPE_Q8_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, internal::GGML_TYPE_Q8_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, internal::GGML_TYPE_Q8_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, internal::GGML_TYPE_Q8_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, internal::GGML_TYPE_Q8_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, internal::GGML_TYPE_Q8_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, half, internal::GGML_TYPE_Q8_0, block_q8_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, block_q4_0, internal::GGML_TYPE_Q8_0, block_q8_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, block_q4_1, internal::GGML_TYPE_Q8_0, block_q8_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, block_q5_0, internal::GGML_TYPE_Q8_0, block_q8_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, block_q5_1, internal::GGML_TYPE_Q8_0, block_q8_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, block_q8_0, internal::GGML_TYPE_Q8_0, block_q8_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, nv_bfloat16, internal::GGML_TYPE_Q8_0, block_q8_0)
 
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, internal::GGML_TYPE_BF16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, internal::GGML_TYPE_BF16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, internal::GGML_TYPE_BF16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, internal::GGML_TYPE_BF16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, internal::GGML_TYPE_BF16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, internal::GGML_TYPE_BF16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, internal::GGML_TYPE_BF16)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, half, internal::GGML_TYPE_BF16, nv_bfloat16)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, block_q4_0, internal::GGML_TYPE_BF16, nv_bfloat16)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_1, block_q4_1, internal::GGML_TYPE_BF16, nv_bfloat16)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_0, block_q5_0, internal::GGML_TYPE_BF16, nv_bfloat16)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q5_1, block_q5_1, internal::GGML_TYPE_BF16, nv_bfloat16)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, block_q8_0, internal::GGML_TYPE_BF16, nv_bfloat16)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, nv_bfloat16, internal::GGML_TYPE_BF16, nv_bfloat16)
     }
     else {
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, internal::GGML_TYPE_F16)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, internal::GGML_TYPE_Q4_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, internal::GGML_TYPE_Q8_0)
-        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, internal::GGML_TYPE_BF16)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_F16, half, internal::GGML_TYPE_F16, half)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q4_0, block_q4_0, internal::GGML_TYPE_Q4_0, block_q4_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_Q8_0, block_q8_0, internal::GGML_TYPE_Q8_0, block_q8_0)
+        FATTN_VEC_CASES_ALL_D(internal::GGML_TYPE_BF16, nv_bfloat16, internal::GGML_TYPE_BF16, nv_bfloat16)
     }
 
     GGML_ABORT("fatal error");

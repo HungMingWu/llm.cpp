@@ -1,6 +1,7 @@
 #pragma once
 #include "mdspan_helper.h"
 #include "reduce.cuh"
+#include "float2_overload.cuh"
 
 // nbatch_fa == number of KQ rows to process per iteration
 // nbatch_K == number of K columns to load in parallel for KQ calculation
@@ -376,14 +377,6 @@ static __device__ __forceinline__ T_vec flash_attn_tile_broadcast(const T_scalar
             return make_float2(vf, vf);
         }
     }
-}
-
-static __device__ __forceinline__ float2 operator+(float2 lhs, float2 rhs) {
-    return make_float2(lhs.x + rhs.x, lhs.y + rhs.y);
-}
-
-static __device__ __forceinline__ float2 operator*(float2 lhs, float2 rhs) {
-    return make_float2(lhs.x * rhs.x, lhs.y * rhs.y);
 }
 
 static __device__ __forceinline__ void flash_attn_tile_scale_inplace(half2& v, const float s) {
