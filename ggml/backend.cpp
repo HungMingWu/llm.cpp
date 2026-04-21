@@ -16,6 +16,48 @@ void ggml_backend::get_tensor_async_impl(const ggml_tensor* tensor, void* data, 
     ggml_backend_tensor_get(tensor, data, offset, size);
 }
 
+void ggml_backend::set_tensor_2d_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data)
+{
+    for (size_t i = 0; i < n_copies; i++) {
+        set_tensor_async(tensor, (const char*)data + i * stride_data, offset + i * stride_tensor, size);
+    }
+}
+
+void ggml_backend::get_tensor_2d_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data)
+{
+    for (size_t i = 0; i < n_copies; i++) {
+        get_tensor_async(tensor, (char*)data + i * stride_data, offset + i * stride_tensor, size);
+    }
+}
+
+void ggml_backend::set_tensor_2d_async(ggml_tensor* tensor, const void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data)
+{
+    GGML_ASSERT(tensor);
+    GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
+
+    if (size == 0) {
+        return;
+    }
+
+    GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
+    GGML_ASSERT(offset + (n_copies - 1) * stride_tensor + size <= tensor->nbytes() && "tensor write out of bounds");
+    return set_tensor_2d_async_impl(tensor, data, offset, size, n_copies, stride_tensor, stride_data);
+}
+
+void ggml_backend::get_tensor_2d_async(const ggml_tensor* tensor, void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data)
+{
+    GGML_ASSERT(tensor);
+    GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
+
+    if (size == 0) {
+        return;
+    }
+
+    GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
+    GGML_ASSERT(offset + (n_copies - 1) * stride_tensor + size <= tensor->nbytes() && "tensor write out of bounds");
+    return get_tensor_2d_async_impl(tensor, data, offset, size, n_copies, stride_tensor, stride_data);
+}
+
 void ggml_backend::set_tensor_async(ggml_tensor* tensor, const void* data, size_t offset, size_t size) {
     GGML_ASSERT(tensor->data != nullptr && "tensor not allocated");
     GGML_ASSERT(offset + size <= tensor->nbytes() && "tensor write out of bounds");

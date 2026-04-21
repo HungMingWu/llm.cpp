@@ -349,6 +349,9 @@ static void ggml_compute_forward_mul_mat(
 	case GGML_TYPE_BF16: {
 		ggml_compute_forward_mul_mat<ggml_bf16_t>(pool, scope, dst);
 	} break;
+	case GGML_TYPE_Q1_0: {
+		ggml_compute_forward_mul_mat<block_q1_0>(pool, scope, dst);
+	} break;
 	case GGML_TYPE_Q4_0: {
 		ggml_compute_forward_mul_mat<block_q4_0>(pool, scope, dst);
 	} break;
@@ -1348,6 +1351,9 @@ static void ggml_compute_forward_out_prod(
 	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
+	case GGML_TYPE_Q1_0: {
+		ggml_compute_forward_out_prod<block_q1_0>(pool, scope, dst);
+	} break;
 	case GGML_TYPE_Q4_0: {
 		ggml_compute_forward_out_prod<block_q4_0>(pool, scope, dst);
 	} break;
@@ -1724,6 +1730,7 @@ static void ggml_compute_forward_set(
 	} break;
 	case GGML_TYPE_F16:
 	case GGML_TYPE_BF16:
+	case GGML_TYPE_Q1_0:
 	case GGML_TYPE_Q4_0:
 	case GGML_TYPE_Q4_1:
 	case GGML_TYPE_Q5_0:
@@ -1905,6 +1912,9 @@ static void ggml_compute_forward_add(
 	case GGML_TYPE_BF16:
 	{
 		ggml_compute_forward_add_non_quantized(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q1_0: {
+		ggml_compute_forward_add_q_f32<block_q1_0>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q4_0: {
 		ggml_compute_forward_add_q_f32<block_q4_0>(pool, scope, dst);
@@ -2128,6 +2138,9 @@ static void ggml_compute_forward_add1(
 		else {
 			GGML_ABORT("fatal error");
 		}
+	} break;
+	case GGML_TYPE_Q1_0: {
+		ggml_compute_forward_add1_q_f32<block_q1_0>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q4_0: {
 		ggml_compute_forward_add1_q_f32<block_q4_0>(pool, scope, dst);
@@ -2752,6 +2765,9 @@ static void ggml_compute_forward_mul_mat_id(
 	} break;
 	case GGML_TYPE_BF16: {
 		ggml_compute_forward_mul_mat_id<ggml_bf16_t>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_Q1_0: {
+		ggml_compute_forward_mul_mat_id<block_q1_0>(pool, scope, dst);
 	} break;
 	case GGML_TYPE_Q4_0: {
 		ggml_compute_forward_mul_mat_id<block_q4_0>(pool, scope, dst);
@@ -3591,6 +3607,7 @@ static void ggml_compute_forward_acc(
 	} break;
 	case GGML_TYPE_F16:
 	case GGML_TYPE_BF16:
+	case GGML_TYPE_Q1_0:
 	case GGML_TYPE_Q4_0:
 	case GGML_TYPE_Q4_1:
 	case GGML_TYPE_Q5_0:

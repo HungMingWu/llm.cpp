@@ -4,6 +4,9 @@
 
 void ggml_cuda_mul_mat_q_switch_type(ggml_cuda_pool& pool, const mmq_args& args, cudaStream_t stream) {
     switch (args.type_x) {
+    case internal::GGML_TYPE_Q1_0:
+        mul_mat_q_case<internal::GGML_TYPE_Q1_0, block_q1_0>(pool, args, stream);
+        break;
     case internal::GGML_TYPE_Q4_0:
         mul_mat_q_case<internal::GGML_TYPE_Q4_0, block_q4_0>(pool, args, stream);
         break;

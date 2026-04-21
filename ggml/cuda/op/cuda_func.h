@@ -8,7 +8,7 @@
 #define MMQ_DP4A_MAX_BATCH_SIZE 64 // Max. batch size to use for dp4a MMQ kernels when FP16 tensor cores are available.
 
 static int get_mmq_x_max_host(const int cc) {
-    if (amd_mfma_available(cc) || turing_mma_available(cc) || amd_wmma_available(cc)) return 128;
+    if (turing_mma_available(cc) || amd_wmma_available(cc)) return 128;
     if (GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA)
         return ggml_cuda_force_mmq_v ? 128 : MMQ_DP4A_MAX_BATCH_SIZE;
     return 64;
@@ -266,6 +266,7 @@ void sub_cuda(const bin_bcast_context& ctx, cudaStream_t stream);
 void mul_cuda(const bin_bcast_context& ctx, cudaStream_t stream);
 void div_cuda(const bin_bcast_context& ctx, cudaStream_t stream);
 void fused_add_cuda(const bin_bcast_context& ctx, int n_fuse, cudaStream_t stream);
+void fused_mul_cuda(const bin_bcast_context& ctx, int n_fuse, cudaStream_t stream);
 
 struct repeat_back_context {
     const internal::ggml_type dst_type;

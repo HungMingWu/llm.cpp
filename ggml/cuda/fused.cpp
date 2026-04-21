@@ -730,6 +730,12 @@ namespace fused
         fused_add_cuda(ctx, n_fuse, stream);
     }
 
+    void mul(cudaStream_t stream, ggml_tensor* dst, int n_fuse)
+    {
+        bin_bcast_context ctx = utils::create_bcast_context(dst->src[0], dst->src[1], dst);
+        fused_mul_cuda(ctx, n_fuse, stream);
+    }
+
     // fused GGML_OP_SCALE + GGML_UNARY_OP_TANH + GGML_OP_SCALE
     void softcap(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* src) {
         const ggml_tensor* src0 = src->src[0];

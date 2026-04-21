@@ -13,7 +13,7 @@ module ggml;
 import :cpu.vec_dot;
 import :types;
 
-void ggml_vec_dot_q1_0_q8_0_generic(int n, float* s, size_t bs, const block_q1_0* x, size_t bx, const block_q8_0* y, size_t by, int nrc) {
+void ggml_vec_dot(int n, float* s, size_t bs, const block_q1_0* x, size_t bx, const block_q8_0* y, size_t by, int nrc) {
     const int qk = block_q1_0::block_size;
     const int nb = n / qk;
 
@@ -28,17 +28,23 @@ void ggml_vec_dot_q1_0_q8_0_generic(int n, float* s, size_t bs, const block_q1_0
         float sumi = 0.0f;
 
         for (int k = 0; k < 4; k++) {
-            const float d1 = toFloat32(std::bit_cast<ggml_fp16_t>(y[i * 4 + k].d));
-
+            const block_q8_0* yb = &y[i * 4 + k];
+            const float d1 = toFloat32(std::bit_cast<ggml_fp16_t>(yb->d));
             int sumi_block = 0;
 
-            for (int j = 0; j < block_q8_0::block_size; j++) {
-                const int bit_index = k * block_q8_0::block_size + j;
-                const int byte_index = bit_index / 8;
-                const int bit_offset = bit_index % 8;
+            const uint8_t* bits = &x[i].qs[k * 4];
+            const int8_t* qy = yb->qs;
 
-                const int xi = ((x[i].qs[byte_index] >> bit_offset) & 1) ? 1 : -1;
-                sumi_block += xi * y[i * 4 + k].qs[j];
+            for (int b = 0; b < 4; ++b, qy += 8) {
+                const unsigned mask = bits[b];
+                sumi_block += ((mask & 0x01) ? qy[0] : -qy[0])
+                    + ((mask & 0x02) ? qy[1] : -qy[1])
+                    + ((mask & 0x04) ? qy[2] : -qy[2])
+                    + ((mask & 0x08) ? qy[3] : -qy[3])
+                    + ((mask & 0x10) ? qy[4] : -qy[4])
+                    + ((mask & 0x20) ? qy[5] : -qy[5])
+                    + ((mask & 0x40) ? qy[6] : -qy[6])
+                    + ((mask & 0x80) ? qy[7] : -qy[7]);
             }
 
             sumi += d1 * sumi_block;

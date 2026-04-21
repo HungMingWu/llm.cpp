@@ -23,65 +23,6 @@ bool ggml_backend_buffer_is_cuda(ggml_backend_buffer* buffer) {
         return false;
 }
 
-void ggml_cuda_set_peer_access(const int n_tokens, int main_device) {
-    static bool peer_access_enabled = false;
-
-    const bool enable_peer_access = n_tokens <= ggml_cuda_peer_max_batch_size_v;
-
-    if (peer_access_enabled == enable_peer_access) {
-        return;
-    }
-
-#ifdef NDEBUG
-    for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
-        ggml_cuda_set_device(id);
-        CUDA_CHECK(cudaDeviceSynchronize());
-    }
-
-    for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
-        ggml_cuda_set_device(id);
-
-        for (int id_other = 0; id_other < ggml_backend_cuda_get_device_count(); ++id_other) {
-            if (id == id_other) {
-                continue;
-            }
-            if (id != main_device && id_other != main_device) {
-                continue;
-            }
-
-            int can_access_peer;
-            CUDA_CHECK(cudaDeviceCanAccessPeer(&can_access_peer, id, id_other));
-            if (can_access_peer) {
-                if (enable_peer_access) {
-                    cudaError_t err = cudaDeviceEnablePeerAccess(id_other, 0);
-                    if (err != cudaErrorPeerAccessAlreadyEnabled) {
-                        CUDA_CHECK(err);
-                    }
-                    else {
-                        // reset the error
-                        cudaGetLastError();
-                    }
-                }
-                else {
-                    cudaError_t err = cudaDeviceDisablePeerAccess(id_other);
-                    if (err != cudaErrorPeerAccessNotEnabled) {
-                        CUDA_CHECK(err);
-                    }
-                    else {
-                        // reset the error
-                        cudaGetLastError();
-                    }
-                }
-            }
-        }
-    }
-
-    ggml_cuda_set_device(main_device);
-#endif // NDEBUG
-
-    peer_access_enabled = enable_peer_access;
-}
-
 struct ggml_cuda_concurrent_event {
     std::vector<cudaEvent_t> join_events;
     cudaEvent_t              fork_event = nullptr;
@@ -239,6 +180,8 @@ protected:
     enum ggml_status graph_compute_impl(ggml_cgraph* cgraph) override;
     void set_tensor_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
     void get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
+    void set_tensor_2d_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data) override;
+    void get_tensor_2d_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data) override;
 private:
     bool graph_set_enabled(const void* graph_key);
     void graph_evaluate_and_capture(ggml_cgraph* cgraph, const bool use_cuda_graph, const bool cuda_graph_update_required, const void* graph_key);
@@ -251,12 +194,30 @@ private:
     // when the computation is split across CPU/GPU (e.g., with --n-cpu-moe)
     std::unordered_map<const void*, std::unique_ptr<ggml_cuda_graph>> cuda_graphs;
 
+    int64_t last_graph_eviction_sweep = 0;
+
     ggml_cuda_graph* cuda_graph(const void* first_node_ptr) {
+        // Fix it later
+        const int64_t time_now = 0;// ggml_time_us();
+
+        // sweep every 5s, evicting cuda graphs unused for >=10s
+        if (time_now - last_graph_eviction_sweep >= 5'000'000) {
+            last_graph_eviction_sweep = time_now;
+            for (auto it = cuda_graphs.begin(); it != cuda_graphs.end(); ) {
+                if (time_now - it->second->last_used_time >= 10'000'000) {
+                    it = cuda_graphs.erase(it);
+                }
+                else {
+                    ++it;
+                }
+            }
+        }
+
         auto it = cuda_graphs.find(first_node_ptr);
         if (it == cuda_graphs.end()) {
-            cuda_graphs[first_node_ptr] = std::make_unique<ggml_cuda_graph>();
-            return cuda_graphs[first_node_ptr].get();
+            it = cuda_graphs.emplace(first_node_ptr, std::make_unique<ggml_cuda_graph>()).first;
         }
+        it->second->last_used_time = time_now;
         return it->second.get();
     }
 

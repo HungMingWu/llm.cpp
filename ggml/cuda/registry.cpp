@@ -328,6 +328,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
         switch (a->type) {
         case GGML_TYPE_F32:
         case GGML_TYPE_F16:
+        case GGML_TYPE_Q1_0:
         case GGML_TYPE_Q4_0:
         case GGML_TYPE_Q4_1:
         case GGML_TYPE_Q5_0:
@@ -365,6 +366,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
         case GGML_TYPE_F32:
         case GGML_TYPE_BF16:
         case GGML_TYPE_I32:
+        case GGML_TYPE_Q1_0:
         case GGML_TYPE_Q4_0:
         case GGML_TYPE_Q4_1:
         case GGML_TYPE_Q5_0:

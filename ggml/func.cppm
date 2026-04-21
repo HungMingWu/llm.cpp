@@ -109,27 +109,43 @@ export {
 		 GGML_ASSERT(tensor);
 
 		 ggml_backend_buffer* buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+		 GGML_ASSERT(buf != NULL && "tensor buffer not set");
 
 		 if (size == 0) {
 			 return;
 		 }
 
-		 GGML_ASSERT(buf != NULL && "tensor buffer not set");
 		 GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
 		 GGML_ASSERT(offset + size <= tensor->nbytes() && "tensor write out of bounds");
 
 		 buf->set_tensor(tensor, data, offset, size);
+	 }
 
+	 void ggml_backend_tensor_set_2d(struct ggml_tensor* tensor, const void* data, size_t offset, size_t size,
+		 size_t n_copies, size_t stride_tensor, size_t stride_data) {
+		 GGML_ASSERT(tensor);
+		 ggml_backend_buffer* buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+		 GGML_ASSERT(buf != NULL && "tensor buffer not set");
+
+		 if (size == 0) {
+			 return;
+		 }
+
+		 GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
+		 GGML_ASSERT(offset + (n_copies - 1) * stride_tensor + size <= tensor->nbytes() && "tensor write out of bounds");
+
+		 buf->set_tensor_2d(tensor, data, offset, size, n_copies, stride_tensor, stride_data);
 	 }
 
 	 void ggml_backend_tensor_get(const ggml_tensor* tensor, void* data, size_t offset, size_t size) {
 		 GGML_ASSERT(tensor);
 		 ggml_backend_buffer* buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+		 GGML_ASSERT(buf != NULL && "tensor buffer not set");
+
 		 if (size == 0) {
 			 return;
 		 }
 
-		 GGML_ASSERT(buf != NULL && "tensor buffer not set");
 		 GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
 		 GGML_ASSERT(offset + size <= tensor->nbytes() && "tensor read out of bounds");
 
@@ -193,7 +209,13 @@ export {
 
 	 ggml_type ggml_ftype_to_ggml_type(ggml_ftype ftype);
 
-	 void ggml_backend_tensor_copy(ggml_tensor* src, ggml_tensor* dst);
+	 void ggml_backend_tensor_copy(const ggml_tensor* src, ggml_tensor* dst);
+
+	// asynchronous copy
+	// the copy is performed after all the currently queued operations in backend_src
+	// backend_dst will wait for the copy to complete before performing other operations
+	// automatic fallback to sync copy if async is not supported
+	void ggml_backend_tensor_copy_async(ggml_backend* backend_src, ggml_backend* backend_dst, const ggml_tensor* src, ggml_tensor* dst);
 
 	 // creates a copy of the tensor with the same memory layout
 	 ggml_tensor* ggml_dup_tensor_layout(ggml_context* ctx, const ggml_tensor* tensor);

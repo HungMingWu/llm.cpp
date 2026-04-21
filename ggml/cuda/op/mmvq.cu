@@ -423,11 +423,56 @@ static void mul_mat_vec_q_switch_ncols_dst(
     const uint3 sample_ratio_fd = init_fastdiv_values(nsamples_dst / nsamples_x);
 
     const int device = ggml_cuda_get_device();
+    const int                     cc = ggml_cuda_info().devices[device].cc;
     const int warp_size = ggml_cuda_info().devices[device].warp_size;
     const mmvq_parameter_table_id table_id = get_device_table_id(ggml_cuda_info().devices[device].cc);
 
     [[maybe_unused]] const bool has_fusion = fusion.gate != nullptr || fusion.x_bias != nullptr || fusion.gate_bias != nullptr;
     const bool has_ids = ids != nullptr;
+
+    const auto should_use_small_k = [&](int c_ncols_dst) {
+        // When K is small, increase rows_per_block to match nwarps so each warp has more work to do
+        // Trigger when the full thread block covers all K blocks in a single loop iteration and few threads remain idle.
+        constexpr int qk = ggml_cuda_type_traits<src_t>::qk;
+        constexpr int qi = ggml_cuda_type_traits<src_t>::qi;
+        constexpr int vdr = ggml_cuda_type_traits<src_t>::mmvq;
+        const int     blocks_per_row_x = ncols_x / qk;
+        const int     blocks_per_iter_1warp = vdr * warp_size / qi;
+        const int     nwarps = calc_nwarps(type, c_ncols_dst, table_id);
+        bool          use = nwarps > 1 && blocks_per_row_x < nwarps * blocks_per_iter_1warp;
+
+        using namespace internal;
+        constexpr std::array<ggml_type, 2> iq_slow_turing = {
+            GGML_TYPE_IQ3_XXS,
+            GGML_TYPE_IQ3_S,
+        };
+        constexpr std::array<ggml_type, 8> iq_slow_other = {
+            GGML_TYPE_IQ1_S, GGML_TYPE_IQ1_M,   GGML_TYPE_IQ2_XXS, GGML_TYPE_IQ2_XS,
+            GGML_TYPE_IQ2_S, GGML_TYPE_IQ3_XXS, GGML_TYPE_IQ3_S,   GGML_TYPE_IQ4_XS,
+        };
+        constexpr std::array<ggml_type, 3> slow_pascal = {
+            GGML_TYPE_IQ3_S,
+            GGML_TYPE_Q2_K,
+            GGML_TYPE_Q3_K,
+        };
+
+        const bool is_nvidia_turing_plus = GGML_CUDA_CC_IS_NVIDIA(cc) && cc >= GGML_CUDA_CC_TURING;
+        const bool is_nvidia_pascal_older = GGML_CUDA_CC_IS_NVIDIA(cc) && cc < GGML_CUDA_CC_VOLTA;
+
+        if (is_nvidia_turing_plus) {
+            if (ncols_dst == 1 &&
+                std::find(iq_slow_turing.begin(), iq_slow_turing.end(), type) != iq_slow_turing.end()) {
+                use = false;
+            }
+        }
+        else if ((ncols_dst == 1 && std::find(iq_slow_other.begin(), iq_slow_other.end(), type) != iq_slow_other.end()) ||
+            (is_nvidia_pascal_older && std::find(slow_pascal.begin(), slow_pascal.end(), type) != slow_pascal.end()) ||
+            GGML_CUDA_CC_IS_RDNA(cc)) {
+            use = false;
+        }
+
+        return use;
+    };
 
     if (has_ids && ncols_dst > 1) {
         // Multi-token MUL_MAT_ID path only - single-token goes through regular path below
@@ -444,15 +489,7 @@ static void mul_mat_vec_q_switch_ncols_dst(
     case 1: {
             constexpr int c_ncols_dst = 1;
 
-            // When K is small, increase rows_per_block to match nwarps so each warp has more work to do
-            // Trigger when the full thread block covers all K blocks in a single loop iteration and few threads remain idle.
-            constexpr int qk  = ggml_cuda_type_traits<src_t>::qk;
-            constexpr int qi  = ggml_cuda_type_traits<src_t>::qi;
-            constexpr int vdr = ggml_cuda_type_traits<src_t>::mmvq;
-            const int blocks_per_row_x = ncols_x / qk;
-            const int blocks_per_iter_1warp = vdr * warp_size / qi;
-            const int nwarps = calc_nwarps(type, c_ncols_dst, table_id);
-            const bool use_small_k = nwarps > 1 && blocks_per_row_x < nwarps * blocks_per_iter_1warp;
+            const bool use_small_k = should_use_small_k(c_ncols_dst);
             if (use_small_k) {
                 std::pair<dim3, dim3> dims = calc_launch_params<type>(c_ncols_dst, nrows_x, nchannels_dst, nsamples_dst,
                                                                     warp_size, table_id, true);
@@ -536,6 +573,17 @@ static void mul_mat_vec_q_switch_ncols_dst(
 void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t stream)
 {
     switch (ctx.type_x) {
+    case internal::GGML_TYPE_Q1_0:
+        mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_Q1_0, block_q1_0>
+            (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,
+             ctx.ncols_x, ctx.nrows_x, ctx.ncols_dst,
+             ctx.stride_row_x, ctx.stride_col_y, ctx.stride_col_dst,
+             ctx.nchannels_x, ctx.nchannels_y, ctx.nchannels_dst,
+             ctx.stride_channel_x, ctx.stride_channel_y, ctx.stride_channel_dst,
+             ctx.nsamples_x, ctx.nsamples_dst,
+             ctx.stride_sample_x, ctx.stride_sample_y, ctx.stride_sample_dst, ctx.ids_stride,
+                stream);
+        break;
     case internal::GGML_TYPE_Q4_0:
         mul_mat_vec_q_switch_ncols_dst<internal::GGML_TYPE_Q4_0, block_q4_0>
             (ctx.vx, ctx.vy, ctx.ids, ctx.fusion, ctx.dst,

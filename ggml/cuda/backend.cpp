@@ -146,15 +146,21 @@ namespace
         }
 
         ~ggml_cuda_pool_leg() {
+            clear_pool();
+            GGML_ASSERT(pool_size == 0);
+        }
+
+        void clear_pool() {
             ggml_cuda_set_device(device);
             for (int i = 0; i < MAX_BUFFERS; ++i) {
                 ggml_cuda_buffer& b = buffer_pool[i];
                 if (b.ptr != nullptr) {
                     CUDA_CHECK(cudaFree(b.ptr));
                     pool_size -= b.size;
+                    b.ptr = nullptr;
+                    b.size = 0;
                 }
             }
-            GGML_ASSERT(pool_size == 0);
         }
 
         void* alloc(size_t size, size_t* actual_size) override {
@@ -199,7 +205,20 @@ namespace
             size_t look_ahead_size = (size_t)(1.05 * size);
             look_ahead_size = 256 * ((look_ahead_size + 255) / 256);
             ggml_cuda_set_device(device);
-            CUDA_CHECK(ggml_cuda_device_malloc(&ptr, look_ahead_size, device));
+            cudaError_t err = ggml_cuda_device_malloc(&ptr, look_ahead_size, device);
+            if (err == cudaErrorMemoryAllocation) {
+                (void)cudaGetLastError();
+                const size_t cached_bytes = pool_size;
+                GGML_LOG_DEBUG(GGML_CUDA_NAME " pool[{}]: alloc of {:.2f} MiB failed, flushing {:.2f} MiB of cached buffers and retrying",
+                    device, look_ahead_size / 1024.0 / 1024.0, cached_bytes / 1024.0 / 1024.0);
+                CUDA_CHECK(cudaDeviceSynchronize());
+                clear_pool();
+                err = ggml_cuda_device_malloc(&ptr, look_ahead_size, device);
+                if (err == cudaSuccess) {
+                    GGML_LOG_DEBUG(GGML_CUDA_NAME " pool[%d]: retry succeeded\n", device);
+                }
+            }
+            CUDA_CHECK(err);
             *actual_size = look_ahead_size;
             pool_size += look_ahead_size;
 #ifdef DEBUG_CUDA_MALLOC
@@ -1349,6 +1368,26 @@ void ggml_backend_cuda::get_tensor_async_impl(const ggml_tensor* tensor, void* d
     CUDA_CHECK(cudaMemcpyAsync(data, (const char*)tensor->data + offset, size, cudaMemcpyDeviceToHost, stream()));
 }
 
+void ggml_backend_cuda::set_tensor_2d_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data)
+{
+    ggml_backend_buffer* buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+
+    GGML_ASSERT(buf->get_type() == ggml_backend_cuda_buffer_type(device) && "unsupported buffer type");
+
+    CUDA_CHECK(cudaMemcpy2DAsync(
+        (char*)tensor->data + offset, stride_tensor, data, stride_data, size, n_copies, cudaMemcpyHostToDevice, stream()));
+}
+
+void ggml_backend_cuda::get_tensor_2d_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data)
+{
+    ggml_backend_buffer* buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+
+    GGML_ASSERT(buf->get_type() == ggml_backend_cuda_buffer_type(device) && "unsupported buffer type");
+
+    CUDA_CHECK(cudaMemcpy2DAsync(
+        data, stride_data, (const char*)tensor->data + offset, stride_tensor, size, n_copies, cudaMemcpyDeviceToHost, stream()));
+}
+
 bool ggml_backend_cuda::cpy_tensor_async(ggml_backend* backend_src, const ggml_tensor* src, ggml_tensor* dst)
 {
     ggml_backend_buffer* buf_src = src->view_src ? src->view_src->buffer : src->buffer;
@@ -1357,7 +1396,7 @@ bool ggml_backend_cuda::cpy_tensor_async(ggml_backend* backend_src, const ggml_t
     ggml_backend_cuda* cuda_backend_src = dynamic_cast<ggml_backend_cuda*>(backend_src);
     if (!cuda_backend_src) return false;
 
-    if (!ggml_backend_buffer_is_cuda(src->buffer) || !ggml_backend_buffer_is_cuda(dst->buffer)) {
+    if (!ggml_backend_buffer_is_cuda(buf_src) || !ggml_backend_buffer_is_cuda(buf_dst)) {
         return false;
     }
 
@@ -1820,10 +1859,10 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
                         continue;
                     }
 
-                    if (node->op == GGML_OP_ADD) {
+                    if (node->op == GGML_OP_ADD || node->op == GGML_OP_MUL) {
                         int n_fuse = 0;
                         ggml_op ops[8];
-                        std::fill(ops, ops + 8, GGML_OP_ADD);
+                        std::fill(ops, ops + 8, node->op);
 
                         for (; n_fuse <= 6; ++n_fuse) {
                             if (!fused::ggml_can_fuse(cgraph, i + n_fuse, ops + n_fuse, 2)) {
@@ -1840,12 +1879,17 @@ void ggml_backend_cuda::graph_evaluate_and_capture(ggml_cgraph* cgraph, const bo
                         n_fuse++;
 
                         if (n_fuse > 1) {
-                            ggml_tensor fused_add_node = *node;
+                            ggml_tensor fused_node = *node;
                             for (int j = 0; j < n_fuse - 1; ++j) {
-                                fused_add_node.src.push_back(cgraph->nodes[i + j + 1]->src[1]);
+                                fused_node.src.push_back(cgraph->nodes[i + j + 1]->src[1]);
                             }
-                            fused_add_node.data = cgraph->nodes[i + n_fuse - 1]->data;
-                            fused::add(stream(), &fused_add_node, n_fuse);
+                            fused_node.data = cgraph->nodes[i + n_fuse - 1]->data;
+                            if (node->op == GGML_OP_ADD) {
+                                fused::add(stream(), &fused_node, n_fuse);
+                            }
+                            else {
+                                fused::mul(stream(), &fused_node, n_fuse);
+                            }
                             i += n_fuse - 1;
 
                             continue;
@@ -2153,6 +2197,15 @@ static bool ggml_cuda_graph_update_required(ggml_cuda_graph& graph, ggml_cgraph*
         res = true;
     }
 
+    if (cgraph->uid != 0 &&
+        cgraph->uid == graph.uid) {
+        GGML_LOG_DEBUG("CUDA Graph id %zu reused\n", cgraph->uid);
+        GGML_ASSERT((int)graph.node_props.size() == cgraph->nodes.size());
+        return false;
+    }
+
+    graph.uid = cgraph->uid;
+
     // Check if the graph size has changed
     if ((int)graph.node_props.size() != cgraph->nodes.size()) {
         res = true;
@@ -2163,16 +2216,18 @@ static bool ggml_cuda_graph_update_required(ggml_cuda_graph& graph, ggml_cgraph*
         ggml_cuda_graph::node_properties prop = {};
         memcpy(&prop.node, cgraph->nodes[i], sizeof(ggml_tensor));
 
-        // if the backend scheduler is making copies of CPU tensors, the src pointers can be the same but with different data, see:
-        // https://github.com/ggml-org/llama.cpp/pull/21472#discussion_r3052235188
         for (int j = 0; j < GGML_MAX_SRC; ++j) {
-            prop.node_src_data_ptrs[j] = cgraph->nodes[i]->src[j] ? cgraph->nodes[i]->src[j]->data : nullptr;
+            if (cgraph->nodes[i]->src[j]) {
+                prop.node_src_data_ptrs[j] = cgraph->nodes[i]->src[j]->data;
+                memcpy(prop.node_src_ne[j], cgraph->nodes[i]->src[j]->ne.data(), sizeof(prop.node_src_ne[j]));
+                memcpy(prop.node_src_nb[j], cgraph->nodes[i]->src[j]->nb.data(), sizeof(prop.node_src_nb[j]));
+            }
         }
 
-        if (!res && memcmp(&graph.node_props[i], &prop, sizeof(prop)) != 0) {
+        if (res || memcmp(&graph.node_props[i], &prop, sizeof(prop)) != 0) {
+            graph.node_props[i] = prop;
             res = true;
         }
-        graph.node_props[i] = prop;
     }
 
     return res;
@@ -2312,12 +2367,6 @@ void ggml_backend_cuda::event_wait(ggml_backend_event* event)
 }
 
 bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
-    // why is this here instead of mul_mat?
-    if (dst->src.size() > 1 && dst->src[0] != nullptr && to_cuda_buffer_type(dst->src[0]->buffer->get_type())) {
-        const ggml_tensor* src1 = dst->src[1];
-        if (src1) ggml_cuda_set_peer_access(src1->ne[1], device);
-    }
-
     switch (dst->op) {
     case GGML_OP_ARGMAX:
         op::argmax(stream(), dst);

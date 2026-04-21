@@ -195,3 +195,33 @@ void fused_add_cuda(const bin_bcast_context &ctx, int n_fuse, cudaStream_t strea
         GGML_ASSERT(false && "Unsupported n_fuse value");
     }
 }
+
+void fused_mul_cuda(const bin_bcast_context &ctx, int n_fuse, cudaStream_t stream) {
+    GGML_ASSERT(2 <= n_fuse && n_fuse <= 8);
+
+    switch (n_fuse) {
+    case 2:
+        ggml_cuda_op_fused_binbcast_impl<op_mul, 2>(ctx, stream);
+        break;
+    case 3:
+        ggml_cuda_op_fused_binbcast_impl<op_mul, 3>(ctx, stream);
+        break;
+    case 4:
+        ggml_cuda_op_fused_binbcast_impl<op_mul, 4>(ctx, stream);
+        break;
+    case 5:
+        ggml_cuda_op_fused_binbcast_impl<op_mul, 5>(ctx, stream);
+        break;
+    case 6:
+        ggml_cuda_op_fused_binbcast_impl<op_mul, 6>(ctx, stream);
+        break;
+    case 7:
+        ggml_cuda_op_fused_binbcast_impl<op_mul, 7>(ctx, stream);
+        break;
+    case 8:
+        ggml_cuda_op_fused_binbcast_impl<op_mul, 8>(ctx, stream);
+        break;
+    default:
+        GGML_ASSERT(false && "Unsupported n_fuse value");
+    }
+}

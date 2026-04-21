@@ -3,6 +3,7 @@ module;
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <atomic>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -135,7 +136,7 @@ enum ggml_type ggml_ftype_to_ggml_type(enum ggml_ftype ftype) {
     return wtype;
 }
 
-void ggml_backend_tensor_copy(ggml_tensor* src, ggml_tensor* dst) {
+void ggml_backend_tensor_copy(const ggml_tensor* src, ggml_tensor* dst) {
     GGML_ASSERT(ggml_are_same_layout(src, dst) && "cannot copy tensors with different layouts");
 
     if (src == dst) {
@@ -157,6 +158,25 @@ void ggml_backend_tensor_copy(ggml_tensor* src, ggml_tensor* dst) {
         ggml_backend_tensor_get(src, data.data(), 0, nbytes);
         ggml_backend_tensor_set(dst, data.data(), 0, nbytes);
     }
+}
+
+void ggml_backend_tensor_copy_async(ggml_backend* backend_src, ggml_backend* backend_dst, const ggml_tensor* src, ggml_tensor* dst) {
+    GGML_ASSERT(ggml_are_same_layout(src, dst) && "cannot copy tensors with different layouts");
+
+    if (src == dst) {
+        return;
+    }
+
+    GGML_ASSERT(backend_dst);
+    if (backend_dst->cpy_tensor_async(backend_src, src, dst)) {
+        return;
+    }
+
+    // an async copy would normally happen after all the queued operations on both backends are completed
+    // to simulate the same behavior, we need to synchronize both backends first, and do a blocking copy
+    backend_src->synchronize();
+    backend_dst->synchronize();
+    ggml_backend_tensor_copy(src, dst);
 }
 
 static void graph_copy_init_tensor(std::unordered_map<ggml_tensor*, ggml_tensor*>& node_copies,
@@ -314,4 +334,10 @@ ggml_tensor* ggml_dup_tensor_layout(ggml_context* ctx, const ggml_tensor* tensor
         dup->nb[i] = tensor->nb[i];
     }
     return dup;
+}
+
+uint64_t ggml_graph_next_uid()
+{
+    static std::atomic<uint64_t> counter{ 1 };
+    return counter++;
 }

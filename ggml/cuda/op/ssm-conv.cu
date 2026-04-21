@@ -123,8 +123,9 @@ void ssm_conv_f32_cuda(const ssm_conv_context& ctx, cudaStream_t stream) {
     switch (ctx.nc) {
     case 3: launch_kernel(std::integral_constant<int, 3>{}); break;
     case 4: launch_kernel(std::integral_constant<int, 4>{}); break;
+    case 5: launch_kernel(std::integral_constant<int, 5>{}); break;
     case 9: launch_kernel(std::integral_constant<int, 9>{}); break;
-    default: GGML_ABORT("Only support kernel sizes 3, 4, 9 right now.");
+    default: GGML_ABORT("Only support kernel sizes 3, 4, 5, 9 right now.");
     }
 }
 

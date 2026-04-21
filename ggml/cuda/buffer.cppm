@@ -159,6 +159,22 @@ public:
 		CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
 	}
 
+	void set_tensor_2d(ggml_tensor* tensor, const void* data,
+		size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data) override {
+		ggml_cuda_set_device(device);
+		CUDA_CHECK(cudaMemcpy2DAsync(
+			(char*)tensor->data + offset, stride_tensor, data, stride_data, size, n_copies, cudaMemcpyHostToDevice, cudaStreamPerThread));
+		CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
+	}
+
+	void get_tensor_2d(const struct ggml_tensor* tensor, void* data,
+		size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data) override {
+		ggml_cuda_set_device(device);
+		CUDA_CHECK(cudaMemcpy2DAsync(
+			data, stride_data, (const char*)tensor->data + offset, stride_tensor, size, n_copies, cudaMemcpyDeviceToHost, cudaStreamPerThread));
+		CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
+	}
+
 	bool cpy_tensor(const ggml_tensor* src, ggml_tensor* dst) override;
 };
 

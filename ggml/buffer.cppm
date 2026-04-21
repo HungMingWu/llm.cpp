@@ -33,6 +33,9 @@ export
         virtual void memset_tensor(ggml_tensor* tensor, uint8_t value, size_t offset, size_t size) {};
         virtual void set_tensor(ggml_tensor* tensor, const void* data, size_t offset, size_t size) {};
         virtual void get_tensor(const ggml_tensor* tensor, void* data, size_t offset, size_t size) {};
+        // (optional) 2d data copies
+        virtual void set_tensor_2d(ggml_tensor* tensor, const void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data) {}
+        virtual void get_tensor_2d(const struct ggml_tensor* tensor, void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data) {}
         // (optional) tensor copy: dst is in the buffer, src may be in any buffer, including buffers from a different backend (return false if not supported)
         virtual bool cpy_tensor(const ggml_tensor* src, ggml_tensor* dst) { return false; }
         void clear(uint8_t value);

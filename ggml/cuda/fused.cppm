@@ -26,6 +26,7 @@ namespace fused
 		int                        num_outputs);
 
 	void add(cudaStream_t stream, ggml_tensor* dst, int n_fuse);
+	void mul(cudaStream_t stream, ggml_tensor* dst, int n_fuse);
 	void softcap(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* src);
 	void rms_norm(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* mul_tensor);
 	void rms_norm_add(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* mul_tensor, ggml_tensor* add_tensor);

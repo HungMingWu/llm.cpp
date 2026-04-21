@@ -90,6 +90,9 @@ static void ggml_cuda_get_rows_switch_src0_type(const get_row_context &ctx, cuda
     case internal::GGML_TYPE_BF16:
         get_rows_cuda_float<nv_bfloat16, dst_t>(ctx, stream);
         break;
+    case internal::GGML_TYPE_Q1_0:
+        get_rows_cuda<block_q1_0, QR1_0, dst_t>(ctx, stream);
+        break;
     case internal::GGML_TYPE_Q4_0:
         get_rows_cuda<block_q4_0, QR4_0, dst_t>(ctx, stream);
         break;

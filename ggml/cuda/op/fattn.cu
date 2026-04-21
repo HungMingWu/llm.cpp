@@ -194,13 +194,17 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2(const flash_attn_ext_
             return;
         }
 
-        if (ctx.use_gqa_opt && gqa_ratio % 2 == 0) {
-            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx);
-            return;
-        }
+        if constexpr (DKQ <= 256) {
+            if (ctx.use_gqa_opt && gqa_ratio % 2 == 0) {
+                ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx);
+                return;
+            }
 
-        ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 1>(ctx);
-        return;
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 1>(ctx);
+            return;
+        } else {
+            GGML_ABORT("fatal error");
+        }
     }
 
     if (ctx.use_gqa_opt && gqa_ratio > 4) {
@@ -213,12 +217,16 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2(const flash_attn_ext_
         return;
     }
 
-    if (ctx.use_gqa_opt && gqa_ratio > 1) {
-        ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx);
-        return;
-    }
+    if constexpr (DKQ <= 256) {
+        if (ctx.use_gqa_opt && gqa_ratio > 1) {
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx);
+            return;
+        }
 
-    ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 1>(ctx);
+        ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 1>(ctx);
+    } else {
+        GGML_ABORT("fatal error");
+    }
 }
 
 void ggml_cuda_flash_attn_ext_mma_f16(const flash_attn_ext_context& ctx) {

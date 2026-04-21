@@ -422,6 +422,8 @@ static void convert_to(const convert_context& ctx, const void* x, dst_t* y, cuda
         return convert_unary_cuda<nv_bfloat16>(ctx, x, y, stream);
     case internal::GGML_TYPE_F32:
         return convert_unary_cuda<float>(ctx, x, y, stream);
+    case internal::GGML_TYPE_Q1_0:
+        return dequantize_block_cuda<block_q1_0, QR1_0>(ctx, x, y, stream);
     case internal::GGML_TYPE_Q4_0:
         return dequantize_block_cuda<block_q4_0, QR4_0>(ctx, x, y, stream);
     case internal::GGML_TYPE_Q4_1:

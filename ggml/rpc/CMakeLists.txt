@@ -17,6 +17,7 @@ target_sources(libggml
       helper.cppm
       rpc_server.cppm
       socket.cppm
+      transport.cppm
   PRIVATE
       backend.cpp
       buffer.cpp
@@ -24,4 +25,5 @@ target_sources(libggml
       rpc.cpp
       rpc_server.cpp
       socket.cpp
+      transport.cpp
 )

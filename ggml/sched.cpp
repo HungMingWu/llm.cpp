@@ -280,7 +280,7 @@ ggml_cgraph ggml_graph_view(const ggml_cgraph& cgraph0, int i0, int i1) {
 }
 
 // assigns backends to ops and splits the graph into subgraphs that can be computed on the same backend
-void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
+void ggml_backend_sched::split_graph(ggml_cgraph& graph) {
     // reset splits
     splits.clear();
     graph_inputs.clear();
@@ -290,6 +290,8 @@ void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
     if (!ctx) {
         GGML_ABORT("%s: failed to initialize context\n", __func__);
     }
+
+    graph.uid = ggml_graph_next_uid();
 
     // pass 1: assign backends to ops with pre-allocated inputs
     for (auto leaf : graph.leafs) {
@@ -650,6 +652,10 @@ void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
         graph_copy.leafs.push_back(leaf);
     }
 
+    // set ids for all splits
+    for (auto &split : splits)
+        split.graph.uid = ggml_graph_next_uid();
+
     // trnasform back to vector
     node_backend_ids.resize(map_node_backend_ids.size());
     for (const auto [index, id] : map_node_backend_ids)
@@ -659,7 +665,7 @@ void ggml_backend_sched::split_graph(const ggml_cgraph& graph) {
         leaf_backend_ids[index] = id;
 }
 
-bool ggml_backend_sched::reserve(const ggml_cgraph* measure_graph)
+bool ggml_backend_sched::reserve(ggml_cgraph* measure_graph)
 {
     synchronize();
 
@@ -746,7 +752,7 @@ bool ggml_backend_sched::alloc_splits() {
     return true;
 }
 
-bool ggml_backend_sched::alloc_graph(const ggml_cgraph& graph) {
+bool ggml_backend_sched::alloc_graph(ggml_cgraph& graph) {
     split_graph(graph);
 
     if (!alloc_splits()) {
@@ -944,7 +950,7 @@ ggml_status ggml_backend_sched::compute_splits() {
     return GGML_STATUS_SUCCESS;
 }
 
-ggml_status ggml_backend_sched::graph_compute_async(const ggml_cgraph& graph) {
+ggml_status ggml_backend_sched::graph_compute_async(ggml_cgraph& graph) {
     if (!is_reset && !is_alloc) {
         reset();
     }
@@ -957,7 +963,7 @@ ggml_status ggml_backend_sched::graph_compute_async(const ggml_cgraph& graph) {
     return compute_splits();
 }
 
-ggml_status ggml_backend_sched::graph_compute(const ggml_cgraph& graph)
+ggml_status ggml_backend_sched::graph_compute(ggml_cgraph& graph)
 {
     ggml_status err = graph_compute_async(graph);
     synchronize();

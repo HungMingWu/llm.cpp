@@ -12,6 +12,8 @@
 
 static mmq_q8_1_ds_layout mmq_get_q8_1_ds_layout(const internal::ggml_type type_x) {
     switch (type_x) {
+    case internal::GGML_TYPE_Q1_0:
+        return MMQ_Q8_1_DS_LAYOUT_D4;
     case internal::GGML_TYPE_Q4_0:
     case internal::GGML_TYPE_Q4_1:
         return MMQ_Q8_1_DS_LAYOUT_DS4;

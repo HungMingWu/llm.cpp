@@ -103,6 +103,7 @@ namespace utils
         bool mmq_supported;
 
         switch (type) {
+        case GGML_TYPE_Q1_0:
         case GGML_TYPE_Q4_0:
         case GGML_TYPE_Q4_1:
         case GGML_TYPE_Q5_0:

@@ -4,10 +4,11 @@ module;
 
 module ggml:rpc.ds;
 import :ds;
+import :rpc.transport;
 
-constexpr uint8_t RPC_PROTO_MAJOR_VERSION = 3;
-constexpr uint8_t RPC_PROTO_MINOR_VERSION = 6;
-constexpr uint8_t RPC_PROTO_PATCH_VERSION = 1;
+constexpr uint8_t RPC_PROTO_MAJOR_VERSION = 4;
+constexpr uint8_t RPC_PROTO_MINOR_VERSION = 0;
+constexpr uint8_t RPC_PROTO_PATCH_VERSION = 0;
 
 // all RPC structures must be packed
 #pragma pack(push, 1)
@@ -57,10 +58,16 @@ enum rpc_cmd {
 // Try RPC_CMD_SET_TENSOR_HASH first when data size is larger than this threshold
 const size_t HASH_THRESHOLD = 10 * 1024 * 1024;
 
+struct rpc_msg_hello_req {
+    uint8_t conn_caps[RPC_CONN_CAPS_SIZE];
+};
+
 struct rpc_msg_hello_rsp {
     uint8_t major;
     uint8_t minor;
     uint8_t patch;
+    uint8_t padding;
+    uint8_t conn_caps[RPC_CONN_CAPS_SIZE];
 };
 
 struct rpc_msg_device_count_rsp {

@@ -744,6 +744,11 @@ export
     };
 
     template <>
+    struct vec_dot_trait<block_q1_0> {
+        using type = block_q8_0;
+    };
+
+    template <>
     struct vec_dot_trait<block_q4_0> {
         using type = block_q8_0;
     };

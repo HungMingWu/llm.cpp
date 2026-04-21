@@ -263,6 +263,7 @@ static __device__ __forceinline__ uint2 fast_div_modulo(uint32_t n, const uint3 
 template <typename type>
 struct ggml_cuda_type_traits;
 
+static constexpr int VDR_Q1_0_Q8_1_MMVQ = 1;  // Process one 32-element chunk at a time for parallelism
 static constexpr int VDR_Q4_0_Q8_1_MMVQ = 2;
 static constexpr int VDR_Q4_1_Q8_1_MMVQ = 2;
 static constexpr int VDR_Q5_0_Q8_1_MMVQ = 2;
@@ -284,6 +285,14 @@ static constexpr int VDR_IQ3_S_Q8_1_MMVQ = 2;
 static constexpr int VDR_IQ3_XXS_Q8_1_MMVQ = 2;
 static constexpr int VDR_IQ4_NL_Q8_1_MMVQ = 2;
 static constexpr int VDR_IQ4_XS_Q8_1_MMVQ = 4;
+
+template<>
+struct ggml_cuda_type_traits<block_q1_0> {
+    static constexpr int qk = block_q1_0::block_size;
+    static constexpr int qr = QR1_0;
+    static constexpr int qi = QI1_0;
+    static constexpr int mmvq = VDR_Q1_0_Q8_1_MMVQ;
+};
 
 template<>
 struct ggml_cuda_type_traits<block_q4_0> {

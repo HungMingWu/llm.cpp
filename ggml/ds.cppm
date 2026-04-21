@@ -276,7 +276,9 @@ export {
         // integrated GPU device using host memory
         GGML_BACKEND_DEVICE_TYPE_IGPU,
         // accelerator devices intended to be used together with the CPU backend (e.g. BLAS or AMX)
-        GGML_BACKEND_DEVICE_TYPE_ACCEL
+        GGML_BACKEND_DEVICE_TYPE_ACCEL,
+        // "meta" device wrapping multiple other devices for tensor parallelism
+        GGML_BACKEND_DEVICE_TYPE_META,
     };
 
     enum ggml_backend_type {
@@ -699,6 +701,8 @@ export {
         GGML_CGRAPH_EVAL_ORDER_COUNT
     };
 
+    uint64_t ggml_graph_next_uid();
+
     struct ggml_cgraph {
     public: // Use for develop
         std::vector<ggml_tensor*> nodes;     // tensors with data that can change if the graph is evaluated
@@ -708,6 +712,11 @@ export {
         std::unordered_map<const ggml_tensor*, int32_t> use_counts; // number of uses of each tensor
 
         enum ggml_cgraph_eval_order order = GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT;
+
+        // an optional identifier that can be utilized to recognize same graphs if two non-zero values match
+        // a value of 0 means it is not set and should be ignored
+        uint64_t uid = 0;
+
         void visit_parents_graph(ggml_tensor*, bool);
         void build_forward_impl(ggml_tensor* tensor, bool expand, bool compute);
     public:
@@ -827,9 +836,9 @@ export {
         ggml_backend* get_tensor_backend(ggml_tensor* node);
         ggml_backend* get_backend(ggml_backend* backend);
         // Split graph without allocating it
-        void split_graph(const ggml_cgraph& graph);
+        void split_graph(ggml_cgraph& graph);
         void print_assignments(const ggml_cgraph& graph);
-        ggml_status graph_compute_async(const ggml_cgraph& graph);
+        ggml_status graph_compute_async(ggml_cgraph& graph);
         bool alloc_splits();
         ggml_status compute_splits();
     public:
@@ -839,16 +848,16 @@ export {
             bool op_offload);
         void reset();
         size_t get_buffer_size(ggml_backend* backend);
-        bool reserve(const ggml_cgraph* measure_graph);
+        bool reserve(ggml_cgraph* measure_graph);
         void reserve_size(ggml_cgraph* measure_graph, size_t* sizes);
-        ggml_status graph_compute(const ggml_cgraph& graph);
+        ggml_status graph_compute(ggml_cgraph& graph);
         void set_eval_callback(ggml_backend_sched_eval_callback callback) {
             callback_eval = callback;
         }
         void set_tensor_backend(ggml_tensor* node, ggml_backend* backend);
         void dump_dot(const ggml_cgraph* graph, const char* filename);
         // not sure move to public is right direction
-        bool alloc_graph(const ggml_cgraph& graph);
+        bool alloc_graph(ggml_cgraph& graph);
         void synchronize();
         ggml_backend* get_backend() {
             // get the first backend
@@ -871,7 +880,8 @@ export {
     protected:
         virtual void set_tensor_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size);
         virtual void get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size);
-
+        virtual void set_tensor_2d_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data);
+        virtual void get_tensor_2d_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data);
         // compute graph (always async if supported by the backend)
         virtual ggml_status graph_compute_impl(ggml_cgraph* cgraph) = 0;
     public:
@@ -881,6 +891,9 @@ export {
 
         void set_tensor_async(ggml_tensor* tensor, const void* data, size_t offset, size_t size);
         void get_tensor_async(const ggml_tensor* tensor, void* data, size_t offset, size_t size);
+        void set_tensor_2d_async(ggml_tensor* tensor, const void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data);
+        void get_tensor_2d_async(const ggml_tensor* tensor, void* data, size_t offset, size_t size, size_t n_copies, size_t stride_tensor, size_t stride_data);
+
         virtual bool cpy_tensor_async(ggml_backend* backend_src, const ggml_tensor* src, ggml_tensor* dst) { return false; }
 
         // (optional) complete all pending operations (required if the backend supports async operations)
