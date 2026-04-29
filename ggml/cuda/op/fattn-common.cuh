@@ -107,12 +107,12 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ(
         ggml_cuda_memcpy_1<sizeof(tmp)>(tmp, ((const nv_bfloat162*)K_bf16) + k_KQ_0 + (threadIdx.x % nthreads)*cpy_ne);
 #pragma unroll
         for (int k_KQ_1 = 0; k_KQ_1 < cpy_ne; ++k_KQ_1) {
-#ifdef V_DOT2_F32_F16_AVAILABLE
-            // FIXME replace macros in vector FA kernel with templating and use FP32 for BF16
-            ggml_cuda_mad(sum, ggml_cuda_cast<float2>(tmp[k_KQ_1]), __half22float2(((const half2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1]));
-#else
-            ggml_cuda_mad(sum, ggml_cuda_cast<float2>(tmp[k_KQ_1]), ((const float2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1]);
-#endif // V_DOT2_F32_F16_AVAILABLE
+            if constexpr (v_dot2_f32_f16_available_v) {
+                // FIXME replace macros in vector FA kernel with templating and use FP32 for BF16
+                ggml_cuda_mad(sum, ggml_cuda_cast<float2>(tmp[k_KQ_1]), __half22float2(((const half2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1]));
+            } else {
+                ggml_cuda_mad(sum, ggml_cuda_cast<float2>(tmp[k_KQ_1]), ((const float2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1]);
+            }
         }
     }
 
@@ -337,7 +337,7 @@ static __device__ __forceinline__ void dequantize_V(const block_q4_0* __restrict
     const int8_t* q8 = (const int8_t*)&q;
 
     if constexpr (fp16_available_v && std::is_same_v<T, half>) {
-        const half2 d = __half2half2(x[ib].d);
+        const half2 d = __half2half2(std::bit_cast<half>(x[ib].d));
 
 #pragma unroll
         for (int l0 = 0; l0 < ne; l0 += 2) {
@@ -504,7 +504,7 @@ static __device__ __forceinline__ void dequantize_V(const block_q8_0* __restrict
     ggml_cuda_memcpy_1<ne, 2>(qs, x[ib].qs + iqs);
 
     if constexpr (fp16_available_v && std::is_same<T, half>::value) {
-        const half2 d = __half2half2(x[ib].d);
+        const half2 d = __half2half2(std::bit_cast<half>(x[ib].d));
 
 #pragma unroll
         for (int l0 = 0; l0 < ne; l0 += 2) {
