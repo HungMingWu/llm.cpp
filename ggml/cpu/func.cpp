@@ -4570,6 +4570,15 @@ static void ggml_compute_forward_flash_attn_ext(
 	case GGML_TYPE_Q4_0: {
 		ggml_compute_forward_flash_attn_ext_vec<V_TYPE, block_q4_0>(pool, scope, ctx, dst);
 	} break;
+	case GGML_TYPE_Q4_1: {
+		ggml_compute_forward_flash_attn_ext_vec<V_TYPE, block_q4_1>(pool, scope, ctx, dst);
+	} break;
+	case GGML_TYPE_Q5_0: {
+		ggml_compute_forward_flash_attn_ext_vec<V_TYPE, block_q5_0>(pool, scope, ctx, dst);
+	} break;
+	case GGML_TYPE_Q5_1: {
+		ggml_compute_forward_flash_attn_ext_vec<V_TYPE, block_q5_1>(pool, scope, ctx, dst);
+	} break;
 	case GGML_TYPE_Q8_0: {
 		ggml_compute_forward_flash_attn_ext_vec<V_TYPE, block_q8_0>(pool, scope, ctx, dst);
 	} break;
@@ -4596,6 +4605,15 @@ static void ggml_compute_forward_flash_attn_ext_inner(
 	} break;
 	case GGML_TYPE_Q4_0: {
 		ggml_compute_forward_flash_attn_ext<block_q4_0>(pool, scope, ctx, dst);
+	} break;
+	case GGML_TYPE_Q4_1: {
+		ggml_compute_forward_flash_attn_ext<block_q4_1>(pool, scope, ctx, dst);
+	} break;
+	case GGML_TYPE_Q5_0: {
+		ggml_compute_forward_flash_attn_ext<block_q5_0>(pool, scope, ctx, dst);
+	} break;
+	case GGML_TYPE_Q5_1: {
+		ggml_compute_forward_flash_attn_ext<block_q5_1>(pool, scope, ctx, dst);
 	} break;
 	case GGML_TYPE_Q8_0: {
 		ggml_compute_forward_flash_attn_ext<block_q8_0>(pool, scope, ctx, dst);

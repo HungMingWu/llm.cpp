@@ -28,16 +28,6 @@ constexpr size_t getnthreads_KQ_q()
     }
 }
 
-template <typename T>
-requires (std::is_same_v<T, half2> || std::is_same_v<T, float2>)
-static __device__ __forceinline__ T make_vec2(const float x, const float y) {
-    if constexpr (std::is_same_v<T, half2>) {
-        return make_half2(x, y);
-    } else {
-        return make_float2(x, y);
-    }
-}
-
 // Currently llvm with the amdgcn target does not support unrolling loops
 // that contain a break that can not be resolved at compile time.
 #ifdef __clang__
@@ -295,14 +285,14 @@ static __global__ void flash_attn_ext_vec(
                     half2 tmp[V_rows_per_thread / 2];
                     if constexpr (std::is_same_v<type_V, nv_bfloat16>) {
                         float2 tmp_f[V_rows_per_thread / 2];
-                        dequantize_V<V_rows_per_thread>((type_V*)(V + k * nb21), (float*)tmp_f,
+                        dequantize_V<V_rows_per_thread>((type_V*)(V + k * nb21), tmp_f,
                             2 * i_VKQ_0 * nthreads_V + (nthreads_V == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_V) * V_rows_per_thread);
 #pragma unroll
                         for (int i_VKQ_1 = 0; i_VKQ_1 < V_rows_per_thread/2; ++i_VKQ_1) {
                             tmp[i_VKQ_1] = __float22half2_rn(tmp_f[i_VKQ_1]);
                         }
                     } else {
-                        dequantize_V<V_rows_per_thread>((type_V*)(V + k * nb21), (t1*)tmp,
+                        dequantize_V<V_rows_per_thread>((type_V*)(V + k * nb21), tmp,
                             2 * i_VKQ_0 * nthreads_V + (nthreads_V == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_V) * V_rows_per_thread);
                     }
 #pragma unroll
@@ -322,7 +312,7 @@ static __global__ void flash_attn_ext_vec(
 #pragma unroll
                 for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2 / nthreads_V; i_VKQ_0 += V_rows_per_thread / 2) {
                     float2 tmp[V_rows_per_thread / 2];
-                    dequantize_V<V_rows_per_thread>((type_V*)(V + k * nb21), (t1*)tmp,
+                    dequantize_V<V_rows_per_thread>((type_V*)(V + k * nb21), tmp,
                         2 * i_VKQ_0 * nthreads_V + (nthreads_V == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_V) * V_rows_per_thread);
 #pragma unroll
                     for (int i_VKQ_1 = 0; i_VKQ_1 < V_rows_per_thread / 2; ++i_VKQ_1) {

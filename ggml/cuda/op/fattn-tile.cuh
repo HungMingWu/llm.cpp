@@ -347,16 +347,6 @@ static __device__ __forceinline__ T from_half2(const half2 v) {
     }
 }
 
-template <typename T>
-requires (std::is_same_v<T, half2> || std::is_same_v<T, float2>)
-static __device__ __forceinline__ T make_vec2(const float x, const float y) {
-    if constexpr (std::is_same_v<T, half2>) {
-        return make_half2(x, y);
-    } else {
-        return make_float2(x, y);
-    }
-}
-
 template <typename T_vec, typename T_scalar>
 requires (std::is_same_v<T_scalar, float> || std::is_same_v<T_scalar, half>) &&
          (std::is_same_v<T_vec, half2> || std::is_same_v<T_vec, float2>)

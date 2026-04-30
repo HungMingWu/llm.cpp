@@ -5,6 +5,7 @@
 #include "convert.cuh"
 #include "cuda_func.h"
 #include "vecdotq.cuh"
+#include "float2_overload.cuh"
 
 static constexpr size_t FATTN_KQ_STRIDE_TILE_F32 = 32;
 static constexpr int64_t FATTN_KQ_STRIDE = 256;
@@ -64,6 +65,16 @@ static __device__ __forceinline__ half2 __tohalf21(uint32_t value)
 {
     const auto [x, y] = std::bit_cast<std::array<half, 2>>(value);
     return half2(x, y);
+}
+
+template <typename T>
+requires (std::is_same_v<T, half2> || std::is_same_v<T, float2>)
+static __device__ __forceinline__ T make_vec2(const float x, const float y) {
+    if constexpr (std::is_same_v<T, half2>) {
+        return make_half2(x, y);
+    } else {
+        return make_float2(x, y);
+    }
 }
 
 template <int D, int nthreads>
@@ -287,40 +298,47 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ(
     return sum;
 }
 
-template <int ne, typename T>
+template <typename T>
+concept dequantize_type = (std::same_as<T, half2> && fp16_available_v) || std::same_as<T, float2>;
+
+template <int ne, dequantize_type T>
 static __device__ __forceinline__ void dequantize_V(const half* __restrict__ x, T* __restrict__ dst, const int64_t i0) {
-    if constexpr (std::is_same_v<T, half>) {
-        ggml_cuda_memcpy_1<ne * sizeof(half)>(dst, x + i0);
-    }
-    else if constexpr (std::is_same_v<T, float>) {
-        static_assert(ne % 2 == 0, "bad ne");
-        __align__(16) half2 tmp[ne / 2];
-        ggml_cuda_memcpy_1<ne * sizeof(half)>(tmp, x + i0);
-        float2* dst_f2 = (float2*)dst;
-#pragma unroll
-        for (int l = 0; l < ne / 2; ++l) {
-            dst_f2[l] = __half22float2(tmp[l]);
-        }
-    }
-    else {
-        static_assert(std::is_same_v<T, void>, "unsupported type");
-    }
-}
-
-template <int ne, typename T>
-static __device__ __forceinline__ void dequantize_V(const nv_bfloat16* __restrict__ x, T* __restrict__ dst, const int64_t i0) {
-    static_assert(std::is_same_v<T, float>, "BF16 V dequantization only supports float output");
     static_assert(ne % 2 == 0, "bad ne");
-    __align__(16) nv_bfloat162 tmp[ne/2];
-    ggml_cuda_memcpy_1<ne*sizeof(nv_bfloat16)>(tmp, x + i0);
-    float2 * dst_f2 = (float2 *) dst;
 #pragma unroll
-    for (int l = 0; l < ne/2; ++l) {
-        dst_f2[l] = ggml_cuda_cast<float2>(tmp[l]);
+    for (int l = 0; l < ne; l += 2) {
+        const auto value = [&]() {
+            half2 value = *(half2*)(x + i0 + l);
+            if constexpr (std::is_same_v<T, half2>) {
+                return value;
+            } else {
+                return __half22float2(value);
+            }
+        }();
+        dst[l / 2] = value;
     }
 }
 
-template <int ne, typename T>
+template <int ne>
+static __device__ __forceinline__ void dequantize_V(const nv_bfloat16* __restrict__ x, float2* __restrict__ dst, const int64_t i0) {
+    static_assert(ne % 2 == 0, "bad ne");
+#pragma unroll
+    for (int l = 0; l < ne; l += 2) {
+        dst[l / 2] = __bfloat1622float2(*(nv_bfloat162*)(x + i0 + l));
+    }
+}
+
+template <typename T>
+static __device__ __forceinline__ auto make_d(uint16_t d)
+{
+    half2 d_value = __half2half2(std::bit_cast<half>(d));
+    if constexpr (std::is_same_v<T, half2>) {
+        return d_value;
+    } else {
+        return __half22float2(d_value);
+    }
+}
+
+template <int ne, dequantize_type T>
 static __device__ __forceinline__ void dequantize_V(const block_q4_0* __restrict__ x, T* __restrict__ dst, const int64_t i0) {
 	constexpr size_t QK4_0 = block_q4_0::block_size;
     const int64_t ib = i0 / QK4_0;
@@ -335,28 +353,31 @@ static __device__ __forceinline__ void dequantize_V(const block_q4_0* __restrict
     q = __vsubss4(q, 0x08080808);
 
     const int8_t* q8 = (const int8_t*)&q;
-
-    if constexpr (fp16_available_v && std::is_same_v<T, half>) {
-        const half2 d = __half2half2(std::bit_cast<half>(x[ib].d));
+    const auto d = make_d<T>(x[ib].d);
 
 #pragma unroll
-        for (int l0 = 0; l0 < ne; l0 += 2) {
-            ((half2*)dst)[l0 / 2] = d * make_half2(q8[l0 + 0], q8[l0 + 1]);
-        }
-    } else if constexpr (std::is_same_v<T, float>) {
-        const float d = __half2float(x[ib].d);
-
-#pragma unroll
-        for (int l = 0; l < ne; ++l) {
-            ((float*)dst)[l] = d * q8[l];
-        }
-    }
-    else {
-        static_assert(std::is_same_v<T, void>, "bad type");
+    for (int l0 = 0; l0 < ne; l0 += 2) {
+        dst[l0 / 2] = d * make_vec2<T>(q8[l0 + 0], q8[l0 + 1]);
     }
 }
 
-template <int ne, typename T>
+template <typename T1, typename T2>
+struct DevicePair {
+    T1 first;
+    T2 second;
+};
+
+template <typename T>
+static __device__ __forceinline__ DevicePair<T, T> broadcast(T dm)
+{
+    if constexpr (std::is_same_v<T, half2>) {
+        return { __half2half2(__low2half(dm)), __half2half2(__high2half(dm)) };
+    } else {
+        return { make_float2(dm.x, dm.x), make_float2(dm.y, dm.y) };
+    }
+}
+
+template <int ne, dequantize_type T>
 static __device__ __forceinline__ void dequantize_V(const block_q4_1* __restrict__ x, T* __restrict__ dst, const int64_t i0) {
     constexpr size_t QK4_1 = block_q4_1::block_size;
     const int64_t ib = i0 / QK4_1;
@@ -371,29 +392,22 @@ static __device__ __forceinline__ void dequantize_V(const block_q4_1* __restrict
 
     const int8_t* q8 = (const int8_t*)&q;
 
-    if constexpr (fp16_available_v && std::is_same_v<T, half>) {
-        const half2 dm = __tohalf2(x[ib].dm);
-        const half2 d = __half2half2(__low2half(dm));
-        const half2 m = __half2half2(__high2half(dm));
+    const auto dm = [&]() {
+        if constexpr (std::is_same_v<T, half2>) {
+            return __tohalf2(x[ib].dm);
+        } else {
+            return __half22float2(x[ib].dm);
+        }
+    }();
+    const auto [d, m] = broadcast(dm);
 
 #pragma unroll
-        for (int l0 = 0; l0 < ne; l0 += 2) {
-            ((half2*)dst)[l0 / 2] = d * make_half2(q8[l0 + 0], q8[l0 + 1]) + m;
-        }
-    } else if constexpr (std::is_same_v<T, float>) {
-        const float2 dm = __half22float2(x[ib].dm);
-
-#pragma unroll
-        for (int l = 0; l < ne; ++l) {
-            ((float*)dst)[l] = dm.x * q8[l] + dm.y;
-        }
-    }
-    else {
-        static_assert(std::is_same_v<T, void>, "bad type");
+    for (int l0 = 0; l0 < ne; l0 += 2) {
+        dst[l0 / 2] = d * make_vec2<T>(q8[l0 + 0], q8[l0 + 1]) + m;
     }
 }
 
-template <int ne, typename T>
+template <int ne, dequantize_type T>
 static __device__ __forceinline__ void dequantize_V(const block_q5_0* __restrict__ x, T* __restrict__ dst, const int64_t i0) {
     constexpr size_t QK5_0 = block_q5_0::block_size;
     const int64_t ib = i0 / QK5_0;
@@ -419,31 +433,15 @@ static __device__ __forceinline__ void dequantize_V(const block_q5_0* __restrict
     q = __vsubss4(q, 0x10101010);
 
     const int8_t* q8 = (const int8_t*)&q;
-
-    if constexpr (fp16_available_v && std::is_same_v<T, half>) {
-        const half2 d = __half2half2(x[ib].d);
+    const auto d = make_d<T>(x[ib].d);
 
 #pragma unroll
-        for (int l0 = 0; l0 < ne; l0 += 2) {
-            ((half2*)dst)[l0 / 2] = d * make_half2(q8[l0 + 0], q8[l0 + 1]);
-        }
-    }
-    else {
-        if constexpr (std::is_same_v<T, float>) {
-            const float d = __half2float(x[ib].d);
-
-#pragma unroll
-            for (int l = 0; l < ne; ++l) {
-                ((float*)dst)[l] = d * q8[l];
-            }
-        }
-        else {
-            static_assert(std::is_same_v<T, void>, "bad type");
-        }
+    for (int l0 = 0; l0 < ne; l0 += 2) {
+        dst[l0 / 2] = d * make_vec2<T>(q8[l0 + 0], q8[l0 + 1]);
     }
 }
 
-template <int ne, typename T>
+template <int ne, dequantize_type T>
 static __device__ __forceinline__ void dequantize_V(const block_q5_1* __restrict__ x, T* __restrict__ dst, const int64_t i0) {
     constexpr size_t QK5_1 = block_q5_1::block_size;
     const int64_t ib = i0 / QK5_1;
@@ -468,32 +466,22 @@ static __device__ __forceinline__ void dequantize_V(const block_q5_1* __restrict
 
     const int8_t* q8 = (const int8_t*)&q;
 
-    if constexpr (fp16_available_v && std::is_same_v<T, half>) {
-        const half2 dm = __tohalf2(x[ib].dm);
-        const half2 d = __half2half2(__low2half(dm));
-        const half2 m = __half2half2(__high2half(dm));
+    const auto dm = [&]() {
+        if constexpr (std::is_same_v<T, half2>) {
+            return __tohalf2(x[ib].dm);
+        } else {
+            return __half22float2(x[ib].dm);
+        }
+    }();
+    const auto [d, m] = broadcast(dm);
 
 #pragma unroll
-        for (int l0 = 0; l0 < ne; l0 += 2) {
-            ((half2*)dst)[l0 / 2] = d * make_half2(q8[l0 + 0], q8[l0 + 1]) + m;
-        }
-    }
-    else {
-        if constexpr (std::is_same_v<T, float>) {
-            const float2 dm = __half22float2(x[ib].dm);
-
-#pragma unroll
-            for (int l = 0; l < ne; ++l) {
-                ((float*)dst)[l] = dm.x * q8[l] + dm.y;
-            }
-        }
-        else {
-            static_assert(std::is_same_v<T, void>, "bad type");
-        }
+    for (int l0 = 0; l0 < ne; l0 += 2) {
+        dst[l0 / 2] = d * make_vec2<T>(q8[l0 + 0], q8[l0 + 1]) + m;
     }
 }
 
-template <int ne, typename T>
+template <int ne, dequantize_type T>
 static __device__ __forceinline__ void dequantize_V(const block_q8_0* __restrict__ x, T* __restrict__ dst, const int64_t i0) {
     constexpr size_t QK8_0 = block_q8_0::block_size;
     const int64_t ib = i0 / QK8_0;
@@ -502,25 +490,11 @@ static __device__ __forceinline__ void dequantize_V(const block_q8_0* __restrict
     static_assert(ne % 2 == 0, "bad ne");
     int8_t qs[ne];
     ggml_cuda_memcpy_1<ne, 2>(qs, x[ib].qs + iqs);
-
-    if constexpr (fp16_available_v && std::is_same<T, half>::value) {
-        const half2 d = __half2half2(std::bit_cast<half>(x[ib].d));
+    const auto d = make_d<T>(x[ib].d);
 
 #pragma unroll
-        for (int l0 = 0; l0 < ne; l0 += 2) {
-            ((half2*)dst)[l0 / 2] = d * make_half2(qs[l0 + 0], qs[l0 + 1]);
-        }
-    }
-    else if constexpr (std::is_same<T, float>::value) {
-        const float d = std::bit_cast<half>(x[ib].d);
-
-#pragma unroll
-        for (int l = 0; l < ne; ++l) {
-            ((float*)dst)[l] = d * qs[l];
-        }
-    }
-    else {
-        static_assert(std::is_same_v<T, void>, "unsupported type");
+    for (int l0 = 0; l0 < ne; l0 += 2) {
+        dst[l0 / 2] = d * make_vec2<T>(qs[l0 + 0], qs[l0 + 1]);
     }
 }
 
