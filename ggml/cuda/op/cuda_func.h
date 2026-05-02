@@ -41,7 +41,7 @@ void quantize_mmq_q8_1_cuda(
     internal::ggml_type  type_src0, int64_t ne00, int64_t s01, int64_t s02, int64_t s03,
     int64_t ne0, int64_t ne1, int64_t ne2, int64_t ne3, cudaStream_t stream);
 
-void quantize_mmq_mxfp4_cuda(const float* x,
+void quantize_mmq_fp4_cuda(const float* x,
     const int32_t* ids,
     void* vy,
     const internal::ggml_type       type_src0,
@@ -151,6 +151,7 @@ void silu_cuda(const unary_context &ctx);
 void gelu_quick_cuda(const unary_context &ctx);
 void tanh_cuda(const unary_context &ctx);
 void relu_cuda(const unary_context &ctx);
+void relu_sqr_cuda(const unary_context& ctx);
 void sigmoid_cuda(const unary_context &ctx);
 void hardsigmoid_cuda(const unary_context &ctx);
 void hardswish_cuda(const unary_context &ctx);

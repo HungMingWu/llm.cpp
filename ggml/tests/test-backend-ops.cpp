@@ -3317,10 +3317,10 @@ struct test_cont : public test_case {
 // GGML_OP_SUB
 // GGML_OP_MUL
 // GGML_OP_DIV
-struct test_bin_bcast : public test_case {
+template <bool inplace>
+struct test_base_bin_bcast : public test_case {
     using op_t = ggml_tensor * (*) (ggml_context*, ggml_tensor*, ggml_tensor*, bool);
     op_t op;
-    bool inplace;
     const ggml_type type;
     const std::array<int64_t, 4> ne;
     const std::array<int, 4> nr;
@@ -3331,19 +3331,20 @@ struct test_bin_bcast : public test_case {
     bool run_whole_graph() override { return nf > 1; }
 
     std::string vars() override {
-        return std::format("type={},ne={},nr={},nf={},perm1={}", type, ne, nr, nf, static_cast<int>(perm1));
+        return std::format("type={},ne={},nr={},nf={},perm1={},src_overlap={}",
+            type, ne, nr, nf, static_cast<int>(perm1), static_cast<int>(src_overlap));
     }
 
     size_t op_size(ggml_tensor* t) override {
         return t->nbytes() * 3;
     }
 
-    test_bin_bcast(op_t op, bool inplace, ggml_type type = GGML_TYPE_F32,
+    test_base_bin_bcast(op_t op, ggml_type type = GGML_TYPE_F32,
         std::array<int64_t, 4> ne = { 10, 10, 1, 1 },
         std::array<int, 4> nr = { 1, 2, 1, 1 },
         int nf = 1,
         bool perm1 = false, bool src_overlap = false)
-        : op(op), inplace(inplace), type(type), ne(ne), nr(nr), nf(nf), perm1(perm1), src_overlap(src_overlap) {
+        : op(op), type(type), ne(ne), nr(nr), nf(nf), perm1(perm1), src_overlap(src_overlap) {
     }
 
     ggml_tensor* build_graph(ggml_context* ctx) override {
@@ -3418,6 +3419,9 @@ struct test_bin_bcast : public test_case {
         return op == ggml_add ? 1e-4 : 1e-3;
     }
 };
+
+using test_bin_bcast = test_base_bin_bcast<false>;
+using test_bin_bcast_inplace = test_base_bin_bcast<true>;
 
 // GGML_OP_ADD_ID
 struct test_add_id : public test_case {
@@ -3913,6 +3917,42 @@ struct test_silu_back : public test_case {
     }
 };
 
+
+// GGML_OP_UNARY(RELU) + GGML_OP_SQR (fused operation)
+struct test_relu_sqr : public test_case {
+    const ggml_type type;
+    const std::array<int64_t, 4> ne;
+
+    std::string op_desc(ggml_tensor*) override {
+        return "RELU_SQR";
+    }
+
+    bool run_whole_graph() override { return true; }
+
+    std::string vars() override {
+        return std::format("type={},ne={}", type, ne);
+    }
+
+    test_relu_sqr(ggml_type type = GGML_TYPE_F32,
+        std::array<int64_t, 4> ne = { 128, 2, 2, 2 })
+        : type(type), ne(ne) {
+    }
+
+    ggml_tensor* build_graph(ggml_context* ctx) override {
+        ggml_tensor* a = ggml_new_tensor(ctx, type, ne);
+        a->set_name("a");
+
+        ggml_tensor* r = ggml_relu(ctx, a, false);
+        r->set_name("relu");
+
+        ggml_tensor* out = ggml_sqr(ctx, r, false);
+        out->set_name("out");
+
+        return out;
+    }
+};
+
+// GGML_OP_SSM_CONV
 struct test_ssm_conv : public test_case {
     const ggml_type type;
     const std::array<int64_t, 4> ne_a;
@@ -3946,10 +3986,11 @@ struct test_ssm_scan : public test_case {
     const int64_t n_group;
     const int64_t n_seq_tokens;
     const int64_t n_seqs;
+    const bool    xbc_overlap;
 
     std::string vars() override {
-        return std::format("type={},d_state={},head_dim={},n_head={},n_group={},n_seq_tokens={},n_seqs={}",
-            type, d_state, head_dim, n_head, n_group, n_seq_tokens, n_seqs);
+        return std::format("type={},d_state={},head_dim={},n_head={},n_group={},n_seq_tokens={},n_seqs={},xbc_overlap={}",
+            type, d_state, head_dim, n_head, n_group, n_seq_tokens, n_seqs, static_cast<int>(xbc_overlap));
     }
 
     test_ssm_scan(ggml_type type = GGML_TYPE_F32,
@@ -3958,17 +3999,34 @@ struct test_ssm_scan : public test_case {
         int64_t n_head = 32,
         int64_t n_group = 1,
         int64_t n_seq_tokens = 32,
-        int64_t n_seqs = 32)
-        : type(type), d_state(d_state), head_dim(head_dim), n_head(n_head), n_group(n_group), n_seq_tokens(n_seq_tokens), n_seqs(n_seqs) {
+        int64_t n_seqs = 32,
+        bool xbc_overlap = false)
+        : type(type), d_state(d_state), head_dim(head_dim), n_head(n_head), n_group(n_group), n_seq_tokens(n_seq_tokens), n_seqs(n_seqs), xbc_overlap(xbc_overlap) {
     }
+
 
     ggml_tensor* build_graph(ggml_context* ctx) override {
         ggml_tensor* s = ggml_new_tensor(ctx, type, d_state, head_dim, n_head, n_seqs);
-        ggml_tensor* x = ggml_new_tensor(ctx, type, head_dim, n_head, n_seq_tokens, n_seqs);
         ggml_tensor* dt = ggml_new_tensor(ctx, type, n_head, n_seq_tokens, n_seqs);
         ggml_tensor* A = ggml_new_tensor(ctx, type, (head_dim > 1) ? 1 : d_state, n_head);
-        ggml_tensor* B = ggml_new_tensor(ctx, type, d_state, n_group, n_seq_tokens, n_seqs);
-        ggml_tensor* C = ggml_new_tensor(ctx, type, d_state, n_group, n_seq_tokens, n_seqs);
+        ggml_tensor* x;
+        ggml_tensor* B;
+        ggml_tensor* C;
+
+        if (xbc_overlap) {
+            ggml_tensor* xbc = ggml_new_tensor(ctx, type, d_state, n_head, n_seq_tokens, 2 * n_seqs);
+            x = ggml_view(ctx, xbc, { head_dim, n_head, n_seq_tokens, n_seqs },
+                { xbc->nb[1], xbc->nb[2], xbc->nb[3] }, xbc->nb[3]);
+            B = ggml_view(ctx, xbc, { d_state, n_group, n_seq_tokens, n_seqs },
+                { xbc->nb[1], xbc->nb[2], xbc->nb[3] }, 0);
+            C = ggml_view(ctx, xbc, { d_state, n_group, n_seq_tokens, n_seqs },
+                { xbc->nb[1], xbc->nb[2], xbc->nb[3] }, 2 * xbc->nb[3]);
+        }
+        else {
+            x = ggml_new_tensor(ctx, type, head_dim, n_head, n_seq_tokens, n_seqs);
+            B = ggml_new_tensor(ctx, type, d_state, n_group, n_seq_tokens, n_seqs);
+            C = ggml_new_tensor(ctx, type, d_state, n_group, n_seq_tokens, n_seqs);
+        }
         ggml_tensor* ids = ggml_new_tensor(ctx, GGML_TYPE_I32, n_seqs);
         ggml_tensor* out = ggml_ssm_scan(ctx, s, x, dt, A, B, C, ids);
         return out;
@@ -4167,7 +4225,7 @@ struct test_mul_mat : public test_case {
 
     double max_nmse_err(ggml_backend* backend) override {
         // for blackwell we quantize activations to mxfp4 instead of q8_1 so we add higher tolerance
-        if (type_a == GGML_TYPE_MXFP4 && backend_has_feature(backend, "BLACKWELL_NATIVE_FP4")) {
+        if ((type_a == GGML_TYPE_MXFP4 || type_a == GGML_TYPE_NVFP4) && backend_has_feature(backend, "BLACKWELL_NATIVE_FP4")) {
             return 2e-2;
         }
         return max_nmse_err();
@@ -4299,6 +4357,14 @@ struct test_mul_mat_id : public test_case {
 
     double max_nmse_err() override {
         return 5e-4;
+    }
+
+    double max_nmse_err(ggml_backend* backend) override {
+        // for blackwell we quantize activations to mxfp4 instead of q8_1 so we add higher tolerance
+        if ((type_a == GGML_TYPE_MXFP4 || type_a == GGML_TYPE_NVFP4) && backend_has_feature(backend, "BLACKWELL_NATIVE_FP4")) {
+            return 2e-2;
+        }
+        return max_nmse_err();
     }
 
     uint64_t op_flops(ggml_tensor*) override {
@@ -7288,6 +7354,12 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         }
     }
 
+    // fused relu + sqr (squared ReLU)
+    for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
+        test_cases.emplace_back(new test_relu_sqr(type, { 128, 2, 2, 2 }));
+        test_cases.emplace_back(new test_relu_sqr(type, { 5, 7, 11, 13 }));
+    }
+
     // glu ops
     for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
         for (int v : {0, 1}) {
@@ -7769,7 +7841,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
 
     auto add_test_bin_bcast = [&](ggml_type type, std::array<int64_t, 4> ne, std::array<int, 4> nr, bool perm1 = false, bool src_overlap = false) {
         for (auto op : { ggml_add, ggml_sub, ggml_mul, ggml_div }) {
-            test_cases.emplace_back(new test_bin_bcast(op, false, type, ne, nr, 1, perm1, src_overlap));
+            test_cases.emplace_back(new test_bin_bcast(op, type, ne, nr, 1, perm1, src_overlap));
         }
     };
     for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
@@ -7818,20 +7890,20 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     }
 
     // single inplace tests, especially important for WebGPU backend since kernels for inplace vs. not are different
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, true, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
-    test_cases.emplace_back(new test_bin_bcast(ggml_mul, true, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
-    test_cases.emplace_back(new test_bin_bcast(ggml_sub, true, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
-    test_cases.emplace_back(new test_bin_bcast(ggml_div, true, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
+    test_cases.emplace_back(new test_bin_bcast_inplace(ggml_add, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
+    test_cases.emplace_back(new test_bin_bcast_inplace(ggml_mul, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
+    test_cases.emplace_back(new test_bin_bcast_inplace(ggml_sub, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
+    test_cases.emplace_back(new test_bin_bcast_inplace(ggml_div, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
 
     // fusion
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 2, 1, 1, 1 }, 2));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 2, 1, 1 }, 3));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 1, 2, 1 }, 4));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 2 }, 5));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 1, 2, 2 }, 6));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 2, 2, 2 }, 7));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 2, 2, 2, 2 }, 8));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 2, 1, 1, 1 }, 2));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 2, 1, 1 }, 3));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 1, 2, 1 }, 4));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 2 }, 5));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 1, 2, 2 }, 6));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 10, 5, 4, 3 }, { 1, 2, 2, 2 }, 7));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 2, 2, 2, 2 }, 8));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 16, 5, 4, 3 }, { 1, 1, 1, 1 }, 16));
 
     test_cases.emplace_back(new test_scale());
     test_cases.emplace_back(new test_scale(GGML_TYPE_F32, { 10, 10, 10, 10 }, 2.0f, 1.0f));
@@ -7901,6 +7973,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 16, 1, 1024, 1, 32, 4)); // Mamba-1
     test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2, 32, 4)); // Mamba-2
     test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 256, 64, 8, 2, 32, 4)); // Falcon-H1
+    test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 128, 4, 4, 16, 2, true)); // x/B/C overlap
 
     test_cases.emplace_back(new test_rwkv_wkv6(GGML_TYPE_F32, 32, 64, 1, 1));
     test_cases.emplace_back(new test_rwkv_wkv6(GGML_TYPE_F32, 32, 64, 32, 1));
@@ -8719,8 +8792,8 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
         }
     }
 
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 4096, 1, 1, 1 }, { 1,   1, 1, 1 }));
-    test_cases.emplace_back(new test_bin_bcast(ggml_add, false, GGML_TYPE_F32, { 4096, 1, 1, 1 }, { 1, 512, 1, 1 }));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 4096, 1, 1, 1 }, { 1,   1, 1, 1 }));
+    test_cases.emplace_back(new test_bin_bcast(ggml_add, GGML_TYPE_F32, { 4096, 1, 1, 1 }, { 1, 512, 1, 1 }));
 
     test_cases.emplace_back(new test_cpy(GGML_TYPE_F32, GGML_TYPE_F16, { 512, 3072, 1, 1 }));
     test_cases.emplace_back(new test_cpy(GGML_TYPE_F32, GGML_TYPE_F32, { 8192, 512, 2, 1 }, { 0, 2, 1, 3 }));

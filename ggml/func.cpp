@@ -34,7 +34,7 @@ size_t ggml_quantize_chunk(
 	int64_t   nrows,
 	int64_t   n_per_row,
 	const float* imatrix) {
-    const int64_t n = (int64_t)nrows * n_per_row;
+    const int64_t n = nrows * n_per_row;
 
     if (ggml_quantize_requires_imatrix(type)) {
         GGML_ASSERT(imatrix != nullptr);

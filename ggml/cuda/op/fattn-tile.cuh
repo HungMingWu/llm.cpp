@@ -69,6 +69,8 @@ static constexpr __host__ __device__ uint32_t ggml_cuda_fattn_tile_get_config_nv
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 16, 256, 2,  64,  64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 32, 256, 2,  64,  64)
 
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(320, 256, 32, 256, 2,  64,  64)
+
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512,  4, 128, 2,  64,  64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512,  8, 256, 2,  64,  64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512, 16, 256, 2,  64,  64)
@@ -128,6 +130,8 @@ static constexpr __host__ __device__ uint32_t ggml_cuda_fattn_tile_get_config_nv
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256,  8, 256, 2,  32, 256)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 16, 256, 2,  32, 128)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 32, 256, 2,  32,  64)
+
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(320, 256, 32, 256, 2,  32,  64)
 
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512,  4, 128, 2,  32,  64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512,  8, 256, 2,  32,  64)
@@ -195,6 +199,8 @@ static constexpr __host__ __device__ uint32_t ggml_cuda_fattn_tile_get_config_am
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256,  8, 256, 2,  64, 128)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 16, 256, 2,  32, 128)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 32, 256, 2,  32, 128)
+
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(320, 256, 32, 512, 1, 128,  64)
 
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512,  4, 128, 2,  64,  64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512,  8, 256, 2,  64,  64)
@@ -264,6 +270,8 @@ static constexpr __host__ __device__ uint32_t ggml_cuda_fattn_tile_get_config_am
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256,  8, 128, 6,  32, 256)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 16, 256, 5,  32, 256)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 32, 256, 3,  64, 128)
+
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(320, 256, 32, 256, 2, 128,  64)
 
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512,  4, 128, 2,  64,  64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512,  8, 256, 2,  64,  64)
@@ -1014,14 +1022,16 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
         }
     }
 
-    if (ctx.Q.ne[1] > 8 / ncols2) {
-        constexpr int cols_per_block = 16;
-        const int nwarps = ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, cols_per_block, cc) / warp_size;
-        const int nbatch_fa = ggml_cuda_fattn_tile_get_nbatch_fa(DKQ, DV, cols_per_block, cc);
-        fattn_kernel_t fattn_kernel = flash_attn_tile<DKQ, DV, cols_per_block / ncols2, ncols2, use_logit_softcap>;
-        launch_fattn<DV, cols_per_block / ncols2, ncols2>
+    if constexpr (ncols2 <= 16) {
+        if (ctx.Q.ne[1] > 8 / ncols2) {
+            constexpr int cols_per_block = 16;
+            const int nwarps = ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, cols_per_block, cc) / warp_size;
+            const int nbatch_fa = ggml_cuda_fattn_tile_get_nbatch_fa(DKQ, DV, cols_per_block, cc);
+            fattn_kernel_t fattn_kernel = flash_attn_tile<DKQ, DV, cols_per_block / ncols2, ncols2, use_logit_softcap>;
+            launch_fattn<DV, cols_per_block / ncols2, ncols2>
             (ctx, fattn_kernel, nwarps, nbytes_shared, nbatch_fa, true, true, false, warp_size);
-        return;
+            return;
+        }
     }
 
     if constexpr (ncols2 <= 8) {
@@ -1072,6 +1082,14 @@ static void launch_fattn_tile_switch_ncols2(const flash_attn_ext_context& ctx) {
     const int gqa_limit = nvidia && gqa_ratio <= 4 && DV <= 256 ? 16 : INT_MAX;
     const bool use_gqa_opt = ctx.mask.exist && ctx.max_bias == 0.0f && ctx.Q.ne[1] <= gqa_limit && ctx.K.ne1 % FATTN_KQ_STRIDE == 0;
 
+    if constexpr (DKQ == 320) { // Mistral Small 4
+        if (use_gqa_opt && gqa_ratio % 32 == 0) {
+            launch_fattn_tile_switch_ncols1<DKQ, DV, 32, use_logit_softcap>(ctx);
+            return;
+        }
+        GGML_ABORT("flash-attn tile (320/256): expected GQA ratio multiple of 32");
+    }
+
     if constexpr (DV == 576) {
         if (use_gqa_opt && gqa_ratio % 16 == 0) {
             launch_fattn_tile_switch_ncols1<DKQ, DV, 16, use_logit_softcap>(ctx);
@@ -1083,7 +1101,7 @@ static void launch_fattn_tile_switch_ncols2(const flash_attn_ext_context& ctx) {
         }
     }
 
-    if constexpr (DV <= 512) {
+    if constexpr (DKQ <= 512 && DKQ != 320) {
         if (use_gqa_opt && gqa_ratio % 8 == 0) {
             launch_fattn_tile_switch_ncols1<DKQ, DV, 8, use_logit_softcap>(ctx);
             return;

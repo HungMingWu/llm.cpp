@@ -256,6 +256,19 @@ void ggml_cuda_flash_attn_ext_mma_f16(const flash_attn_ext_context& ctx) {
         GGML_ASSERT(ctx.V.ne0 == 256);
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2<256, 256>(ctx);
         break;
+    case 320:
+        // For Mistral Small 4, go straight to the ncols1 switch (ncols2=32-only build).
+        GGML_ASSERT(ctx.V.ne0 == 256);
+        {
+            const bool use_gqa_opt = ctx.mask.exist && ctx.max_bias == 0.0f;
+            GGML_ASSERT(use_gqa_opt);
+            GGML_ASSERT(ctx.Q.ne[2] % ctx.K.ne2 == 0);
+            const int gqa_ratio = ctx.Q.ne[2] / ctx.K.ne2;
+            GGML_ASSERT(gqa_ratio % 32 == 0);
+
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<320, 256, 32>(ctx);
+        }
+        break;
     case 512:
         GGML_ASSERT(ctx.V.ne0 == 512);
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2<512, 512>(ctx);

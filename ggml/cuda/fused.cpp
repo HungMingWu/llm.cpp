@@ -700,6 +700,30 @@ namespace fused
             return true;
         }
 
+        if (ops.size() == 2 && ops.begin()[0] == GGML_OP_UNARY && ops.begin()[1] == GGML_OP_SQR
+            && unary_ops.size() == 1 && unary_ops.begin()[0] == GGML_UNARY_OP_RELU) {
+            const ggml_tensor* unary = cgraph->nodes[node_idx];
+            const ggml_tensor* sqr = cgraph->nodes[node_idx + 1];
+
+            if (ggml_get_unary_op(unary) != GGML_UNARY_OP_RELU) {
+                return false;
+            }
+
+            if (unary->type != GGML_TYPE_F32 && unary->type != GGML_TYPE_F16) {
+                return false;
+            }
+
+            if (unary->type != sqr->type) {
+                return false;
+            }
+
+            if (!ggml_is_contiguous(unary->src[0])) {
+                return false;
+            }
+
+            return true;
+        }
+
         if (ops.size() == 3 && ops.begin()[0] == GGML_OP_SCALE && ops.begin()[1] == GGML_OP_UNARY && ops.begin()[2] == GGML_OP_SCALE
             && unary_ops.size() == 1 && unary_ops.begin()[0] == GGML_UNARY_OP_TANH) {
             const ggml_tensor* scale = cgraph->nodes[node_idx];

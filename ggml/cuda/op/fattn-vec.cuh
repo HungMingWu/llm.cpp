@@ -278,7 +278,7 @@ static __global__ void flash_attn_ext_vec(
                 half2 KQ_k[ncols];
 #pragma unroll
                 for (int j = 0; j < ncols; ++j) {
-                    KQ_k[j] = __half2half2(KQ[j * nthreads + k]);
+                    KQ_k[j] = make_vec2<half2>(KQ[j * nthreads + k], KQ[j * nthreads + k]);
                 }
 #pragma unroll
                 for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2 / nthreads_V; i_VKQ_0 += V_rows_per_thread / 2) {
@@ -299,15 +299,15 @@ static __global__ void flash_attn_ext_vec(
                     for (int i_VKQ_1 = 0; i_VKQ_1 < V_rows_per_thread / 2; ++i_VKQ_1) {
 #pragma unroll
                         for (int j = 0; j < ncols; ++j) {
-                            VKQ(j, i_VKQ_0 + i_VKQ_1) += tmp[i_VKQ_1] * KQ_k[j];
+                            VKQ(j, i_VKQ_0 + i_VKQ_1) = VKQ(j, i_VKQ_0 + i_VKQ_1) + tmp[i_VKQ_1] * KQ_k[j];
                         }
                     }
                 }
             } else {
-                float KQ_k[ncols];
+                float2 KQ_k[ncols];
 #pragma unroll
                 for (int j = 0; j < ncols; ++j) {
-                    KQ_k[j] = KQ[j * nthreads + k];
+                    KQ_k[j] = make_vec2<float2>(KQ[j * nthreads + k], KQ[j * nthreads + k]);
                 }
 #pragma unroll
                 for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2 / nthreads_V; i_VKQ_0 += V_rows_per_thread / 2) {
@@ -318,8 +318,7 @@ static __global__ void flash_attn_ext_vec(
                     for (int i_VKQ_1 = 0; i_VKQ_1 < V_rows_per_thread / 2; ++i_VKQ_1) {
 #pragma unroll
                         for (int j = 0; j < ncols; ++j) {
-                            VKQ(j, i_VKQ_0 + i_VKQ_1).x += tmp[i_VKQ_1].x * KQ_k[j];
-                            VKQ(j, i_VKQ_0 + i_VKQ_1).y += tmp[i_VKQ_1].y * KQ_k[j];
+                            VKQ(j, i_VKQ_0 + i_VKQ_1) = VKQ(j, i_VKQ_0 + i_VKQ_1) + tmp[i_VKQ_1] * KQ_k[j];
                         }
                     }
                 }

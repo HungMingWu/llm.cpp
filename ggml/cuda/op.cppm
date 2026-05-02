@@ -65,7 +65,7 @@ static dup_context create(const ggml_tensor* src0, ggml_tensor* dst)
     };
 }
 
-static unary_context create(const ggml_tensor* src0, ggml_tensor* dst, cudaStream_t stream)
+unary_context create(const ggml_tensor* src0, ggml_tensor* dst, cudaStream_t stream)
 {
     return {
         .stream = stream,
@@ -1563,6 +1563,14 @@ namespace op
                 return BEST_FATTN_KERNEL_NONE;
             }
             break;
+        case 320:
+            if (V->ne[0] != 256 || !gqa_opt_applies) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            if (gqa_ratio % 32 != 0) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            break;
         case 512:
             if (V->ne[0] != K->ne[0]) {
                 return BEST_FATTN_KERNEL_NONE;
@@ -2269,4 +2277,6 @@ namespace op
 
     void gated_delta_net(cudaStream_t stream, ggml_tensor* dst);
     void unary_mul(cudaStream_t stream, ggml_tensor* unary_node, ggml_tensor* mul_node);
+    /* fused relu + sqr */
+    void relu_sqr(cudaStream_t stream, ggml_tensor* relu_node, ggml_tensor* sqr_node);
 }

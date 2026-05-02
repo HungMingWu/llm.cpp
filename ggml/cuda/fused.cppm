@@ -17,7 +17,7 @@ namespace fused
 
 	bool ggml_cuda_can_fuse(const ggml_cgraph* cgraph, int node_idx, std::initializer_list<ggml_op> ops, std::initializer_list<ggml_unary_op> unary_ops);
 	bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* ops, int num_ops);
-	bool ggml_can_fuse(const struct ggml_cgraph* cgraph, int node_idx, std::initializer_list<enum ggml_op> ops);
+	bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, std::initializer_list<enum ggml_op> ops);
 	bool ggml_can_fuse_subgraph(const ggml_cgraph* cgraph,
 		int                        node_idx,
 		int                        count,

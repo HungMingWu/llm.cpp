@@ -60,6 +60,11 @@ static __device__ __forceinline__ float softplus(float x) {
     return (x > 20.0f) ? x : logf(1.0f + expf(x));
 }
 
+static __device__ __forceinline__ float relu_sqr(float x) {
+    const float r = fmaxf(x, 0.0f);
+    return r * r;
+}
+
 template <float (*Func)(float)>
 static __global__ void transform(const float* x, float* dst, const int k) {
     const int i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -153,6 +158,10 @@ void tanh_cuda(const unary_context &ctx)
 
 void relu_cuda(const unary_context &ctx) {
     op_unary<relu>(ctx);
+}
+
+void relu_sqr_cuda(const unary_context &ctx) {
+    op_unary<relu_sqr>(ctx);
 }
 
 void sigmoid_cuda(const unary_context &ctx)

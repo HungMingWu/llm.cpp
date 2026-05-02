@@ -87,6 +87,12 @@ void ggml_backend_registry::register_backend(ggml_backend_reg_t reg, dl_handle_p
 		return;
 	}
 
+	for (auto& entry : backends) {
+		if (entry.reg == reg) {
+			return;
+		}
+	}
+
 #ifndef NDEBUG
 	GGML_LOG_DEBUG("{}: registered backend {} ({} devices)",
 		__func__, reg->get_name(), reg->get_device_count());
@@ -98,6 +104,12 @@ void ggml_backend_registry::register_backend(ggml_backend_reg_t reg, dl_handle_p
 }
 
 void ggml_backend_registry::register_device(ggml_backend_device* device) {
+	for (auto& dev : devices) {
+		if (dev == device) {
+			return;
+		}
+	}
+
 #ifndef NDEBUG
 	GGML_LOG_DEBUG("{}: registered device {} ({})", __func__, device->get_name(), device->get_description());
 #endif
