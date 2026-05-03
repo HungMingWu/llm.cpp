@@ -707,6 +707,7 @@ struct ssm_conv_context {
     bool fuse_silu;
     const float* src0_d;
     const float* src1_d;
+    const float* bias_d;
     float* out_d;
     int64_t src0_ne[4];
     size_t src0_nb[4];

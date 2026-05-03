@@ -2336,6 +2336,9 @@ namespace {
         }
 
         void matmul(int64_t m, int64_t n) {
+#if defined(_AIX) || defined(__BIG_ENDIAN__)
+            mnpack(0, m, 0, n);
+#else
             const int64_t mc = 64;
             const int64_t kc = 64;
             int64_t nc = 64;
@@ -2352,7 +2355,6 @@ namespace {
             else {
                 n_aligned = (n / 64) * 64;
             }
-
             if (n_aligned > 0) {
                 if (n_aligned % 64 == 0)      nc = 64;
                 else if (n_aligned == n)      nc = n;
@@ -2371,6 +2373,7 @@ namespace {
             else {
                 mnpack(0, m, 0, n);
             }
+#endif
         }
 
     private:
@@ -3225,6 +3228,9 @@ namespace {
         }
 
         void matmul(int64_t m, int64_t n) {
+#if defined(_AIX) || defined(__BIG_ENDIAN__)
+            mnpack(0, m, 0, n);
+#else
             int64_t mc = 256; int64_t nc = 256; int64_t kc = 256;
             if (m % mc == 0 && n % nc == 0 && k % kc == 0) {
                 matmul_tiled(m, n, mc, nc, kc);
@@ -3232,6 +3238,7 @@ namespace {
             else {
                 mnpack(0, m, 0, n);
             }
+#endif
         }
 
     private:

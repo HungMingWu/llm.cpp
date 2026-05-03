@@ -5,7 +5,7 @@
 
 template <bool apply_silu, size_t split_d_inner, size_t d_conv, typename src0_t, typename src1_t, typename out_t>
 static __global__ void ssm_conv_f32(
-    const int64_t n_t, src0_t src0_data, src1_t src1_data, out_t out_data) {
+    const int64_t n_t, src0_t src0_data, src1_t src1_data, const float* bias, out_t out_data) {
     const int tid = threadIdx.x;
     const int bidx = blockIdx.x;
     const int bidy = blockIdx.y;
@@ -17,6 +17,8 @@ static __global__ void ssm_conv_f32(
     for (size_t j = 0; j < d_conv; j++) {
         w[j] = src1_data(bidy * split_d_inner + tid, j);
     }
+
+    float b = bias != nullptr ? bias[bidy * split_d_inner + tid] : 0.0f;
 
     for (int64_t i = 0; i < n_t; i++) {
         float sumf = 0.0f;
@@ -34,12 +36,13 @@ static __global__ void ssm_conv_f32(
         for (size_t j = 0; j < d_conv; j++) {
             sumf += x[(i + j) % d_conv] * w[j];
         }
+        sumf += b;
         out_data(bidx, i, bidy * split_d_inner + tid) = apply_silu ? silu(sumf) : sumf;
     }
 }
 
 template <bool apply_silu, size_t split_d_inner, size_t d_conv, int64_t split_n_t, typename src0_t, typename src1_t, typename out_t>
-static __global__ void ssm_conv_long_token_f32(const int64_t n_t, src0_t src0_data, src1_t src1_data, out_t out_data) {
+static __global__ void ssm_conv_long_token_f32(const int64_t n_t, src0_t src0_data, src1_t src1_data, const float* bias, out_t out_data) {
     const int tid  = threadIdx.x;
     const int bidx = blockIdx.x;
     const int bidy = blockIdx.y;
@@ -85,6 +88,8 @@ static __global__ void ssm_conv_long_token_f32(const int64_t n_t, src0_t src0_da
         w[j] = w_block(tid, j);
     }
 
+    float b = bias != nullptr ? bias[bidy * split_d_inner + tid] : 0.0f;
+
     // Compute from shared memory
     for (int64_t i = 0; i < local_n_t; i++) {
         float sumf = 0.0f;
@@ -92,6 +97,7 @@ static __global__ void ssm_conv_long_token_f32(const int64_t n_t, src0_t src0_da
         for (size_t j = 0; j < d_conv; j++) {
             sumf += smem[tid * n_cols + i + j] * w[j];
         }
+        sumf += b;
         y_block(i, tid) = apply_silu ? silu(sumf) : sumf;
     }
 }
@@ -103,20 +109,21 @@ void ssm_conv_f32_cuda(const ssm_conv_context& ctx, cudaStream_t stream) {
 
     auto src0_data = make_strided_mdspan<3>(ctx.src0_d, ctx.src0_ne, ctx.src0_nb);
     auto src1_data = make_strided_mdspan<2>(ctx.src1_d, ctx.src1_ne, ctx.src1_nb);
+    const float * bias = ctx.bias_d;
     auto out_data = make_strided_mdspan<3>(ctx.out_d, ctx.out_ne, ctx.out_nb);
 
     auto launch_kernel = [&](auto NC) {
         constexpr int kNC = decltype(NC)::value;
         if (ctx.n_t <= 32) {
             const dim3 blocks(ctx.n_s, (ctx.nr + threads - 1) / threads, 1);
-            ssm_conv_f32<apply_silu, threads, kNC> << <blocks, threads, 0, stream >> > (ctx.n_t, src0_data, src1_data, out_data);
+            ssm_conv_f32<apply_silu, threads, kNC> << <blocks, threads, 0, stream >> > (ctx.n_t, src0_data, src1_data, bias, out_data);
         }
         else {
             const int64_t split_n_t = 32;
             dim3          blocks(ctx.n_s, (ctx.nr + threads - 1) / threads, (ctx.n_t + split_n_t - 1) / split_n_t);
             const size_t  smem_size = threads * (kNC - 1 + split_n_t) * sizeof(float);
             ssm_conv_long_token_f32<apply_silu, threads, kNC, split_n_t><<<blocks, threads, smem_size, stream>>>(
-                ctx.n_t, src0_data, src1_data, out_data);
+                ctx.n_t, src0_data, src1_data, bias, out_data);
         }
     };
 

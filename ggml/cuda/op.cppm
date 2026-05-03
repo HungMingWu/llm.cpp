@@ -575,6 +575,8 @@ namespace op
         GGML_ASSERT(src1->nb[0] == ggml_type_size(src1->type));
         GGML_ASSERT(dst->nb[0] == ggml_type_size(dst->type));
 
+        GGML_ASSERT(src1->ne[2] > 0);
+        GGML_ASSERT(src1->ne[1] <= std::numeric_limits<uint32_t>::max() / src1->ne[2]);
         get_row_context ctx{
             .src0_d = src0->data,
             .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
@@ -1871,7 +1873,7 @@ namespace op
         l2_norm_f32_cuda(ctx, stream);
     }
 
-    void ssm_conv(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* silu_dst = nullptr);
+    void ssm_conv(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* bias_add_node = nullptr, ggml_tensor* silu_dst = nullptr);
 
     void top_k(ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst);
 

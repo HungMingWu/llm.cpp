@@ -34,7 +34,7 @@ static __device__ __forceinline__ Ret get_dequantize_value(const T& value) {
 }
 
 template <>
-static __device__ __forceinline__ half2 get_dequantize_value<nv_bfloat16, half2, float2>(const float2& value) {
+__device__ __forceinline__ half2 get_dequantize_value<nv_bfloat16, half2, float2>(const float2& value) {
     return __float22half2_rn(value);
 }
 

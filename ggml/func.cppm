@@ -172,6 +172,17 @@ export {
 		 return tensor->data;
 	 }
 
+	 // change the hint of a matrix multiplication
+	 void ggml_mul_mat_set_hint(
+		 ggml_tensor* a,
+		 ggml_op_hint hint) {
+		 GGML_ASSERT(a->op == GGML_OP_MUL_MAT);
+
+		 const int32_t hint_i32 = (int32_t)hint;
+
+		 a->op_params[1] = std::bit_cast<int32_t>(hint_i32);
+	 }
+
 	 const char* ggml_op_desc(const ggml_tensor* t) {
 		 if (t->op == GGML_OP_UNARY) {
 			 enum ggml_unary_op uop = ggml_get_unary_op(t);
