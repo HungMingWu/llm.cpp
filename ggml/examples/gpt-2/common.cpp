@@ -59,6 +59,7 @@ bool ggml_common_quantize_0(
     case GGML_FTYPE_MOSTLY_BF16:
     case GGML_FTYPE_MOSTLY_MXFP4:
     case GGML_FTYPE_MOSTLY_NVFP4:
+    case GGML_FTYPE_MOSTLY_Q1_0:
     {
         std::println(stderr, "{}: invalid model type {}", __func__, static_cast<int>(ftype));
         return false;
@@ -202,6 +203,7 @@ bool ggml_common_quantize_0(
             case GGML_TYPE_TQ2_0:
             case GGML_TYPE_MXFP4:
             case GGML_TYPE_NVFP4:
+            case GGML_TYPE_Q1_0:
             case GGML_TYPE_COUNT:
             {
                 std::println(stderr, "{}: unsupported quantization type {} ({})", __func__, ttype, ggml_type_name((ggml_type)ttype));

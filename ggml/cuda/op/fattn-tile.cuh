@@ -69,7 +69,7 @@ static constexpr __host__ __device__ uint32_t ggml_cuda_fattn_tile_get_config_nv
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 16, 256, 2,  64,  64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 32, 256, 2,  64,  64)
 
-    GGML_CUDA_FATTN_TILE_CONFIG_CASE(320, 256, 32, 256, 2,  64,  64)
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(320, 256, 16, 256, 2,  64,  64)
 
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512,  4, 128, 2,  64,  64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512,  8, 256, 2,  64,  64)
@@ -131,7 +131,7 @@ static constexpr __host__ __device__ uint32_t ggml_cuda_fattn_tile_get_config_nv
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 16, 256, 2,  32, 128)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(256, 256, 32, 256, 2,  32,  64)
 
-    GGML_CUDA_FATTN_TILE_CONFIG_CASE(320, 256, 32, 256, 2,  32,  64)
+    GGML_CUDA_FATTN_TILE_CONFIG_CASE(320, 256, 16, 256, 2,  32,  64)
 
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512,  4, 128, 2,  32,  64)
     GGML_CUDA_FATTN_TILE_CONFIG_CASE(512, 512,  8, 256, 2,  32,  64)
@@ -997,7 +997,7 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
 
     constexpr size_t nbytes_shared = 0;
 
-    if constexpr (ggml_use_hip_v && DV <= 128) {
+    if constexpr (ggml_use_hip_v && DKQ <= 128) {
         if (ctx.Q.ne[1] > 32 / ncols2) {
             constexpr int cols_per_block = 64;
             const int nwarps = ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, cols_per_block, cc) / warp_size;
@@ -1009,7 +1009,7 @@ static void launch_fattn_tile_switch_ncols1(const flash_attn_ext_context& ctx) {
         }
     }
 
-    if constexpr (ggml_use_hip_v || DV <= 256)
+    if constexpr (ggml_use_hip_v || DKQ <= 256)
     {
         if (ctx.Q.ne[1] > 16 / ncols2) {
             constexpr int cols_per_block = 32;
@@ -1082,10 +1082,21 @@ static void launch_fattn_tile_switch_ncols2(const flash_attn_ext_context& ctx) {
     const int gqa_limit = nvidia && gqa_ratio <= 4 && DV <= 256 ? 16 : INT_MAX;
     const bool use_gqa_opt = ctx.mask.exist && ctx.max_bias == 0.0f && ctx.Q.ne[1] <= gqa_limit && ctx.K.ne1 % FATTN_KQ_STRIDE == 0;
 
-    if constexpr (DKQ == 320) { // Mistral Small 4
-        if (use_gqa_opt && gqa_ratio % 32 == 0) {
-            launch_fattn_tile_switch_ncols1<DKQ, DV, 32, use_logit_softcap>(ctx);
-            return;
+    if constexpr (DKQ == 320) {
+        // This branch is only used for Mistral Small 4 which has a GQA ratio of 32.
+        // On AMD, simply use that GQA ratio with 32 columns / block since we always have enough SRAM.
+        // On NVIDIA however, the tile kernel is only used for GPUs that can't use the mma kernel (Pascal and older).
+        // Therefore, use a GQA ratio of 16 with 16 columns / block to stay below 48 kiB of SRAM / block.
+        if constexpr (ggml_use_hip_v) {
+            if (use_gqa_opt && gqa_ratio % 32 == 0) {
+                launch_fattn_tile_switch_ncols1<DKQ, DV, 32, use_logit_softcap>(ctx);
+                return;
+            }
+        } else {
+            if (use_gqa_opt && gqa_ratio % 16 == 0) {
+                launch_fattn_tile_switch_ncols1<DKQ, DV, 16, use_logit_softcap>(ctx);
+                return;
+            }
         }
         GGML_ABORT("flash-attn tile (320/256): expected GQA ratio multiple of 32");
     }

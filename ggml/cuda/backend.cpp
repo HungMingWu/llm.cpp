@@ -1954,8 +1954,13 @@ static int ggml_cuda_try_fuse(ggml_cuda_pool& pool, cudaStream_t stream, ggml_cg
         return 1;
     }
 
+    if (fused::ggml_cuda_can_fuse(cgraph, i, { GGML_OP_SSM_CONV, GGML_OP_ADD, GGML_OP_UNARY }, { GGML_UNARY_OP_SILU })) {
+        op::ssm_conv(stream, node, cgraph->nodes[i + 1], cgraph->nodes[i + 2]);
+        return 2;
+    }
+
     if (fused::ggml_cuda_can_fuse(cgraph, i, { GGML_OP_SSM_CONV, GGML_OP_UNARY }, { GGML_UNARY_OP_SILU })) {
-        op::ssm_conv(stream, node, cgraph->nodes[i + 1]);
+        op::ssm_conv(stream, node, /*bias_add_node=*/ nullptr, cgraph->nodes[i + 1]);
         return 1;
     }
 

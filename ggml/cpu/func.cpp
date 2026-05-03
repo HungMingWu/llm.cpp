@@ -334,11 +334,80 @@ UseGgmlGemm2:;
 	stdexec::sync_wait(scope.on_empty());
 }
 
+static void ggml_compute_forward_fwht_f32(ggml_tensor* dst) {
+	const ggml_tensor* src0 = dst->src[0];
+	const ggml_tensor* src1 = dst->src[1];
+
+	GGML_ASSERT(src1->type == GGML_TYPE_F32);
+	GGML_ASSERT(dst->type == GGML_TYPE_F32);
+
+	const int ith = 0;
+	const int nth = 1;
+
+	const int64_t n = src1->ne[0];
+	GGML_ASSERT((n & (n - 1)) == 0); // must be power of 2
+
+	const int64_t nr = src1->ne[1] * src1->ne[2] * src1->ne[3];
+	const int64_t rows_per_thread = (nr + nth - 1) / nth;
+	const int64_t start_row = ith * rows_per_thread;
+	const int64_t end_row = std::min(start_row + rows_per_thread, nr);
+
+	const float scale = 1.0f / sqrtf((float)n);
+
+	for (int64_t r = start_row; r < end_row; r++) {
+		const int64_t i13 = r / (src1->ne[1] * src1->ne[2]);
+		const int64_t i12 = (r - i13 * src1->ne[1] * src1->ne[2]) / src1->ne[1];
+		const int64_t i11 = r - i13 * src1->ne[1] * src1->ne[2] - i12 * src1->ne[1];
+
+		const float* src_row = (const float*)((const char*)src1->data + i11 * src1->nb[1] + i12 * src1->nb[2] + i13 * src1->nb[3]);
+		float* dst_row = (float*)((char*)dst->data + i11 * dst->nb[1] + i12 * dst->nb[2] + i13 * dst->nb[3]);
+
+		for (int64_t j = 0; j < n; j++) {
+			dst_row[j] = src_row[j] * scale;
+		}
+
+		// Scalar passes
+		const int step = n;
+		for (int64_t len = 1; len < step && len < n; len <<= 1) {
+			for (int64_t i = 0; i < n; i += 2 * len) {
+				for (int64_t j = 0; j < len; j++) {
+					float u = dst_row[i + j];
+					float v = dst_row[i + len + j];
+					dst_row[i + j] = u + v;
+					dst_row[i + len + j] = u - v;
+				}
+			}
+		}
+	}
+}
+
+void ggml_compute_forward_fwht(ggml_tensor* dst) {
+	const ggml_tensor* src1 = dst->src[1];
+
+	switch (src1->type) {
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_fwht_f32(dst);
+	}
+	break;
+	default:
+	{
+		GGML_ABORT("fatal error - fwht is F32 only");
+	}
+	}
+}
+
 static void ggml_compute_forward_mul_mat(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
-	ggml_tensor* dst) {
+	ggml_tensor* dst,
+	bool use_ref) {
 	const ggml_tensor* src0 = dst->src[0];
+	const auto hint = std::bit_cast<ggml_op_hint>(dst->op_params[1]);
+	if (hint == GGML_HINT_SRC0_IS_HADAMARD && !use_ref) {
+		ggml_compute_forward_fwht(dst);
+		return;
+	}
 	switch (src0->type) {
 	case GGML_TYPE_F32: {
 		ggml_compute_forward_mul_mat<ggml_fp32_t>(pool, scope, dst);
@@ -5717,7 +5786,7 @@ static void ggml_call_mul_mat(ggml_type type,
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	int64_t m, int64_t n, int64_t k,
-	void* a, void* b, float* c) {
+	void* a, void* b, float* c, bool use_ref) {
 	const ggml_type_traits* traits = ggml_get_type_traits(type);
 	struct ggml_tensor src1 = {};
 	src1.type = type;
@@ -5756,7 +5825,7 @@ static void ggml_call_mul_mat(ggml_type type,
 	dst.src.push_back(&src0);
 	dst.src.push_back(&src1);
 
-	ggml_compute_forward_mul_mat(pool, scope, &dst);
+	ggml_compute_forward_mul_mat(pool, scope, &dst, use_ref);
 }
 
 // ggml_compute_forward_conv_2d
@@ -5849,7 +5918,7 @@ static void ggml_compute_forward_conv_3d_impl(
 	exec::async_scope& scope,
 	const ggml_tensor* kernel,
 	const ggml_tensor* src,
-	ggml_tensor* dst) {
+	ggml_tensor* dst, bool use_ref) {
 	GGML_ASSERT(ggml_is_contiguous(kernel));
 
 	const int32_t s0 = dst->op_params[0];
@@ -5934,7 +6003,7 @@ static void ggml_compute_forward_conv_3d_impl(
 
 	std::vector<float> gemm_output1(patch_total * oc);
 	std::mdspan gemm_output(gemm_output1.data(), n, dst_d, dst_h, dst_w, oc);
-	ggml_call_mul_mat(kernel->type, pool, scope, patch_total, oc, knl_n_total, tmp_data.data(), knl_data, gemm_output1.data());
+	ggml_call_mul_mat(kernel->type, pool, scope, patch_total, oc, knl_n_total, tmp_data.data(), knl_data, gemm_output1.data(), use_ref);
 
 	stdexec::sync_wait(scope.on_empty());
 
@@ -5961,16 +6030,17 @@ static void ggml_compute_forward_conv_3d_impl(
 void ggml_compute_forward_conv_3d(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
-	ggml_tensor* dst)
+	ggml_tensor* dst,
+	bool use_ref)
 {
 	const ggml_tensor* src0 = dst->src[0];
 	const ggml_tensor* src1 = dst->src[1];
 	switch (src0->type) {
 	case GGML_TYPE_F32:
-		ggml_compute_forward_conv_3d_impl<ggml_fp32_t>(pool, scope, src0, src1, dst);
+		ggml_compute_forward_conv_3d_impl<ggml_fp32_t>(pool, scope, src0, src1, dst, use_ref);
 		break;
 	case GGML_TYPE_F16:
-		ggml_compute_forward_conv_3d_impl<ggml_fp16_t>(pool, scope, src0, src1, dst);
+		ggml_compute_forward_conv_3d_impl<ggml_fp16_t>(pool, scope, src0, src1, dst, use_ref);
 		break;
 	default:
 		break;
@@ -6945,7 +7015,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_MUL_MAT:
 	{
-		ggml_compute_forward_mul_mat(pool, scope, tensor);
+		ggml_compute_forward_mul_mat(pool, scope, tensor, use_ref);
 	} break;
 	case GGML_OP_MUL_MAT_ID:
 	{
@@ -7026,7 +7096,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_CONV_3D:
 	{
-		ggml_compute_forward_conv_3d(pool, scope, tensor);
+		ggml_compute_forward_conv_3d(pool, scope, tensor, use_ref);
 	} break;
 	case GGML_OP_CONV_2D_DW:
 	{

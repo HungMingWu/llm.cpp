@@ -234,6 +234,12 @@ export {
         GGML_OP_COUNT,
     };
 
+    // op hint
+    enum ggml_op_hint {
+        GGML_HINT_NONE = 0,
+        GGML_HINT_SRC0_IS_HADAMARD = 1,
+    };
+
     // model file types
     enum ggml_ftype {
         GGML_FTYPE_UNKNOWN = -1,

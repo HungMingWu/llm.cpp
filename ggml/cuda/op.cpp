@@ -688,13 +688,22 @@ namespace op {
         unary_mul_cuda(ctx, stream);
     }
 
-    void ssm_conv(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* silu_dst) {
+    void ssm_conv(cudaStream_t stream, ggml_tensor* bias_add_node, ggml_tensor* dst, ggml_tensor* silu_dst) {
         const ggml_tensor* src0 = dst->src[0];  // conv_x
         const ggml_tensor* src1 = dst->src[1];  // conv1d.weight
+        const bool fuse_bias = bias_add_node != nullptr;
         const bool fuse_silu = silu_dst != nullptr;
+
+        // bias always comes with silu.
+        GGML_ASSERT(!fuse_bias || fuse_silu);
+
+        // The bias (when fused) is the non-conv operand of the ADD node.
+        const ggml_tensor* bias = fuse_bias ? (bias_add_node->src[0] == dst ? bias_add_node->src[1] : bias_add_node->src[0]) : nullptr;
 
         // When fusing, write to silu_dst (the node downstream references).
         const ggml_tensor* out = fuse_silu ? silu_dst : dst;
+
+        const int64_t nr = src0->ne[1];                // d_inner
 
         GGML_ASSERT(out->ne[0] == src0->ne[1]);
         GGML_ASSERT(src0->nb[0] == sizeof(float));
@@ -703,11 +712,17 @@ namespace op {
 
         GGML_ASSERT(src0->type == GGML_TYPE_F32);
         GGML_ASSERT(out->type == GGML_TYPE_F32);
+        if (fuse_bias) {
+            GGML_ASSERT(bias->type == GGML_TYPE_F32);
+            GGML_ASSERT(ggml_is_contiguous(bias));
+            GGML_ASSERT(bias->nelements() == nr);
+        }
 
         ssm_conv_context ctx {
             .fuse_silu = fuse_silu,
             .src0_d = (const float*)src0->data,
             .src1_d = (const float*)src1->data,
+            .bias_d = fuse_bias ? (const float*)bias->data : nullptr,
             .out_d = (float*)out->data,
             .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
             .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
@@ -716,7 +731,7 @@ namespace op {
             .out_ne = { out->ne[0], out->ne[1], out->ne[2], out->ne[3] },
             .out_nb = { out->nb[0], out->nb[1], out->nb[2], out->nb[3] },
             .nc = src1->ne[0],                // d_conv
-            .nr = src0->ne[1],                // d_inner
+            .nr = nr,                
             .n_t = out->ne[1],                // tokens per sequence
             .n_s = out->ne[2]                 // number of sequences in the batch
         };
