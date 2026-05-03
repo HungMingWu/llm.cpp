@@ -498,9 +498,9 @@ static __device__ __forceinline__ void dequantize_V(const block_q8_0* __restrict
     }
 }
 
-template <typename Tds, int ni>
+template <int ni, typename Tds>
 static __device__ __forceinline__ void quantize_q8_1_to_shared(
-    const float* __restrict__ x, const float scale, int* __restrict__ yq32, void* __restrict__ yds) {
+    const float* __restrict__ x, const float scale, int* __restrict__ yq32, Tds* __restrict__ yds) {
 
     float vals[sizeof(int)] = { 0.0f };
 #pragma unroll
@@ -534,12 +534,7 @@ static __device__ __forceinline__ void quantize_q8_1_to_shared(
 
     yq32[threadIdx.x] = q32;
     if (threadIdx.x % QI8_1 == 0 && (ni == WARP_SIZE || threadIdx.x < ni)) {
-        if (std::is_same<Tds, half2>::value) {
-            ((half2*)yds)[threadIdx.x / QI8_1] = make_half2(d, sum);
-        }
-        else {
-            ((float2*)yds)[threadIdx.x / QI8_1] = make_float2(d, sum);
-        }
+        yds[threadIdx.x / QI8_1] = make_vec2<Tds>(d, sum);
     }
 }
 
