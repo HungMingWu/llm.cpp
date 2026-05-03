@@ -28,6 +28,16 @@ constexpr size_t getnthreads_KQ_q()
     }
 }
 
+template <typename type_V, typename Ret, typename T>
+static __device__ __forceinline__ Ret get_dequantize_value(const T& value) {
+    return value;
+}
+
+template <>
+static __device__ __forceinline__ half2 get_dequantize_value<nv_bfloat16, half2, float2>(const float2& value) {
+    return __float22half2_rn(value);
+}
+
 // Currently llvm with the amdgcn target does not support unrolling loops
 // that contain a break that can not be resolved at compile time.
 #ifdef __clang__
@@ -274,61 +284,27 @@ static __global__ void flash_attn_ext_vec(
         for (int k0 = 0; k0 < WARP_SIZE; k0 += V_cols_per_iter) {
             const int k = threadIdx.y * WARP_SIZE + k0 + (nthreads_V == WARP_SIZE ? 0 : threadIdx.x / nthreads_V);
 
-            if constexpr (v_dot2_f32_f16_available_v) {
-                half2 KQ_k[ncols];
+            using storage_t = std::conditional_t<std::is_same_v<type_V, nv_bfloat16>, float2, t2>;
+            storage_t tmp[V_rows_per_thread / 2];
+
 #pragma unroll
-                for (int j = 0; j < ncols; ++j) {
-                    KQ_k[j] = make_vec2<half2>(KQ[j * nthreads + k], KQ[j * nthreads + k]);
-                }
+            for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2 / nthreads_V; i_VKQ_0 += V_rows_per_thread / 2) {
+                dequantize_V<V_rows_per_thread>((type_V*)(V + k * nb21), tmp,
+                    2 * i_VKQ_0 * nthreads_V + (nthreads_V == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_V) * V_rows_per_thread);
 #pragma unroll
-                for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2 / nthreads_V; i_VKQ_0 += V_rows_per_thread / 2) {
-                    half2 tmp[V_rows_per_thread / 2];
-                    if constexpr (std::is_same_v<type_V, nv_bfloat16>) {
-                        float2 tmp_f[V_rows_per_thread / 2];
-                        dequantize_V<V_rows_per_thread>((type_V*)(V + k * nb21), tmp_f,
-                            2 * i_VKQ_0 * nthreads_V + (nthreads_V == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_V) * V_rows_per_thread);
+                for (int i_VKQ_1 = 0; i_VKQ_1 < V_rows_per_thread / 2; ++i_VKQ_1) {
 #pragma unroll
-                        for (int i_VKQ_1 = 0; i_VKQ_1 < V_rows_per_thread/2; ++i_VKQ_1) {
-                            tmp[i_VKQ_1] = __float22half2_rn(tmp_f[i_VKQ_1]);
-                        }
-                    } else {
-                        dequantize_V<V_rows_per_thread>((type_V*)(V + k * nb21), tmp,
-                            2 * i_VKQ_0 * nthreads_V + (nthreads_V == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_V) * V_rows_per_thread);
-                    }
-#pragma unroll
-                    for (int i_VKQ_1 = 0; i_VKQ_1 < V_rows_per_thread / 2; ++i_VKQ_1) {
-#pragma unroll
-                        for (int j = 0; j < ncols; ++j) {
-                            VKQ(j, i_VKQ_0 + i_VKQ_1) = VKQ(j, i_VKQ_0 + i_VKQ_1) + tmp[i_VKQ_1] * KQ_k[j];
-                        }
-                    }
-                }
-            } else {
-                float2 KQ_k[ncols];
-#pragma unroll
-                for (int j = 0; j < ncols; ++j) {
-                    KQ_k[j] = make_vec2<float2>(KQ[j * nthreads + k], KQ[j * nthreads + k]);
-                }
-#pragma unroll
-                for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2 / nthreads_V; i_VKQ_0 += V_rows_per_thread / 2) {
-                    float2 tmp[V_rows_per_thread / 2];
-                    dequantize_V<V_rows_per_thread>((type_V*)(V + k * nb21), tmp,
-                        2 * i_VKQ_0 * nthreads_V + (nthreads_V == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_V) * V_rows_per_thread);
-#pragma unroll
-                    for (int i_VKQ_1 = 0; i_VKQ_1 < V_rows_per_thread / 2; ++i_VKQ_1) {
-#pragma unroll
-                        for (int j = 0; j < ncols; ++j) {
-                            VKQ(j, i_VKQ_0 + i_VKQ_1) = VKQ(j, i_VKQ_0 + i_VKQ_1) + tmp[i_VKQ_1] * KQ_k[j];
-                        }
+                    for (int j = 0; j < ncols; ++j) {
+                        VKQ(j, i_VKQ_0 + i_VKQ_1) = VKQ(j, i_VKQ_0 + i_VKQ_1) +
+                            get_dequantize_value<type_V, t2>(tmp[i_VKQ_1]) * make_vec2<t2>(KQ[j * nthreads + k], KQ[j * nthreads + k]);
                     }
                 }
             }
         }
     }
 
-    const char* __restrict__ sinks = (const char*)ctx.sinks.data;
-    if (sinks && blockIdx.y == 0) {
-        const float sink = ((const float*)sinks)[head];
+    if (const float* sinks = (const float*)ctx.sinks.data; sinks && blockIdx.y == 0) {
+        const float sink = sinks[head];
 
 #pragma unroll
         for (int j0 = 0; j0 < ncols; j0 += nwarps) {
