@@ -1101,7 +1101,7 @@ static void launch_fattn_tile_switch_ncols2(const flash_attn_ext_context& ctx) {
         GGML_ABORT("flash-attn tile (320/256): expected GQA ratio multiple of 32");
     }
 
-    if constexpr (DV == 576) {
+    if constexpr (DKQ == 576) {
         if (use_gqa_opt && gqa_ratio % 16 == 0) {
             launch_fattn_tile_switch_ncols1<DKQ, DV, 16, use_logit_softcap>(ctx);
             return;
