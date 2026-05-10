@@ -102,7 +102,10 @@ static __global__ void flash_attn_ext_vec(
     const int head = blockIdx.z - sequence * ne02;
     const int gqa_ratio = ne02 / ne12; // With grouped query attention there are > 1 Q matrices per K, V matrix.
     const int kv_head = head / gqa_ratio;
-    auto Q_data = make_strided_mdspan(static_cast<const float*>(ctx.Q.data), ctx.Q.ne, ctx.Q.nb);
+    auto Q = [=]() {
+        auto Q_data = make_strided_mdspan(static_cast<const float*>(ctx.Q.data), ctx.Q.ne, ctx.Q.nb);
+        return std::submdspan(Q_data, sequence, head, ic0, std::full_extent);
+    }();
     std::array<int64_t, 4> K_ne = { ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3 };
     std::array<size_t, 4> K_nb = { sizeof(type_K), size_t(nb11), size_t(nb12), size_t(nb13) };
     auto K_data_4d = make_strided_mdspan(reinterpret_cast<const type_K*>(K), K_ne, K_nb);
@@ -111,7 +114,6 @@ static __global__ void flash_attn_ext_vec(
     auto V_data_4d = make_strided_mdspan(reinterpret_cast<const type_V*>(V), V_ne, V_nb);
     auto K_data = std::submdspan(K_data_4d, sequence, kv_head, std::full_extent, std::full_extent);
     auto V_data = std::submdspan(V_data_4d, sequence, kv_head, std::full_extent, std::full_extent);
-    const float* Q = &Q_data(sequence, head, ic0, 0);
 
     const char* __restrict__ mask = (const char*)ctx.mask.data;
     const half* maskh = (const half*)(mask + nb33 * (sequence % ne33) + nb31 * ic0);
@@ -173,12 +175,11 @@ static __global__ void flash_attn_ext_vec(
                 }
             }
             else {
-                const float* Q_f = (const float*)(&Q[j]);
                 constexpr int nthreads_quantize = D / sizeof(int) < WARP_SIZE ? D / sizeof(int) : WARP_SIZE;
 #pragma unroll
                 for (int i0 = 0; i0 < int(D / sizeof(int)); i0 += nthreads_quantize) {
                     quantize_q8_1_to_shared<nthreads_quantize>
-                        (Q_f + i0 * sizeof(int), scale, tmp_q_i32 + i0, tmp_q_ds + i0 / QI8_1);
+                        (&Q(j + i0 * sizeof(int)), scale, tmp_q_i32 + i0, tmp_q_ds + i0 / QI8_1);
                 }
             }
         }
@@ -204,7 +205,6 @@ static __global__ void flash_attn_ext_vec(
     else {
 #pragma unroll
         for (int j = 0; j < ncols; ++j) {
-            const float2* Q_j = (const float2*)(&Q[j]);
             const auto scale_vec = make_vec2<t2>(scale, scale);
 #pragma unroll
             for (int i0 = 0; i0 < D / 2 / nthreads_KQ; i0 += cpy_ne) {
@@ -213,9 +213,9 @@ static __global__ void flash_attn_ext_vec(
 #pragma unroll
                     for (int i1 = 0; i1 < cpy_ne / 2; i1++) {
                         Q_reg(j, i0 + i1) =
-                            make_vec2<t2>(Q_j[i + i1].x, Q_j[i + i1].y) * scale_vec;
+                            make_vec2<t2>(Q(j + 2 * (i + i1) + 0), Q(j + 2 * (i + i1) + 1)) * scale_vec;
                         Q_reg(j, i0 + cpy_ne / 2 + i1) =
-                            make_vec2<t2>(Q_j[i + cpy_ne / 2 + i1].x, Q_j[i + cpy_ne / 2 + i1].y) * scale_vec;
+                            make_vec2<t2>(Q(j + 2 * (i + cpy_ne / 2 + i1) + 0), Q(j + 2 * (i + cpy_ne / 2 + i1) + 1)) * scale_vec;
                     }
                 }
             }
@@ -223,6 +223,7 @@ static __global__ void flash_attn_ext_vec(
     }
 
     const int k_VKQ_max = KV_max ? KV_max[sequence * gridDim.x + blockIdx.x] : ne11;
+    const int v_col = nthreads_V == WARP_SIZE ? 0 : threadIdx.x / nthreads_V;
     maskh += blockIdx.y * nthreads;
     for (int k_VKQ_0 = blockIdx.y * nthreads; k_VKQ_0 < k_VKQ_max; k_VKQ_0 += gridDim.y * nthreads,
         maskh += gridDim.y * nthreads) {
@@ -263,6 +264,7 @@ static __global__ void flash_attn_ext_vec(
             }
         }
 
+        std::mdspan KQ_mdspan(&KQ[0], ncols, nthreads);
 #pragma unroll
         for (int j = 0; j < ncols; ++j) {
 #pragma unroll
@@ -274,7 +276,7 @@ static __global__ void flash_attn_ext_vec(
 
             KQ_reg[j] = expf(KQ_reg[j] - KQ_max[j]);
             KQ_sum[j] = KQ_sum[j] * KQ_max_scale + KQ_reg[j];
-            KQ[j * nthreads + tid] = KQ_reg[j];
+            KQ_mdspan(j, tid) = KQ_reg[j];
 
 #pragma unroll
             for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2 / nthreads_V; i_VKQ_0++) {
@@ -288,7 +290,7 @@ static __global__ void flash_attn_ext_vec(
 
 #pragma unroll
         for (int k0 = 0; k0 < WARP_SIZE; k0 += V_cols_per_iter) {
-            const int k = threadIdx.y * WARP_SIZE + k0 + (nthreads_V == WARP_SIZE ? 0 : threadIdx.x / nthreads_V);
+            const int k = threadIdx.y * WARP_SIZE + k0 + v_col;
 
             using storage_t = std::conditional_t<std::is_same_v<type_V, nv_bfloat16>, float2, t2>;
             storage_t tmp[V_rows_per_thread / 2];
@@ -303,7 +305,7 @@ static __global__ void flash_attn_ext_vec(
 #pragma unroll
                     for (int j = 0; j < ncols; ++j) {
                         VKQ(j, i_VKQ_0 + i_VKQ_1) = VKQ(j, i_VKQ_0 + i_VKQ_1) +
-                            get_dequantize_value<type_V, t2>(tmp[i_VKQ_1]) * make_vec2<t2>(KQ[j * nthreads + k], KQ[j * nthreads + k]);
+                            get_dequantize_value<type_V, t2>(tmp[i_VKQ_1]) * make_vec2<t2>(KQ_mdspan(j, k), KQ_mdspan(j, k));
                     }
                 }
             }
@@ -369,8 +371,7 @@ static __global__ void flash_attn_ext_vec(
             VKQ(j_VKQ, i_VKQ_0) = VKQ(j_VKQ, i_VKQ_0) * make_vec2<t2>(kqmax_scale, kqmax_scale);
         }
 
-        t2* VKQ_tmp = (t2*)KQ + threadIdx.y * (V_cols_per_iter * D / 2)
-            + (nthreads_V == WARP_SIZE ? 0 : threadIdx.x / nthreads_V) * (D / 2);
+        std::mdspan KQ_mdspan(KQ, nwarps, V_cols_per_iter, D);
 
 #pragma unroll
         for (int i_VKQ_0 = 0; i_VKQ_0 < D / 2 / nthreads_V; i_VKQ_0 += V_rows_per_thread / 2) {
@@ -378,7 +379,10 @@ static __global__ void flash_attn_ext_vec(
 
 #pragma unroll
             for (int i_VKQ_1 = 0; i_VKQ_1 < V_rows_per_thread / 2; i_VKQ_1++) {
-                VKQ_tmp[i_VKQ + i_VKQ_1] = VKQ(j_VKQ, i_VKQ_0 + i_VKQ_1);
+                const t2 VKQ_val = VKQ(j_VKQ, i_VKQ_0 + i_VKQ_1);
+                const auto VKQ_val_s = std::bit_cast<std::array<t1, 2>>(VKQ_val);
+                KQ_mdspan(threadIdx.y, v_col, 2 * (i_VKQ + i_VKQ_1) + 0) = VKQ_val_s[0];
+                KQ_mdspan(threadIdx.y, v_col, 2 * (i_VKQ + i_VKQ_1) + 1) = VKQ_val_s[1];
             }
         }
 
@@ -392,7 +396,6 @@ static __global__ void flash_attn_ext_vec(
         if (nthreads <= D || tid < D) {
             KQ_sum[j_VKQ] = cooperative_groups::reduce(tile_warp, KQ_sum_shared[j_VKQ][threadIdx.x], cooperative_groups::plus<float>());
 
-            std::mdspan KQ_mdspan(KQ, nwarps, V_cols_per_iter, D);
 #pragma unroll
             for (int i0 = 0; i0 < D; i0 += nthreads) {
                 float dst_val = 0;
