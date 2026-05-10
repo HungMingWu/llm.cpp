@@ -1,12 +1,14 @@
 #include "cuda_func.h"
 #include "common.cuh"
 #include "reduce.cuh"
+#include "mdspan_helper.h"
 
 #define GGML_ABORT(...)
 
 template <int S_v, bool KDA>
 __global__ void __launch_bounds__((ggml_cuda_get_physical_warp_size() < S_v ? ggml_cuda_get_physical_warp_size() : S_v) * 4, 2)
-gated_delta_net_cuda(const float * q,
+gated_delta_net_cuda(gated_delta_net_context ctx,
+                        const float * q,
                                      const float * k,
                                      const float * v,
                                      const float * g,
@@ -52,6 +54,7 @@ gated_delta_net_cuda(const float * q,
     float         s_shard[rows_per_lane];
     auto block = cooperative_groups::this_thread_block();
     auto tile = cooperative_groups::tiled_partition<warp_size>(block);
+	auto q_data = make_strided_mdspan((const float*)q, ctx.q_ne, ctx.q_nb);
 
     // state is stored transposed: M[col][i] = S[i][col], row col is contiguous
 #pragma unroll
@@ -61,7 +64,7 @@ gated_delta_net_cuda(const float * q,
     }
 
     for (int t = 0; t < n_tokens; t++) {
-        const float * q_t = q + iq3 * sq3 + t * sq2 + iq1 * sq1;
+        const float * q_t = &q_data(iq3, t, iq1, 0);
         const float * k_t = k + iq3 * sq3 + t * sq2 + iq1 * sq1;
         const float * v_t = v + sequence * sv3 + t * sv2 + h_idx * sv1;
 
@@ -153,6 +156,7 @@ gated_delta_net_cuda(const float * q,
 
 template <bool KDA>
 static void launch_gated_delta_net(
+        const gated_delta_net_context& ctx,
         const float * q_d, const float * k_d, const float * v_d,
         const float * g_d, const float * b_d, const float * s_d,
         float * dst_d,
@@ -175,26 +179,26 @@ static void launch_gated_delta_net(
 
     switch (S_v) {
         case 16:
-            gated_delta_net_cuda<16, KDA><<<grid_dims, block_dims, 0, stream>>>(
+            gated_delta_net_cuda<16, KDA><<<grid_dims, block_dims, 0, stream>>>(ctx,
                 q_d, k_d, v_d, g_d, b_d, s_d, dst_d, H,
                 n_tokens, n_seqs, sq1, sq2, sq3, sv1, sv2, sv3,
                 sb1, sb2, sb3, neqk1_magic, rq3_magic, scale);
             break;
         case 32:
-            gated_delta_net_cuda<32, KDA><<<grid_dims, block_dims, 0, stream>>>(
+            gated_delta_net_cuda<32, KDA><<<grid_dims, block_dims, 0, stream>>>(ctx,
                 q_d, k_d, v_d, g_d, b_d, s_d, dst_d, H,
                 n_tokens, n_seqs, sq1, sq2, sq3, sv1, sv2, sv3,
                 sb1, sb2, sb3, neqk1_magic, rq3_magic, scale);
             break;
         case 64: {
-            gated_delta_net_cuda<64, KDA><<<grid_dims, block_dims, 0, stream>>>(
+            gated_delta_net_cuda<64, KDA><<<grid_dims, block_dims, 0, stream>>>(ctx,
                 q_d, k_d, v_d, g_d, b_d, s_d, dst_d, H,
                 n_tokens, n_seqs, sq1, sq2, sq3, sv1, sv2, sv3,
                 sb1, sb2, sb3, neqk1_magic, rq3_magic, scale);
             break;
         }
         case 128: {
-            gated_delta_net_cuda<128, KDA><<<grid_dims, block_dims, 0, stream>>>(
+            gated_delta_net_cuda<128, KDA><<<grid_dims, block_dims, 0, stream>>>(ctx,
                 q_d, k_d, v_d, g_d, b_d, s_d, dst_d, H,
                 n_tokens, n_seqs, sq1, sq2, sq3, sv1, sv2, sv3,
                 sb1, sb2, sb3, neqk1_magic, rq3_magic, scale);
@@ -209,12 +213,12 @@ static void launch_gated_delta_net(
 void gated_delta_net_cuda(const gated_delta_net_context& ctx, cudaStream_t  stream)
 {
     if (ctx.kda) {
-        launch_gated_delta_net<true>(ctx.q_d, ctx.k_d, ctx.v_d, ctx.g_d, ctx.b_d, ctx.s_d, ctx.dst_d,
+        launch_gated_delta_net<true>(ctx, ctx.q_d, ctx.k_d, ctx.v_d, ctx.g_d, ctx.b_d, ctx.s_d, ctx.dst_d,
             ctx.S_v, ctx.H, ctx.n_tokens, ctx.n_seqs, ctx.sq1, ctx.sq2, ctx.sq3, ctx.sv1, ctx.sv2, ctx.sv3,
             ctx.sb1, ctx.sb2, ctx.sb3, ctx.neqk1, ctx.rq3, ctx.scale, stream);
     }
     else {
-        launch_gated_delta_net<false>(ctx.q_d, ctx.k_d, ctx.v_d, ctx.g_d, ctx.b_d, ctx.s_d, ctx.dst_d,
+        launch_gated_delta_net<false>(ctx, ctx.q_d, ctx.k_d, ctx.v_d, ctx.g_d, ctx.b_d, ctx.s_d, ctx.dst_d,
             ctx.S_v, ctx.H, ctx.n_tokens, ctx.n_seqs, ctx.sq1, ctx.sq2, ctx.sq3, ctx.sv1, ctx.sv2, ctx.sv3,
             ctx.sb1, ctx.sb2, ctx.sb3, ctx.neqk1, ctx.rq3, ctx.scale, stream);
     }

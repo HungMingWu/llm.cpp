@@ -640,6 +640,8 @@ namespace op {
             .n_tokens = src_v->ne[2],
             .n_seqs = src_v->ne[3],
             // strides in floats (beta strides used for both g and beta offset computation)
+			.q_ne = { src_q->ne[0], src_q->ne[1], src_q->ne[2], src_q->ne[3] },
+			.q_nb = { src_q->nb[0], src_q->nb[1], src_q->nb[2], src_q->nb[3] },
             .sq1 = static_cast<int64_t>(src_q->nb[1] / sizeof(float)),
             .sq2 = static_cast<int64_t>(src_q->nb[2] / sizeof(float)),
             .sq3 = static_cast<int64_t>(src_q->nb[3] / sizeof(float)),

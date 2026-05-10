@@ -988,6 +988,8 @@ struct gated_delta_net_context {
     const float* s_d;
     float* dst_d;
     const int64_t S_v, H, n_tokens, n_seqs;
+    const int64_t q_ne[4];
+    const size_t q_nb[4];
     const int64_t sq1, sq2, sq3;
     const int64_t sv1, sv2, sv3;
     const int64_t sb1, sb2, sb3;
