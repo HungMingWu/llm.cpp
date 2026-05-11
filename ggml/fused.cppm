@@ -3,7 +3,7 @@ module;
 #include "op/cuda_func.h"
 #include "vendors/cuda.h"
 
-module ggml:cuda.fused;
+module ggml:fused;
 import :ds;
 
 namespace fused
@@ -18,6 +18,10 @@ namespace fused
 	bool ggml_cuda_can_fuse(const ggml_cgraph* cgraph, int node_idx, std::initializer_list<ggml_op> ops, std::initializer_list<ggml_unary_op> unary_ops);
 	bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* ops, int num_ops);
 	bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, std::initializer_list<enum ggml_op> ops);
+	bool ggml_can_fuse_subgraph(const ggml_cgraph* cgraph,
+		int                                 start_idx,
+		std::initializer_list<enum ggml_op> ops,
+		std::initializer_list<int>          outputs = {});
 	bool ggml_can_fuse_subgraph(const ggml_cgraph* cgraph,
 		int                        node_idx,
 		int                        count,

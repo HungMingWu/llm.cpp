@@ -39,6 +39,12 @@ export
     }
 
     template <typename ...Args>
+    constexpr void GGML_LOG_WARN(std::format_string<Args...> fmt, Args... args)
+    {
+        return log_template(GGML_LOG_LEVEL_WARN, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename ...Args>
     constexpr void GGML_LOG_ERROR(std::format_string<Args...> fmt, Args... args)
     {
         return log_template(GGML_LOG_LEVEL_ERROR, fmt, std::forward<Args>(args)...);

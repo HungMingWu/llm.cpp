@@ -252,6 +252,20 @@ void ggml_cuda_flash_attn_ext_mma_f16(const flash_attn_ext_context& ctx) {
         GGML_ASSERT(ctx.V.ne0 == 128);
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2<128, 128>(ctx);
         break;
+    case 192: {
+        // MiMo-V2.5 / V2.5-Pro / V2-Flash: gqa_ratio is 8 (SWA) or 16 (full attn)
+        GGML_ASSERT(ctx.V.ne0 == 128);
+        const bool use_gqa_opt = ctx.mask.exist && ctx.max_bias == 0.0f;
+        GGML_ASSERT(use_gqa_opt);
+        GGML_ASSERT(ctx.Q.ne[2] % ctx.K.ne2 == 0);
+        const int gqa_ratio = ctx.Q.ne[2] / ctx.K.ne2;
+        if (gqa_ratio % 16 == 0) {
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<192, 128, 16>(ctx);
+        } else {
+            GGML_ASSERT(gqa_ratio % 8 == 0);
+            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<192, 128,  8>(ctx);
+        }
+    } break;
     case 256:
         GGML_ASSERT(ctx.V.ne0 == 256);
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2<256, 256>(ctx);

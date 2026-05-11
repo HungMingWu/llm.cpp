@@ -15,6 +15,13 @@ void ggml_compute_forward(
 	bool use_ref,
 	ggml_tensor* tensor);
 
+int ggml_cpu_try_fuse_ops(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	const ggml_cgraph* cgraph,
+	const int node_n,
+	bool use_ref);
+
 static bool ggml_op_is_empty(enum ggml_op op) {
 	switch (op) {
 	case GGML_OP_NONE:
@@ -37,7 +44,8 @@ enum ggml_status ggml_cpu_backend::graph_compute_impl(ggml_cgraph* cgraph)
 		/*.nth       =*/ 1, //atomic_load_explicit(&tp->n_threads_cur, memory_order_relaxed),
 	};
 
-	for (auto& node : cgraph->nodes) {
+	for (int node_n = 0; node_n < cgraph->nodes.size(); node_n++) {
+		auto node = cgraph->nodes[node_n];
 
 		if (ggml_op_is_empty(node->op) || ggml_is_empty(node)) {
 			// skip NOPs
@@ -48,7 +56,15 @@ enum ggml_status ggml_cpu_backend::graph_compute_impl(ggml_cgraph* cgraph)
 			continue;
 		}
 
-		ggml_compute_forward(pool, scope, &params, use_ref, node);
+		// TODO: move fused-op detection into ggml_graph_plan so fusion decisions are made once at planning time
+		// Try fused ops, fall back to normal compute
+		const int n_fused = ggml_cpu_try_fuse_ops(pool, scope, cgraph, node_n, use_ref);
+		if (n_fused > 0) {
+			node_n += n_fused;
+		}
+		else {
+			ggml_compute_forward(pool, scope, &params, use_ref, node);
+		}
 #if 0
 		if (state->ith == 0 && cplan->abort_callback &&
 			cplan->abort_callback(cplan->abort_callback_data)) {

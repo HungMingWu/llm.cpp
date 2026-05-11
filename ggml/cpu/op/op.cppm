@@ -28,6 +28,9 @@ void ggml_compute_forward_scale(ggml_tensor* dst);
 void ggml_compute_forward_sin(ggml_tensor* dst);
 void ggml_compute_forward_silu_back(ggml_tensor* dst);
 void ggml_compute_forward_rms_norm(ggml_tensor* dst);
+void ggml_compute_forward_rms_norm_mul_fused(
+    ggml_tensor* dst_rms_norm,
+    ggml_tensor* dst_mul);
 void ggml_compute_forward_rms_norm_back(ggml_tensor* dst);
 void ggml_compute_forward_sqr(ggml_tensor* dst);
 void ggml_compute_forward_sqrt(ggml_tensor* dst);

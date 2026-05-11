@@ -133,6 +133,7 @@ target_sources(libggml
     FILE_SET private_interface
     TYPE CXX_MODULES
     FILES
+      fused.cppm
       host_buffer.cppm
       quants.cppm
   PRIVATE
@@ -144,6 +145,7 @@ target_sources(libggml
       cgraph.cpp
       context.cpp
       func.cpp
+      fused.cpp
       gguf.cpp
       log.cpp
       op.cpp

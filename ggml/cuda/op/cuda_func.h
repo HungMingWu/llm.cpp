@@ -996,3 +996,15 @@ struct gated_delta_net_context {
 };
 
 void gated_delta_net_cuda(const gated_delta_net_context& ctx, cudaStream_t  stream);
+
+// snake.cu
+struct snake_context {
+    internal::ggml_type x_type;
+    const void* x_d;
+    const float* a_d;
+    const float* inv_b_d;
+	void* dst_d;
+    const int   T;
+    const int   C;
+};
+void snake_cuda(const snake_context& ctx, cudaStream_t  stream);

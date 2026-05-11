@@ -60,7 +60,7 @@ void ggml_backend_rpc::synchronize()
 ggml_status ggml_backend_rpc::graph_compute_impl(ggml_cgraph* cgraph)
 {
     //GGML_ASSERT(cgraph->nodes.size() > 0);
-    bool reuse = gc.is_cached(cgraph);
+    bool reuse = cgraph->uid != 0 && last_graph_uid == cgraph->uid;
     if (reuse) {
         rpc_msg_graph_recompute_req request;
         request.device = device;
@@ -69,7 +69,7 @@ ggml_status ggml_backend_rpc::graph_compute_impl(ggml_cgraph* cgraph)
         RPC_STATUS_ASSERT(status);
     }
     else {
-        gc.add(cgraph);
+        last_graph_uid = cgraph->uid;
         std::vector<uint8_t> input;
         serialize_graph(device, cgraph, input);
         auto sock = get_socket(endpoint);

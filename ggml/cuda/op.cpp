@@ -746,4 +746,99 @@ namespace op {
         unary_context ctx = create(src, sqr_node, stream);
         relu_sqr_cuda(ctx);
     }
+
+    void out_prod(cudaStream_t stream, cublasHandle_t handle, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32);
+        GGML_ASSERT(src1->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+
+        GGML_ASSERT(src0->ne[1] == src1->ne[1]);
+        GGML_ASSERT(dst->ne[0] == src0->ne[0]);
+        GGML_ASSERT(dst->ne[1] == src1->ne[0]);
+
+        GGML_ASSERT(dst->ne[2] % src0->ne[2] == 0);
+        GGML_ASSERT(dst->ne[3] % src0->ne[3] == 0);
+
+        GGML_ASSERT(dst->ne[2] == src1->ne[2]);
+        GGML_ASSERT(dst->ne[3] == src1->ne[3]);
+
+        const float* src0_d = (const float*)src0->data;
+        const float* src1_d = (const float*)src1->data;
+        float* dst_d = (float*)dst->data;
+
+        const float alpha = 1.0f;
+        const float beta = 0.0f;
+
+        CUBLAS_CHECK(cublasSetStream(handle, stream));
+
+        const int64_t lda = src0->nb[1] / sizeof(float);
+        const int64_t ldc = dst->nb[1] / sizeof(float);
+
+        const bool src1_T = ggml_is_transposed(src1);
+        const cublasOperation_t src1_cublas_op = src1_T ? CUBLAS_OP_N : CUBLAS_OP_T;
+        const int64_t           ldb = (src1_T ? src1->nb[0] : src1->nb[1]) / sizeof(float);
+        GGML_ASSERT((src1_T ? src1->nb[1] : src1->nb[0]) == sizeof(float));
+
+        // data strides in dimensions 2/3
+        const size_t s02 = src0->nb[2] / sizeof(float);
+        const size_t s03 = src0->nb[3] / sizeof(float);
+        const size_t s12 = src1->nb[2] / sizeof(float);
+        const size_t s13 = src1->nb[3] / sizeof(float);
+        const size_t s2 = dst->nb[2] / sizeof(float);
+        const size_t s3 = dst->nb[3] / sizeof(float);
+
+        // dps == dst per src0, used for group query attention
+        const int64_t dps2 = dst->ne[2] / src0->ne[2];
+        const int64_t dps3 = dst->ne[3] / src0->ne[3];
+
+        if (dps2 == 1 && dst->ne[2] > 1) {
+            // src0 has uniform stride s02 along dim 2; batch the inner loop with a strided GEMM
+            GGML_ASSERT(dst->ne[2] <= std::numeric_limits<int>::max());
+            const int batch_count = (int)dst->ne[2];
+            for (int64_t i3 = 0; i3 < dst->ne[3]; ++i3) {
+                CUBLAS_CHECK(
+                    cublasSgemmStridedBatched(handle, CUBLAS_OP_N, src1_cublas_op,
+                        dst->ne[0], dst->ne[1], src0->ne[1],
+                        &alpha, src0_d + (i3 / dps3) * s03, lda, s02,
+                        src1_d + i3 * s13, ldb, s12,
+                        &beta, dst_d + i3 * s3, ldc, s2,
+                        batch_count));
+            }
+        }
+        else {
+            // Fallback: ne2 == 1 (no batching benefit) or dps2 > 1 (src0 broadcast along dim 2
+            // with non-uniform stride; would need cublasSgemmBatched with pointer arrays).
+            for (int64_t i3 = 0; i3 < dst->ne[3]; ++i3) {
+                for (int64_t i2 = 0; i2 < dst->ne[2]; ++i2) {
+                    CUBLAS_CHECK(
+                        cublasSgemm(handle, CUBLAS_OP_N, src1_cublas_op,
+                            dst->ne[0], dst->ne[1], src0->ne[1],
+                            &alpha, src0_d + (i3 / dps3) * s03 + (i2 / dps2) * s02, lda,
+                            src1_d + i3 * s13 + i2 * s12, ldb,
+                            &beta, dst_d + i3 * s3 + i2 * s2, ldc));
+                }
+            }
+        }
+    }
+
+    void snake_fused(cudaStream_t stream,
+        const ggml_tensor* x,
+        const ggml_tensor* a,
+        const ggml_tensor* inv_b,
+        ggml_tensor* dst)
+    {
+        snake_context ctx {
+            .x_type = std::bit_cast<internal::ggml_type>(x->type),
+			.x_d = x->data,
+			.a_d = (const float*)a->data,
+			.inv_b_d = (const float*)inv_b->data,
+			.dst_d = dst->data,
+            .T = (int)x->ne[0],
+			.C = (int)x->ne[1]
+        };
+        snake_cuda(ctx, stream);
+    }
 }

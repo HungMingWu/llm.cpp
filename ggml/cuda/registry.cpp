@@ -131,6 +131,9 @@ backend_cuda_reg::backend_cuda_reg()
             char pci_bus_id[32] = {};
             CUDA_CHECK(cudaDeviceGetPCIBusId(pci_bus_id, sizeof(pci_bus_id), i));
             dev.pci_bus_id = std::string(pci_bus_id);
+            for (char& c : dev.pci_bus_id) {
+                c = std::tolower(c);
+            }
             dev.op_offload_min_batch_size = min_batch_size;
         }
     }
@@ -498,12 +501,8 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_VIEW:
     case GGML_OP_PERMUTE:
     case GGML_OP_TRANSPOSE:
-    case GGML_OP_ADD:
     case GGML_OP_ADD_ID:
     case GGML_OP_ADD1:
-    case GGML_OP_SUB:
-    case GGML_OP_MUL:
-    case GGML_OP_DIV:
     case GGML_OP_SCALE:
     case GGML_OP_SQR:
     case GGML_OP_SQRT:
@@ -512,6 +511,13 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_CLAMP:
     case GGML_OP_LOG:
         return true;
+    case GGML_OP_ADD:
+    case GGML_OP_SUB:
+    case GGML_OP_MUL:
+    case GGML_OP_DIV:
+        return (op->src[0]->type == GGML_TYPE_F32 || op->src[0]->type == GGML_TYPE_F16) &&
+            (op->src[1]->type == GGML_TYPE_F32 || op->src[1]->type == GGML_TYPE_F16) &&
+            (op->type == GGML_TYPE_F32 || op->type == GGML_TYPE_F16);
     case GGML_OP_SSM_SCAN: {
         if (op->src[3]->ne[0] == 1) {
             // Mamba2

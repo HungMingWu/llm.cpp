@@ -9,8 +9,8 @@ module;
 #define GGML_ASSERT(x) assert(x)
 
 module ggml;
+import :fused;
 import :cuda.buffer_type;
-import :cuda.fused;
 import :cuda.utils;
 
 static int ggml_node_list_find_tensor(const ggml_cgraph* cgraph,
@@ -87,13 +87,6 @@ static bool ggml_can_fuse_subgraph_ext(const ggml_cgraph* cgraph,
     }
 
     return true;
-}
-
-inline bool ggml_can_fuse_subgraph(const ggml_cgraph* cgraph,
-    int                                 start_idx,
-    std::initializer_list<enum ggml_op> ops,
-    std::initializer_list<int>          outputs = {}) {
-    return fused::ggml_can_fuse_subgraph(cgraph, start_idx, ops.size(), ops.begin(), outputs.begin(), outputs.size());
 }
 
 static bool ggml_cuda_should_use_topk_moe(const ggml_tensor* gating_op,
@@ -322,6 +315,13 @@ static inline bool ggml_can_fuse_ext(const ggml_cgraph* cgraph, const int* node_
 
 namespace fused
 {
+    bool ggml_can_fuse_subgraph(const ggml_cgraph* cgraph,
+        int                                 start_idx,
+        std::initializer_list<enum ggml_op> ops,
+        std::initializer_list<int>          outputs) {
+        return fused::ggml_can_fuse_subgraph(cgraph, start_idx, ops.size(), ops.begin(), outputs.begin(), outputs.size());
+    }
+
     // same as above, for sequential indices starting at node_idx
     bool ggml_can_fuse(const ggml_cgraph* cgraph, int node_idx, const enum ggml_op* ops, int num_ops) {
         assert(num_ops < 32);

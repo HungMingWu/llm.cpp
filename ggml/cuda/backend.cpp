@@ -20,8 +20,8 @@ module;
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
 module ggml;
+import :fused;
 import :cuda.backend;
-import :cuda.fused;
 import :cuda.op;
 
 // destroying a cuBLAS handle while a graph is being captured in a different thread can result in a CUDA error
@@ -1708,6 +1708,50 @@ static int ggml_cuda_try_fuse(ggml_cuda_pool& pool, cudaStream_t stream, ggml_cg
 
         op::rope(stream, rope, true, set_rows);
         return 2;
+    }
+
+    // Snake activation: y = x + sin(a*x)^2 * inv_b
+    // Naive 5-op decomposition emitted by frontends: mul -> sin -> sqr -> mul -> add
+    if (fused::ggml_can_fuse_subgraph(cgraph, i,
+        { GGML_OP_MUL, GGML_OP_SIN, GGML_OP_SQR, GGML_OP_MUL, GGML_OP_ADD },
+        { i + 4 })) {
+        const ggml_tensor* mul0 = cgraph->nodes[i];
+        const ggml_tensor* sqr = cgraph->nodes[i + 2];
+        const ggml_tensor* mul1 = cgraph->nodes[i + 3];
+        ggml_tensor* add = cgraph->nodes[i + 4];
+
+        // x carries the full activation shape, a is the broadcast operand
+        const ggml_tensor* x = ggml_are_same_shape(mul0, mul0->src[0]) ? mul0->src[0] : mul0->src[1];
+        const ggml_tensor* a = (x == mul0->src[0]) ? mul0->src[1] : mul0->src[0];
+
+        // mul1 reads sqr and inv_b in either operand order
+        const ggml_tensor* inv_b = (mul1->src[0] == sqr) ? mul1->src[1] : mul1->src[0];
+
+        // closure check: the trailing add must read the same x as the leading mul
+        const ggml_tensor* x_in_add = (add->src[0] == mul1) ? add->src[1] : add->src[0];
+
+        // Kernel iterates over total = T * C, so x and add must be 2D and
+        // a / inv_b must collapse to [1, C, 1, 1]. Higher dims are not handled.
+        const bool dim_ok = (x->ne[2] == 1 && x->ne[3] == 1) &&
+            (add->ne[2] == 1 && add->ne[3] == 1) &&
+            (a->ne[2] == 1 && a->ne[3] == 1);
+        const bool shape_ok = ggml_are_same_shape(a, inv_b) && a->ne[0] == 1 && a->ne[1] == x->ne[1];
+
+        // x must be in the supported whitelist and every operand / intermediate
+        // result must share x's type, since launch_snake casts a / inv_b as
+        // float and templates the kernel on a single T. Mixed precision chains
+        // fall back to the naive path.
+        const ggml_tensor* sin1 = cgraph->nodes[i + 1];
+        const bool types_ok = (x->type == GGML_TYPE_F32 || x->type == GGML_TYPE_F16 || x->type == GGML_TYPE_BF16) &&
+            (a->type == x->type) && (inv_b->type == x->type) &&
+            (mul0->type == x->type) && (sin1->type == x->type) &&
+            (sqr->type == x->type) && (mul1->type == x->type) &&
+            (add->type == x->type);
+
+        if (types_ok && shape_ok && dim_ok && x_in_add == x) {
+            op::snake_fused(stream, x, a, inv_b, add);
+            return 4;
+        }
     }
 
     // multi-(add or mul)

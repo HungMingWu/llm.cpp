@@ -23,6 +23,7 @@ module;
 
 module ggml;
 import :ds;
+import :fused;
 import :quants;
 import :tensor;
 import :utility;
@@ -7263,4 +7264,43 @@ void ggml_compute_forward(
 		GGML_ABORT("fatal error");
 	}
 	}
+}
+
+// Try to fuse the current node with subsequent nodes for better performance.
+// Returns the number of nodes skipped by fusion (>=1), or 0 if no fusion was applied.
+static bool ggml_cpu_disable_fusion = false;  // initialized once in ggml_cpu_init(), read-only afterwards
+
+int ggml_cpu_try_fuse_ops(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	const ggml_cgraph* cgraph,
+	const int node_n,
+	bool use_ref) {
+
+	if (ggml_cpu_disable_fusion || use_ref) {
+		return 0;
+	}
+
+	struct ggml_tensor* node = cgraph->nodes[node_n];
+
+	if (node->op == GGML_OP_RMS_NORM) {
+		// RMS_NORM + MUL fusion
+		const enum ggml_op fuse_ops[] = { GGML_OP_RMS_NORM, GGML_OP_MUL };
+		if (fused::ggml_can_fuse(cgraph, node_n, fuse_ops, 2)) {
+			ggml_tensor* mul_node = cgraph->nodes[node_n + 1];
+			const ggml_tensor* mul_w = (mul_node->src[0] == node)
+				? mul_node->src[1] : mul_node->src[0];
+			if (node->src[0]->type == GGML_TYPE_F32 &&
+				mul_node->type == GGML_TYPE_F32 &&
+				mul_w->type == GGML_TYPE_F32 &&
+				mul_w->ne[0] == node->ne[0] &&
+				mul_w->nb[0] == sizeof(float)) {
+
+				ggml_compute_forward_rms_norm_mul_fused(node, mul_node);
+				return 1;
+			}
+		}
+	}
+
+	return 0;
 }

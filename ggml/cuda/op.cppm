@@ -10,9 +10,9 @@ module;
 module ggml:cuda.op;
 import :ds;
 import :func;
+import :fused;
 import :tensor;
 import :cuda.buffer;
-import :cuda.fused;
 import :cuda.utils;
 
 // WMMA flash attention requires FP16 matrix instructions to be available for ggml code.
@@ -1146,65 +1146,7 @@ namespace op
         get_rows_cuda(ctx2, stream);
     }
 
-    void out_prod(cudaStream_t stream, cublasHandle_t handle, ggml_tensor* dst) {
-        const ggml_tensor* src0 = dst->src[0];
-        const ggml_tensor* src1 = dst->src[1];
-
-        GGML_ASSERT(src0->type == GGML_TYPE_F32);
-        GGML_ASSERT(src1->type == GGML_TYPE_F32);
-        GGML_ASSERT(dst->type == GGML_TYPE_F32);
-
-        GGML_ASSERT(src0->ne[1] == src1->ne[1]);
-        GGML_ASSERT(dst->ne[0] == src0->ne[0]);
-        GGML_ASSERT(dst->ne[1] == src1->ne[0]);
-
-        GGML_ASSERT(dst->ne[2] % src0->ne[2] == 0);
-        GGML_ASSERT(dst->ne[3] % src0->ne[3] == 0);
-
-        GGML_ASSERT(dst->ne[2] == src1->ne[2]);
-        GGML_ASSERT(dst->ne[3] == src1->ne[3]);
-
-        const float* src0_d = (const float*)src0->data;
-        const float* src1_d = (const float*)src1->data;
-        float* dst_d = (float*)dst->data;
-
-        const float alpha = 1.0f;
-        const float beta = 0.0f;
-
-        CUBLAS_CHECK(cublasSetStream(handle, stream));
-
-        const int64_t lda = src0->nb[1] / sizeof(float);
-        const int64_t ldc = dst->nb[1] / sizeof(float);
-
-        const bool src1_T = ggml_is_transposed(src1);
-        const cublasOperation_t src1_cublas_op = src1_T ? CUBLAS_OP_N : CUBLAS_OP_T;
-        const int64_t           ldb = (src1_T ? src1->nb[0] : src1->nb[1]) / sizeof(float);
-        GGML_ASSERT((src1_T ? src1->nb[1] : src1->nb[0]) == sizeof(float));
-
-        // data strides in dimensions 2/3
-        const size_t s02 = src0->nb[2] / sizeof(float);
-        const size_t s03 = src0->nb[3] / sizeof(float);
-        const size_t s12 = src1->nb[2] / sizeof(float);
-        const size_t s13 = src1->nb[3] / sizeof(float);
-        const size_t s2 = dst->nb[2] / sizeof(float);
-        const size_t s3 = dst->nb[3] / sizeof(float);
-
-        // dps == dst per src0, used for group query attention
-        const int64_t dps2 = dst->ne[2] / src0->ne[2];
-        const int64_t dps3 = dst->ne[3] / src0->ne[3];
-
-        // TODO batched matrix multiplication
-        for (int64_t i3 = 0; i3 < dst->ne[3]; ++i3) {
-            for (int64_t i2 = 0; i2 < dst->ne[2]; ++i2) {
-                CUBLAS_CHECK(
-                    cublasSgemm(handle, CUBLAS_OP_N, src1_cublas_op,
-                        dst->ne[0], dst->ne[1], src0->ne[1],
-                        &alpha, src0_d + (i3 / dps3) * s03 + (i2 / dps2) * s02, lda,
-                        src1_d + i3 * s13 + i2 * s12, ldb,
-                        &beta, dst_d + i3 * s3 + i2 * s2, ldc));
-            }
-        }
-    }
+    void out_prod(cudaStream_t stream, cublasHandle_t handle, ggml_tensor* dst);
 
     void sqr(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
@@ -1565,6 +1507,14 @@ namespace op
                 return BEST_FATTN_KERNEL_NONE;
             }
             break;
+        case 192:
+            if (V->ne[0] != 128 || !gqa_opt_applies) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            if (gqa_ratio % 8 != 0) {
+                return BEST_FATTN_KERNEL_NONE;
+            }
+            break;
         case 320:
             if (V->ne[0] != 256 || !gqa_opt_applies) {
                 return BEST_FATTN_KERNEL_NONE;
@@ -1622,7 +1572,8 @@ namespace op
         }
 
         // For small batch sizes the vector kernel may be preferable over the kernels optimized for large batch sizes:
-        const bool can_use_vector_kernel = Q->ne[0] <= 256 && Q->ne[0] % 64 == 0 && K->ne[1] % FATTN_KQ_STRIDE == 0;
+        // 192 satisfies % 64 == 0 but has no vec instance (DKQ != DV); force it onto the MMA path.
+        const bool can_use_vector_kernel = Q->ne[0] <= 256 && Q->ne[0] % 64 == 0 && Q->ne[0] != 192 && K->ne[1] % FATTN_KQ_STRIDE == 0;
 
         // If Turing tensor cores are available, use them:
         if (turing_mma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72) {
@@ -1653,7 +1604,7 @@ namespace op
 
         if (volta_mma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72) {
             int gqa_ratio_eff = 1;
-            const int ncols2_max = Q->ne[0] == 576 ? 16 : 8;
+            const int ncols2_max = (Q->ne[0] == 576 || Q->ne[0] == 192) ? 16 : 8;
             while (gqa_ratio % (2 * gqa_ratio_eff) == 0 && gqa_ratio_eff < ncols2_max) {
                 gqa_ratio_eff *= 2;
             }
@@ -1667,7 +1618,7 @@ namespace op
         }
 
         // Use the WMMA kernel if possible:
-        if (ggml_cuda_should_use_wmma_fattn(cc) && K->ne[1] % FATTN_KQ_STRIDE == 0 && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[0] != 512 && Q->ne[0] != 576) {
+        if (ggml_cuda_should_use_wmma_fattn(cc) && K->ne[1] % FATTN_KQ_STRIDE == 0 && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[0] != 192 && Q->ne[0] != 512 && Q->ne[0] != 576) {
             if (can_use_vector_kernel && Q->ne[1] <= 2) {
                 return BEST_FATTN_KERNEL_VEC;
             }
@@ -1701,7 +1652,7 @@ namespace op
         }
 
         // Use MFMA flash attention for CDNA (MI100+):
-        if (amd_mfma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[0] != 256 && Q->ne[0] != 512 && Q->ne[0] != 576) {
+        if (amd_mfma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[0] != 192 && Q->ne[0] != 256 && Q->ne[0] != 512 && Q->ne[0] != 576) {
             const int64_t eff_nq = Q->ne[1] * (gqa_opt_applies ? gqa_ratio : 1);
             // MMA vs tile crossover benchmarked on MI300X @ d32768:
             //   hsk=64  (gqa=4): MMA wins at eff >= 128 (+11%)
@@ -2281,4 +2232,10 @@ namespace op
     void unary_mul(cudaStream_t stream, ggml_tensor* unary_node, ggml_tensor* mul_node);
     /* fused relu + sqr */
     void relu_sqr(cudaStream_t stream, ggml_tensor* relu_node, ggml_tensor* sqr_node);
+
+    void snake_fused(cudaStream_t stream,
+        const ggml_tensor* x,
+        const ggml_tensor* a,
+        const ggml_tensor* inv_b,
+        ggml_tensor* dst);
 }

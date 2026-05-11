@@ -11,14 +11,30 @@ module;
 module ggml;
 import :cpu.op;
 
-template <bool isRms>
-static void ggml_compute_forward_norm_f32(ggml_tensor* dst) {
-    const ggml_tensor* src0 = dst->src[0];
+// fusion kinds that can be combined with the rms_norm computation in a single pass.
+// extend this enum when adding new fused variants (e.g. FUSE_ADD, FUSE_MUL_ADD, ...).
+enum ggml_rms_norm_fuse_op {
+    GGML_RMS_NORM_FUSE_OP_NONE,
+    GGML_RMS_NORM_FUSE_OP_MUL,
+};
+
+template <ggml_rms_norm_fuse_op FUSE_OP, bool isRms>
+static void ggml_compute_forward_norm_f32(
+    ggml_tensor* dst_rms_norm,
+    ggml_tensor* dst_fused = nullptr) {
+    const ggml_tensor* src0 = dst_rms_norm->src[0];
+    const ggml_tensor* src1 = nullptr;
+    ggml_tensor* dst = dst_rms_norm;
+
+    if constexpr (FUSE_OP == GGML_RMS_NORM_FUSE_OP_MUL) {
+        src1 = (dst_fused->src[0] == dst_rms_norm) ? dst_fused->src[1] : dst_fused->src[0];
+        dst = dst_fused;
+    }
 
     GGML_ASSERT(ggml_are_same_shape(src0, dst));
     GGML_ASSERT(src0->nb[0] == sizeof(float));
 
-    float eps = std::bit_cast<float>(dst->op_params[0]);
+    float eps = std::bit_cast<float>(dst_rms_norm->op_params[0]);
     GGML_ASSERT(eps >= 0.0f);
     auto y = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
     auto x = make_strided_mdspan(static_cast<const float*>(src0->data), src0->ne, src0->nb);
@@ -63,8 +79,11 @@ static void ggml_compute_forward_norm_f32(ggml_tensor* dst) {
                     assert(scale > 0.0f);
                 }
 
-                for (int64_t i00 = 0; i00 < x.extent(3); i00++)
+                for (int64_t i00 = 0; i00 < x.extent(3); i00++) {
                     y[i03, i02, i01, i00] *= scale;
+                    if constexpr (FUSE_OP == GGML_RMS_NORM_FUSE_OP_MUL)
+                        y[i03, i02, i01, i00] *= x[i03, i02, i01, i00];
+                }
             }
         }
     }
@@ -76,7 +95,7 @@ void ggml_compute_forward_norm(ggml_tensor* dst) {
     switch (src0->type) {
     case GGML_TYPE_F32:
     {
-        ggml_compute_forward_norm_f32<false>(dst);
+        ggml_compute_forward_norm_f32<GGML_RMS_NORM_FUSE_OP_NONE, false>(dst);
     } break;
     default:
     {
@@ -91,7 +110,7 @@ void ggml_compute_forward_rms_norm(ggml_tensor* dst) {
     switch (src0->type) {
     case GGML_TYPE_F32:
     {
-        ggml_compute_forward_norm_f32<true>(dst);
+        ggml_compute_forward_norm_f32<GGML_RMS_NORM_FUSE_OP_NONE, true>(dst);
     } break;
     default:
     {
@@ -167,6 +186,29 @@ void ggml_compute_forward_group_norm(ggml_tensor* dst) {
     case GGML_TYPE_F32:
     {
         ggml_compute_forward_group_norm_f32(dst);
+    } break;
+    default:
+    {
+        GGML_ABORT("fatal error");
+    }
+    }
+}
+
+// Fused RMS_NORM + MUL: computes dst = rms_norm(src0) * src1 in a single pass.
+// This avoids materializing the intermediate rms_norm result in memory.
+void ggml_compute_forward_rms_norm_mul_fused(
+    ggml_tensor* dst_rms_norm,
+    ggml_tensor* dst_mul) {
+
+    GGML_ASSERT(dst_mul != nullptr);
+    GGML_ASSERT(dst_mul->src[0] == dst_rms_norm || dst_mul->src[1] == dst_rms_norm);
+
+    const ggml_tensor* src0 = dst_rms_norm->src[0];
+
+    switch (src0->type) {
+    case GGML_TYPE_F32:
+    {
+        ggml_compute_forward_norm_f32<GGML_RMS_NORM_FUSE_OP_MUL, true>(dst_rms_norm, dst_mul);
     } break;
     default:
     {

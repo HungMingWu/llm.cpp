@@ -45,16 +45,17 @@ target_sources(libggml
     FILE_SET cuda_hidden_interface
     TYPE CXX_MODULES
     FILES
+      allreduce.cppm
       backend.cppm
       buffer.cppm
       buffer_type.cppm
       device.cppm
-      fused.cppm
       graph.cppm
       op.cppm
       registry.cppm
       utils.cppm
   PRIVATE
+      allreduce.cpp
       backend.cpp
       buffer.cpp
       buffer_type.cpp
@@ -62,7 +63,6 @@ target_sources(libggml
       common.cu
       cuda.cpp
       device.cpp
-      fused.cpp
       op.cpp
       registry.cpp
       utils.cpp
@@ -116,6 +116,7 @@ target_sources(libggml
       op/rope.cu
       op/scale.cu
       op/set-rows.cu
+      op/snake.cu
       op/softmax.cu
       op/solve_tri.cu
       op/ssm-conv.cu
