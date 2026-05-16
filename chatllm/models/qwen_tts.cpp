@@ -1079,8 +1079,6 @@ namespace chatllm::qwen::tts
 
     void AttentiveStatisticsPooling::_compute_statistics(ComputeContext* ctx, ggml::tensor* x, ggml::tensor* m, ggml::tensor*& mean, ggml::tensor*& std)
     {
-        const int seq_length = (int)ggml::get_dim(x, 0);
-
         mean = ggml::mul(ctx, x, m, false);
         mean = ggml::sum_rows(ctx, mean);
 
@@ -2111,7 +2109,7 @@ namespace chatllm::qwen::v3_tts
         last_id_hidden.resize(config.hidden_size);
 
         int last_id = -1;
-        while ((gen_config.max_new_tokens <= 0) || (codec_ids.size() < (int)gen_config.max_new_tokens))
+        while ((gen_config.max_new_tokens <= 0) || ((int)codec_ids.size() < gen_config.max_new_tokens))
         {
             if (block_ids.size() > 0)
             {

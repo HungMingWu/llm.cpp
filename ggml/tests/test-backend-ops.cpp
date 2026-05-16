@@ -5626,7 +5626,7 @@ struct test_topk_moe : public test_case {
         ggml_tensor* logits = ggml_new_tensor(ctx, GGML_TYPE_F32, ne);
         ggml_tensor* probs =
             (gating_func == GATING_FUNC_SOFTMAX) ? ggml_soft_max(ctx, logits, false) :
-            (gating_func == GATING_FUNC_SIGMOID) ? ggml_sigmoid(ctx, logits) : logits;
+            (gating_func == GATING_FUNC_SIGMOID) ? ggml_sigmoid(ctx, logits, false) : logits;
         probs->set_name("probs");
 
         ggml_tensor* selection_probs = probs;

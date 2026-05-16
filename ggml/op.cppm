@@ -698,7 +698,7 @@ export {
 		ggml_tensor* a,
 		ggml_tensor* b,
 		size_t offset);
-	ggml_tensor* ggml_sigmoid(ggml_context* ctx, ggml_tensor* a);
+	ggml_tensor* ggml_sigmoid(ggml_context* ctx, ggml_tensor* a, bool inplace);
 	ggml_tensor* ggml_conv_1d_ph(
 		ggml_context* ctx,
 		ggml_tensor* a,

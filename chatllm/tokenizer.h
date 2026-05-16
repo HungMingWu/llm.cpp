@@ -197,6 +197,12 @@ namespace tokenizer
     class BPEProcessor2 : public Processor
     {
     public:
+        enum DecoderType
+        {
+            ByteLevel,
+            Sequence
+        };
+
         BPEProcessor2();
 
         BPEProcessor2(std::vector<std::string> regex_exprs);
@@ -204,6 +210,8 @@ namespace tokenizer
         size_t Load(DataReader& data_reader, int n_vocab) override;
 
         const std::string IdToPiece(int id) const override;
+
+        void SetDecoderType(DecoderType dec_type);
 
     protected:
         int DoEncode(const std::string& input,
@@ -213,6 +221,7 @@ namespace tokenizer
             std::vector<int>* ids) const;
 
         std::vector<std::string> regex_exprs;
+        DecoderType dec_type = DecoderType::ByteLevel;
     };
 
     class BPEProcessor3 : public BPEProcessor2

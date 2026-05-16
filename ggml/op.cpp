@@ -2181,9 +2181,9 @@ ggml_tensor* ggml_set_1d(
 	return ggml_set_impl(ctx, a, b, a->nb[1], a->nb[2], a->nb[3], offset, false);
 }
 
-ggml_tensor* ggml_sigmoid(ggml_context* ctx, ggml_tensor* a)
+ggml_tensor* ggml_sigmoid(ggml_context* ctx, ggml_tensor* a, bool inplace)
 {
-	return ggml_unary(ctx, a, GGML_UNARY_OP_SIGMOID);
+	return ggml_unary_impl(ctx, a, GGML_UNARY_OP_SIGMOID, inplace);
 }
 
 ggml_tensor* ggml_conv_1d_ph(

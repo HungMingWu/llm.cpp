@@ -11440,7 +11440,7 @@ static ggml_tensor* llm_build_rwkv6_channel_mix(
     struct ggml_tensor* xk = ggml_add(ctx, ggml_mul(ctx, sx, layer->channel_mix_lerp_k, false), cur, false);
     struct ggml_tensor* xr = ggml_add(ctx, ggml_mul(ctx, sx, layer->channel_mix_lerp_r, false), cur, false);
 
-    struct ggml_tensor* r = ggml_sigmoid(ctx, llm_build_lora_mm(lctx, ctx, layer->channel_mix_receptance, xr));
+    struct ggml_tensor* r = ggml_sigmoid(ctx, llm_build_lora_mm(lctx, ctx, layer->channel_mix_receptance, xr), false);
     struct ggml_tensor* k = ggml_sqr(
         ctx,
         ggml_relu(
@@ -18164,7 +18164,7 @@ struct llm_build_context {
                     layer.norm1_b,
                     LLM_NORM_GROUP, cb, 0);
 
-                cur = ggml_mul(ctx0, ggml_sigmoid(ctx0, cur), cur, false);
+                cur = ggml_mul(ctx0, ggml_sigmoid(ctx0, cur, false), cur, false);
 
                 cur = ggml_conv_1d_ph(ctx0, layer.conv1, cur, 1, 1);
                 cur = ggml_add(ctx0, cur, layer.conv1_b, false);
@@ -18174,7 +18174,7 @@ struct llm_build_context {
                     layer.norm2_b,
                     LLM_NORM_GROUP, cb, 0);
 
-                cur = ggml_mul(ctx0, ggml_sigmoid(ctx0, cur), cur, false);
+                cur = ggml_mul(ctx0, ggml_sigmoid(ctx0, cur, false), cur, false);
 
                 cur = ggml_conv_1d_ph(ctx0, layer.conv2, cur, 1, 1);
                 cur = ggml_add(ctx0, cur, layer.conv2_b, false);

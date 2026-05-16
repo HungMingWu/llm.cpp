@@ -37,6 +37,7 @@ export namespace chatllm
         RELU,
         RELU2,  // square . relu
         SWISH,
+        SIGMOID,
     };
 
     namespace ggml
@@ -52,7 +53,7 @@ export namespace chatllm
         void set_input(ggml::tensor* a);
         void set_output(ggml::tensor* a);
 
-        void fill(ggml::tensor* a, uint8_t value, size_t offset = 0, size_t size = 0);
+        ggml::tensor* fill(ComputeContext* ctx, ggml::tensor* a, float value);
         float  at(ggml::tensor* a, int64_t i, int64_t j, int64_t k, int64_t l);
 
         ggml::type    type_of(const ggml::tensor* a);
@@ -145,8 +146,18 @@ export namespace chatllm
             float attn_factor, float beta_fast, float beta_slow,
             const int* sections, bool inplace);
 
+        // rope is apply on [0..head_dim//2], [head/dim/2..] respectively
+        // this differs from GGML_ROPE_TYPE_VISION
+        // `pos` has a similar shape for `GGML_ROPE_TYPE_VISION`
+        // ggml shape of `a`: [head_size, heads, qlen, 1]
+        ggml::tensor* rope_2d_inplace(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* pos, ggml::tensor* freq_factors,
+            int   n_dims, int n_ctx_orig,
+            float freq_base, float freq_scale, float ext_factor,
+            float attn_factor, float beta_fast, float beta_slow);
+
         ggml::tensor* soft_max(ComputeContext* ctx, ggml::tensor* a, bool inplace);
-        ggml::tensor* soft_max_ext(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* mask, float scale, float max_bias);
+        // max_bias = 0.0f: ALiBi is disabled
+        ggml::tensor* soft_max_ext(ComputeContext* ctx, ggml::tensor* a, ggml::tensor* mask, float scale = 1.0f, float max_bias = 0.0f);
         void          soft_max_attach_sinks(ggml::tensor* soft_max_result, ggml::tensor* sinks);
 
         ggml::tensor* sigmoid(ComputeContext* ctx, ggml::tensor* a);
@@ -162,6 +173,13 @@ export namespace chatllm
 
         ggml::tensor* clamp(ComputeContext* ctx, ggml::tensor* a, float min, float max);
         ggml::tensor* avg_pool_2d(ComputeContext* ctx, ggml::tensor* a, int kernel_size, int stride, float padding = 0.0f);
+        ggml::tensor* avg_pool_2d(ComputeContext* ctx, ggml::tensor* a,
+            int                   k0,
+            int                   k1,
+            int                   s0,
+            int                   s1,
+            float                 p0 = 0.0f,
+            float                 p1 = 0.0f);
         ggml::tensor* avg_pool_1d(ComputeContext* ctx, ggml::tensor* a, int kernel_size, int stride, int padding = 0);
 
         ggml::tensor* abs(ComputeContext* ctx, ggml::tensor* a);
@@ -187,6 +205,8 @@ export namespace chatllm
         ggml::tensor* swiglu_oai(ComputeContext* ctx, ggml::tensor* gate, ggml::tensor* up, float alpha, float limit);
 
         ggml::tensor* xielu(ComputeContext* ctx, ggml::tensor* input, float alpha_n, float alpha_p, float beta, float eps);
+        ggml::tensor* glu(ComputeContext* ctx, ggml::tensor* input, ActFunc act,
+            bool swapped = false);
 
         ggml::tensor* logsumexp(ComputeContext* ctx, ggml::tensor* a);
         ggml::tensor* softplus(ComputeContext* ctx, ggml::tensor* a);
@@ -238,6 +258,8 @@ export namespace chatllm
         void build_forward_expand(ComputeContext* ctx, ggml::tensor* tensor);
     };
 
+    float softplus(float input, float beta = 1.0f, float threshold = 20.0f);
+
     // facility to pass extra params when constructing Blocks.
     // single thread assumed.
     class BlockParams
@@ -268,11 +290,13 @@ export namespace chatllm
         class DisableCache
         {
         public:
-            DisableCache();
+            DisableCache(bool disabled = true);
             ~DisableCache();
             static bool is_disabled(void);
         protected:
             static bool disabled;
+        private:
+            bool state;
         };
 
         class FlashAttention
@@ -665,15 +689,25 @@ export namespace chatllm
         int64_t get_param_num(bool effective_only) const override
         {
             int64_t r = ggml::nelements(weight);
-            if (bias) r += ggml::nelements(bias);
+            if (bias)       r += ggml::nelements(bias);
+            if (do_clip)    r += 4;
             return r;
         }
 
         void load(const std::string& path, TensorLoader* loader) override;
 
+        void enable_clipping(void)
+        {
+            do_clip = true;
+        }
+
     public:
         ggml::tensor* weight; // [out_features, in_features]
         ggml::tensor* bias;   // [out_features]
+    protected:
+        float clip_input[2] = { 0.0f, 0.0f };
+        float clip_output[2] = { 0.0f, 0.0f };
+        bool  do_clip = false;
     };
 
     class MultiLinear : public Block
@@ -756,8 +790,8 @@ export namespace chatllm
         {
         }
 
-        LayerNorm(InitContext* ctx, int normalized_shape, bool use_bias)
-            : GroupNorm(ctx, normalized_shape, normalized_shape, use_bias) {
+        LayerNorm(InitContext* ctx, int normalized_shape, bool use_bias, float eps = 1e-5f)
+            : GroupNorm(ctx, normalized_shape, normalized_shape, use_bias, eps) {
         }
     };
 
@@ -855,8 +889,8 @@ export namespace chatllm
         RMSNorm() : weight(nullptr), inplace(false) {}
         RMSNorm(InitContext* ctx, int normalized_shape) : RMSNorm(ctx, normalized_shape, false) {}
     protected:
-        RMSNorm(InitContext* ctx, int normalized_shape, bool inplace)
-            : weight(ctx->new_tensor(GGML_TYPE_F32, { normalized_shape })),
+        RMSNorm(InitContext* ctx, int normalized_shape, bool inplace, bool with_scale = true)
+            : weight(with_scale ? ctx->new_tensor(GGML_TYPE_F32, { normalized_shape }) : nullptr),
             eps(BlockParams::Epsilon::rms_norm),
             inplace(inplace) {
         }
@@ -866,7 +900,7 @@ export namespace chatllm
 
         int64_t get_param_num(bool effective_only) const override
         {
-            return ggml::nelements(weight);
+            return weight ? ggml::nelements(weight) : 0;
         }
 
         void load(const std::string& path, TensorLoader* loader) override;
@@ -875,6 +909,15 @@ export namespace chatllm
         ggml::tensor* weight;
         float eps;
         const bool inplace;
+    };
+
+    class RMSNormNoScale : public RMSNorm
+    {
+    public:
+        RMSNormNoScale(InitContext* ctx, int normalized_shape, bool inplace = false) :
+            RMSNorm(ctx, normalized_shape, inplace, false)
+        {
+        }
     };
 
     class RMSNormWeightPlus1 : public RMSNorm
@@ -1374,6 +1417,30 @@ export namespace chatllm
         MLPBlock mlp;
     };
 
+    class LMBlock4Forward
+    {
+    public:
+        LMBlock4Forward(Block* pre_attention_layernorm,
+            Block* attention,
+            Block* post_attention_layernorm,
+            Block* pre_mlp_layernorm,
+            Block* mlp,
+            Block* post_mlp_layernorm,
+            int id);
+        virtual ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* hidden_states, int n_past);
+        virtual int64_t get_param_num(bool effective_only);
+        void set_id(int id);
+        virtual void load(const std::string& path, TensorLoader* loader);
+    protected:
+        const int id;
+        Block* pre_attention_layernorm;
+        Block* attention;
+        Block* post_attention_layernorm;
+        Block* pre_mlp_layernorm;
+        Block* mlp;
+        Block* post_mlp_layernorm;
+    };
+
     template <class PreAttnNormBlock,
         class AttentionBlock,
         class PostAttnNormBlock,
@@ -1438,54 +1505,39 @@ export namespace chatllm
         using Block::forward;
         ggml::tensor* forward(ComputeContext* ctx, ggml::tensor* hidden_states, int n_past) override
         {
-            ggml::tensor* residual = hidden_states;
-
-            hidden_states = pre_attention_layernorm.forward(ctx, hidden_states);
-            hidden_states = Base::attention.forward(ctx, hidden_states, n_past);
-            hidden_states = post_attention_layernorm.forward(ctx, hidden_states);
-
-            hidden_states = ggml::add(ctx, residual, hidden_states, false);
-            residual = hidden_states;
-
-            hidden_states = pre_mlp_layernorm.forward(ctx, hidden_states);
-            hidden_states = mlp.forward(ctx, hidden_states);
-            hidden_states = post_mlp_layernorm.forward(ctx, hidden_states);
-
-            hidden_states = ggml::add(ctx, residual, hidden_states, false);
-
+            LMBlock4Forward eval(&pre_attention_layernorm, &(Base::attention), &post_attention_layernorm, &pre_mlp_layernorm, &mlp, &post_mlp_layernorm, Base::get_id());
+            hidden_states = eval.forward(ctx, hidden_states, n_past);
             return hidden_states;
         }
 
         int64_t get_param_num(bool effective_only) const override
         {
+            LMBlock4Forward eval((Block*)&pre_attention_layernorm,
+                (Block*)&(Base::attention),
+                (Block*)&post_attention_layernorm,
+                (Block*)&pre_mlp_layernorm,
+                (Block*)&mlp,
+                (Block*)&post_mlp_layernorm, Base::get_id());
+
             int64_t r = Base::get_param_num(effective_only);
-            r += pre_attention_layernorm.get_param_num(effective_only);
-            r += post_attention_layernorm.get_param_num(effective_only);
-            r += pre_mlp_layernorm.get_param_num(effective_only);
-            r += mlp.get_param_num(effective_only);
-            r += post_mlp_layernorm.get_param_num(effective_only);
+            r += eval.get_param_num(effective_only);
             return r;
         }
 
         void set_id(int id) override
         {
-            Base::set_id(id);
+            LMBlock4Forward eval(&pre_attention_layernorm, &(Base::attention), &post_attention_layernorm, &pre_mlp_layernorm, &mlp, &post_mlp_layernorm, Base::get_id());
 
-            pre_attention_layernorm.set_id(id);
-            post_attention_layernorm.set_id(id);
-            pre_mlp_layernorm.set_id(id);
-            mlp.set_id(id);
-            post_mlp_layernorm.set_id(id);
+            Base::set_id(id);
+            eval.set_id(id);
         }
 
         void load(const std::string& path, TensorLoader* loader) override
         {
+            LMBlock4Forward eval(&pre_attention_layernorm, &(Base::attention), &post_attention_layernorm, &pre_mlp_layernorm, &mlp, &post_mlp_layernorm, Base::get_id());
+
             Base::load(path, loader);
-            pre_attention_layernorm.load(path + "pre_attention_layernorm.", loader);
-            post_attention_layernorm.load(path + "post_attention_layernorm.", loader);
-            pre_mlp_layernorm.load(path + "pre_mlp_layernorm.", loader);
-            mlp.load(path + "mlp.", loader);
-            post_mlp_layernorm.load(path + "post_mlp_layernorm.", loader);
+            eval.load(path, loader);
         }
 
     public:
@@ -2197,6 +2249,13 @@ export namespace chatllm
         }
 
         void load(const std::string& path, TensorLoader* loader) override;
+
+        void enable_clipping(void)
+        {
+            gate_proj.enable_clipping();
+            down_proj.enable_clipping();
+            up_proj.enable_clipping();
+        }
 
     public:
         Linear gate_proj;
