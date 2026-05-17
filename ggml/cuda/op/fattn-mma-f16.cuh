@@ -89,7 +89,7 @@ static constexpr __host__ __device__ fattn_mma_config ggml_cuda_fattn_mma_get_co
 }
 
 static constexpr __host__ __device__ fattn_mma_config ggml_cuda_fattn_mma_get_config_turing(const int DKQ, const int DV, const int ncols) {
-   GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256,  8, 128, 2,  64, 128, 128, 128, 2, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256,  8, 128, 2,  64, 128, 128, 128, 2, true);
     GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 16, 128, 2,  64, 128, 128, 128, 2, true);
     GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 32, 128, 2,  64, 128, 128,  64, 2, true);
     GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 64, 128, 2,  64, 128, 128,  64, 2, true);
@@ -126,61 +126,107 @@ static constexpr __host__ __device__ fattn_mma_config ggml_cuda_fattn_mma_get_co
 }
 
 static constexpr __host__ __device__ fattn_mma_config ggml_cuda_fattn_mma_get_config_rdna(const int DKQ, const int DV, const int ncols) {
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 16, 128, 2,  64, 128, 128, 128, 2, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 32, 128, 2,  64, 128, 128,  64, 2, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 64, 128, 2,  64, 128, 128,  64, 2, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 64,  64,  8, 128, 2,  64,  32,  32,  32, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 64,  64, 16, 128, 2,  64,  32,  32,  32, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 64,  64, 32, 128, 2,  64,  32,  32,  32, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 64,  64, 64, 128, 2,  64,  32,  32,  32, 1, true);
 
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(320, 256, 32, 128, 2,  64, 160, 128,  64, 2, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(320, 256, 64, 128, 2,  64, 160, 128,  64, 2, false);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 80,  80,  8,  64, 2,  32,  40,  40,  40, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 80,  80, 16,  64, 2,  32,  40,  40,  40, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 80,  80, 32, 128, 2,  64,  40,  40,  40, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 80,  80, 64, 128, 2,  64,  40,  40,  40, 1, true);
 
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(512, 512, 16,  64, 4,  32, 128, 128, 128, 1, false);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(512, 512, 32, 128, 2,  32, 128, 128, 128, 1, false);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(512, 512, 64, 256, 1,  32, 128, 128, 128, 1, false);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 96,  96,  8,  64, 2,  32,  48,  48,  48, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 96,  96, 16,  64, 2,  32,  48,  48,  48, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 96,  96, 32, 128, 2,  64,  48,  48,  48, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 96,  96, 64, 128, 2,  64,  48,  48,  48, 1, true);
 
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(576, 512, 16,  64, 4,  32,  96,  64, 128, 1, false);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(576, 512, 32, 128, 2,  32, 160, 128, 128, 1, false);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(576, 512, 64, 256, 1,  32, 160, 128, 128, 1, false);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(112, 112,  8,  64, 2,  32,  56,  56,  56, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(112, 112, 16,  64, 2,  32,  56,  56,  56, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(112, 112, 32, 128, 2,  64,  56,  56,  56, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(112, 112, 64, 128, 2,  64,  56,  56,  56, 1, true);
 
-    // TODO tune specifically for RDNA
-    return ggml_cuda_fattn_mma_get_config_ampere(DKQ, DV, ncols);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(128, 128,  8,  64, 2,  32,  64,  64,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(128, 128, 16,  64, 2,  32,  64,  64,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(128, 128, 32, 128, 2,  64,  64,  64,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(128, 128, 64, 128, 2,  64,  64,  64,  64, 1, true);
+
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(192, 128,  8,  64, 2,  32,  96,  64,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(192, 128, 16,  64, 2,  32,  96,  64,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(192, 128, 32, 128, 2,  64,  96,  64,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(192, 128, 64, 128, 2,  64,  96,  64,  64, 1, true);
+
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256,  8,  64, 2,  32, 128, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 16,  64, 2,  32, 128, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 32, 128, 2,  64, 128, 128,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 64, 128, 2,  64, 128, 128,  64, 1, true);
+
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(320, 256, 32, 128, 2,  32, 160, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(320, 256, 64, 128, 2,  32, 160, 128, 128, 1, true);
+
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(512, 512,  8, 128, 3,  64,  96,  64, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(512, 512, 16, 128, 3,  64,  96,  64, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(512, 512, 32, 128, 2,  32, 128, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(512, 512, 64, 128, 2,  32, 128, 128, 128, 1, true);
+
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(576, 512,  8, 128, 3,  64,  96,  64, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(576, 512, 16, 128, 3,  64,  96,  64, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(576, 512, 32, 128, 2,  32, 160, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(576, 512, 64, 128, 2,  32, 160, 128, 128, 1, true);
+
+    return fattn_mma_config(32, 1, 0, 0, 0, 0, 0, false);
 }
 
 static constexpr __host__ __device__ fattn_mma_config ggml_cuda_fattn_mma_get_config_cdna(const int DKQ, const int DV, const int ncols) {
-    // Conservative configs for CDNA (MI100+): 64KB LDS, wavefront64, nstages=1 (no cp.async).
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 64,  64,  8, 128, 2, 128,  32,  32,  32, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 64,  64, 16, 128, 2,  64,  32,  32,  32, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 64,  64, 32, 128, 2,  64,  32,  32,  32, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 64,  64, 64, 256, 2,  64,  32,  32,  32, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 64,  64,  8, 128, 1,  64,  32,  32,  32, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 64,  64, 16, 256, 2,  64,  32,  32,  32, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 64,  64, 32, 256, 2,  64,  32,  32,  32, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 64,  64, 64, 256, 4,  64,  32,  32,  32, 1, true);
 
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 80,  80,  8, 128, 2, 128,  40,  40,  40, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 80,  80, 16, 128, 2,  64,  40,  40,  40, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 80,  80, 32, 128, 2,  64,  40,  40,  40, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 80,  80,  8, 256, 2,  64,  40,  40,  40, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 80,  80, 16, 256, 2,  64,  40,  40,  40, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 80,  80, 32, 256, 2,  64,  40,  40,  40, 1, true);
     GGML_CUDA_FATTN_MMA_CONFIG_CASE( 80,  80, 64, 256, 2,  64,  40,  40,  40, 1, true);
 
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 96,  96,  8, 128, 2, 128,  48,  48,  48, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 96,  96, 16, 128, 2,  64,  48,  48,  48, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 96,  96, 32, 128, 2,  64,  48,  48,  48, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 96,  96,  8, 256, 2,  64,  48,  48,  48, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 96,  96, 16, 256, 2,  64,  48,  48,  48, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE( 96,  96, 32, 256, 2,  64,  48,  48,  48, 1, true);
     GGML_CUDA_FATTN_MMA_CONFIG_CASE( 96,  96, 64, 256, 2,  64,  48,  48,  48, 1, true);
 
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(112, 112,  8, 128, 2, 128,  56,  56,  56, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(112, 112, 16, 128, 2,  64,  56,  56,  56, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(112, 112, 32, 128, 2,  64,  56,  56,  56, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(112, 112,  8, 256, 2,  64,  56,  56,  56, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(112, 112, 16, 256, 2,  64,  56,  56,  56, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(112, 112, 32, 256, 2,  64,  56,  56,  56, 1, true);
     GGML_CUDA_FATTN_MMA_CONFIG_CASE(112, 112, 64, 256, 2,  64,  56,  56,  56, 1, true);
 
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(128, 128,  8, 128, 2, 128,  64,  64,  64, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(128, 128, 16, 128, 2,  64,  64,  64,  64, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(128, 128, 32, 128, 2,  64,  64,  64,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(128, 128,  8, 256, 2,  64,  64,  64,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(128, 128, 16, 256, 2,  64,  64,  64,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(128, 128, 32, 256, 2,  64,  64,  64,  64, 1, true);
     GGML_CUDA_FATTN_MMA_CONFIG_CASE(128, 128, 64, 256, 2,  64,  64,  64,  64, 1, true);
 
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256,  8,  64, 4,  64, 128, 128, 128, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 16,  64, 4,  32, 128, 128, 128, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 32, 128, 2,  32, 128, 128, 128, 1, true);
-    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 64, 256, 2,  32, 128, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(192, 128,  8, 256, 1,  64,  64,  64,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(192, 128, 16, 256, 1,  64,  64,  64,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(192, 128, 32, 256, 1,  64,  64,  64,  64, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(192, 128, 64, 512, 1,  64,  64,  64,  64, 1, true);
 
-    // Fallback for unsupported DKQ values (e.g. 576). Must return non-zero values to satisfy
-    // compile-time static_asserts even though the kernel guard prevents runtime execution.
-    // nthreads=256 gives nwarps=4 (warp_size=64) or 8 (warp_size=32), nbatch_fa=128 satisfies np*16 divisibility.
-    return fattn_mma_config(256, 1, 128, 4, 4, 4, 1, false);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256,  8, 256, 1,  64, 128, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 16, 256, 1,  64, 128, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 32, 256, 1,  64, 128, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(256, 256, 64, 512, 1,  64, 128, 128,  64, 1, true);
+
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(320, 256, 32, 256, 1,  64, 160, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(320, 256, 64, 256, 1,  64, 160, 128, 128, 1, true);
+
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(512, 512,  8, 256, 1,  64, 128, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(512, 512, 16, 256, 1,  64, 128, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(512, 512, 32, 256, 1,  64, 128, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(512, 512, 64, 256, 1,  64, 128, 128, 128, 1, true);
+
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(576, 512,  8, 256, 1,  64, 128, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(576, 512, 16, 256, 1,  64, 128, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(576, 512, 32, 256, 1,  64, 160, 128, 128, 1, true);
+    GGML_CUDA_FATTN_MMA_CONFIG_CASE(576, 512, 64, 256, 1,  64, 160, 128, 128, 1, true);
+
+    return fattn_mma_config(32, 1, 0, 0, 0, 0, 0, false);
 }
 
 static __host__ fattn_mma_config ggml_cuda_fattn_mma_get_config(const int DKQ, const int DV, const int ncols, const int cc) {
@@ -762,19 +808,32 @@ static __device__ __forceinline__ void flash_attn_ext_f16_iter(
         else { // not Turing mma or T_B_KQ::I > 8
             if (ncols2 > 1 || mask_h) {
 #pragma unroll
-                for (int i00 = 0; i00 < nbatch_fa; i00 += np * T_C_KQ::J) {
-                    const int i0 = i00 + (threadIdx.y % np) * T_C_KQ::J;
+                for (int i00 = 0; i00 < nbatch_fa; i00 += np*T_C_KQ::J) {
+                    const int i0 = i00 + (threadIdx.y % np)*T_C_KQ::J;
+
+                    // The mask is stored as 16 bit half values, loading them as 32 bit half2 values is preferred in terms of speed.
+                    // However, this is not possible for RDNA3 where 2 consecutive l indices are not consecutive in the mask memory layout.
+#ifdef RDNA3
+#pragma unroll
+                    for (int l = 0; l < T_C_KQ::ne; ++l) {
+                        const int i = i0 + T_C_KQ::get_j(l);
+                        const int j = ((threadIdx.y / np)*cols_per_warp + T_C_KQ::get_i(l)) / ncols2;
+
+                        KQ_C[i00/(np*T_C_KQ::J)].x[l] += __half2float(tile_mask[j*(nbatch_fa + 8) + i]);
+                    }
+#else
 #pragma unroll
                     for (int l0 = 0; l0 < T_C_KQ::ne; l0 += 2) {
                         const int i = (i0 + T_C_KQ::get_j(l0)) / 2;
-                        const int j = ((threadIdx.y / np) * cols_per_warp + T_C_KQ::get_i(l0)) / ncols2;
+                        const int j = ((threadIdx.y / np)*cols_per_warp + T_C_KQ::get_i(l0)) / ncols2;
 
-                        const float2 tmp = __half22float2(((const half2*)tile_mask)[j * (nbatch_fa / 2 + 4) + i]);
-                        KQ_C[i00 / (np * T_C_KQ::J)].x[l0 + 0] += slope * tmp.x;
-                        KQ_C[i00 / (np * T_C_KQ::J)].x[l0 + 1] += slope * tmp.y;
+                        const float2 tmp = __half22float2(((const half2 *)tile_mask)[j*(nbatch_fa/2 + 4) + i]);
+                        KQ_C[i00/(np*T_C_KQ::J)].x[l0 + 0] += slope*tmp.x;
+                        KQ_C[i00/(np*T_C_KQ::J)].x[l0 + 1] += slope*tmp.y;
                     }
-                }
+#endif // RDNA3
             }
+        }
 
             // Calculate softmax for each KQ column using the current max. value.
             // The divisor is stored in KQ_rowsum and will be applied at the end.
@@ -857,13 +916,23 @@ static __device__ __forceinline__ void flash_attn_ext_f16_iter(
                 }
             }
             else if constexpr (amd_wmma_available_v || amd_mfma_available_v) {
-                const half2 KQ_max_scale_h2 = make_half2(
-                    KQ_max_scale[0], KQ_max_scale[0]);
+                if constexpr (std::is_same_v<decltype(T_C_VKQ::x), half2[T_C_VKQ::ne]>) {
+                    const half2 KQ_max_scale_h2 = make_half2(KQ_max_scale[0], KQ_max_scale[0]);
 #pragma unroll
-                for (int i = 0; i < (DV / 2) / T_C_VKQ::J; ++i) {
+                    for (int i = 0; i < (DV/2)/T_C_VKQ::J; ++i) {
 #pragma unroll
-                    for (int l = 0; l < T_C_VKQ::ne; ++l) {
-                        VKQ_C[i].x[l] *= KQ_max_scale_h2;
+                        for (int l = 0; l < T_C_VKQ::ne; ++l) {
+                            VKQ_C[i].x[l] *= KQ_max_scale_h2;
+                        }
+                    }
+                } else {
+                    static_assert(std::is_same_v<decltype(T_C_VKQ::x), float[T_C_VKQ::ne]>, "bad VKQ type");
+#pragma unroll
+                    for (int i = 0; i < DV/T_C_VKQ::J; ++i) {
+#pragma unroll
+                        for (int l = 0; l < T_C_VKQ::ne; ++l) {
+                            VKQ_C[i].x[l] *= KQ_max_scale[0];
+                        }
                     }
                 }
             }
@@ -932,28 +1001,27 @@ static __device__ __forceinline__ void flash_attn_ext_f16_iter(
             const half2* tile_V_i = !V_is_K_view || i0_stop > 2 * nbatch_K2 ? tile_V : tile_V + i0_start / 2;
 
             if constexpr (turing_mma_available_v || amd_wmma_available_v || amd_mfma_available_v) {
-                constexpr int i0_stride = cols_per_warp == 8 ? T_C_VKQ::I : 2 * T_C_VKQ::J;
 #pragma unroll
-                for (int i_VKQ_0 = i0_start; i_VKQ_0 < i0_stop; i_VKQ_0 += i0_stride) {
+                for (int i_VKQ_0 = i0_start; i_VKQ_0 < i0_stop; i_VKQ_0 += T_A_VKQ::I) {
                     static_assert((nbatch_fa / 2) % (np * T_A_VKQ::J) == 0, "bad loop size");
 #pragma unroll
-                    for (int k00 = 0; k00 < nbatch_fa / 2; k00 += np * T_A_VKQ::J) {
+                    for (int k00 = 0; k00 < nbatch_fa/2; k00 += np*T_A_VKQ::J) {
                         const int k0 = k00 + (threadIdx.y % np) * T_A_VKQ::J;
 
                         T_A_VKQ A; // Transposed in SRAM but not in registers, gets transposed on load.
-                        load_ldmatrix_trans(A, tile_V_i + 2 * k0 * stride_tile_V + (i_VKQ_0 - i0_start) / 2, stride_tile_V);
+                        load_ldmatrix_trans(A, tile_V_i + 2*k0*stride_tile_V + (i_VKQ_0 - i0_start)/2, stride_tile_V);
                         if constexpr (T_B_KQ::I == 8) {
-                            mma(VKQ_C[i_VKQ_0 / i0_stride], A, B[k00 / (np * T_A_VKQ::J)]);
+                            mma(VKQ_C[i_VKQ_0/T_A_VKQ::I], A, B[k00/(np*T_A_VKQ::J)]);
                         }
                         else {
                             // Wide version of VKQ_C is column-major.
                             if constexpr (amd_wmma_available_v || amd_mfma_available_v) {
                                 // AMD matrix C is column-major.
-                                mma(VKQ_C[i_VKQ_0 / i0_stride], A, B[k00 / (np * T_A_VKQ::J)]);
+                                mma(VKQ_C[i_VKQ_0/T_A_VKQ::I], A, B[k00/(np*T_A_VKQ::J)]);
                             }
                             else {
                                 // swap A and B for CUDA.
-                                mma(VKQ_C[i_VKQ_0 / i0_stride], B[k00 / (np * T_A_VKQ::J)], A);
+                                mma(VKQ_C[i_VKQ_0/T_A_VKQ::I], B[k00/(np*T_A_VKQ::J)], A);
                             }
                         }
                     }
@@ -986,21 +1054,33 @@ static __device__ __forceinline__ void flash_attn_ext_f16_iter(
     }
 }
 
-template <int ncols>
+static constexpr bool RDNA3_v = false;
+
+template <int DV, int ncols>
 constexpr auto get_T_A_KQ_type()
 {
     if constexpr (turing_mma_available_v) {
         return tile<16, 8, half2>{}; // row-major
     }
     else if constexpr (amd_wmma_available_v) {
-        return tile<16, 8, half2>{}; // row-major
+        if constexpr (RDNA3_v) {
+            return tile<16,  8, half2, DATA_LAYOUT_I_MAJOR_MIRRORED>{}; // row-major
+        } else {
+            if constexpr (DV == 80 || DV == 112)
+                return tile<16,  8, half2>{}; // row-major
+            else
+                return tile<16, 8, half2>{}; // row-major
+        }
+    }
+    else if constexpr (amd_mfma_available_v) {
+        return tile<16,  8, half2>{}; // row-major
     }
     else { // Volta
-        return tile<8, 4, half2, DATA_LAYOUT_I_MAJOR_MIRRORED>{}; // row-major
+        return tile<8,  4, half2, DATA_LAYOUT_I_MAJOR_MIRRORED>{}; // row-major
     }
 }
 
-template <int ncols>
+template <int DV, int ncols>
 constexpr auto get_T_B_KQ_type()
 {
     if constexpr (turing_mma_available_v) {
@@ -1010,14 +1090,24 @@ constexpr auto get_T_B_KQ_type()
             return tile<8, 8, half2>{}; // column-major
     }
     else if constexpr (amd_wmma_available_v) {
-        return tile<16, 8, half2>{}; // column-major
+        if constexpr (RDNA3_v) {
+            return tile<16, 8, half2, DATA_LAYOUT_I_MAJOR_MIRRORED>{}; // column-major
+        } else {
+            if constexpr (DV == 80 || DV == 112)
+                return tile<16,  8, half2>{}; // column-major
+            else
+                return tile<16,  8, half2, DATA_LAYOUT_I_MAJOR>{};           // row-major
+        }
+    }
+    else if constexpr (amd_mfma_available_v) {
+        return tile<16,  8, half2>{}; // column-major
     }
     else { // Volta
         return tile<32, 4, half2, DATA_LAYOUT_I_MAJOR>{}; // column-major
     }
 }
 
-template <int ncols>
+template <int DV, int ncols>
 constexpr auto get_T_C_KQ_type()
 {
     if constexpr (turing_mma_available_v) {
@@ -1027,28 +1117,51 @@ constexpr auto get_T_C_KQ_type()
             return tile<16, 8, float>{}; // row-major
     }
     else if constexpr (amd_wmma_available_v) {
+        if constexpr (RDNA3_v) {
+            return tile<16, 16, float, DATA_LAYOUT_I_MAJOR>{}; // column-major
+        } else {
+            if constexpr (DV == 80 || DV == 112)
+                return tile<16, 16, float>{}; // column-major
+            else
+                return tile<16, 16, float, DATA_LAYOUT_I_MAJOR>{}; // column-major
+        }
+    }
+    else if constexpr (amd_mfma_available_v) {
         return tile<16, 16, float>{}; // column-major
     }
     else { // Volta
-        return tile<32, 8, float, DATA_LAYOUT_I_MAJOR>{}; // column-major
+        return tile<32,  8, float, DATA_LAYOUT_I_MAJOR>{}; // column-major
     }
 }
 
-template <int ncols>
+template <int DV, int ncols>
 constexpr auto get_T_A_VKQ_type()
 {
     if constexpr (turing_mma_available_v) {
         return tile<16, 8, half2>{}; // row-major
     }
     else if constexpr (amd_wmma_available_v) {
-        return tile<16, 8, half2>{}; // row-major
+        if constexpr (RDNA3_v) {
+            if constexpr (DV == 80 || DV == 112)
+                return tile<16,  8, half2, DATA_LAYOUT_I_MAJOR_MIRRORED>{}; // row-major
+            else
+                return tile<32,  8, half2, DATA_LAYOUT_I_MAJOR_MIRRORED>{}; // row-major
+        } else {
+            if constexpr (DV == 80 || DV == 112)
+                return tile<16,  8, half2>{}; // row-major
+            else
+                return tile<32,  8, half2, DATA_LAYOUT_I_MAJOR>{}; // row-major
+        }
+    }
+    else if constexpr (amd_mfma_available_v) {
+        return tile<16,  8, half2>{}; // row-major
     }
     else { // Volta
-        return tile<8, 4, half2, DATA_LAYOUT_J_MAJOR_MIRRORED>{}; // column-major
+        return tile< 8,  4, half2, DATA_LAYOUT_J_MAJOR_MIRRORED>{}; // column-major
     }
 }
 
-template <int ncols>
+template <int DV, int ncols>
 constexpr auto get_T_B_VKQ_type()
 {
     if constexpr (turing_mma_available_v) {
@@ -1058,14 +1171,24 @@ constexpr auto get_T_B_VKQ_type()
             return tile<8, 8, half2>{}; // column-major
     }
     else if constexpr (amd_wmma_available_v) {
-        return tile<16, 8, half2>{}; // column-major
+        if constexpr (RDNA3_v) {
+            return tile<16,  8, half2, DATA_LAYOUT_I_MAJOR_MIRRORED>{}; // column-major
+        } else {
+            if constexpr (DV == 80 || DV == 112)
+                return tile<16,  8, half2>{}; // column-major
+            else
+                return tile<16,  8, half2, DATA_LAYOUT_I_MAJOR>{}; // column-major
+        }
+    }
+    else if constexpr (amd_mfma_available_v) {
+        return tile<16,  8, half2>{}; // column-major
     }
     else { // Volta
-        return tile<32, 4, half2, DATA_LAYOUT_I_MAJOR>{}; // column-major
+        return tile<16,  8, half2>{}; // column-major
     }
 }
 
-template <int ncols>
+template <int DV, int ncols>
 constexpr auto get_T_C_VKQ_type()
 {
     if constexpr (turing_mma_available_v) {
@@ -1075,10 +1198,23 @@ constexpr auto get_T_C_VKQ_type()
             return tile<16, 4, half2>{}; // row-major
     }
     else if constexpr (amd_wmma_available_v) {
-        return tile<16, 8, half2>{}; // column-major
+        if constexpr (RDNA3_v) {
+            if constexpr (DV == 80 || DV == 112)
+                return tile<16, 16, float, DATA_LAYOUT_I_MAJOR>{}; // column-major
+            else
+                return tile<16, 16, half2, DATA_LAYOUT_I_MAJOR>{}; // column-major
+        } else {
+            if constexpr (DV == 80 || DV == 112)
+                return tile<16,  8, half2>{}; // column-major
+            else
+                return tile<16, 16, half2, DATA_LAYOUT_I_MAJOR_SCRAMBLED>{}; // column-major
+        }
+    }
+    else if constexpr (amd_mfma_available_v) {
+        return tile<16,  8, half2>{}; // column-major
     }
     else { // Volta
-        return tile<32, 4, half2, DATA_LAYOUT_I_MAJOR>{}; // column-major
+        return tile<32,  4, half2, DATA_LAYOUT_I_MAJOR>{}; // column-major
     }
 }
 
@@ -1107,17 +1243,17 @@ static __device__ __forceinline__ void flash_attn_ext_f16_process_tile(
     [[maybe_unused]] const int zt_gqa,
     [[maybe_unused]] const int kb0_start,
     [[maybe_unused]] const int kb0_stop) {
-    if constexpr (volta_mma_available_v || turing_mma_available_v || amd_wmma_available_v) {
+    if constexpr (volta_mma_available_v || turing_mma_available_v || amd_wmma_available_v || amd_mfma_available_v) {
         //In this kernel Q, K, V are matrices while i, j, k are matrix indices.
 
         constexpr int warp_size = ggml_cuda_get_physical_warp_size();
         constexpr int ncols = ncols1 * ncols2;
-        using     T_A_KQ = decltype(get_T_A_KQ_type<ncols>());
-        using     T_B_KQ = decltype(get_T_B_KQ_type<ncols>());
-        using     T_C_KQ = decltype(get_T_C_KQ_type<ncols>());
-        using     T_A_VKQ = decltype(get_T_A_VKQ_type<ncols>());
-        using     T_B_VKQ = decltype(get_T_B_VKQ_type<ncols>());
-        using     T_C_VKQ = decltype(get_T_C_VKQ_type<ncols>());
+        using     T_A_KQ = decltype(get_T_A_KQ_type<DV, ncols>());
+        using     T_B_KQ = decltype(get_T_B_KQ_type<DV, ncols>());
+        using     T_C_KQ = decltype(get_T_C_KQ_type<DV, ncols>());
+        using     T_A_VKQ = decltype(get_T_A_VKQ_type<DV, ncols>());
+        using     T_B_VKQ = decltype(get_T_B_VKQ_type<DV, ncols>());
+        using     T_C_VKQ = decltype(get_T_C_VKQ_type<DV, ncols>());
 
         constexpr int  cols_per_warp = T_B_KQ::I;
         constexpr int  cols_per_thread = get_cols_per_thread();
@@ -1151,8 +1287,13 @@ static __device__ __forceinline__ void flash_attn_ext_f16_process_tile(
         static constexpr size_t VKQ_C_elements = [=]() {
             if (turing_mma_available_v)
                 return cols_per_warp == 8 ? DV / T_C_VKQ::I : DV / (2 * T_C_VKQ::J);
-            else if (amd_wmma_available_v)
-                return  DV / (2 * T_C_VKQ::J);
+            else if (amd_wmma_available_v) {
+#if defined(RDNA3)
+                return DV % 32 != 0       ? DV/T_C_VKQ::J : DV/(2*T_C_VKQ::J);
+#else
+                return DV / (2 * T_C_VKQ::J);
+#endif
+            }
             else
                 return DV / (2 * T_C_VKQ::J);
         }();
@@ -1349,13 +1490,24 @@ static __device__ __forceinline__ void flash_attn_ext_f16_process_tile(
                 }
             }
             else if constexpr (amd_wmma_available_v || amd_mfma_available_v) {
-                const half2 KQ_max_scale_h2 = make_half2(KQ_max_scale[0], KQ_max_scale[0]);
+                if constexpr (std::is_same_v<decltype(T_C_VKQ::x), half2[T_C_VKQ::ne]>) {
+                    const half2 KQ_max_scale_h2 = make_half2(KQ_max_scale[0], KQ_max_scale[0]);
 #pragma unroll
-                for (int i = 0; i < (DV / 2) / T_C_VKQ::J; ++i) {
+                    for (int i = 0; i < (DV/2)/T_C_VKQ::J; ++i) {
 #pragma unroll
-                    for (int l = 0; l < T_C_VKQ::ne; ++l) {
-                        VKQ_C[i].x[l] *= KQ_max_scale_h2;
+                        for (int l = 0; l < T_C_VKQ::ne; ++l) {
+                            VKQ_C[i].x[l] *= KQ_max_scale_h2;
+                        }
                     }
+                } else {
+                    static_assert(std::is_same_v<decltype(T_C_VKQ::x), float[T_C_VKQ::ne]>, "bad VKQ type");
+#pragma unroll
+                    for (int i = 0; i < DV/T_C_VKQ::J; ++i) {
+#pragma unroll
+                        for (int l = 0; l < T_C_VKQ::ne; ++l) {
+                        VKQ_C[i].x[l] *= KQ_max_scale[0];
+                       }
+                   }
                 }
             }
             else { // Volta
@@ -1527,6 +1679,7 @@ static __device__ __forceinline__ void flash_attn_ext_f16_process_tile(
 #pragma unroll
         for (int k00 = 0; k00 < DV / 2; k00 += nbatch_combine) {
             if constexpr (cols_per_warp == 8) {
+                static_assert(std::is_same_v<decltype(T_C_VKQ::x), half2[T_C_VKQ::ne]>, "bad VKQ type");
                 const int jc_cwd = threadIdx.y * T_B_KQ::I + T_B_KQ::get_i(-1); // jc combine write data
 #pragma unroll
                 for (int k1 = 0; k1 < nbatch_combine; k1 += T_B_KQ::J) {
@@ -1541,15 +1694,46 @@ static __device__ __forceinline__ void flash_attn_ext_f16_process_tile(
                 }
             }
             else {
-                const int j0 = threadIdx.y * cols_per_warp;
+                const int j0 = threadIdx.y*cols_per_warp;
+                if constexpr (std::is_same_v<decltype(T_C_VKQ::x), half2[T_C_VKQ::ne]>) {
+                    if constexpr (T_C_VKQ::dl == DATA_LAYOUT_I_MAJOR) {
 #pragma unroll
-                for (int k1 = 0; k1 < nbatch_combine; k1 += T_C_VKQ::J) {
+                        for (int k1 = 0; k1 < nbatch_combine; k1 += T_C_VKQ::J) {
 #pragma unroll
-                    for (int l = 0; l < T_C_VKQ::ne; ++l) {
-                        const int j = j0 + T_C_VKQ::get_i(l);
-                        const int k = k1 + T_C_VKQ::get_j(l);
+                            for (int l = 0; l < T_C_VKQ::ne; ++l) {
+                                const int j = j0 + T_C_VKQ::get_i(l);
+                                const int k = k1 + T_C_VKQ::get_j(l);
 
-                        tile_Q[j * tile_stride + k] = VKQ_C[(k00 + k1) / T_C_VKQ::J].x[l];
+                                tile_Q[j*tile_stride + k] = VKQ_C[(k00 + k1)/T_C_VKQ::J].x[l];
+                            }
+                        }
+                    } else {
+                        static_assert(T_C_VKQ::dl == DATA_LAYOUT_I_MAJOR_SCRAMBLED, "bad T_C_VKQ data layout");
+                        using T_C_VKQ_us = tile<T_C_VKQ::I, T_C_VKQ::J, half2, DATA_LAYOUT_I_MAJOR>; // us == unscrambled
+#pragma unroll
+                        for (int k1 = 0; k1 < nbatch_combine; k1 += T_C_VKQ::J) {
+                            const T_C_VKQ_us VKQ_C_us = unscramble(VKQ_C[(k00 + k1)/T_C_VKQ::J]);
+#pragma unroll
+                            for (int l = 0; l < T_C_VKQ_us::ne; ++l) {
+                                const int j = j0 + T_C_VKQ_us::get_i(l);
+                                const int k = k1 + T_C_VKQ_us::get_j(l);
+
+                                tile_Q[j*tile_stride + k] = VKQ_C_us.x[l];
+                            }
+                        }
+                    }
+                } else {
+                    static_assert(std::is_same_v<decltype(T_C_VKQ::x), float[T_C_VKQ::ne]>, "bad VKQ type");
+                    half * tile_Q_h = (half *) tile_Q;
+#pragma unroll
+                    for (int k1 = 0; k1 < nbatch_combine; k1 += T_C_VKQ::J/2) {
+#pragma unroll
+                        for (int l = 0; l < T_C_VKQ::ne; ++l) {
+                            const int j = j0 + T_C_VKQ::get_i(l);
+                            const int k = 2*k1 + T_C_VKQ::get_j(l);
+
+                            tile_Q_h[j*(2*tile_stride) + k] = VKQ_C[(k00 + k1)/(T_C_VKQ::J/2)].x[l];
+                        }
                     }
                 }
             }
@@ -1674,17 +1858,17 @@ static __global__ void flash_attn_ext_f16(
 #endif // __CUDA_ARCH__ == GGML_CUDA_CC_TURING
 
 #if defined(AMD_WMMA_AVAILABLE)
-        if (ncols1 * ncols2 > 32 || ncols1 * ncols2 < 16 || DKQ > 128 || ncols2 == 1) {
+        if (ncols1 * ncols2 < 16 || ncols2 == 1 || DKQ > 128) {
             NO_DEVICE_CODE;
             return;
         }
 #endif // defined(AMD_WMMA_AVAILABLE)
 
 #if defined(AMD_MFMA_AVAILABLE)
-    if (DKQ != 64 && DKQ != 80 && DKQ != 96 && DKQ != 112 && DKQ != 128) {
-        NO_DEVICE_CODE;
-        return;
-    }
+        if (ncols1 * ncols2 < 16 || DKQ > 256) {
+            NO_DEVICE_CODE;
+            return;
+        }
 #endif // defined(AMD_MFMA_AVAILABLE)
 
         constexpr int warp_size = ggml_cuda_get_physical_warp_size();

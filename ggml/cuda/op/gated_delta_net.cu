@@ -4,7 +4,7 @@
 
 #define GGML_ABORT(...)
 
-template <int S_v, bool KDA>
+template <int S_v, bool KDA, bool keep_rs_t>
 __global__ void __launch_bounds__((ggml_cuda_get_physical_warp_size() < S_v ? ggml_cuda_get_physical_warp_size() : S_v) * 4, 2)
 gated_delta_net_cuda(const float * q,
                                      const float * k,
@@ -27,7 +27,8 @@ gated_delta_net_cuda(const float * q,
                                      int64_t       sb3,
                                      const uint3   neqk1_magic,
                                      const uint3   rq3_magic,
-                                     float         scale) {
+                                     float         scale,
+                                     int           K) {
     const uint32_t h_idx    = blockIdx.x;
     const uint32_t sequence = blockIdx.y;
     // each warp owns one column, using warp-level primitives to reduce across rows
@@ -41,9 +42,13 @@ gated_delta_net_cuda(const float * q,
     float *       attn_data        = dst;
     float *       state            = dst + attn_score_elems;
 
-    const int64_t state_offset = (sequence * H + h_idx) * S_v * S_v;
-    state += state_offset;
-    curr_state += state_offset + col * S_v;
+    // input state layout (D, K, n_seqs) ¡X seq stride is K * D = K * H * S_v * S_v.
+    // output state layout (per-slot D * n_seqs) ¡X same per-(seq,head) offset as before.
+    const int64_t state_in_offset      = sequence * K * H * S_v * S_v + h_idx * S_v * S_v;
+    const int64_t state_out_offset     = (sequence * H + h_idx) * S_v * S_v;
+    const int64_t state_size_per_token = S_v * S_v * H * n_seqs; // per-slot stride in output
+    state += state_out_offset;
+    curr_state += state_in_offset + col * S_v;
     attn_data += (sequence * n_tokens * H + h_idx) * S_v;
 
     constexpr int warp_size = ggml_cuda_get_physical_warp_size() < S_v ? ggml_cuda_get_physical_warp_size() : S_v;
@@ -59,6 +64,10 @@ gated_delta_net_cuda(const float * q,
         const int i = r * warp_size + lane;
         s_shard[r]  = curr_state[i];
     }
+
+    // slot mapping: target_slot = t - shift. When n_tokens < K only the last n_tokens slots
+    // are written; earlier slots are left untouched (caller-owned).
+    const int shift = (int) n_tokens - K;
 
     for (int t = 0; t < n_tokens; t++) {
         const float * q_t = q + iq3 * sq3 + t * sq2 + iq1 * sq1;
@@ -141,17 +150,30 @@ gated_delta_net_cuda(const float * q,
         }
 
         attn_data += S_v * H;
+
+        if constexpr (keep_rs_t) {
+            const int target_slot = t - shift;
+            if (target_slot >= 0 && target_slot < K) {
+                float * curr_state = (dst + attn_score_elems) + target_slot * state_size_per_token + state_out_offset;
+#pragma unroll
+                for (int r = 0; r < rows_per_lane; r++) {
+                    const int i = r * warp_size + lane;
+                    curr_state[col * S_v + i] = s_shard[r];
+                }
+            }
+        }
     }
 
-    // Write state back to global memory (transposed layout)
+    if constexpr (!keep_rs_t) {
 #pragma unroll
-    for (int r = 0; r < rows_per_lane; r++) {
-        const int i          = r * warp_size + lane;
-        state[col * S_v + i] = s_shard[r];
+        for (int r = 0; r < rows_per_lane; r++) {
+            const int i          = r * warp_size + lane;
+            state[col * S_v + i] = s_shard[r];
+        }
     }
 }
 
-template <bool KDA>
+template <bool KDA, bool keep_rs_t>
 static void launch_gated_delta_net(
         const float * q_d, const float * k_d, const float * v_d,
         const float * g_d, const float * b_d, const float * s_d,
@@ -161,7 +183,7 @@ static void launch_gated_delta_net(
         int64_t sv1,   int64_t sv2, int64_t sv3,
         int64_t sb1,   int64_t sb2, int64_t sb3,
         int64_t neqk1, int64_t rq3,
-        float scale, cudaStream_t stream) {
+        float scale, int K, cudaStream_t stream) {
     //TODO: Add chunked kernel for even faster pre-fill
     const int warp_size = ggml_cuda_info().devices[ggml_cuda_get_device()].warp_size;
     const int num_warps = 4;
@@ -175,29 +197,29 @@ static void launch_gated_delta_net(
 
     switch (S_v) {
         case 16:
-            gated_delta_net_cuda<16, KDA><<<grid_dims, block_dims, 0, stream>>>(
+            gated_delta_net_cuda<16, KDA, keep_rs_t><<<grid_dims, block_dims, 0, stream>>>(
                 q_d, k_d, v_d, g_d, b_d, s_d, dst_d, H,
                 n_tokens, n_seqs, sq1, sq2, sq3, sv1, sv2, sv3,
-                sb1, sb2, sb3, neqk1_magic, rq3_magic, scale);
+                sb1, sb2, sb3, neqk1_magic, rq3_magic, scale, K);
             break;
         case 32:
-            gated_delta_net_cuda<32, KDA><<<grid_dims, block_dims, 0, stream>>>(
+            gated_delta_net_cuda<32, KDA, keep_rs_t><<<grid_dims, block_dims, 0, stream>>>(
                 q_d, k_d, v_d, g_d, b_d, s_d, dst_d, H,
                 n_tokens, n_seqs, sq1, sq2, sq3, sv1, sv2, sv3,
-                sb1, sb2, sb3, neqk1_magic, rq3_magic, scale);
+                sb1, sb2, sb3, neqk1_magic, rq3_magic, scale, K);
             break;
         case 64: {
-            gated_delta_net_cuda<64, KDA><<<grid_dims, block_dims, 0, stream>>>(
+            gated_delta_net_cuda<64, KDA, keep_rs_t><<<grid_dims, block_dims, 0, stream>>>(
                 q_d, k_d, v_d, g_d, b_d, s_d, dst_d, H,
                 n_tokens, n_seqs, sq1, sq2, sq3, sv1, sv2, sv3,
-                sb1, sb2, sb3, neqk1_magic, rq3_magic, scale);
+                sb1, sb2, sb3, neqk1_magic, rq3_magic, scale, K);
             break;
         }
         case 128: {
-            gated_delta_net_cuda<128, KDA><<<grid_dims, block_dims, 0, stream>>>(
+            gated_delta_net_cuda<128, KDA, keep_rs_t><<<grid_dims, block_dims, 0, stream>>>(
                 q_d, k_d, v_d, g_d, b_d, s_d, dst_d, H,
                 n_tokens, n_seqs, sq1, sq2, sq3, sv1, sv2, sv3,
-                sb1, sb2, sb3, neqk1_magic, rq3_magic, scale);
+                sb1, sb2, sb3, neqk1_magic, rq3_magic, scale, K);
             break;
         }
         default:
@@ -208,14 +230,27 @@ static void launch_gated_delta_net(
 
 void gated_delta_net_cuda(const gated_delta_net_context& ctx, cudaStream_t  stream)
 {
+    const bool keep_rs = ctx.K > 1;
     if (ctx.kda) {
-        launch_gated_delta_net<true>(ctx.q_d, ctx.k_d, ctx.v_d, ctx.g_d, ctx.b_d, ctx.s_d, ctx.dst_d,
-            ctx.S_v, ctx.H, ctx.n_tokens, ctx.n_seqs, ctx.sq1, ctx.sq2, ctx.sq3, ctx.sv1, ctx.sv2, ctx.sv3,
-            ctx.sb1, ctx.sb2, ctx.sb3, ctx.neqk1, ctx.rq3, ctx.scale, stream);
+        if (keep_rs) {
+            launch_gated_delta_net<true, true>(ctx.q_d, ctx.k_d, ctx.v_d, ctx.g_d, ctx.b_d, ctx.s_d, ctx.dst_d,
+                ctx.S_v, ctx.H, ctx.n_tokens, ctx.n_seqs, ctx.sq1, ctx.sq2, ctx.sq3, ctx.sv1, ctx.sv2, ctx.sv3,
+                ctx.sb1, ctx.sb2, ctx.sb3, ctx.neqk1, ctx.rq3, ctx.scale, ctx.K, stream);
+        } else {
+            launch_gated_delta_net<true, true>(ctx.q_d, ctx.k_d, ctx.v_d, ctx.g_d, ctx.b_d, ctx.s_d, ctx.dst_d,
+                ctx.S_v, ctx.H, ctx.n_tokens, ctx.n_seqs, ctx.sq1, ctx.sq2, ctx.sq3, ctx.sv1, ctx.sv2, ctx.sv3,
+                ctx.sb1, ctx.sb2, ctx.sb3, ctx.neqk1, ctx.rq3, ctx.scale, ctx.K, stream);
+        }
     }
     else {
-        launch_gated_delta_net<false>(ctx.q_d, ctx.k_d, ctx.v_d, ctx.g_d, ctx.b_d, ctx.s_d, ctx.dst_d,
-            ctx.S_v, ctx.H, ctx.n_tokens, ctx.n_seqs, ctx.sq1, ctx.sq2, ctx.sq3, ctx.sv1, ctx.sv2, ctx.sv3,
-            ctx.sb1, ctx.sb2, ctx.sb3, ctx.neqk1, ctx.rq3, ctx.scale, stream);
+        if (keep_rs) {
+            launch_gated_delta_net<false, true>(ctx.q_d, ctx.k_d, ctx.v_d, ctx.g_d, ctx.b_d, ctx.s_d, ctx.dst_d,
+                ctx.S_v, ctx.H, ctx.n_tokens, ctx.n_seqs, ctx.sq1, ctx.sq2, ctx.sq3, ctx.sv1, ctx.sv2, ctx.sv3,
+                ctx.sb1, ctx.sb2, ctx.sb3, ctx.neqk1, ctx.rq3, ctx.scale, ctx.K, stream);
+        } else {
+            launch_gated_delta_net<false, false>(ctx.q_d, ctx.k_d, ctx.v_d, ctx.g_d, ctx.b_d, ctx.s_d, ctx.dst_d,
+                ctx.S_v, ctx.H, ctx.n_tokens, ctx.n_seqs, ctx.sq1, ctx.sq2, ctx.sq3, ctx.sv1, ctx.sv2, ctx.sv3,
+                ctx.sb1, ctx.sb2, ctx.sb3, ctx.neqk1, ctx.rq3, ctx.scale, ctx.K, stream);
+        }
     }
 }

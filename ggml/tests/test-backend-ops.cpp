@@ -1050,6 +1050,13 @@ struct test_case {
     }
 
     virtual double max_nmse_err(ggml_backend*) {
+#if 0
+        ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(ggml_backend_get_device(backend));
+        // See https://github.com/ggml-org/llama.cpp/pull/22976 for explanation.
+        if (contains_f16 && strcmp(ggml_backend_reg_name(reg), "WebGPU") == 0) {
+            return std::max(max_nmse_err(), 1e-6);
+        }
+#endif
         return max_nmse_err();
     }
 
@@ -1122,6 +1129,18 @@ struct test_case {
     std::vector<ggml_tensor*> sentinels;
 
     std::string current_op_name;
+    bool contains_f16 = false;
+
+    // Used by the WebGPU backend to relax error thresholds on ops on f16 tensors
+    void check_for_f16_tensor(ggml_context* ctx) {
+        contains_f16 = false;
+        for (ggml_tensor* t : ctx->getTensors()) {
+            if (t->type == GGML_TYPE_F16) {
+                contains_f16 = true;
+                break;
+            }
+        }
+    }
 
     void add_sentinel(ggml_context* ctx) {
         if (mode == MODE_PERF || mode == MODE_GRAD) {
@@ -1193,6 +1212,7 @@ struct test_case {
 
         ggml_tensor* out = build_graph(&ctx);
         current_op_name = op_desc(out);
+        check_for_f16_tensor(&ctx);
 
         if (!matches_filter(out, op_names_filter)) {
             //printf("  %s: skipping\n", op_desc(out).c_str());
@@ -1834,9 +1854,19 @@ struct test_unary : public test_case {
     }
 
     void initialize_tensors(ggml_context* ctx) override {
+        float min = -150.f;
+        float max = 150.f;
+
+        // Keep FP16 exp/expm1 inputs in-range so all backends stay finite instead of
+        // disagreeing on whether overflow saturates to max-F16 or produces +inf.
+        if (type == GGML_TYPE_F16 && (op == GGML_UNARY_OP_EXP || op == GGML_UNARY_OP_EXPM1)) {
+            min = -10.f;
+            max = 10.f;
+        }
+
         for (auto t : ctx->getTensors()) {
             // test extended range of values to check for NaNs in GELU
-            init_tensor_uniform(t, -150.f, 150.f);
+            init_tensor_uniform(t, min, max);
         }
     }
 
@@ -4209,17 +4239,18 @@ struct test_gated_delta_net : public test_case {
     const int     v_repeat;
     const bool    permuted;
     const bool    kda;
+    const int64_t K; // snapshot slot count: 1 = final-only, >1 = last K states
 
     std::string vars() override {
-        return std::format("type={},head_count={},head_size={},n_seq_tokens={},n_seqs={},v_repeat={},permuted={},kda={}",
-            type, head_count, head_size, n_seq_tokens, n_seqs, v_repeat, static_cast<int>(permuted), static_cast<int>(kda));
+        return std::format("type={},head_count={},head_size={},n_seq_tokens={},n_seqs={},v_repeat={},permuted={},kda={},K={}",
+            type, head_count, head_size, n_seq_tokens, n_seqs, v_repeat, static_cast<int>(permuted), static_cast<int>(kda), K);
     }
 
     test_gated_delta_net(ggml_type type = GGML_TYPE_F32,
         int64_t head_count = 4, int64_t head_size = 16, int64_t n_seq_tokens = 1, int64_t n_seqs = 1,
-        int v_repeat = 1, bool permuted = false, bool kda = false)
+        int v_repeat = 1, bool permuted = false, bool kda = false, int64_t K = 1)
         : type(type), head_count(head_count), head_size(head_size), n_seq_tokens(n_seq_tokens), n_seqs(n_seqs),
-        v_repeat(v_repeat), permuted(permuted), kda(kda) {
+        v_repeat(v_repeat), permuted(permuted), kda(kda), K(K) {
     }
 
     ggml_tensor* build_graph(ggml_context* ctx) override {
@@ -4243,7 +4274,7 @@ struct test_gated_delta_net : public test_case {
         const int64_t g_ne0 = kda ? head_size : 1;
         ggml_tensor* g = ggml_new_tensor(ctx, type, g_ne0, head_count * v_repeat, n_seq_tokens, n_seqs);
         ggml_tensor* beta = ggml_new_tensor(ctx, type, 1, head_count * v_repeat, n_seq_tokens, n_seqs);
-        ggml_tensor* state = ggml_new_tensor(ctx, type, head_size * v_repeat * head_size * head_count, n_seqs);
+        ggml_tensor* state = ggml_new_tensor(ctx, type, head_size * v_repeat * head_size * head_count, K, n_seqs);
         g->set_name("g");
         beta->set_name("beta");
         state->set_name("state");
@@ -8991,6 +9022,18 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 4, 64, 64, 1, 1, false, true));
     test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 4, 64, 33, 1, 1, false, true));
     test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 4, 64, 100, 1, 1, false, true));
+
+    // K > 1: output keeps the last min(n_tokens, K) per-token snapshots in the trailing K-token region.
+    // exact-match cases (K == n_seq_tokens):
+    test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 4, 16, 2, 1, 1, false, false, /*K=*/2));
+    test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 4, 32, 4, 1, 1, false, false, /*K=*/4));
+    test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 4, 64, 4, 2, 1, false, false, /*K=*/4));
+    test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 8, 128, 4, 1, 1, false, false, /*K=*/4));
+    test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 4, 64, 4, 2, 1, false, true,  /*K=*/4));
+    test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 8, 32, 4, 2, 2, false, true,  /*K=*/4));
+    // overflow: n_tokens > K — only the last K snapshots kept.
+    test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 4, 32, 8, 1, 1, false, false, /*K=*/3));
+    test_cases.emplace_back(new test_gated_delta_net(GGML_TYPE_F32, 4, 64, 16, 2, 1, false, false, /*K=*/4));
 
 #if 0
     // these tests are disabled to save execution time, sbut they can be handy for debugging

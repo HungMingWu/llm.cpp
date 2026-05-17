@@ -162,13 +162,14 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1(const flash_attn_ext_
     }
 
     if constexpr (ncols2 <= 16) {
-        if ((turing_mma_available(cc) || amd_wmma_available(cc)) && ctx.Q.ne[1] <= 16 / ncols2) {
+        if (ctx.Q.ne[1] <= 16 / ncols2) {
             ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 16 / ncols2, ncols2>(ctx);
             return;
         }
     }
 
-    if (ggml_cuda_highest_compiled_arch(cc) == GGML_CUDA_CC_TURING || amd_wmma_available(cc) || ctx.Q.ne[1] <= 32 / ncols2) {
+    if (ctx.Q.ne[1] <= 32 / ncols2 || (GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) == GGML_CUDA_CC_TURING) ||
+            (GGML_CUDA_CC_IS_AMD(cc) && DKQ > 256)) {
         ggml_cuda_flash_attn_ext_mma_f16_case<DKQ, DV, 32 / ncols2, ncols2>(ctx);
         return;
     }

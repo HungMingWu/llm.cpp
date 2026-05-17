@@ -993,6 +993,7 @@ struct gated_delta_net_context {
     const int64_t sb1, sb2, sb3;
     const int64_t neqk1, rq3;
     const float scale;
+    const int K; // state is 3D (S_v*S_v*H, K, n_seqs); K is the snapshot slot count.
 };
 
 void gated_delta_net_cuda(const gated_delta_net_context& ctx, cudaStream_t  stream);

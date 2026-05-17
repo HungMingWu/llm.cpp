@@ -651,7 +651,8 @@ namespace op {
             .sb3 = static_cast<int64_t>(src_beta->nb[3] / sizeof(float)),
             .neqk1 = src_q->ne[1],
             .rq3 = src_v->ne[3] / src_q->ne[3],
-            .scale = 1.0f / sqrtf((float)S_v)
+            .scale = 1.0f / sqrtf((float)S_v),
+            .K = (int)src_state->ne[1]
         };
 
         gated_delta_net_cuda(ctx, stream);
