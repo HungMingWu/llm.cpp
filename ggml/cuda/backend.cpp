@@ -22,6 +22,7 @@ module;
 module ggml;
 import :fused;
 import :cuda.backend;
+import :cuda.fused;
 import :cuda.op;
 
 // destroying a cuBLAS handle while a graph is being captured in a different thread can result in a CUDA error

@@ -50,6 +50,7 @@ target_sources(libggml
       buffer.cppm
       buffer_type.cppm
       device.cppm
+      fused.cppm
       graph.cppm
       op.cppm
       registry.cppm
@@ -63,6 +64,7 @@ target_sources(libggml
       common.cu
       cuda.cpp
       device.cpp
+      fused.cpp
       op.cpp
       registry.cpp
       utils.cpp
