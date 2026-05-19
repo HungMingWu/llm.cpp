@@ -10,6 +10,7 @@ namespace fused
 {
 	bool should_mul_mat_vec_f(const ggml_tensor* tensor);
 	bool should_mul_mat_vec_q(const ggml_tensor* tensor);
+	bool ggml_cuda_topk_moe_fusion(const ggml_cgraph* cgraph, int node_idx, ggml_cuda_topk_moe_args& args);
 	void add(cudaStream_t stream, ggml_tensor* dst, int n_fuse);
 	void mul(cudaStream_t stream, ggml_tensor* dst, int n_fuse);
 	void softcap(cudaStream_t stream, ggml_tensor* dst, ggml_tensor* src);
