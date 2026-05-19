@@ -1,11 +1,10 @@
 module;
 #include <assert.h>
 #include <stdint.h>
+#include <string.h>
 #include <algorithm>
 #include <bit>
 #include <vector>
-#include "fused/fused.h"
-#include "op/cuda_func.h"
 #define GGML_ASSERT(x) assert(x)
 
 module ggml;
