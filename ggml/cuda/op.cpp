@@ -624,7 +624,7 @@ namespace op {
         GGML_ASSERT(ggml_is_contiguous(src_g));
         GGML_ASSERT(ggml_is_contiguous(src_beta));
         GGML_ASSERT(ggml_is_contiguous(src_state));
-
+        GGML_ASSERT(src_q->ne == src_k->ne && src_q->nb == src_k->nb);
 
         gated_delta_net_context ctx {
             .kda = kda,
@@ -640,15 +640,14 @@ namespace op {
             .n_tokens = src_v->ne[2],
             .n_seqs = src_v->ne[3],
             // strides in floats (beta strides used for both g and beta offset computation)
-            .sq1 = static_cast<int64_t>(src_q->nb[1] / sizeof(float)),
-            .sq2 = static_cast<int64_t>(src_q->nb[2] / sizeof(float)),
-            .sq3 = static_cast<int64_t>(src_q->nb[3] / sizeof(float)),
-            .sv1 = static_cast<int64_t>(src_v->nb[1] / sizeof(float)),
-            .sv2 = static_cast<int64_t>(src_v->nb[2] / sizeof(float)),
-            .sv3 = static_cast<int64_t>(src_v->nb[3] / sizeof(float)),
-            .sb1 = static_cast<int64_t>(src_beta->nb[1] / sizeof(float)),
-            .sb2 = static_cast<int64_t>(src_beta->nb[2] / sizeof(float)),
-            .sb3 = static_cast<int64_t>(src_beta->nb[3] / sizeof(float)),
+			.qk_ne = { src_q->ne[0], src_q->ne[1], src_q->ne[2], src_q->ne[3] },
+			.qk_nb = { src_q->nb[0], src_q->nb[1], src_q->nb[2], src_q->nb[3] },
+			.v_ne = { src_v->ne[0], src_v->ne[1], src_v->ne[2], src_v->ne[3] },
+			.v_nb = { src_v->nb[0], src_v->nb[1], src_v->nb[2], src_v->nb[3] },
+			.g_ne = { src_g->ne[0], src_g->ne[1], src_g->ne[2], src_g->ne[3] },
+			.g_nb = { src_g->nb[0], src_g->nb[1], src_g->nb[2], src_g->nb[3] },
+			.b_ne = { src_beta->ne[0], src_beta->ne[1], src_beta->ne[2], src_beta->ne[3] },
+			.b_nb = { src_beta->nb[0], src_beta->nb[1], src_beta->nb[2], src_beta->nb[3] },
             .neqk1 = src_q->ne[1],
             .rq3 = src_v->ne[3] / src_q->ne[3],
             .scale = 1.0f / sqrtf((float)S_v),

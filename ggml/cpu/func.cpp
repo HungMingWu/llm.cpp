@@ -6705,11 +6705,10 @@ void ggml_compute_forward_top_k(
 }
 
 // ggml_compute_forward_gated_delta_net
-static void ggml_compute_forward_gated_delta_net_one_chunk(
-	const ggml_compute_params* params,
-	ggml_tensor* dst,
-	int64_t ir0,
-	int64_t ir1) {
+static void ggml_compute_forward_gated_delta_net_f32(
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
+	ggml_tensor* dst) {
 	ggml_tensor* src_q = dst->src[0];
 	ggml_tensor* src_k = dst->src[1];
 	ggml_tensor* src_v = dst->src[2];
@@ -6737,28 +6736,16 @@ static void ggml_compute_forward_gated_delta_net_one_chunk(
 	// state is 3D (S_v*S_v*H, K, n_seqs); K is the snapshot slot count.
 	const int64_t K = src_state->ne[1];
 	GGML_ASSERT(K >= 1);
-	// per-seq stride in floats (slot 0 of seq s lives at state + s * seq_stride)
-	const int64_t state_seq_stride = src_state->nb[2] / sizeof(float);
-
-	const int64_t per_thread = S_v + (K > 1 ? S_v * S_v : 0);
-	const int ith = params->ith;
-
-	std::vector<float> delta(per_thread);
-	float* state_work = K > 1 ? (&delta[S_v]) : nullptr;
 
 	// output layout: [attn_scores | new_states]
-	// attn_scores: S_v * H * n_tokens * n_seqs    floats
-	// new_states:  S_v * S_v * H * n_seqs * K     floats  (K snapshot slots; last min(n_tokens, K))
+	// attn_scores: (n_seqs, n_tokens, H, S_v)     floats
+	// new_states:  (K, n_seqs, S_v, S_v)          floats  (K snapshot slots; last min(n_tokens, K))
 	const int64_t attn_score_elems = S_v * H * n_tokens * n_seqs;
-	const int64_t state_size_per_snap = S_v * S_v * H * n_seqs;
-	float* attn_out_base = (float*)dst->data;
 	float* state_out_base = (float*)dst->data + attn_score_elems;
 
 	// snapshot slot mapping: target_slot = t - shift. When n_tokens < K only the last
 	// n_tokens slots are written; earlier slots are left untouched (caller-owned).
 	const int64_t shift = n_tokens - K;
-
-	const float* state_in_base = (const float*)src_state->data;
 
 	//const int64_t rq1 = src_v->ne[1] / src_q->ne[1];
 	//const int64_t rk1 = src_v->ne[1] / src_k->ne[1];
@@ -6767,113 +6754,141 @@ static void ggml_compute_forward_gated_delta_net_one_chunk(
 
 	const float scale = 1.0f / sqrtf((float)S_v);
 
-	for (int64_t ir = ir0; ir < ir1; ++ir) {
-		const int64_t iv1 = ir % H; // head_index
-		const int64_t iv3 = ir / H; // sequence
+	for (int64_t iv3 = 0; iv3 < src_v->ne[3]; ++iv3) { // sequence
+		for (int64_t iv1 = 0; iv1 < src_v->ne[1]; ++iv1) { // head_index
+			stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+				const int64_t per_thread = S_v + (K > 1 ? S_v * S_v : 0);
 
-		const int64_t iq1 = iv1 % src_q->ne[1];
-		const int64_t ik1 = iv1 % src_k->ne[1];
+				std::vector<float> delta(per_thread);
 
-		const int64_t iq3 = iv3 / rq3;
-		const int64_t ik3 = iv3 / rk3;
+				auto q_t = [=]() {
+					const int64_t iq1 = iv1 % src_q->ne[1];
+					const int64_t iq3 = iv3 / rq3;
+					auto q_data = make_strided_mdspan(static_cast<const float*>(src_q->data), src_q->ne, src_q->nb);
+					return std::submdspan(q_data, iq3, std::full_extent, iq1, std::full_extent);
+				}();
 
-		// For K=1, write directly to the single output slot to avoid an extra memcpy at the end.
-		// For K>1, work in scratch and copy out per-token when the slot is in range.
-		float* s_out = (K > 1)
-			? state_work
-			: state_out_base + (iv3 * H + iv1) * S_v * S_v;
+				auto k_t = [=]() {
+					const int64_t ik1 = iv1 % src_k->ne[1];
+					const int64_t ik3 = iv3 / rk3;
+					auto k_data = make_strided_mdspan(static_cast<const float*>(src_k->data), src_k->ne, src_k->nb);
+					return std::submdspan(k_data, ik3, std::full_extent, ik1, std::full_extent);
+				}();
 
-		// copy input state into the working buffer and operate in-place
-		// state layout (D, K, n_seqs): slot 0 of seq iv3 starts at iv3 * state_seq_stride.
-		const float* s_in = state_in_base + iv3 * state_seq_stride + iv1 * S_v * S_v;
-		memcpy(s_out, s_in, S_v * S_v * sizeof(float));
+				auto v_t = [=]() {
+					auto v_data = make_strided_mdspan(static_cast<const float*>(src_v->data), src_v->ne, src_v->nb);
+					return std::submdspan(v_data, iv3, std::full_extent, iv1, std::full_extent);
+				}();
 
-		// attn output pointer for first token of this (head, seq)
-		float* attn_data = attn_out_base + (iv3 * n_tokens * H + iv1) * S_v;
+				auto beta_t = [=]() {
+					auto beta_data = make_strided_mdspan(static_cast<const float*>(src_beta->data), src_beta->ne, src_beta->nb);
+					return std::submdspan(beta_data, iv3, std::full_extent, iv1, 0);
+				}();
 
-		for (int64_t t = 0; t < n_tokens; t++) {
-			const float* q_d = (const float*)((const char*)src_q->data + iq3 * src_q->nb[3] + t * src_q->nb[2] + iq1 * src_q->nb[1]);
-			const float* k_d = (const float*)((const char*)src_k->data + ik3 * src_k->nb[3] + t * src_k->nb[2] + ik1 * src_k->nb[1]);
-			const float* v_d = (const float*)((const char*)src_v->data + iv3 * src_v->nb[3] + t * src_v->nb[2] + iv1 * src_v->nb[1]);
+				auto g_t = [=]() {
+					auto g_data = make_strided_mdspan(static_cast<const float*>(src_g->data), src_g->ne, src_g->nb);
+					return std::submdspan(g_data, iv3, std::full_extent, iv1, std::full_extent);
+				}();
 
-			const float beta_val = *(const float*)((const char*)src_beta->data + iv3 * src_beta->nb[3] + t * src_beta->nb[2] + iv1 * src_beta->nb[1]);
-			const float* g_d = (const float*)((const char*)src_g->data + iv3 * src_g->nb[3] + t * src_g->nb[2] + iv1 * src_g->nb[1]);
-
-			// state is stored transposed: s_out[j*S_v + i] = S[i][j]
-			// so row j of s_out = column j of S (contiguous access)
-
-			if (kda) {
-				// precompute exp(g) into delta scratch (reused below)
-				for (int64_t i = 0; i < S_v; ++i) {
-					delta[i] = expf(g_d[i]);
-				}
-				// S[i][:] *= exp(g[i]) => for each row j of M: M[j][i] *= exp(g[i])
-				for (int64_t j = 0; j < S_v; ++j) {
-					for (int i = 0; i < S_v; ++i) s_out[j * S_v + i] = s_out[j * S_v + i] * delta[i];
-				}
-			}
-			else {
-				for (int i = 0; i < S_v * S_v; ++i) {
-					s_out[i] *= expf(g_d[0]);
-				}
-			}
-
-			// delta[j] = sum_i S[i][j] * k[i] = dot(row j of M, k)
-			for (int64_t j = 0; j < S_v; ++j) {
-				float sum = 0.0f;
+				// For K=1, write directly to the single output slot to avoid an extra memcpy at the end.
+				// For K>1, work in scratch and copy out per-token when the slot is in range.
+				auto s_out = [&]() {
+					if (K > 1) {
+						return std::mdspan(&delta[S_v], S_v, S_v);
+					}
+					else {
+						std::mdspan s_out(state_out_base, n_seqs, H, S_v, S_v);
+						return std::submdspan(s_out, iv3, iv1, std::full_extent, std::full_extent);
+					}
+				}();
+				// copy input state into the working buffer and operate in-place
+				// state layout (n_seqs, H, S_v, S_v)
+				auto s_in = [&]() {
+					std::mdspan s_in((const float*)src_state->data, n_seqs, H, S_v, S_v);
+					return std::submdspan(s_in, iv3, iv1, std::full_extent, std::full_extent);
+				}();
 				for (int i = 0; i < S_v; ++i)
-					sum += s_out[j * S_v + i] * k_d[i];
-				delta[j] = (v_d[j] - sum) * beta_val;
-			}
+					for (int j = 0; j < S_v; ++j)
+						s_out[i, j] = s_in[i, j];
 
-			// outer product: S[i][j] += k[i] * delta[j] => M[j][i] += delta[j] * k[i]
-			for (int64_t j = 0; j < S_v; ++j) {
-				for (int i = 0; i < S_v; ++i) {
-					s_out[j * S_v + i] += k_d[i] * delta[j];
+				// attn output pointer for first token of this (head, seq)
+				auto attn_data = [=]() {
+					std::mdspan attn_out_base((float*)dst->data, n_seqs, n_tokens, H, S_v);
+					return std::submdspan(attn_out_base, iv3, std::full_extent, iv1, std::full_extent);
+				}();
+
+				for (int64_t t = 0; t < n_tokens; t++) {
+					// state is stored transposed: s_out[j, i] = S[i][j]
+					// so row j of s_out = column j of S (contiguous access)
+
+					if (kda) {
+						// precompute exp(g) into delta scratch (reused below)
+						for (int64_t i = 0; i < S_v; ++i) {
+							delta[i] = expf(g_t[t, i]);
+						}
+						// S[i][:] *= exp(g[i]) => for each row j of M: M[j][i] *= exp(g[i])
+						for (int64_t j = 0; j < S_v; ++j)
+							for (int i = 0; i < S_v; ++i) s_out[j, i] *= delta[i];
+					}
+					else {
+						for (int64_t j = 0; j < S_v; ++j)
+							for (int i = 0; i < S_v; ++i) s_out[j, i] *= expf(g_t[t, 0]);
+					}
+
+					// delta[j] = sum_i S[i][j] * k[i] = dot(row j of M, k)
+					for (int64_t j = 0; j < S_v; ++j) {
+						float sum = 0.0f;
+						for (int i = 0; i < S_v; ++i)
+							sum += s_out[j, i] * k_t[t, i];
+						delta[j] = (v_t[t, j] - sum) * beta_t[t];
+					}
+
+					// outer product: S[i][j] += k[i] * delta[j] => M[j][i] += delta[j] * k[i]
+					for (int64_t j = 0; j < S_v; ++j) {
+						for (int i = 0; i < S_v; ++i) {
+							s_out[j, i] += k_t[t, i] * delta[j];
+						}
+					}
+
+					// attn_out[j] = sum_i S[i][j] * q[i] = dot(row j of M, q)
+					for (int64_t j = 0; j < S_v; ++j) {
+						float sum = 0.0f;
+						for (int i = 0; i < S_v; ++i)
+							sum += s_out[j, i] * q_t[t, i];
+						attn_data[t, j] = sum * scale;
+					}
+
+					if (K > 1) {
+						const int64_t target_slot = t - shift;
+						if (target_slot >= 0 && target_slot < K) {
+							auto curr_state_o = [&]() {
+								std::mdspan curr_state_o(state_out_base, K, n_seqs, H, S_v, S_v);
+								return std::submdspan(curr_state_o, target_slot, iv3, iv1, std::full_extent, std::full_extent);
+							}();
+							for (int i = 0; i < S_v; ++i) {
+								for (int j = 0; j < S_v; ++j) {
+									curr_state_o[i, j] = s_out[i, j];
+								}
+							}
+						}
+					}
 				}
-			}
-
-			// attn_out[j] = sum_i S[i][j] * q[i] = dot(row j of M, q)
-			for (int64_t j = 0; j < S_v; ++j) {
-				float sum = 0.0f;
-				for (int i = 0; i < S_v; ++i)
-					sum += s_out[j * S_v + i] * q_d[i];
-				attn_data[j] = sum * scale;
-			}
-
-			attn_data += S_v * H; // advance to next token
-
-			if (K > 1) {
-				const int64_t target_slot = t - shift;
-				if (target_slot >= 0 && target_slot < K) {
-					float* curr_state_o = state_out_base + target_slot * state_size_per_snap +
-						(iv3 * H + iv1) * S_v * S_v;
-					memcpy(curr_state_o, s_out, S_v * S_v * sizeof(float));
-				}
-			}
+			});
+			scope.spawn(std::move(sender));
 		}
 	}
 }
 
-
-static void ggml_compute_forward_gated_delta_net_f32(
-	const ggml_compute_params* params,
-	ggml_tensor* dst) {
-	ggml_tensor* V = dst->src[2];
-	int64_t nr = V->ne[1] * V->ne[3];
-	for (int64_t ir0 = 0; ir0 < nr; ir0++)
-		ggml_compute_forward_gated_delta_net_one_chunk(params, dst, ir0, ir0 + 1);
-}
-
 void ggml_compute_forward_gated_delta_net(
-	const ggml_compute_params* params,
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
 	ggml_tensor* dst) {
 	const ggml_tensor* src0 = dst->src[0];
 
 	switch (src0->type) {
 	case GGML_TYPE_F32:
 	{
-		ggml_compute_forward_gated_delta_net_f32(params, dst);
+		ggml_compute_forward_gated_delta_net_f32(pool, scope, dst);
 	} break;
 	default:
 	{
@@ -7222,7 +7237,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_GATED_DELTA_NET:
 	{
-		ggml_compute_forward_gated_delta_net(params, tensor);
+		ggml_compute_forward_gated_delta_net(pool, scope, tensor);
 	} break;
 	case GGML_OP_CUSTOM:
 	{

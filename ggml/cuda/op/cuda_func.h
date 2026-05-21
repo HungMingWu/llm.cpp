@@ -988,9 +988,14 @@ struct gated_delta_net_context {
     const float* s_d;
     float* dst_d;
     const int64_t S_v, H, n_tokens, n_seqs;
-    const int64_t sq1, sq2, sq3;
-    const int64_t sv1, sv2, sv3;
-    const int64_t sb1, sb2, sb3;
+    const int64_t qk_ne[4];
+    const size_t qk_nb[4];
+    const int64_t v_ne[4];
+    const size_t v_nb[4];
+    const int64_t g_ne[4];
+    const size_t g_nb[4];
+    const int64_t b_ne[4];
+    const size_t b_nb[4];
     const int64_t neqk1, rq3;
     const float scale;
     const int K; // state is 3D (S_v*S_v*H, K, n_seqs); K is the snapshot slot count.
