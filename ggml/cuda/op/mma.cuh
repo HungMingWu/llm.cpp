@@ -544,6 +544,25 @@ namespace ggml_cuda_mma {
     template <int I, int J>
     struct tileOp<Volta, I, J, nv_bfloat162, DATA_LAYOUT_I_MAJOR> : nv_bfloat162_default_tileOP<I, J> {};
 
+    template <int I_, int J_>
+    struct tile<I_, J_, half2, DATA_LAYOUT_I_MAJOR_SCRAMBLED> {
+        static constexpr int         I  = I_;
+        static constexpr int         J  = J_;
+        static constexpr data_layout dl = DATA_LAYOUT_I_MAJOR_SCRAMBLED;
+
+        static constexpr int ne = I * J / ggml_cuda_get_physical_warp_size();
+        half2 x[ne] = {{0.0f, 0.0f}};
+
+        static constexpr __device__ bool supported() {
+            if (I == 16 && J == 16) return true;
+            return false;
+        }
+
+        static __device__ __forceinline__ int get_i(const int l) {
+            return tile<I_, J_, half2, DATA_LAYOUT_I_MAJOR>::get_i(l);
+        }
+    };
+
     template <int I, int J>
     struct tileOp<AMD_MFMA, I, J, nv_bfloat162, DATA_LAYOUT_I_MAJOR> {
         static constexpr int ne = tile<I, J, half2, DATA_LAYOUT_I_MAJOR>::ne;
@@ -776,25 +795,6 @@ namespace ggml_cuda_mma {
         NO_DEVICE_CODE;
 #endif // defined(AMD_MFMA_AVAILABLE) || (defined(AMD_WMMA_AVAILABLE) && defined(RDNA4))
     }
-
-    template <int I_, int J_>
-    struct tile<I_, J_, half2, DATA_LAYOUT_I_MAJOR_SCRAMBLED> {
-        static constexpr int         I  = I_;
-        static constexpr int         J  = J_;
-        static constexpr data_layout dl = DATA_LAYOUT_I_MAJOR_SCRAMBLED;
-
-        static constexpr int ne = I * J / ggml_cuda_get_physical_warp_size();
-        half2 x[ne] = {{0.0f, 0.0f}};
-
-        static constexpr __device__ bool supported() {
-            if (I == 16 && J == 16) return true;
-            return false;
-        }
-
-        static __device__ __forceinline__ int get_i(const int l) {
-            return tile<I_, J_, half2, DATA_LAYOUT_I_MAJOR>::get_i(l);
-        }
-    };
 
     template <int I, int J>
     static __device__ __forceinline__ tile<I, J / 2, half2> get_half2(const tile<I, J, float>&tile_float) {
