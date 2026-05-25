@@ -54,7 +54,7 @@ void ggml_backend::get_tensor_2d_async(const ggml_tensor* tensor, void* data, si
     }
 
     GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
-    GGML_ASSERT(offset + (n_copies - 1) * stride_tensor + size <= tensor->nbytes() && "tensor write out of bounds");
+    GGML_ASSERT(offset + (n_copies - 1) * stride_tensor + size <= tensor->nbytes() && "tensor read out of bounds");
     return get_tensor_2d_async_impl(tensor, data, offset, size, n_copies, stride_tensor, stride_data);
 }
 

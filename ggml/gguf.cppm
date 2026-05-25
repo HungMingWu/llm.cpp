@@ -222,7 +222,7 @@ export
 	public:
 		std::optional<size_t> find_key(std::string_view key) const;
 		std::span<const gguf_tensor_info> get_infos() const { return info; }
-		size_t get_data_offset() const { return offset; }
+		size_t get_data_offset() const { return offset; } // padded to gguf_get_alignment if and only if the gguf_context contains at least one tensor
     };
 
     std::optional<gguf_context> gguf_init_from_file(const char* fname);

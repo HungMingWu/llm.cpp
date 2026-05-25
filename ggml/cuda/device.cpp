@@ -24,7 +24,12 @@ static int64_t get_op_batch_size(const ggml_tensor* op) {
 }
 
 ggml_backend_dev_type ggml_backend_cuda_device::get_type() {
-    return GGML_BACKEND_DEVICE_TYPE_GPU;
+    cudaDeviceProp prop;
+    CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
+
+    return prop.integrated
+        ? GGML_BACKEND_DEVICE_TYPE_IGPU
+        : GGML_BACKEND_DEVICE_TYPE_GPU;
 }
 
 void ggml_backend_cuda_device::get_props(ggml_backend_dev_props* props) {

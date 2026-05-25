@@ -13,6 +13,7 @@ target_sources(libggml
       backend.cppm
       buffer.cppm
       buffer_type.cppm
+      device.cppm
       ds.cppm
       helper.cppm
       rpc_server.cppm
@@ -22,6 +23,7 @@ target_sources(libggml
       backend.cpp
       buffer.cpp
       buffer_type.cpp
+      device.cpp
       rpc.cpp
       rpc_server.cpp
       socket.cpp

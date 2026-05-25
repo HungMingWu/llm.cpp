@@ -45,6 +45,7 @@ gated_delta_net_cuda(gated_delta_net_context ctx,
     auto block = cooperative_groups::this_thread_block();
     auto tile = cooperative_groups::tiled_partition<warp_size>(block);
 
+    ggml_cuda_pdl_sync();
     // state is stored transposed: M[col][i] = S[i][col], row col is contiguous
 #pragma unroll
     for (int r = 0; r < rows_per_lane; r++) {
@@ -192,22 +193,23 @@ static void launch_gated_delta_net(const gated_delta_net_context& ctx, cudaStrea
 
     int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
 
+    const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(grid_dims, block_dims, 0, stream);
     switch (S_v) {
         case 16:
-            gated_delta_net_cuda<16, KDA, keep_rs_t><<<grid_dims, block_dims, 0, stream>>>(
+            ggml_cuda_kernel_launch(gated_delta_net_cuda<16, KDA, keep_rs_t>, launch_params,
                 ctx, neqk1_magic, rq3_magic);
             break;
         case 32:
-            gated_delta_net_cuda<32, KDA, keep_rs_t><<<grid_dims, block_dims, 0, stream>>>(
+            ggml_cuda_kernel_launch(gated_delta_net_cuda<32, KDA, keep_rs_t>, launch_params,
                 ctx, neqk1_magic, rq3_magic);
             break;
         case 64: {
-            gated_delta_net_cuda<64, KDA, keep_rs_t><<<grid_dims, block_dims, 0, stream>>>(
+            ggml_cuda_kernel_launch(gated_delta_net_cuda<64, KDA, keep_rs_t>, launch_params,
                 ctx, neqk1_magic, rq3_magic);
             break;
         }
         case 128: {
-            gated_delta_net_cuda<128, KDA, keep_rs_t><<<grid_dims, block_dims, 0, stream>>>(
+            ggml_cuda_kernel_launch(gated_delta_net_cuda<128, KDA, keep_rs_t>, launch_params,
                 ctx, neqk1_magic, rq3_magic);
             break;
         }

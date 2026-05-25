@@ -152,6 +152,22 @@ export {
 		 buf->get_tensor(tensor, data, offset, size);
 	 }
 
+	 void ggml_backend_tensor_get_2d(const ggml_tensor* tensor, void* data, size_t offset, size_t size,
+		 size_t n_copies, size_t stride_tensor, size_t stride_data) {
+		 GGML_ASSERT(tensor);
+		 ggml_backend_buffer* buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+		 GGML_ASSERT(buf != NULL && "tensor buffer not set");
+
+		 if (size == 0) {
+			 return;
+		 }
+
+		 GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
+		 GGML_ASSERT(offset + (n_copies - 1) * stride_tensor + size <= tensor->nbytes() && "tensor read out of bounds");
+
+		 buf->get_tensor_2d(tensor, data, offset, size, n_copies, stride_tensor, stride_data);
+	 }
+
 	 void ggml_backend_tensor_memset(ggml_tensor* tensor, uint8_t value, size_t offset, size_t size) {
 		 ggml_backend_buffer* buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
 

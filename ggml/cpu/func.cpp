@@ -6804,8 +6804,8 @@ static void ggml_compute_forward_gated_delta_net_f32(
 				// copy input state into the working buffer and operate in-place
 				// state layout (n_seqs, H, S_v, S_v)
 				auto s_in = [&]() {
-					std::mdspan s_in((const float*)src_state->data, n_seqs, H, S_v, S_v);
-					return std::submdspan(s_in, iv3, iv1, std::full_extent, std::full_extent);
+					std::mdspan s_in((const float*)src_state->data, n_seqs, K, H, S_v, S_v);
+					return std::submdspan(s_in, iv3, 0, iv1, std::full_extent, std::full_extent);
 				}();
 				for (int i = 0; i < S_v; ++i)
 					for (int j = 0; j < S_v; ++j)

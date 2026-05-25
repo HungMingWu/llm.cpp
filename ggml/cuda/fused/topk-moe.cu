@@ -98,6 +98,7 @@ __launch_bounds__(4 * WARP_SIZE, 1) __global__ void topk_moe_cuda(topk_moe_conte
         wt[i] = -INFINITY;
     }
 
+    ggml_cuda_pdl_sync();
 #pragma unroll
     for (int i = 0; i < n_experts; i += WARP_SIZE) {
         const int expert = i + threadIdx.x;
@@ -256,40 +257,41 @@ static void launch_topk_moe_cuda(const topk_moe_context& ctx, cudaStream_t strea
     const int    rows_per_block = 4;
     dim3         grid_dims((ctx.n_rows + rows_per_block - 1) / rows_per_block, 1, 1);
     dim3         block_dims(WARP_SIZE, rows_per_block, 1);
+    const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(grid_dims, block_dims, 0, stream);
 
     switch (ctx.n_experts) {
     case 1:
-        topk_moe_cuda<1, has_bias> << <grid_dims, block_dims, 0, stream >> > (ctx);
+        ggml_cuda_kernel_launch(topk_moe_cuda<1, has_bias>, launch_params, ctx);
         break;
     case 2:
-        topk_moe_cuda<2, has_bias> << <grid_dims, block_dims, 0, stream >> > (ctx);
+        ggml_cuda_kernel_launch(topk_moe_cuda<2, has_bias>, launch_params, ctx);
         break;
     case 4:
-        topk_moe_cuda<4, has_bias> << <grid_dims, block_dims, 0, stream >> > (ctx);
+        ggml_cuda_kernel_launch(topk_moe_cuda<4, has_bias>, launch_params, ctx);
         break;
     case 8:
-        topk_moe_cuda<8, has_bias> << <grid_dims, block_dims, 0, stream >> > (ctx);
+        ggml_cuda_kernel_launch(topk_moe_cuda<8, has_bias>, launch_params, ctx);
         break;
     case 16:
-        topk_moe_cuda<16, has_bias> << <grid_dims, block_dims, 0, stream >> > (ctx);
+        ggml_cuda_kernel_launch(topk_moe_cuda<16, has_bias>, launch_params, ctx);
         break;
     case 32:
-        topk_moe_cuda<32, has_bias> << <grid_dims, block_dims, 0, stream >> > (ctx);
+        ggml_cuda_kernel_launch(topk_moe_cuda<32, has_bias>, launch_params, ctx);
         break;
     case 64:
-        topk_moe_cuda<64, has_bias> << <grid_dims, block_dims, 0, stream >> > (ctx);
+        ggml_cuda_kernel_launch(topk_moe_cuda<64, has_bias>, launch_params, ctx);
         break;
     case 128:
-        topk_moe_cuda<128, has_bias> << <grid_dims, block_dims, 0, stream >> > (ctx);
+        ggml_cuda_kernel_launch(topk_moe_cuda<128, has_bias>, launch_params, ctx);
         break;
     case 256:
-        topk_moe_cuda<256, has_bias> << <grid_dims, block_dims, 0, stream >> > (ctx);
+        ggml_cuda_kernel_launch(topk_moe_cuda<256, has_bias>, launch_params, ctx);
         break;
     case 512:
-        topk_moe_cuda<512, has_bias> << <grid_dims, block_dims, 0, stream >> > (ctx);
+        ggml_cuda_kernel_launch(topk_moe_cuda<512, has_bias>, launch_params, ctx);
         break;
     case 576:
-        topk_moe_cuda<576, has_bias> << <grid_dims, block_dims, 0, stream >> > (ctx);
+        ggml_cuda_kernel_launch(topk_moe_cuda<576, has_bias>, launch_params, ctx);
         break;
     default:
         GGML_ASSERT(false && "fatal error");

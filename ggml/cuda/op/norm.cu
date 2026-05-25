@@ -16,6 +16,7 @@ static __global__ void norm_f32(
 
     float2 mean_var = make_float2(0.0f, 0.0f);
 
+    ggml_cuda_pdl_sync();
     for (int col = tid; col < ncols; col += block.size()) {
         const float xi = x(sample, channel, row, col);
         mean_var.x += xi;
@@ -55,6 +56,7 @@ void norm_f32_cuda(const norm_context& ctx, cudaStream_t stream)
 template <typename dst_t, typename src_t, typename... Ts>
 requires (std::is_same_v<Ts, src_t> && ...)
 static __global__ void rms_norm_f32(dst_t dst, src_t x, const int ncols, const float eps, Ts... args) {
+    ggml_cuda_pdl_lc();
     static_assert(sizeof...(Ts) < 3, "rms_norm_f32 only supports up to 2 extra arguments");
     const int row = blockIdx.x;
     const int channel = blockIdx.y;
@@ -66,6 +68,7 @@ static __global__ void rms_norm_f32(dst_t dst, src_t x, const int ncols, const f
 
     float tmp = 0.0f; // partial sum for thread in warp
 
+    ggml_cuda_pdl_sync();
     for (int col = tid; col < ncols; col += block.size()) {
         const float xi = x(sample, channel, row, col);
         tmp += xi * xi;
@@ -152,6 +155,7 @@ static __global__ void group_norm_f32(const float* x, float* dst, const int grou
 
     float tmp = 0.0f; // partial sum for thread in warp
 
+    ggml_cuda_pdl_sync();
     for (int j = start; j < end; j += block.size()) {
         tmp += x[j];
     }
@@ -256,11 +260,15 @@ void rms_norm_mul_f32_cuda(
     if (mul == nullptr) {
         if (ncols < 1024) {
             const dim3 block_dims(256, 1, 1);
-            rms_norm_f32 << <blocks_num, block_dims, 0, stream >> > (dst_data, x_data, ncols, eps);
+            const ggml_cuda_kernel_launch_params launch_params = {blocks_num, block_dims, block_dims.x > WARP_SIZE ? 32 * sizeof(float): 0, stream};
+            ggml_cuda_kernel_launch(rms_norm_f32<decltype(dst_data), decltype(x_data)>, launch_params,
+                dst_data, x_data, ncols, eps);
         }
         else {
             const dim3 block_dims(1024, 1, 1);
-            rms_norm_f32 << <blocks_num, block_dims, 0, stream >> > (dst_data, x_data, ncols, eps);
+            const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params{blocks_num, block_dims, block_dims.x > WARP_SIZE ? 32 * sizeof(float): 0, stream};
+            ggml_cuda_kernel_launch(rms_norm_f32<decltype(dst_data), decltype(x_data)>, launch_params,
+                dst_data, x_data, ncols, eps);
         }
         return;
     }
@@ -268,22 +276,30 @@ void rms_norm_mul_f32_cuda(
     if (add == nullptr) {
         if (ncols < 1024) {
             const dim3 block_dims(256, 1, 1);
-            rms_norm_f32 << <blocks_num, block_dims, 0, stream >> >(dst_data, x_data, ncols, eps, mul_data);
+            const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params{blocks_num, block_dims, block_dims.x > WARP_SIZE ? 32 * sizeof(float): 0, stream};
+            ggml_cuda_kernel_launch(rms_norm_f32<decltype(dst_data), decltype(x_data), decltype(mul_data)>, launch_params,
+                dst_data, x_data, ncols, eps, mul_data);
         }
         else {
             const dim3 block_dims(1024, 1, 1);
-            rms_norm_f32 << <blocks_num, block_dims, 0, stream >> > (dst_data, x_data, ncols, eps, mul_data);
+            const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params{blocks_num, block_dims, block_dims.x > WARP_SIZE ? 32 * sizeof(float): 0, stream};
+            ggml_cuda_kernel_launch(rms_norm_f32<decltype(dst_data), decltype(x_data), decltype(mul_data)>, launch_params,
+                dst_data, x_data, ncols, eps, mul_data);
         }
     }
     else {
         auto add_data = make_strided_mdspan(add, add_ne, add_nb);
         if (ncols < 1024) {
             const dim3 block_dims(256, 1, 1);
-            rms_norm_f32 << <blocks_num, block_dims, 0, stream >> > (dst_data, x_data, ncols, eps, mul_data, add_data);
+            const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params{blocks_num, block_dims,block_dims.x > WARP_SIZE ? 32 * sizeof(float): 0, stream};
+            ggml_cuda_kernel_launch(rms_norm_f32<decltype(dst_data), decltype(x_data), decltype(mul_data), decltype(add_data)>, launch_params,
+                dst_data, x_data, ncols, eps, mul_data, add_data);
         }
         else {
             const dim3 block_dims(1024, 1, 1);
-            rms_norm_f32 << <blocks_num, block_dims, 0, stream >> > (dst_data, x_data, ncols, eps, mul_data, add_data);
+            const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params{blocks_num, block_dims, block_dims.x > WARP_SIZE ? 32 * sizeof(float): 0, stream};
+            ggml_cuda_kernel_launch(rms_norm_f32<decltype(dst_data), decltype(x_data), decltype(mul_data), decltype(add_data)>, launch_params,
+                dst_data, x_data, ncols, eps, mul_data, add_data);
         }
     }
 }

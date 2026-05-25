@@ -11,7 +11,6 @@ struct ggml_backend_rpc : public ggml_backend {
 	std::string endpoint;
 	int device;
 	std::string name;
-	uint64_t    last_graph_uid{};
 protected:
 	ggml_status graph_compute_impl(ggml_cgraph* cgraph) override;
 public:

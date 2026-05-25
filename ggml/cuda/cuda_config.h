@@ -176,3 +176,15 @@ static constexpr bool cp_async_available_v = true;
 #else
 static constexpr bool cp_async_available_v = false;
 #endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+
+// PDL host-side support (cudaLaunchKernelEx) requires CUDART >= 11.8.
+// However, this has been bugged in CTK < 12.3 for MSVC builds, see
+// https://github.com/ggml-org/llama.cpp/pull/22522#discussion_r3302393293
+// __CUDA_ARCH__  is undefined in host passes; GPU arch check happens in device-side code.
+#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA) && \
+    (CUDART_VERSION >= 12030 || (!(defined(_MSC_VER) && !defined(__clang__)) && CUDART_VERSION >= 11080))
+static constexpr bool ggml_cuda_use_pdl_v = true;
+#    define GGML_CUDA_USE_PDL
+#else
+static constexpr bool ggml_cuda_use_pdl_v = false;
+#endif  // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA) && (CUDART_VERSION >= 12030 || (!(defined(_MSC_VER) && !defined(__clang__)) && CUDART_VERSION >= 11080))

@@ -15,6 +15,8 @@ static __global__ void reduce_rows_f32(const float* __restrict__ x, float* __res
     __shared__ float s_sum[32];
     std::array<float, num_unroll> temp;
     std::array<float, num_unroll> sum_temp{};
+
+    ggml_cuda_pdl_sync();
     for (int i = col; i < ncols;) {
         for (int j = 0; j < num_unroll; ++j) {
             if (i < ncols) {

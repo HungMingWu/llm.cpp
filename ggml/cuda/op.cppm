@@ -2219,4 +2219,7 @@ namespace op
         const ggml_tensor* a,
         const ggml_tensor* inv_b,
         ggml_tensor* dst);
+
+    // Returns whether the Fast Walsh-Hadamard transform could be used.
+    bool fwht(cudaStream_t stream, const ggml_tensor* src, ggml_tensor* dst);
 }

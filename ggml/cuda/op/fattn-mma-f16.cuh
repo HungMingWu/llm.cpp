@@ -472,9 +472,9 @@ static __device__ __forceinline__ void flash_attn_ext_f16_load_mask(
                 break;
             }
 
-            const int i = 8 * (threadIdx.x % (nbatch_fa / 8));
+            const int i = 8 * (threadIdx.x % (nbatch_fa/8));
 
-            cp_async_cg_16<preload>(tile_mask_32 + j_sram * (nbatch_fa * sizeof(half) + 16) + i * sizeof(half), mask_h + j_vram * stride_mask + i);
+            cp_async_cg_16<preload>(tile_mask_32 + j_sram*(nbatch_fa*sizeof(half) + 16) + i*sizeof(half), mask_h + int64_t(j_vram)*stride_mask + i);
         }
     }
     else if constexpr (oob_check) {
@@ -491,7 +491,7 @@ static __device__ __forceinline__ void flash_attn_ext_f16_load_mask(
             for (int i0 = 0; i0 < nbatch_fa; i0 += warp_size) {
                 const int i = i0 + threadIdx.x;
 
-                tile_mask[j_sram*(nbatch_fa + 8) + i] = i < i_sup ? mask_h[j_vram*stride_mask + i] : half(0.0f);
+                tile_mask[j_sram*(nbatch_fa + 8) + i] = i < i_sup ? mask_h[int64_t(j_vram)*stride_mask + i] : half(0.0f);
             }
         }
     }
@@ -507,9 +507,9 @@ static __device__ __forceinline__ void flash_attn_ext_f16_load_mask(
                 break;
             }
 
-            const int i = threadIdx.x % (warp_size / cols_per_warp);
+            const int i = threadIdx.x % (warp_size/cols_per_warp);
 
-            ggml_cuda_memcpy_1<sizeof(half2)>(tile_mask + j_sram * (nbatch_fa + 8) + 2 * i, mask_h + j_vram * stride_mask + 2 * i);
+            ggml_cuda_memcpy_1<sizeof(half2)>(tile_mask + j_sram*(nbatch_fa + 8) + 2*i, mask_h + int64_t(j_vram)*stride_mask + 2*i);
         }
     }
     else {
@@ -523,10 +523,10 @@ static __device__ __forceinline__ void flash_attn_ext_f16_load_mask(
             }
 
 #pragma unroll
-            for (int i0 = 0; i0 < nbatch_fa; i0 += 2 * warp_size) {
-                const int i = i0 + 2 * threadIdx.x;
+            for (int i0 = 0; i0 < nbatch_fa; i0 += 2*warp_size) {
+                const int i = i0 + 2*threadIdx.x;
 
-                ggml_cuda_memcpy_1<sizeof(half2)>(tile_mask + j_sram * (nbatch_fa + 8) + i, mask_h + j_vram * stride_mask + i);
+                ggml_cuda_memcpy_1<sizeof(half2)>(tile_mask + j_sram*(nbatch_fa + 8) + i, mask_h + int64_t(j_vram)*stride_mask + i);
             }
         }
     }
@@ -1832,6 +1832,7 @@ static __global__ void flash_attn_ext_f16(
     [[maybe_unused]] const int32_t nb21,  [[maybe_unused]] const int32_t nb22,  [[maybe_unused]] const int64_t nb23,
     [[maybe_unused]] const int32_t ne31,  [[maybe_unused]] const int32_t ne32,  [[maybe_unused]] const int32_t ne33,
     [[maybe_unused]] const int32_t nb31,  [[maybe_unused]] const int32_t nb32,  [[maybe_unused]] const int64_t nb33) {
+    ggml_cuda_pdl_sync(); // TODO optimize placement
     if constexpr (flash_attn_available_v && (volta_mma_available_v || turing_mma_available_v || amd_wmma_available_v || amd_mfma_available_v)) {
 
         // Skip unused kernel variants for faster compilation:

@@ -1013,4 +1013,7 @@ struct snake_context {
     const int   T;
     const int   C;
 };
-void snake_cuda(const snake_context& ctx, cudaStream_t  stream);
+void snake_cuda(const snake_context& ctx, cudaStream_t stream);
+
+bool fwht_cuda(const int n, const float* src_d, float* dst_d,
+    const int64_t rows, const float scale, cudaStream_t stream);

@@ -1,4 +1,5 @@
 #include "cuda_func.h"
+#include "common.cuh"
 #include "mdspan_helper.h"
 #include "unary.cuh"
 #define GGML_ABORT(...)
@@ -6,6 +7,7 @@
 template <bool apply_silu, size_t split_d_inner, size_t d_conv, typename src0_t, typename src1_t, typename out_t>
 static __global__ void ssm_conv_f32(
     const int64_t n_t, src0_t src0_data, src1_t src1_data, const float* bias, out_t out_data) {
+    ggml_cuda_pdl_lc();
     const int tid = threadIdx.x;
     const int bidx = blockIdx.x;
     const int bidy = blockIdx.y;
@@ -13,6 +15,7 @@ static __global__ void ssm_conv_f32(
     float x[d_conv] = { 0.0f };
     float w[d_conv] = { 0.0f };
 
+    ggml_cuda_pdl_sync();
 #pragma unroll
     for (size_t j = 0; j < d_conv; j++) {
         w[j] = src1_data(bidy * split_d_inner + tid, j);
@@ -116,7 +119,9 @@ void ssm_conv_f32_cuda(const ssm_conv_context& ctx, cudaStream_t stream) {
         constexpr int kNC = decltype(NC)::value;
         if (ctx.n_t <= 32) {
             const dim3 blocks(ctx.n_s, (ctx.nr + threads - 1) / threads, 1);
-            ssm_conv_f32<apply_silu, threads, kNC> << <blocks, threads, 0, stream >> > (ctx.n_t, src0_data, src1_data, bias, out_data);
+            const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(blocks, threads, 0, stream);
+            ggml_cuda_kernel_launch(ssm_conv_f32<apply_silu, threads, kNC, decltype(src0_data), decltype(src1_data), decltype(out_data)>,
+            launch_params, ctx.n_t, src0_data, src1_data, bias, out_data);
         }
         else {
             const int64_t split_n_t = 32;
@@ -128,11 +133,12 @@ void ssm_conv_f32_cuda(const ssm_conv_context& ctx, cudaStream_t stream) {
     };
 
     switch (ctx.nc) {
-    case 3: launch_kernel(std::integral_constant<int, 3>{}); break;
-    case 4: launch_kernel(std::integral_constant<int, 4>{}); break;
-    case 5: launch_kernel(std::integral_constant<int, 5>{}); break;
-    case 9: launch_kernel(std::integral_constant<int, 9>{}); break;
-    default: GGML_ABORT("Only support kernel sizes 3, 4, 5, 9 right now.");
+        case 3:  launch_kernel(std::integral_constant<int, 3 >{}); break;
+        case 4:  launch_kernel(std::integral_constant<int, 4 >{}); break;
+        case 5:  launch_kernel(std::integral_constant<int, 5 >{}); break;
+        case 9:  launch_kernel(std::integral_constant<int, 9 >{}); break;
+        case 15: launch_kernel(std::integral_constant<int, 15>{}); break;
+        default: GGML_ABORT("Only support kernel sizes 3, 4, 5, 9, 15 right now.");
     }
 }
 

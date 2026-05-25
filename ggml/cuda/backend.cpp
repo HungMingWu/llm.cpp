@@ -1291,6 +1291,7 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
             use_mul_mat_q = use_mul_mat_q && utils::should_use_mmq(src0->type, cc, src1->ne[1], /*n_experts=*/0);
             use_mul_mat_f = use_mul_mat_f && utils::should_use_mmf(src0->type, cc, warp_size, src0->ne, src0->nb, src1->ne[1], /*mul_mat_id=*/false);
             use_mul_mat_vec_f = use_mul_mat_vec_f && utils::should_use_mmvf(src0->type, cc, src0->ne, src0->nb, src1->ne[1]);
+            use_mul_mat_vec_q = use_mul_mat_vec_q && utils::should_use_mmvq(src0->type, cc, src1->ne[1]);
             any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16 || !fast_fp16_hardware_available(cc);
         }
     }
@@ -1300,6 +1301,7 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
         use_mul_mat_q = use_mul_mat_q && utils::should_use_mmq(src0->type, cc, src1->ne[1], /*n_experts=*/0);
         use_mul_mat_f = use_mul_mat_f && utils::should_use_mmf(src0->type, cc, warp_size, src0->ne, src0->nb, src1->ne[1], /*mul_mat_id=*/false);
         use_mul_mat_vec_f = use_mul_mat_vec_f && utils::should_use_mmvf(src0->type, cc, src0->ne, src0->nb, src1->ne[1]);
+        use_mul_mat_vec_q = use_mul_mat_vec_q && utils::should_use_mmvq(src0->type, cc, src1->ne[1]);
         any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16 || !fast_fp16_hardware_available(cc);
     }
 
@@ -1316,6 +1318,11 @@ void ggml_backend_cuda::mul_mat(ggml_tensor* dst)
     bool use_batched_cublas_f16 = src0->type == GGML_TYPE_F16 && (src1->type == GGML_TYPE_F16 || !any_gpus_with_slow_fp16);
     bool use_batched_cublas_bf16 = src0->type == GGML_TYPE_BF16 && bf16_mma_hardware_available(cc);
     bool use_batched_cublas_f32 = src0->type == GGML_TYPE_F32;
+
+    const int32_t hint = ggml_get_op_params_i32(dst, 1);
+    if (hint == GGML_HINT_SRC0_IS_HADAMARD && !split && op::fwht(stream(), src1, dst)) {
+        return;
+    }
 
     if (!split && use_mul_mat_vec_f) {
         // the custom F16 vector kernel can be used over batched cuBLAS GEMM

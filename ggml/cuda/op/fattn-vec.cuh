@@ -65,6 +65,7 @@ static __global__ void flash_attn_ext_vec(
     [[maybe_unused]] const int32_t ne31, [[maybe_unused]] const int32_t ne32, [[maybe_unused]] const int32_t ne33,
     [[maybe_unused]] const int32_t nb31, [[maybe_unused]] const int32_t nb32, [[maybe_unused]] const int64_t nb33) {
 
+    ggml_cuda_pdl_lc();
     // Skip unused kernel variants for faster compilation:
     constexpr bool emit_no_device_code_v = [=]() -> bool {
         if (!flash_attn_available_v) return true;
@@ -147,6 +148,8 @@ static __global__ void flash_attn_ext_vec(
     __align__(16) mdarray<t2, ncols, D / 2 / nthreads_KQ> Q_reg; // Will be initialized completely.
     mdarray<int, ncols, std::max<size_t>(1, D / (sizeof(int) * nthreads_KQ))> Q_i32;
     mdarray<float2, ncols, std::max<size_t>(1, D / (sizeof(int) * nthreads_KQ))> Q_ds;
+
+    ggml_cuda_pdl_sync();
     if constexpr (Q_q8_1) {
 #pragma unroll
         for (int j0 = 0; j0 < ncols; j0 += nwarps) {

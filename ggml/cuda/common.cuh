@@ -7,6 +7,84 @@
 #include "block.h"
 #include "e8m0_to_fp32.h"
 
+static __device__ __forceinline__ void ggml_cuda_pdl_sync() {
+#if defined(GGML_CUDA_USE_PDL) && defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= GGML_CUDA_CC_HOPPER
+    cudaGridDependencySynchronize();
+#endif // defined(GGML_CUDA_USE_PDL) && defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= GGML_CUDA_CC_HOPPER
+}
+
+static __device__ __forceinline__ void ggml_cuda_pdl_lc() {
+#if defined(GGML_CUDA_USE_PDL) && defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= GGML_CUDA_CC_HOPPER
+    cudaTriggerProgrammaticLaunchCompletion();
+#endif // defined(GGML_CUDA_USE_PDL) && defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= GGML_CUDA_CC_HOPPER
+}
+
+struct ggml_cuda_kernel_launch_params {
+    dim3 block_nums;
+    dim3 block_dims;
+    size_t shmem;
+    cudaStream_t stream;
+
+    // size_t shmem
+    ggml_cuda_kernel_launch_params(const dim3& block_nums_, const dim3& block_dims_, const size_t shmem_, const cudaStream_t stream_)
+        : block_nums(block_nums_), block_dims(block_dims_), shmem(shmem_), stream(stream_) {
+    }
+
+    // Some call sites pass ints instead of the required size_t. This 2nd constructor casts int->size_t to avoid these -Wnarrowing warnings.
+    ggml_cuda_kernel_launch_params(const dim3& block_nums_, const dim3& block_dims_, const int shmem_, const cudaStream_t stream_)
+        : block_nums(block_nums_), block_dims(block_dims_), shmem((size_t)shmem_), stream(stream_) {
+    }
+};
+
+#if defined(GGML_CUDA_USE_PDL)
+struct ggml_cuda_pdl_config {
+    cudaLaunchAttribute attr;
+    cudaLaunchConfig_t  cfg;
+
+    ggml_cuda_pdl_config(const ggml_cuda_kernel_launch_params & params) {
+        attr.id = cudaLaunchAttributeProgrammaticStreamSerialization;
+        attr.val.programmaticStreamSerializationAllowed = 1;
+
+        cfg = {};
+        cfg.gridDim          = params.block_nums;
+        cfg.blockDim         = params.block_dims;
+        cfg.dynamicSmemBytes = params.shmem;
+        cfg.stream           = params.stream;
+        cfg.attrs            = &attr;
+        cfg.numAttrs         = 1;
+    }
+
+    // Delete due to &attr
+    ggml_cuda_pdl_config(const ggml_cuda_pdl_config&) = delete;
+    ggml_cuda_pdl_config& operator=(const ggml_cuda_pdl_config&) = delete;
+    ggml_cuda_pdl_config& operator=(ggml_cuda_pdl_config&&) = delete;
+
+};
+#endif //defined(GGML_CUDA_USE_PDL)
+
+template<typename Kernel, typename... Args>
+static __inline__ void ggml_cuda_kernel_launch(Kernel kernel, const ggml_cuda_kernel_launch_params & launch_params, Args&&... args) {
+#if defined(GGML_CUDA_USE_PDL)
+
+    static const bool env_pdl_enabled = []() {
+        const char * env = getenv("GGML_CUDA_PDL");
+        return env == nullptr || std::atoi(env) != 0;
+    }();
+
+    const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
+    if (env_pdl_enabled && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_HOPPER) {
+        auto pdl_cfg = ggml_cuda_pdl_config(launch_params);
+
+        CUDA_CHECK(cudaLaunchKernelEx(&pdl_cfg.cfg, kernel, std::forward<Args>(args)... ));
+        return;
+    }
+#endif //defined(GGML_CUDA_USE_PDL)
+
+    kernel<<<launch_params.block_nums, launch_params.block_dims, launch_params.shmem, launch_params.stream>>>(std::forward<Args>(args)... );
+    CUDA_CHECK(cudaGetLastError());
+}
+
+
 [[noreturn]]
 static __device__ void no_device_code(
     const char* file_name, const int line, const char* function_name, const int arch, [[maybe_unused]] const char* arch_list)

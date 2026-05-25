@@ -303,6 +303,9 @@ export {
     struct ggml_context;
     struct ggml_backend_device;
 
+    // callback to simulate or wrap a FILE pointer - read up to `len` bytes at `offset` into `output` and return the number of bytes read
+    using  gguf_reader_callback_t = std::function<size_t(void*, uint64_t, size_t)>;
+
     // Get a list of feature flags supported by the backend (returns a NULL-terminated array)
     struct ggml_backend_feature {
         std::string_view name;

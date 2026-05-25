@@ -78,20 +78,23 @@ static __global__ void transform(const float* x, float* dst, const int k) {
 
 template <float (*op)(float), typename T>
 static __global__ void unary_op_kernel(const T* x, T* dst, const int k) {
+    ggml_cuda_pdl_lc();
     const int i = blockDim.x * blockIdx.x + threadIdx.x;
 
     if (i >= k) {
         return;
     }
 
+    ggml_cuda_pdl_sync();
     dst[i] = (T)op((float)x[i]);
 }
 
 template <float (*op)(float), typename T>
 static void unary_cuda(const T* x, T* dst, const int k, cudaStream_t stream) {
-    static constexpr size_t CUDA_UNARY_BLOCK_SIZE = 256;
-    const int num_blocks = (k + CUDA_UNARY_BLOCK_SIZE - 1) / CUDA_UNARY_BLOCK_SIZE;
-    unary_op_kernel<op> << <num_blocks, CUDA_UNARY_BLOCK_SIZE, 0, stream >> > (x, dst, k);
+    static constexpr size_t CUDA_NEG_BLOCK_SIZE = 256;
+    const int num_blocks = (k + CUDA_NEG_BLOCK_SIZE - 1) / CUDA_NEG_BLOCK_SIZE;
+    const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params((dim3)num_blocks, CUDA_NEG_BLOCK_SIZE, 0, stream);
+    ggml_cuda_kernel_launch(unary_op_kernel<op, T>, launch_params, x, dst, k);
 }
 
 template <float (*op)(float)>
@@ -295,6 +298,7 @@ void leaky_relu_cuda(bool is_half, const void* x, void* dst,
 
 template <float (*op)(float), typename T>
 static __global__ void unary_gated_op_kernel(const T* x, const T* g, T* dst, const int64_t k, const int64_t n, const int64_t o0, const int64_t o1) {
+    ggml_cuda_pdl_lc();
     const int64_t i = int64_t(blockDim.x) * blockIdx.x + threadIdx.x;
 
     if (i >= k) {
@@ -305,13 +309,15 @@ static __global__ void unary_gated_op_kernel(const T* x, const T* g, T* dst, con
     const int64_t j0 = (i / n) * o0 + (i % n);
     const int64_t j1 = o0 == o1 ? j0 : (i / n) * o1 + (i % n);
 
+    ggml_cuda_pdl_sync();
     dst[i] = (T)(op((float)x[j0]) * (float)g[j1]);
 }
 
 template <float (*op)(float), typename T>
 static void unary_gated_cuda(const T* x, const T* g, T* dst, const int64_t k, const int64_t n, const int64_t o0, const int64_t o1, cudaStream_t stream) {
     const int64_t num_blocks = (k + CUDA_GLU_BLOCK_SIZE - 1) / CUDA_GLU_BLOCK_SIZE;
-    unary_gated_op_kernel<op> << <num_blocks, CUDA_GLU_BLOCK_SIZE, 0, stream >> > (x, g, dst, k, n, o0, o1);
+    const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params((dim3)num_blocks, CUDA_GLU_BLOCK_SIZE, 0, stream);
+    ggml_cuda_kernel_launch(unary_gated_op_kernel<op, T>, launch_params, x, g, dst, k, n, o0, o1);
 }
 
 template <float (*op)(float)>

@@ -778,7 +778,7 @@ void vbuffer::reset()
 
 void tallocr_chunk::remove_block(int idx) {
 	// shift all elements after idx by 1 to the left, overwriting the element at idx
-	for (int i = idx; i < n_free_blocks; i++) {
+	for (int i = idx; i < n_free_blocks - 1; i++) {
 		free_blocks[i] = free_blocks[i + 1];
 	}
 	n_free_blocks--;

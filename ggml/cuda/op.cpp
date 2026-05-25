@@ -841,4 +841,19 @@ namespace op {
         };
         snake_cuda(ctx, stream);
     }
+
+    bool fwht(cudaStream_t stream, const ggml_tensor* src, ggml_tensor* dst) {
+        GGML_ASSERT(ggml_are_same_shape(src, dst));
+        if (!ggml_is_contiguous(src) || !ggml_is_contiguous(dst)) {
+            return false;
+        }
+        const int     n = src->ne[0];
+        const int64_t rows = ggml_nrows(src);
+
+        const float* src_d = (const float*)src->data;
+        float* dst_d = (float*)dst->data;
+        const float scale = 1 / sqrtf(n);
+
+        return fwht_cuda(n, src_d, dst_d, rows, scale, stream);
+    }
 }

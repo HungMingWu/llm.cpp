@@ -11,10 +11,12 @@ void mean_fallback(const mean_context &ctx, cudaStream_t stream) {
     // See discussion in: https://github.com/ggml-org/llama.cpp/pull/15132
     if ((ctx.nrows / nsm) < 2) {
         const dim3 block_dims(512, 1, 1);
-        reduce_rows_f32</*norm=*/true> << <block_nums, block_dims, 0, stream >> > (ctx.src0_d, ctx.dst_d, ctx.ncols);
+        const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(block_nums, block_dims, 0, stream);
+        ggml_cuda_kernel_launch(reduce_rows_f32</*norm=*/true>, launch_params, ctx.src0_d, ctx.dst_d, ctx.ncols);
     }
     else {
         const dim3 block_dims(ctx.ncols < 1024 ? 32 : 128, 1, 1);
-        reduce_rows_f32</*norm=*/true> << <block_nums, block_dims, 0, stream >> > (ctx.src0_d, ctx.dst_d, ctx.ncols);
+        const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(block_nums, block_dims, 0, stream);
+        ggml_cuda_kernel_launch(reduce_rows_f32</*norm=*/true>, launch_params, ctx.src0_d, ctx.dst_d, ctx.ncols);
     }
 }
