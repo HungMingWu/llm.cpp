@@ -279,6 +279,8 @@ export namespace chatllm
 
         static void read_tensor_data(ggml::tensor* tensor, void* data);
 
+        bool support(ggml::tensor* tensor);
+
         void synchronize(void);
 
     public:

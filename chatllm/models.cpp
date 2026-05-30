@@ -9,6 +9,7 @@
 #include <iostream>
 #include <locale>
 #include <regex>
+#include <set>
 #include <string>
 #include <functional>
 #include <typeinfo>
@@ -1124,12 +1125,208 @@ namespace chatllm
         return _loader->load_model(loader, args);
     }
 
-    bool ModelFactory::load(int model_type, int version, ModelLoader& loader, Result& result, const ModelObject::extra_args& args)
+    BaseImplModelLoader* get_loader(int model_type, int version)
     {
         auto _loader = ModelLoadRegistry::get_loader(model_type);
         CHATLLM_CHECK(_loader != nullptr) << "invalid model type 0x" << std::hex << model_type;
         CHATLLM_CHECK(version == _loader->version) << "only support version " << _loader->version << " for now but got " << version;
+        return _loader;
+    }
+
+    bool ModelFactory::load(int model_type, int version, ModelLoader& loader, Result& result, const ModelObject::extra_args& args)
+    {
+        auto _loader = get_loader(model_type, version);
         return _loader->load_model(loader, result, args);
     }
 
+    static void load_tensors_only(ModelLoader& loader)
+    {
+        load_file_header(loader);
+        auto _loader = get_loader(loader.model_type, loader.version);
+        _loader->load_tensors(loader);
+    }
+
+    std::string show_tensor_type(ggml::tensor* t)
+    {
+        std::ostringstream oss;
+        oss << ggml::type_to_str(ggml::type_of(t));
+
+        if ((ggml_n_dims(t) >= 2) || (ggml::get_dim(t, 0) > 1))
+        {
+            oss << "[" << ggml::get_dim(t, 0);
+            if (ggml_n_dims(t) >= 2) oss << ", " << ggml::get_dim(t, 1);
+            if (ggml_n_dims(t) >= 3) oss << ", " << ggml::get_dim(t, 2);
+            if (ggml_n_dims(t) >= 4) oss << ", " << ggml::get_dim(t, 3);
+            oss << "]";
+        }
+        return oss.str();
+    }
+
+    std::string show_tensor_basic_info(ggml::tensor* t)
+    {
+        std::ostringstream oss;
+        oss << ggml::get_name(t) << ": " << show_tensor_type(t);
+        return oss.str();
+    }
+
+    void ModelFactory::dump_tensors(ModelLoader& loader, const std::set<std::string> names, std::ostream& oss)
+    {
+        load_tensors_only(loader);
+
+        oss << std::fixed << std::setprecision(18);
+
+        for (auto& name : names)
+        {
+            auto& info = loader.tensor_dict.at(name);
+            auto t = &info.tensor;
+            std::vector<float> data;
+            data.resize(ggml::nelements(t));
+            if (ggml::type_of(t) != ggml::type::GGML_TYPE_F32)
+            {
+                std::vector<uint8_t> buf;
+                buf.resize(ggml::nbytes(t));
+                info.read_raw_tensor_data(&loader.get_reader(), ggml::nbytes(t), buf.data());
+                ggml::to_float(ggml::type_of(t), buf.data(), data.data(), ggml::get_dim(t, 0), ggml::nrows(t));
+            }
+            else
+            {
+                info.read_raw_tensor_data(&loader.get_reader(), ggml::nbytes(t), data.data());
+            }
+            oss << show_tensor_basic_info(t) << std::endl;
+
+            for (int64_t i = 0; i < ggml::nelements(t); i++)
+            {
+                oss << "[" << std::setw(3) << i << "] = " << data[i] << std::endl;
+            }
+        }
+    }
+
+    class SmartTensorName
+    {
+    public:
+        SmartTensorName(const std::string& n)
+        {
+            std::regex expr("\\.([0-9]+)\\.");
+            std::cregex_iterator it(n.data(), n.data() + n.size(), expr);
+            std::cregex_iterator end;
+
+            if (it != end)
+            {
+                std::cmatch match = *it;
+                prefix = n.substr(0, match.position());
+                auto id = n.substr(match.position() + 1, match.length() - 2);
+                suffix = n.substr(match.position() + match.length());
+                indices.emplace(std::atoi(id.c_str()));
+            }
+            else
+                prefix = n;
+        }
+
+        void merge(const SmartTensorName& n)
+        {
+            for (int i : n.indices)
+                indices.emplace(i);
+        }
+
+        bool operator <(const SmartTensorName& b) const
+        {
+            return str_for_compare() < b.str_for_compare();
+        }
+
+        operator std::string() const
+        {
+            if (indices.empty())
+                return prefix;
+
+            std::vector<int> lst;
+            lst.insert(lst.end(), indices.begin(), indices.end());
+            std::sort(lst.begin(), lst.end());
+
+            std::ostringstream oss;
+            oss << prefix << ".";
+            if (lst.size() == 1)
+            {
+                oss << lst[0];
+            }
+            else
+            {
+                oss << "[";
+                int last_start = -10;
+                int last_end = -10;
+                for (int v : lst)
+                {
+                    if (v == last_end + 1)
+                    {
+                        last_end = v;
+                        continue;
+                    }
+                    if (last_start >= 0)
+                    {
+                        if (last_end > last_start)
+                            oss << last_start << ".." << last_end;
+                        else
+                            oss << last_start;
+                        oss << ", ";
+                    }
+                    last_start = last_end = v;
+                }
+                if (last_end > last_start)
+                    oss << last_start << ".." << last_end;
+                else
+                    oss << last_start;
+                oss << "]";
+            }
+            oss << "." << suffix;
+            return oss.str();
+        }
+
+    protected:
+        std::string str_for_compare() const
+        {
+            if (indices.empty())
+                return prefix;
+            else
+                return prefix + ".." + suffix;
+        }
+    public:
+        std::string prefix;
+        std::string suffix;
+        std::set<int> indices;
+    };
+
+    std::string ModelFactory::show_tensors(ModelLoader& loader)
+    {
+        load_tensors_only(loader);
+
+        std::ostringstream oss;
+        std::vector<std::string> sorted_names;
+        std::set<SmartTensorName, std::less<>> collapsed_names;
+
+        for (auto& item : loader.tensor_dict)
+        {
+            auto& info = item.second;
+            auto t = &info.tensor;
+            SmartTensorName st(show_tensor_basic_info(t));
+            auto it = collapsed_names.find(st);
+            if (it != collapsed_names.end())
+            {
+                st.merge(*it);
+                collapsed_names.erase(it);
+            }
+            collapsed_names.insert(st);
+        }
+
+        for (auto& item : collapsed_names)
+        {
+            sorted_names.emplace_back(item);
+        }
+
+        std::sort(sorted_names.begin(), sorted_names.end());
+
+        for (auto& name : sorted_names)
+        {
+            oss << name << std::endl;
+        }
+        return oss.str();
+    }
 } // namespace chatllm
