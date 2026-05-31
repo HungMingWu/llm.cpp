@@ -984,4 +984,20 @@ export {
     };
 
     using ggml_backend_eval_callback = std::function<bool(ggml_tensor*, ggml_tensor*)>;
+
+    template <typename Base>
+    class poly_vector {
+		std::vector<std::unique_ptr<Base>> vector;
+    public:
+        template <typename Derived, typename... Args>
+		requires std::derived_from<Derived, Base>
+        Derived& emplace_back(Args&&... args)
+        {
+            vector.emplace_back(std::make_unique<Derived>(std::forward<Args>(args)...));
+            return *static_cast<Derived*>(vector.back().get());
+        }
+        auto begin() { return vector.begin(); }
+        auto end() { return vector.end(); }
+		auto size() const { return vector.size(); }
+    };
 }
