@@ -13,17 +13,16 @@ module;
 
 module ggml;
 
-ggml_backend_sched::ggml_backend_sched(std::span<ggml_backend*> backends,
+ggml_backend_sched::ggml_backend_sched(poly_vector<ggml_backend>& backends,
     std::span<ggml_backend_buffer_type*> bufts,
     bool parallel,
-    bool op_offload)
+    bool op_offload) : backends(backends)
 {
 
     GGML_ASSERT(!backends.empty());
-    GGML_ASSERT(backends.back()->get_device()->get_type() == GGML_BACKEND_DEVICE_TYPE_CPU);
+    GGML_ASSERT(backends.back().get_device()->get_type() == GGML_BACKEND_DEVICE_TYPE_CPU);
     GGML_ASSERT(backends.size() == bufts.size());
 
-	this->backends = backends;
 	this->bufts = bufts;
     const char* GGML_SCHED_DEBUG = getenv("GGML_SCHED_DEBUG");
     debug = GGML_SCHED_DEBUG ? atoi(GGML_SCHED_DEBUG) : 0;
@@ -45,11 +44,11 @@ ggml_backend_sched::ggml_backend_sched(std::span<ggml_backend*> backends,
 
     for (int b = 0; b < backends.size(); b++) {
         this->id_map.emplace(backends[b], b);
-        GGML_ASSERT(backends[b]->supports_buft(this->bufts[b]));
+        GGML_ASSERT(backends[b].supports_buft(this->bufts[b]));
 
         if (n_copies > 1) {
             for (int c = 0; c < n_copies; c++) {
-                events[backends[b]][c].reset(backends[b]->get_device()->event_new());
+                events[&backends[b]][c].reset(backends[b].get_device()->event_new());
             }
         }
     }
@@ -464,7 +463,7 @@ void ggml_backend_sched::split_graph(ggml_cgraph& graph) {
         for (auto backend : backends) {
             if (hv_tensor_backend.count(node)) break;
             if (if_supported(node, backend))
-                hv_tensor_backend.insert({ node, backend });
+                hv_tensor_backend.insert({ node, &backend });
         }
         assert(hv_tensor_backend.count(node) != 0);
     }
@@ -738,8 +737,8 @@ bool ggml_backend_sched::alloc_splits() {
 
         // the re-allocation may cause the split inputs to be moved to a different address
         // synchronize without ggml_backend_sched_synchronize to avoid changing cur_copy
-        for (auto backend : backends) {
-            backend->synchronize();
+        for (auto &backend : backends) {
+            backend.synchronize();
         }
 
         galloc->reserve(graph, node_backend_ids, leaf_backend_ids);

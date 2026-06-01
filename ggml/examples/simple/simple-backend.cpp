@@ -22,9 +22,7 @@ struct simple_model {
     ggml_tensor* b = nullptr;
 
     // the backend to perform the computation (CPU, CUDA, METAL)
-    std::unique_ptr<ggml_backend> backend;
-    std::unique_ptr<ggml_backend> cpu_backend;
-    std::array<ggml_backend*, 2> backend_view;
+    poly_vector<ggml_backend> backends;
     std::array< ggml_backend_buffer_type*, 2> buffer_type_view;
     std::unique_ptr<ggml_backend_sched> sched;
 
@@ -58,13 +56,11 @@ void init_model(simple_model& model) {
     ggml_log_set(ggml_log_callback_default);
 
     ggml_backend_load_all();
-    model.backend = ggml_backend_init_best();
-    model.cpu_backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
-    model.backend_view[0] = model.backend.get();
-    model.backend_view[1] = model.cpu_backend.get();
-	model.buffer_type_view[0] = model.backend_view[0]->get_default_buffer_type();
-    model.buffer_type_view[1] = model.backend_view[1]->get_default_buffer_type();
-    model.sched = std::make_unique<ggml_backend_sched>(model.backend_view, model.buffer_type_view, false, true);
+    model.backends.push_back(ggml_backend_init_best());
+    model.backends.push_back(ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr));
+	model.buffer_type_view[0] = model.backends[0].get_default_buffer_type();
+    model.buffer_type_view[1] = model.backends[1].get_default_buffer_type();
+    model.sched = std::make_unique<ggml_backend_sched>(model.backends, model.buffer_type_view, false, true);
 }
 
 // build the compute graph to perform a matrix multiplication

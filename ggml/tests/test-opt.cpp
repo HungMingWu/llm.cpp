@@ -819,7 +819,7 @@ int main(void) {
     size_t n_ok = 0;
 
     std::vector<ggml_backend_device*> devs;
-    std::vector<std::unique_ptr<ggml_backend>>     backends;
+    poly_vector<ggml_backend>     backends;
 
     for (auto dev : devices) {
         devs.push_back(dev);
@@ -838,16 +838,14 @@ int main(void) {
     for (enum ggml_opt_optimizer_type optim : { GGML_OPT_OPTIMIZER_TYPE_ADAMW, GGML_OPT_OPTIMIZER_TYPE_SGD }) {
         for (size_t i = 0; i < devices.size(); ++i) {
             // Put the backend to be tested in front so that it's prioritized:
-            std::vector<ggml_backend*> backends_modded = { backends[i].get() };
             std::vector<ggml_backend_buffer_type*> buffer_types_modded;
 
             for (auto& backend : backends) {
-                backends_modded.push_back(backend.get());
-                buffer_types_modded.push_back(backend->get_default_buffer_type());
+                buffer_types_modded.push_back(backend.get_default_buffer_type());
             }
 
             ggml_backend_sched backend_sched(
-                backends_modded, buffer_types_modded, false, true);
+                backends, buffer_types_modded, false, true);
 
             char const* devname = devs[i]->get_name();
             std::println("Backend {}/{}: {}", i + 1, devices.size(), devname);
@@ -880,16 +878,16 @@ int main(void) {
                     GGML_ABORT("fatal error");
                 }
                 }
-                skip = not backends[i]->supports_op(t);
+                skip = not backends[i].supports_op(t);
             }
 
             std::pair<int, int> result;
             if (!skip) {
-                result = test_backend(&backend_sched, backends[i].get(), optim);
+                result = test_backend(&backend_sched, &backends[i], optim);
                 std::println("  {}/{} tests passed", result.first, result.second);
             }
 
-            std::print("  Backend {} {}: ", backends[i]->get_name(), ggml_opt_optimizer_name(optim));
+            std::print("  Backend {} {}: ", backends[i].get_name(), ggml_opt_optimizer_name(optim));
             if (skip) {
                 std::println("{}", SKIP_Literal);
                 n_ok++;

@@ -1,13 +1,19 @@
 module;
 #include <stdint.h>
 #include <array>
+#include <concepts>
+#include <cstddef>
 #include <format>
 #include <functional>
+#include <iterator>
 #include <list>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 #include "inplace_vector.hpp"
 
@@ -789,11 +795,199 @@ export {
         ggml_cgraph graph;
     };
 
+    template <typename Base>
+    class poly_vector {
+        std::vector<std::unique_ptr<Base>> vector;
+    public:
+        template <bool IsConst>
+        class iterator_t {
+            using vec_t = std::vector<std::unique_ptr<Base>>;
+            using base_iterator_t = std::conditional_t<
+                IsConst,
+                typename vec_t::const_iterator,
+                typename vec_t::iterator>;
+
+            base_iterator_t it{};
+
+            template <bool>
+            friend class iterator_t;
+
+        public:
+            using iterator_concept = std::random_access_iterator_tag;
+            using iterator_category = std::random_access_iterator_tag;
+            using value_type = Base;
+            using difference_type = std::ptrdiff_t;
+            using pointer = std::conditional_t<IsConst, const Base*, Base*>;
+            using reference = std::conditional_t<IsConst, const Base&, Base&>;
+
+            iterator_t() = default;
+            explicit iterator_t(base_iterator_t iter) : it(iter) {}
+
+            iterator_t(const iterator_t&) = default;
+            iterator_t& operator=(const iterator_t&) = default;
+
+            iterator_t(iterator_t<!IsConst> other) requires IsConst : it(other.it) {}
+            iterator_t& operator=(iterator_t<!IsConst> other) requires IsConst { it = other.it; return *this; }
+
+            reference operator*() const { return **it; }
+            pointer operator->() const { return it->get(); }
+            reference operator[](difference_type n) const { return **(it + n); }
+
+            iterator_t& operator++() { ++it; return *this; }
+            iterator_t operator++(int) { auto tmp = *this; ++(*this); return tmp; }
+            iterator_t& operator--() { --it; return *this; }
+            iterator_t operator--(int) { auto tmp = *this; --(*this); return tmp; }
+
+            iterator_t& operator+=(difference_type n) { it += n; return *this; }
+            iterator_t& operator-=(difference_type n) { it -= n; return *this; }
+
+            friend iterator_t operator+(iterator_t iter, difference_type n) { iter += n; return iter; }
+            friend iterator_t operator+(difference_type n, iterator_t iter) { iter += n; return iter; }
+            friend iterator_t operator-(iterator_t iter, difference_type n) { iter -= n; return iter; }
+            friend difference_type operator-(const iterator_t& a, const iterator_t& b) { return a.it - b.it; }
+
+            friend bool operator==(const iterator_t& a, const iterator_t& b) = default;
+            friend bool operator<(const iterator_t& a, const iterator_t& b) { return a.it < b.it; }
+            friend bool operator>(const iterator_t& a, const iterator_t& b) { return b < a; }
+            friend bool operator<=(const iterator_t& a, const iterator_t& b) { return !(b < a); }
+            friend bool operator>=(const iterator_t& a, const iterator_t& b) { return !(a < b); }
+
+            base_iterator_t base() const { return it; }
+        };
+
+        using iterator = iterator_t<false>;
+        using const_iterator = iterator_t<true>;
+        using reverse_iterator = std::reverse_iterator<iterator>;
+        using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
+        template <typename Derived, typename... Args>
+            requires std::derived_from<Derived, Base>
+        Derived& emplace_back(Args&&... args)
+        {
+            vector.emplace_back(std::make_unique<Derived>(std::forward<Args>(args)...));
+            return *static_cast<Derived*>(vector.back().get());
+        }
+
+        Base& push_back(std::unique_ptr<Base> value) {
+            vector.emplace_back(std::move(value));
+            return *vector.back();
+        }
+
+        template <typename Derived>
+            requires std::derived_from<Derived, Base>
+        Derived& push_back(std::unique_ptr<Derived> value) {
+            auto& ref = *value;
+            vector.emplace_back(std::move(value));
+            return ref;
+        }
+
+        void pop_back() { vector.pop_back(); }
+
+        void clear() noexcept { vector.clear(); }
+        bool empty() const noexcept { return vector.empty(); }
+        size_t size() const noexcept { return vector.size(); }
+        size_t capacity() const noexcept { return vector.capacity(); }
+        void reserve(size_t n) { vector.reserve(n); }
+        void shrink_to_fit() { vector.shrink_to_fit(); }
+
+        auto begin(this auto& self) noexcept {
+            using self_t = std::remove_reference_t<decltype(self)>;
+            if constexpr (std::is_const_v<self_t>) {
+                return const_iterator(self.vector.begin());
+            }
+            else {
+                return iterator(self.vector.begin());
+            }
+        }
+        auto cbegin(this const auto& self) noexcept { return const_iterator(self.vector.cbegin()); }
+        auto end(this auto& self) noexcept {
+            using self_t = std::remove_reference_t<decltype(self)>;
+            if constexpr (std::is_const_v<self_t>) {
+                return const_iterator(self.vector.end());
+            }
+            else {
+                return iterator(self.vector.end());
+            }
+        }
+        auto cend(this const auto& self) noexcept { return const_iterator(self.vector.cend()); }
+
+        auto rbegin(this auto& self) noexcept {
+            using self_t = std::remove_reference_t<decltype(self)>;
+            if constexpr (std::is_const_v<self_t>) {
+                return const_reverse_iterator(self.end());
+            }
+            else {
+                return reverse_iterator(self.end());
+            }
+        }
+        auto crbegin(this const auto& self) noexcept { return const_reverse_iterator(self.cend()); }
+        auto rend(this auto& self) noexcept {
+            using self_t = std::remove_reference_t<decltype(self)>;
+            if constexpr (std::is_const_v<self_t>) {
+                return const_reverse_iterator(self.begin());
+            }
+            else {
+                return reverse_iterator(self.begin());
+            }
+        }
+        auto crend(this const auto& self) noexcept { return const_reverse_iterator(self.cbegin()); }
+
+        decltype(auto) operator[](this auto& self, size_t i) {
+            using self_t = std::remove_reference_t<decltype(self)>;
+            if constexpr (std::is_const_v<self_t>) {
+                return static_cast<const Base&>(*self.vector[i]);
+            }
+            else {
+                return static_cast<Base&>(*self.vector[i]);
+            }
+        }
+        decltype(auto) at(this auto& self, size_t i) {
+            using self_t = std::remove_reference_t<decltype(self)>;
+            if constexpr (std::is_const_v<self_t>) {
+                return static_cast<const Base&>(*self.vector.at(i));
+            }
+            else {
+                return static_cast<Base&>(*self.vector.at(i));
+            }
+        }
+        decltype(auto) front(this auto& self) {
+            using self_t = std::remove_reference_t<decltype(self)>;
+            if constexpr (std::is_const_v<self_t>) {
+                return static_cast<const Base&>(*self.vector.front());
+            }
+            else {
+                return static_cast<Base&>(*self.vector.front());
+            }
+        }
+        decltype(auto) back(this auto& self) {
+            using self_t = std::remove_reference_t<decltype(self)>;
+            if constexpr (std::is_const_v<self_t>) {
+                return static_cast<const Base&>(*self.vector.back());
+            }
+            else {
+                return static_cast<Base&>(*self.vector.back());
+            }
+        }
+
+        iterator erase(const_iterator pos) { return iterator(vector.erase(pos.base())); }
+        iterator erase(const_iterator first, const_iterator last) { return iterator(vector.erase(first.base(), last.base())); }
+
+        iterator insert(const_iterator pos, std::unique_ptr<Base> value) {
+            return iterator(vector.insert(pos.base(), std::move(value)));
+        }
+
+        template <typename Derived, typename... Args>
+            requires std::derived_from<Derived, Base>
+        Derived& emplace_back_as(Args&&... args) {
+            return emplace_back<Derived>(std::forward<Args>(args)...);
+        }
+    };
+
     struct ggml_backend_sched {
         bool is_reset = false; // true if the scheduler has been reset since the last graph split
         bool is_alloc = false;
 
-        std::span<ggml_backend*> backends;
+        poly_vector<ggml_backend> &backends;
         std::span<ggml_backend_buffer_type*> bufts;
         std::unique_ptr<ggml_gallocr> galloc;
 
@@ -851,7 +1045,7 @@ export {
         bool alloc_splits();
         ggml_status compute_splits();
     public:
-        ggml_backend_sched(std::span<ggml_backend*> backends,
+        ggml_backend_sched(poly_vector<ggml_backend>& backends,
             std::span<ggml_backend_buffer_type*> bufts,
             bool parallel,
             bool op_offload);
@@ -868,7 +1062,7 @@ export {
         // not sure move to public is right direction
         bool alloc_graph(ggml_cgraph& graph);
         void synchronize();
-        ggml_backend* get_backend() {
+        ggml_backend& get_backend() {
             // get the first backend
             return backends[0];
         }
@@ -984,20 +1178,4 @@ export {
     };
 
     using ggml_backend_eval_callback = std::function<bool(ggml_tensor*, ggml_tensor*)>;
-
-    template <typename Base>
-    class poly_vector {
-		std::vector<std::unique_ptr<Base>> vector;
-    public:
-        template <typename Derived, typename... Args>
-		requires std::derived_from<Derived, Base>
-        Derived& emplace_back(Args&&... args)
-        {
-            vector.emplace_back(std::make_unique<Derived>(std::forward<Args>(args)...));
-            return *static_cast<Derived*>(vector.back().get());
-        }
-        auto begin() { return vector.begin(); }
-        auto end() { return vector.end(); }
-		auto size() const { return vector.size(); }
-    };
 }

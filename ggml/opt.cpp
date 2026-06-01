@@ -160,7 +160,7 @@ void ggml_opt_context::build() {
         }
     }
     else if (build_type_alloc == GGML_OPT_BUILD_TYPE_FORWARD) {
-        buf_static = backend_sched->get_backend()->alloc_tensors(
+        buf_static = backend_sched->get_backend().alloc_tensors(
             &ctx_static);
         return;
     }
@@ -208,7 +208,7 @@ void ggml_opt_context::build() {
         }
     }
     else if (build_type_alloc == GGML_OPT_BUILD_TYPE_GRAD) {
-        buf_static = backend_sched->get_backend()->alloc_tensors(&ctx_static);
+        buf_static = backend_sched->get_backend().alloc_tensors(&ctx_static);
         gb_grad.reset();
     }
 
@@ -253,7 +253,7 @@ void ggml_opt_context::build() {
     }
 
     if (!buf_static) {
-        buf_static = backend_sched->get_backend()->alloc_tensors(
+        buf_static = backend_sched->get_backend().alloc_tensors(
             &ctx_static);
         gb_opt.reset();
     }

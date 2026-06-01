@@ -71,8 +71,7 @@ struct gpt2_model {
     //
     ggml_context ctx_w;
 
-    std::vector<std::unique_ptr<ggml_backend>> backends;
-    std::vector<ggml_backend*> backends_view;
+    poly_vector<ggml_backend> backends;
     std::vector<ggml_backend_buffer_type*> backend_buft;
     std::vector<std::unique_ptr<ggml_backend_buffer>> buffers_w;
     std::unique_ptr<ggml_backend_buffer> buffer_kv;
@@ -112,8 +111,7 @@ void init_backends(gpt2_model& model, const gpt_params& params) {
 #endif
     if (gpu_backend) {
         model.backends.push_back(std::move(gpu_backend));
-        model.backends_view.push_back(model.backends.back().get());
-        model.backend_buft.push_back(model.backends.back()->get_default_buffer_type());
+        model.backend_buft.push_back(model.backends.back().get_default_buffer_type());
     }
 
 #ifdef GGML_USE_BLAS
@@ -123,9 +121,8 @@ void init_backends(gpt2_model& model, const gpt_params& params) {
     }
     else {
         ggml_backend_blas_set_n_threads(blas_backend, params.n_threads);
-        model.backends.push_back(blas_backend);
-        model.backends_view.push_back(model.backends.back().get());
-        model.backend_buft.push_back(model.backends.back()->get_default_buffer_type());
+        model.backends.push_back(blas_backend);;
+        model.backend_buft.push_back(model.backends.back().get_default_buffer_type());
     }
 #endif
 
@@ -133,8 +130,7 @@ void init_backends(gpt2_model& model, const gpt_params& params) {
     std::unique_ptr<ggml_cpu_backend> cpu_backend = ggml_backend_cpu_init();
     cpu_backend->set_n_threads(params.n_threads);
     model.backends.push_back(std::move(cpu_backend));
-    model.backends_view.push_back(model.backends.back().get());
-    model.backend_buft.push_back(model.backends.back()->get_default_buffer_type());
+    model.backend_buft.push_back(model.backends.back().get_default_buffer_type());
 }
 
 // load the model's weights from a file
@@ -299,19 +295,19 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
             // input tensors
             if (name == "model/wte" || name == "model/wpe") {
                 if (params.n_gpu_layers > model.hparams.n_layer) {
-                    tensor_backends[name] = backend_gpu.get();
+                    tensor_backends[name] = &backend_gpu;
                 }
                 else {
-                    tensor_backends[name] = backend_cpu.get();
+                    tensor_backends[name] = &backend_cpu;
                 }
             }
             // output tensors
             if (name == "model/ln_f/g" || name == "model/ln_f/b" || name == "model/lm_head") {
                 if (params.n_gpu_layers > 0) {
-                    tensor_backends[name] = backend_gpu.get();
+                    tensor_backends[name] = &backend_gpu;
                 }
                 else {
-                    tensor_backends[name] = backend_cpu.get();
+                    tensor_backends[name] = &backend_cpu;
                 }
             }
             // layer tensors
@@ -319,10 +315,10 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
                 // parse layer number
                 int layer = std::stoi(name.substr(7, 2));
                 if (layer >= i_gpu_first_layer) {
-                    tensor_backends[name] = backend_gpu.get();
+                    tensor_backends[name] = &backend_gpu;
                 }
                 else {
-                    tensor_backends[name] = backend_cpu.get();
+                    tensor_backends[name] = &backend_cpu;
                 }
             }
         }
@@ -334,19 +330,18 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
         // compute the size of the buffer
         size_t size = 0;
         for (auto it : model.tensors) {
-            if (tensor_backends[it.first] == backend.get()) {
+            if (tensor_backends[it.first] == &backend) {
                 size += it.second->nbytes() + 512;
             }
         }
         if (size > 0) {
-            std::println("{}: {:8} buffer size = {:8.2f} MB", __func__, backend->get_name(), size / 1024.0 / 1024.0);
+            std::println("{}: {:8} buffer size = {:8.2f} MB", __func__, backend.get_name(), size / 1024.0 / 1024.0);
             // allocate the buffer
-            std::unique_ptr<ggml_backend_buffer> buffer = backend->alloc_buffer(size);
+            std::unique_ptr<ggml_backend_buffer> buffer = backend.alloc_buffer(size);
             buffer->setUsage(GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
 
             // create an allocator for the buffer to allocate the tensors
-            backend_buffers.insert(std::make_pair(backend.get(), ggml_tallocr(buffer.get())));
-
+            backend_buffers.insert(std::make_pair(&backend, ggml_tallocr(buffer.get())));
             model.buffers_w.push_back(std::move(buffer));
         }
         else {
@@ -377,8 +372,8 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
 
         // create a backend buffer (can be in host or device memory)
         auto& backend_kv = params.n_gpu_layers >= hparams.n_layer / 2 ? backend_gpu : backend_cpu;
-        std::println("{}: backend_kv = {}", __func__, backend_kv->get_name());
-        model.buffer_kv = backend_kv->alloc_buffer(memory_size + 512 * 2);
+        std::println("{}: backend_kv = {}", __func__, backend_kv.get_name());
+        model.buffer_kv = backend_kv.alloc_buffer(memory_size + 512 * 2);
 
         // allocate the tensors into the backend buffer
         {
@@ -508,8 +503,8 @@ bool gpt2_model_load(const std::string& fname, gpt2_model& model, gpt_vocab& voc
 
         // FIXME: use cpu backend after sched impl
         auto &backend_input = params.n_gpu_layers >= model.hparams.n_layer ? backend_gpu : backend_cpu;
-        model.buffer_input = backend_input->alloc_buffer(input_size + 512 * 3);
-        std::println("{}: backend_in = {} ({} bytes)", __func__, backend_input->get_name(), input_size);
+        model.buffer_input = backend_input.alloc_buffer(input_size + 512 * 3);
+        std::println("{}: backend_in = {} ({} bytes)", __func__, backend_input.get_name(), input_size);
 
         // allocate the tensors into the backend buffer
         ggml_tallocr alloc(model.buffer_input.get());
@@ -906,7 +901,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<ggml_backend_sched> sched;
     {
         // initialize the scheduler
-        sched = std::make_unique<ggml_backend_sched>(model.backends_view, model.backend_buft, false, true);
+        sched = std::make_unique<ggml_backend_sched>(model.backends, model.backend_buft, false, true);
 
         // create the worst case graph for memory usage estimation
         int n_tokens = std::min(model.hparams.n_ctx, params.n_batch);
@@ -919,12 +914,11 @@ int main(int argc, char** argv) {
 
         // compute the required memory
         size_t mem_size = 0;
-        for (size_t i = 0; i < model.backends.size(); i++) {
-            size_t size = sched->get_buffer_size(model.backends[i].get());
+        for (auto &backend : model.backends) {
+            size_t size = sched->get_buffer_size(&backend);
             if (size > 0) {
                 mem_size += size;
-                std::println("{}: {:8} compute buffer size = {:8.2f} MB", __func__, model.backends[i]->get_name(), size / 1024.0 / 1024.0);
-                //std::println("{}: {:8} compute buffer size = {} bytes", __func__, model.backends[i]->get_name(), size);
+                std::println("{}: {:8} compute buffer size = {:8.2f} MB", __func__, backend.get_name(), size / 1024.0 / 1024.0);
             }
         }
 
