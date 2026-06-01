@@ -70,8 +70,8 @@ void ggml_backend_sched::reset()
 
 ggml_backend* ggml_backend_sched::get_backend(ggml_backend* backend) {
     for (auto &backend_ : backends) {
-        if (backend_ == backend) {
-            return backend_;
+        if (&backend_ == backend) {
+            return &backend_;
         }
     }
     return nullptr;
@@ -101,10 +101,10 @@ ggml_backend* ggml_backend_sched::backend_from_buffer(const ggml_tensor* tensor,
     }
 
     // find highest prio backend that supports the buffer type and the op
-    for (auto backend : backends) {
-        if (backend->supports_buft(buffer->get_type()) &&
-            backend->supports_op(op)) {
-            return backend;
+    for (auto &backend : backends) {
+        if (backend.supports_buft(buffer->get_type()) &&
+            backend.supports_op(op)) {
+            return &backend;
         }
     }
 
@@ -144,7 +144,7 @@ ggml_backend* ggml_backend_sched::backend_id_from_cur(ggml_tensor* tensor) {
 
     // graph input
     if (tensor->flags & GGML_TENSOR_FLAG_INPUT) {
-        cur_backend = backends.back(); // last backend (assumed CPU)
+        cur_backend = &backends.back(); // last backend (assumed CPU)
         SET_CAUSE(tensor, "1.inp");
         return cur_backend;
     }
@@ -160,11 +160,11 @@ ggml_backend* ggml_backend_sched::backend_id_from_cur(ggml_tensor* tensor) {
         if (tensor->op != GGML_OP_ROPE && src->buffer != NULL && src->buffer->getUsage() == GGML_BACKEND_BUFFER_USAGE_WEIGHTS) {
             ggml_backend* src_backend = backend_from_buffer(src, tensor);
             // check if a backend with higher prio wants to offload the op
-            if (op_offload && src_backend == backends.back() && src->buffer->is_host()) {
+            if (op_offload && src_backend == &backends.back() && src->buffer->is_host()) {
                 for (int b = 0; b < backends.size() - 1; b++) {
                     if (backends[b].supports_op(tensor) && backends[b].offload_op(tensor)) {
                         SET_CAUSE(tensor, "1.off");
-                        return backends[b];
+                        return &backends[b];
                     }
                 }
             }
