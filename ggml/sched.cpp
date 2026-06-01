@@ -43,7 +43,7 @@ ggml_backend_sched::ggml_backend_sched(poly_vector<ggml_backend>& backends,
     // FIXME: needs to be size*2 to account for leafs (do it in graph_split instead)
 
     for (int b = 0; b < backends.size(); b++) {
-        this->id_map.emplace(backends[b], b);
+        this->id_map.emplace(&backends[b], b);
         GGML_ASSERT(backends[b].supports_buft(this->bufts[b]));
 
         if (n_copies > 1) {
@@ -69,7 +69,7 @@ void ggml_backend_sched::reset()
 }
 
 ggml_backend* ggml_backend_sched::get_backend(ggml_backend* backend) {
-    for (auto backend_ : backends) {
+    for (auto &backend_ : backends) {
         if (backend_ == backend) {
             return backend_;
         }
@@ -162,7 +162,7 @@ ggml_backend* ggml_backend_sched::backend_id_from_cur(ggml_tensor* tensor) {
             // check if a backend with higher prio wants to offload the op
             if (op_offload && src_backend == backends.back() && src->buffer->is_host()) {
                 for (int b = 0; b < backends.size() - 1; b++) {
-                    if (backends[b]->supports_op(tensor) && backends[b]->offload_op(tensor)) {
+                    if (backends[b].supports_op(tensor) && backends[b].offload_op(tensor)) {
                         SET_CAUSE(tensor, "1.off");
                         return backends[b];
                     }
@@ -259,8 +259,8 @@ void ggml_backend_sched::print_assignments(const ggml_cgraph& graph) {
 }
 
 void ggml_backend_sched::synchronize() {
-    for (auto backend : backends) {
-        backend->synchronize();
+    for (auto &backend : backends) {
+        backend.synchronize();
     }
     if (!is_alloc) {
         // if the graph is not already allocated, always use copy 0 after a synchronization
@@ -350,7 +350,7 @@ void ggml_backend_sched::split_graph(ggml_cgraph& graph) {
             }
             auto it2 = hv_tensor_backend.find(node);
             if (it2 != hv_tensor_backend.end()) {
-                if (it2->second == backends.back() && skip_cpu) {
+                if (it2->second == &backends.back() && skip_cpu) {
                     // skip cpu (lowest prio backend)
                     cur_backend = nullptr;
                 }
@@ -394,18 +394,18 @@ void ggml_backend_sched::split_graph(ggml_cgraph& graph) {
         if (it == hv_tensor_backend.end()) {
             // unassigned node: find the backend with the most supported inputs
             int n_supported_best = -1;
-            for (auto backend : backends) {
-                if (backend->supports_op(node)) {
+            for (auto &backend : backends) {
+                if (backend.supports_op(node)) {
                     int n_supported = 0;
                     for (auto src : node->src) {
                         if (!src) continue;
-                        if ((hv_tensor_backend.count(src) || hv_tensor_backend.count(src->view_src)) && buffer_supported(src, backend)) {
+                        if ((hv_tensor_backend.count(src) || hv_tensor_backend.count(src->view_src)) && buffer_supported(src, &backend)) {
                             n_supported++;
                         }
                     }
                     if (n_supported > n_supported_best) {
                         n_supported_best = n_supported;
-                        hv_tensor_backend[node] = backend;
+                        hv_tensor_backend[node] = &backend;
                         SET_CAUSE(node, "3.best");
                     }
                 }
@@ -415,17 +415,17 @@ void ggml_backend_sched::split_graph(ggml_cgraph& graph) {
             // assigned node: upgrade to higher prio backend if possible
             int id = id_map[it->second];
             for (int b = 0; b < id; b++) {
-                if (bufts[b] == bufts[id] && backends[b]->supports_op(node)) {
+                if (bufts[b] == bufts[id] && backends[b].supports_op(node)) {
                     bool supported = true;
                     for (auto src : node->src) {
                         if (!src) continue;
-                        if (!buffer_supported(src, backends[b])) {
+                        if (!buffer_supported(src, &backends[b])) {
                             supported = false;
                             break;
                         }
                     }
                     if (supported) {
-                        it->second = backends[b];
+                        it->second = &backends[b];
                         SET_CAUSE(node, "3.upg");
                         break;
                     }
@@ -460,9 +460,9 @@ void ggml_backend_sched::split_graph(ggml_cgraph& graph) {
             }
         }
         // if the node is still unassigned, assign it to the first backend that supports it
-        for (auto backend : backends) {
+        for (auto &backend : backends) {
             if (hv_tensor_backend.count(node)) break;
-            if (if_supported(node, backend))
+            if (if_supported(node, &backend))
                 hv_tensor_backend.insert({ node, &backend });
         }
         assert(hv_tensor_backend.count(node) != 0);
