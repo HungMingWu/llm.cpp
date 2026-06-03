@@ -59,7 +59,7 @@ namespace chatllm
 
     void BackendBufAllocator::show_info(void)
     {
-        ggml::log(GGML_LOG_LEVEL_INFO, "%30s allocated buffer size = (%8.2f, %8.2f) MiB\n", backend->backend->get_name(), total[0] / 1024.0 / 1024.0, total[1] / 1024.0 / 1024.0);
+        ggml::log(GGML_LOG_LEVEL_INFO, "{:30} allocated buffer size = (%8.2f, %8.2f) MiB\n", backend->underly_backend.get_name(), total[0] / 1024.0 / 1024.0, total[1] / 1024.0 / 1024.0);
     }
 
     Backend* BackendBufAllocator::get_backend(void)
@@ -115,7 +115,7 @@ namespace chatllm
     bool LayerBufAllocator::supported_by_backend(Backend* backend, ggml::tensor* tensor)
     {
         ggml_backend_allocator allocator = get_allocator(tensor); return false;
-        return backend->backend->supports_buft(allocator);
+        return backend->underly_backend.supports_buft(allocator);
     }
 
     BackendBufAllocator::Usage LayerBufAllocator::detect_usage(ggml::tensor* tensor)
@@ -464,11 +464,11 @@ namespace chatllm
         return true;
     }
 
-    Backend::Backend(ggml_backend* backend, int n_layers, bool use_gpu)
-        : backend(backend), n_layers(n_layers), use_gpu(use_gpu)
+    Backend::Backend(ggml_backend& backend, int n_layers, bool use_gpu)
+        : underly_backend(backend), n_layers(n_layers), use_gpu(use_gpu)
     {
         // FIXME: find a better way
-        _is_cpu = backend->get_name() == std::string_view("CPU");
+        _is_cpu = underly_backend.get_name() == std::string_view("CPU");
     }
 
     bool Backend::is_cpu(void) const
@@ -485,13 +485,13 @@ namespace chatllm
         }
         else
         {
-            return ComputeManager::get_default_allocator(backend.get());
+            return ComputeManager::get_default_allocator(&underly_backend);
         }
     }
 
     void Backend::write_tensor_data_async(ggml::tensor* tensor, const void* data, size_t offset, size_t size)
     {
-        backend->set_tensor_async(tensor, data, offset, size);
+        underly_backend.set_tensor_async(tensor, data, offset, size);
     }
 
     void Backend::write_tensor_data(ggml::tensor* tensor, const void* data, size_t offset, size_t size)
@@ -516,7 +516,7 @@ namespace chatllm
 
     void Backend::read_tensor_data_async(ggml::tensor* tensor, void* data, size_t offset, size_t size)
     {
-        backend->get_tensor_async(tensor, data, offset, size);
+        underly_backend.get_tensor_async(tensor, data, offset, size);
     }
 
     void Backend::read_tensor_data(ggml::tensor* tensor, void* data, size_t offset, size_t size)
@@ -531,12 +531,12 @@ namespace chatllm
 
     bool Backend::support(ggml::tensor* tensor)
     {
-        return backend->supports_op(tensor);
+        return underly_backend.supports_op(tensor);
     }
 
     void Backend::synchronize(void)
     {
-        backend->synchronize();
+        underly_backend.synchronize();
     }
 
     BackendContext::BackendContext()
@@ -670,9 +670,9 @@ namespace chatllm
             {
                 auto reg = dev->get_backend_reg();
 
-                std::unique_ptr<ggml_backend> backend = ComputeManager::init_backend_device(device);
-                CHATLLM_CHECK(backend != nullptr) << __func__ << ": failed to initialize backend: #" << device;
-                backends.emplace_back(backend.release(), n_layers, use_gpu);
+                underly_backends.push_back(ComputeManager::init_backend_device(device));
+                CHATLLM_CHECK(underly_backends.back() != nullptr) << __func__ << ": failed to initialize backend: #" << device;
+                backends.emplace_back(*underly_backends.back(), n_layers, use_gpu);
 
 #if 0
                 if (n_threads > 0)
@@ -706,7 +706,7 @@ namespace chatllm
             CHATLLM_CHECK(dev->get_type() == GGML_BACKEND_DEVICE_TYPE_CPU) << __func__ << ": device #" << device << " is not CPU, but " << dev->get_type();
             init_device(device, dev, n_layers - n_gpu_layers);
 
-            backend_cpu = backends[backends.size() - 1].backend.get();
+            backend_cpu = &backends[backends.size() - 1].underly_backend;
         }
 
         host_allocator.alloc_matrix = host_allocator.alloc_others = backends[backends.size() - 1].get_allocator(BufferType::Shared);
@@ -744,7 +744,7 @@ namespace chatllm
 
         for (auto& b : backends)
         {
-            gg_backends.push_back(b.backend.get());
+            gg_backends.push_back(&b.underly_backend);
             gg_bufts.push_back(b.get_allocator(BufferType::Dedicated));
         }
         sched = std::make_unique<ggml_backend_sched>(gg_backends, gg_bufts, false, false);
@@ -940,7 +940,7 @@ namespace chatllm
     void ComputeContext::cb_new_tensor(ggml::tensor* tensor)
     {
         if (get_backend())
-            get_sched()->set_tensor_backend(tensor, get_backend()->backend.get());
+            get_sched()->set_tensor_backend(tensor, &get_backend()->underly_backend);
         register_tensor_allocator(tensor, backend_context->layer_allocators.get_allocator());
     }
 

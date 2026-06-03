@@ -87,7 +87,49 @@ export namespace chatllm
 
     class LayerBufAllocator;
 
-    class Backend;
+    enum BufferType
+    {
+        Dedicated,  // only accessible by this backend
+        Shared,     // accessible (at least) by this backend and host (CPU)
+    };
+
+    class Backend
+    {
+    public:
+
+    public:
+        Backend(ggml_backend& backend, int n_layers, bool use_gpu);
+
+        bool is_cpu(void) const;
+
+        ggml_backend_allocator get_allocator(BufferType bt);
+
+        void write_tensor_data_async(ggml::tensor* tensor, const void* data, size_t offset, size_t size);
+
+        static void write_tensor_data(ggml::tensor* tensor, const void* data, size_t offset, size_t size);
+
+        static void write_tensor_data(ggml::tensor* tensor, const void* data);
+
+        static void tensor_memset(ggml::tensor* tensor, uint8_t value);
+        static void tensor_memset(ggml::tensor* tensor, uint8_t value, size_t offset, size_t size);
+
+        void read_tensor_data_async(ggml::tensor* tensor, void* data, size_t offset, size_t size);
+
+        static void read_tensor_data(ggml::tensor* tensor, void* data, size_t offset, size_t size);
+
+        static void read_tensor_data(ggml::tensor* tensor, void* data);
+
+        bool support(ggml::tensor* tensor);
+
+        void synchronize(void);
+
+    public:
+        ggml_backend& underly_backend;
+        const int n_layers;
+        const bool use_gpu;
+    private:
+        bool _is_cpu;
+    };
 
     void buf_assign_to(ggml_backend_buffer& buf, ggml::tensor* tensor, size_t offset = 0);
 
@@ -247,50 +289,6 @@ export namespace chatllm
         static ggml_backend_reg_t backend_rpc;
     };
 
-    enum BufferType
-    {
-        Dedicated,  // only accessible by this backend
-        Shared,     // accessible (at least) by this backend and host (CPU)
-    };
-
-    class Backend
-    {
-    public:
-
-    public:
-        Backend(ggml_backend* backend, int n_layers, bool use_gpu);
-
-        bool is_cpu(void) const;
-
-        ggml_backend_allocator get_allocator(BufferType bt);
-
-        void write_tensor_data_async(ggml::tensor* tensor, const void* data, size_t offset, size_t size);
-
-        static void write_tensor_data(ggml::tensor* tensor, const void* data, size_t offset, size_t size);
-
-        static void write_tensor_data(ggml::tensor* tensor, const void* data);
-
-        static void tensor_memset(ggml::tensor* tensor, uint8_t value);
-        static void tensor_memset(ggml::tensor* tensor, uint8_t value, size_t offset, size_t size);
-
-        void read_tensor_data_async(ggml::tensor* tensor, void* data, size_t offset, size_t size);
-
-        static void read_tensor_data(ggml::tensor* tensor, void* data, size_t offset, size_t size);
-
-        static void read_tensor_data(ggml::tensor* tensor, void* data);
-
-        bool support(ggml::tensor* tensor);
-
-        void synchronize(void);
-
-    public:
-        std::unique_ptr<ggml_backend> backend;
-        const int n_layers;
-        const bool use_gpu;
-    private:
-        bool _is_cpu;
-    };
-
     class BackendContext
     {
     public:
@@ -346,6 +344,7 @@ export namespace chatllm
         bool is_using_gpu(void) const;
 
     public:
+        std::vector<std::unique_ptr<ggml_backend>> underly_backends;
         std::vector<Backend> backends;
 
         ggml_backend* backend_cpu = nullptr;
