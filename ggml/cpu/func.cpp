@@ -3869,17 +3869,25 @@ struct flash_attn_context {
 
 static constexpr bool use_simd_v = true;
 // Here is the AVX2 workaround solution before C++26 SIMD
-static constexpr size_t GGML_F32_EPR = 16;
-#define GGML_F32x16         __m512
-#define GGML_F32_VEC        GGML_F32x16
-#define GGML_F32x16_FMA(a, b, c) _mm512_fmadd_ps(b, c, a)
-#define GGML_F32_VEC_FMA    GGML_F32x16_FMA
-#define GGML_F32x16_LOAD    _mm512_loadu_ps
-#define GGML_F32_VEC_LOAD   GGML_F32x16_LOAD
-#define GGML_F32x16_SET1(x) _mm512_set1_ps(x)
-#define GGML_F32_VEC_SET1   GGML_F32x16_SET1
-#define GGML_F32x16_STORE   _mm512_storeu_ps
-#define GGML_F32_VEC_STORE  GGML_F32x16_STORE
+static constexpr size_t GGML_F32_EPR = 8;
+
+#define GGML_F32x8         __m256
+#define GGML_F32x8_ZERO    _mm256_setzero_ps()
+#define GGML_F32x8_SET1(x) _mm256_set1_ps(x)
+#define GGML_F32x8_LOAD    _mm256_loadu_ps
+#define GGML_F32x8_STORE   _mm256_storeu_ps
+#if defined(__FMA__)
+#define GGML_F32x8_FMA(a, b, c) _mm256_fmadd_ps(b, c, a)
+#else
+#define GGML_F32x8_FMA(a, b, c) _mm256_add_ps(_mm256_mul_ps(b, c), a)
+#endif
+
+#define GGML_F32_VEC        GGML_F32x8
+#define GGML_F32_VEC_ZERO   GGML_F32x8_ZERO
+#define GGML_F32_VEC_SET1   GGML_F32x8_SET1
+#define GGML_F32_VEC_LOAD   GGML_F32x8_LOAD
+#define GGML_F32_VEC_STORE  GGML_F32x8_STORE
+#define GGML_F32_VEC_FMA    GGML_F32x8_FMA
 
 template <int RM, int RN>
 static inline void simd_gemm_ukernel(
@@ -3896,7 +3904,6 @@ static inline void simd_gemm_ukernel(
 			acc[i][r] = GGML_F32_VEC_LOAD(C + i * N + r * KN);
 		}
 	}
-
 	for (int64_t kk = 0; kk < K; kk++) {
 		GGML_F32_VEC Bv[RN];
 		for (int r = 0; r < RN; r++) {
