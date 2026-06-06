@@ -612,8 +612,10 @@ static __global__ void flash_attn_mask_to_KV_max(
     __syncthreads();
 
     int KV_max_sj = (ne30 - 1) * FATTN_KQ_STRIDE;
+    auto block = cooperative_groups::this_thread_block();
+    auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(block);
     for (; KV_max_sj >= 0; KV_max_sj -= FATTN_KQ_STRIDE) {
-        int all_inf = 1;
+        bool all_inf = true;
 
 #pragma unroll
         for (int j = 0; j < ncols1; ++j) {
@@ -621,14 +623,14 @@ static __global__ void flash_attn_mask_to_KV_max(
             all_inf = all_inf && int(isinf(tmp.x)) && int(isinf(tmp.y));
         }
 
-        all_inf = warp_reduce_all(all_inf);
+        all_inf = tile.all(all_inf);
         if (tid % WARP_SIZE == 0) {
             buf_iw[tid / WARP_SIZE] = all_inf;
         }
         __syncthreads();
         all_inf = buf_iw[tid % WARP_SIZE];
         __syncthreads();
-        all_inf = warp_reduce_all(all_inf);
+        all_inf = tile.all(all_inf);
 
         if (!all_inf) {
             break;

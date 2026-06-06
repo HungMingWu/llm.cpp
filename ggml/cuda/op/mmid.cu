@@ -38,8 +38,9 @@ static __global__ void mm_ids_helper(
 
     int nex_prev = 0; // Number of columns for experts with a lower index.
     int it_compact = 0; // Running index for the compact slice of this expert.
-
+    auto block = cooperative_groups::this_thread_block();
     if constexpr (n_expert_used_template == 0) {
+        auto tile = cooperative_groups::tiled_partition<warp_size>(block);
         // Generic implementation:
         for (int it = 0; it < n_tokens; ++it) {
             int iex_used = -1; // The index at which the expert is used, if any.
@@ -55,7 +56,7 @@ static __global__ void mm_ids_helper(
                 store[it_compact] = mm_ids_helper_store(it, iex_used);
             }
 
-            if (warp_reduce_any<warp_size>(iex_used != -1)) {
+            if (tile.any(iex_used != -1)) {
                 it_compact++;
             }
         }
@@ -64,6 +65,7 @@ static __global__ void mm_ids_helper(
         // Implementation optimized for specific numbers of experts used:
         static_assert(n_expert_used == 6 || warp_size % n_expert_used == 0, "bad n_expert_used");
         const int neu_padded = n_expert_used == 6 ? 8 : n_expert_used; // Padded to next higher power of 2.
+        auto tile = cooperative_groups::tiled_partition<neu_padded>(block);
         for (int it0 = 0; it0 < n_tokens; it0 += warp_size / neu_padded) {
             const int it = it0 + threadIdx.x / neu_padded;
 
@@ -74,7 +76,7 @@ static __global__ void mm_ids_helper(
             nex_prev += expert_used < expert;
 
             // Whether the threads at this token position have used the expert:
-            const int it_compact_add_self = warp_reduce_any<neu_padded>(iex_used != -1);
+            const int it_compact_add_self = tile.any(iex_used != -1);
 
             // Do a scan over threads at lower token positions in warp to get the correct index for writing data:
             int it_compact_add_lower = 0;

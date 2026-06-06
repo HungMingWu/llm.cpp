@@ -142,20 +142,6 @@ static __device__ __forceinline__ float2 warp_prefix_inclusive_sum(float2 a) {
 }
 
 template<int width = WARP_SIZE>
-static __device__ __forceinline__ int warp_reduce_all(int x) {
-    if (width == ggml_cuda_get_physical_warp_size()) {
-        return __all_sync(0xffffffff, x);
-    }
-    else {
-#pragma unroll
-        for (int offset = width / 2; offset > 0; offset >>= 1) {
-            x = __shfl_xor_sync(0xffffffff, x, offset, width) && x;
-        }
-        return x;
-    }
-}
-
-template<int width = WARP_SIZE>
 static __device__ __forceinline__ half2 warp_prefix_inclusive_sum(half2 a) {
     if constexpr (fp16_available_v) {
         const int lane_id = threadIdx.x % width;
@@ -171,20 +157,6 @@ static __device__ __forceinline__ half2 warp_prefix_inclusive_sum(half2 a) {
 
         NO_DEVICE_CODE;
         return a;
-    }
-}
-
-template<int width = WARP_SIZE>
-static __device__ __forceinline__ int warp_reduce_any(int x) {
-    if (width == ggml_cuda_get_physical_warp_size()) {
-        return __any_sync(0xffffffff, x);
-    }
-    else {
-#pragma unroll
-        for (int offset = width / 2; offset > 0; offset >>= 1) {
-            x = __shfl_xor_sync(0xffffffff, x, offset, width) || x;
-        }
-        return x;
     }
 }
 
