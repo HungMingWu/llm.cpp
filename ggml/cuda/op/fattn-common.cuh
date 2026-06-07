@@ -6,6 +6,7 @@
 #include "cuda_func.h"
 #include "vecdotq.cuh"
 #include "float2_overload.cuh"
+#include "mdspan_helper.h"
 
 static constexpr size_t FATTN_KQ_STRIDE_TILE_F32 = 32;
 static constexpr int64_t FATTN_KQ_STRIDE = 256;
@@ -596,14 +597,11 @@ static __global__ void flash_attn_combine_results(
 template <int ncols1>
 __launch_bounds__(FATTN_KQ_STRIDE / 2, 1)
 static __global__ void flash_attn_mask_to_KV_max(
-    const half2* __restrict__ mask, int* __restrict__ KV_max, const int ne30, const int s31, const int s33) {
-    const int ne31 = gridDim.x;
+    auto mask_data, auto KV_max, const int ne30) {
     const int tid = threadIdx.x;
     const int sequence = blockIdx.y;
     const int jt = blockIdx.x;
-
-    mask += sequence * s33 + jt * ncols1 * s31;
-
+    auto mask = std::submdspan(mask_data, sequence, 0, std::pair { jt * ncols1, (jt + 1) * ncols1 }, std::full_extent);
     __shared__ int buf_iw[WARP_SIZE];
     if (tid < WARP_SIZE) {
         buf_iw[tid] = 1;
@@ -619,7 +617,7 @@ static __global__ void flash_attn_mask_to_KV_max(
 
 #pragma unroll
         for (int j = 0; j < ncols1; ++j) {
-            const float2 tmp = __half22float2(mask[j * s31 + KV_max_sj / 2 + tid]);
+            const float2 tmp = __half22float2(half2(mask(j, KV_max_sj + tid * 2), mask(j, KV_max_sj + tid * 2 + 1)));
             all_inf = all_inf && int(isinf(tmp.x)) && int(isinf(tmp.y));
         }
 
@@ -646,7 +644,7 @@ static __global__ void flash_attn_mask_to_KV_max(
         return;
     }
 
-    KV_max[sequence * ne31 + jt] = KV_max_sj;
+    KV_max(sequence, jt) = KV_max_sj;
 }
 
 template<int D, int ncols1, int ncols2> // D == head size
@@ -934,9 +932,6 @@ void launch_fattn(
     // Only worth the overhead if there is at lease one FATTN_KQ_STRIDE x FATTN_KQ_STRIDE square to be skipped or
     //     multiple sequences of possibly different lengths.
     if (ctx.mask.exist && ctx.K.ne1 % FATTN_KQ_STRIDE == 0 && (ctx.Q.ne[1] >= 1024 || ctx.Q.ne[3] > 1)) {
-        const int s31 = ctx.mask.nb[1] / sizeof(half2);
-        const int s33 = ctx.mask.nb[3] / sizeof(half2);
-
         const dim3 blocks_num_KV_max(ntiles_x, ctx.Q.ne[3], 1);
         const dim3 block_dim_KV_max(FATTN_KQ_STRIDE / 2, 1, 1);
 
@@ -944,8 +939,10 @@ void launch_fattn(
         const int iter_k = ctx.K.ne1 / FATTN_KQ_STRIDE;
 
         KV_max.alloc(ne_KV_max);
+        auto mask_data = make_strided_mdspan((const half*)(ctx.mask.data), ctx.mask.ne, ctx.mask.nb);
+        std::mdspan KV_max_data(KV_max.ptr, blocks_num_KV_max.y, blocks_num_KV_max.x);
         flash_attn_mask_to_KV_max<ncols1> << <blocks_num_KV_max, block_dim_KV_max, 0, main_stream >> >
-            ((const half2*)ctx.mask.data, KV_max.ptr, iter_k, s31, s33);
+            (mask_data, KV_max_data, iter_k);
         CUDA_CHECK(cudaGetLastError());
     }
 
