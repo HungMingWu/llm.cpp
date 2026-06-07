@@ -934,8 +934,8 @@ void launch_fattn(
     // Only worth the overhead if there is at lease one FATTN_KQ_STRIDE x FATTN_KQ_STRIDE square to be skipped or
     //     multiple sequences of possibly different lengths.
     if (ctx.mask.exist && ctx.K.ne1 % FATTN_KQ_STRIDE == 0 && (ctx.Q.ne[1] >= 1024 || ctx.Q.ne[3] > 1)) {
-        const int s31 = ctx.mask.nb1 / sizeof(half2);
-        const int s33 = ctx.mask.nb3 / sizeof(half2);
+        const int s31 = ctx.mask.nb[1] / sizeof(half2);
+        const int s33 = ctx.mask.nb[3] / sizeof(half2);
 
         const dim3 blocks_num_KV_max(ntiles_x, ctx.Q.ne[3], 1);
         const dim3 block_dim_KV_max(FATTN_KQ_STRIDE / 2, 1, 1);
@@ -1052,8 +1052,8 @@ void launch_fattn(
         ctx.Q.ne[0], ne01, ctx.Q.ne[2], ctx.Q.ne[3], ctx.Q.nb[1], ctx.Q.nb[2], ctx.Q.nb[3],
         ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3, nb11, nb12, nb13,
         nb21, nb22, nb23,
-        ctx.mask.ne1, ctx.mask.ne2, ctx.mask.ne3,
-        ctx.mask.nb1, ctx.mask.nb2, ctx.mask.nb3
+        ctx.mask.ne[1], ctx.mask.ne[2], ctx.mask.ne[3],
+        ctx.mask.nb[1], ctx.mask.nb[2], ctx.mask.nb[3]
     );
     CUDA_CHECK(cudaGetLastError());
 

@@ -648,9 +648,9 @@ struct flash_attn_ext_context {
     struct {
         const bool exist;
         const internal::ggml_type type;
-        const void* data;
-        const int64_t ne0, ne1, ne2, ne3;
-        const size_t nb0, nb1, nb2, nb3;
+        void* data;
+        int64_t ne[4];
+        size_t nb[4];
     } mask;
 
     struct {

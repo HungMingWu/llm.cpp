@@ -783,11 +783,9 @@ static __global__ void flash_attn_tile(
 
     auto maskh = [=]() -> mdspan_stride_t<const half, 2> {
         if (!ctx.mask.data) return {};
-        std::array<int64_t, 4> mask_ne = { ctx.mask.ne0, ctx.mask.ne1, ctx.mask.ne2, ctx.mask.ne3 };
-        std::array<size_t, 4> mask_nb = { ctx.mask.nb0, ctx.mask.nb1, ctx.mask.nb2, ctx.mask.nb3 };
-        auto maskh = make_strided_mdspan((const half*)(ctx.mask.data), mask_ne, mask_nb);
-        assert(ctx.mask.ne2 == 1);
-        return std::submdspan(maskh, sequence % ctx.mask.ne3, 0, std::full_extent, std::full_extent);
+        auto maskh = make_strided_mdspan((const half*)(ctx.mask.data), ctx.mask.ne, ctx.mask.nb);
+        assert(ctx.mask.ne[2] == 1);
+        return std::submdspan(maskh, sequence % ctx.mask.ne[3], 0, std::full_extent, std::full_extent);
     }();
     const float slope = ncols2 == 1 ? get_alibi_slope(ctx.max_bias, head0, n_head_log2, m0, m1) : 1.0f;
 

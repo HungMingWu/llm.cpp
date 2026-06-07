@@ -338,15 +338,6 @@ namespace op {
             .mask = {
                 .exist = mask != nullptr,
                 .type = std::bit_cast<internal::ggml_type>(mask ? mask->type : GGML_TYPE_F32),
-                .data = mask ? mask->data : nullptr,
-                .ne0 = (mask) ? mask->ne[0] : 0,
-                .ne1 = (mask) ? mask->ne[1] : 0,
-                .ne2 = (mask) ? mask->ne[2] : 0,
-                .ne3 = (mask) ? mask->ne[3] : 0,
-                .nb0 = (mask) ? mask->nb[0] : 0,
-                .nb1 = (mask) ? mask->nb[1] : 0,
-                .nb2 = (mask) ? mask->nb[2] : 0,
-                .nb3 = (mask) ? mask->nb[3] : 0
             },
             .sinks = {
                 .data = sinks ? sinks->data : nullptr
@@ -362,6 +353,12 @@ namespace op {
                 .ne3 = dst->ne[3]
             }
         };
+
+        if (mask) {
+            ctx.mask.data = mask->data;
+            ctx.mask.ne[0] = mask->ne[0]; ctx.mask.ne[1] = mask->ne[1]; ctx.mask.ne[2] = mask->ne[2]; ctx.mask.ne[3] = mask->ne[3];
+            ctx.mask.nb[0] = mask->nb[0]; ctx.mask.nb[1] = mask->nb[1]; ctx.mask.nb[2] = mask->nb[2]; ctx.mask.nb[3] = mask->nb[3];
+        }
 
         switch (ggml_cuda_get_best_fattn_kernel(ggml_cuda_get_device(), dst)) {
         case BEST_FATTN_KERNEL_NONE:
