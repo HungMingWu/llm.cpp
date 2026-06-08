@@ -346,6 +346,7 @@ namespace op {
                 .type = std::bit_cast<internal::ggml_type>(dst->type),
                 .data = dst->data,
                 .elements = dst->nelements(),
+				.nbytes = dst->nbytes(),
                 .nrows = ggml_nrows(dst),
                 .ne0 = dst->ne[0],
                 .ne1 = dst->ne[1],
@@ -360,19 +361,19 @@ namespace op {
             ctx.mask.nb[0] = mask->nb[0]; ctx.mask.nb[1] = mask->nb[1]; ctx.mask.nb[2] = mask->nb[2]; ctx.mask.nb[3] = mask->nb[3];
         }
 
-        switch (ggml_cuda_get_best_fattn_kernel(ggml_cuda_get_device(), dst)) {
-        case BEST_FATTN_KERNEL_NONE:
+        switch (utils::ggml_cuda_get_best_fattn_kernel(ggml_cuda_get_device(), dst)) {
+        case utils::BEST_FATTN_KERNEL_NONE:
             GGML_ABORT("fatal error");
-        case BEST_FATTN_KERNEL_TILE:
+        case utils::BEST_FATTN_KERNEL_TILE:
             ggml_cuda_flash_attn_ext_tile(ctx);
             break;
-        case BEST_FATTN_KERNEL_VEC:
+        case utils::BEST_FATTN_KERNEL_VEC:
             ggml_cuda_flash_attn_ext_vec(ctx);
             break;
-        case BEST_FATTN_KERNEL_WMMA_F16:
+        case utils::BEST_FATTN_KERNEL_WMMA_F16:
             ggml_cuda_flash_attn_ext_wmma_f16(ctx);
             break;
-        case BEST_FATTN_KERNEL_MMA_F16:
+        case utils::BEST_FATTN_KERNEL_MMA_F16:
             ggml_cuda_flash_attn_ext_mma_f16(ctx);
             break;
         }

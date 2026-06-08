@@ -620,7 +620,6 @@ static __device__ __forceinline__ void flash_attn_ext_f16_iter(
         constexpr bool Q_in_reg = ggml_cuda_fattn_mma_get_Q_in_reg(DKQ, DV, ncols);
         constexpr int  nstages = ggml_cuda_fattn_mma_get_nstages(DKQ, DV, ncols1, ncols2);
 
-        constexpr int stride_tile_Q = DKQ / 2 + 4;
         constexpr int stride_tile_K = nbatch_K2 + 4;
 
         constexpr int stride_tile_V = V_is_K_view ? stride_tile_K : nbatch_V2 + 4;
@@ -659,9 +658,9 @@ static __device__ __forceinline__ void flash_attn_ext_f16_iter(
 #pragma unroll
         for (int k0_start = (DKQ / 2 - 1) - (DKQ / 2 - 1) % nbatch_K2; k0_start >= 0; k0_start -= nbatch_K2) {
             const int k0_stop = k0_start + nbatch_K2 < DKQ / 2 ? k0_start + nbatch_K2 : DKQ / 2;
-            const int k0_diff = k0_stop - k0_start;
 
             if constexpr (nstages <= 1) {
+                const int k0_diff = k0_stop - k0_start;
                 constexpr bool use_cp_async = nstages == 1;
                 flash_attn_ext_f16_load_tile<stride_tile_K, nwarps, nbatch_fa, use_cp_async, oob_check>
                     (K_h2 + int64_t(k_VKQ_0) * stride_K + k0_start, tile_K, k0_diff, stride_K, k_VKQ_sup);
@@ -698,6 +697,7 @@ static __device__ __forceinline__ void flash_attn_ext_f16_iter(
                 }
             }
             else {
+                constexpr int stride_tile_Q = DKQ / 2 + 4;
 #pragma unroll
                 for (int k_KQ_0 = k0_start; k_KQ_0 < k0_stop; k_KQ_0 += T_A_KQ::J) {
                     load_ldmatrix(Q_B[0], tile_Q + (threadIdx.y / np) * (T_B_KQ::I * stride_tile_Q) + k_KQ_0, stride_tile_Q);
@@ -985,9 +985,9 @@ static __device__ __forceinline__ void flash_attn_ext_f16_iter(
         for (int i0_start = 0; i0_start < DV; i0_start += 2 * nbatch_V2) {
             static_assert(DV % (2 * nbatch_V2) == 0, "bad loop size");
             const int i0_stop = i0_start + 2 * nbatch_V2;
-            const int i0_diff = i0_stop - i0_start;
 
             if constexpr (nstages <= 1) {
+                const int i0_diff = i0_stop - i0_start;
                 if (!V_is_K_view || i0_stop > 2 * nbatch_K2) {
                     constexpr bool use_cp_async = nstages == 1;
                     flash_attn_ext_f16_load_tile<stride_tile_V, nwarps, nbatch_fa, use_cp_async, oob_check>
@@ -1816,11 +1816,11 @@ template<int DKQ, int DV, int ncols1, int ncols2, bool use_logit_softcap, bool V
 __launch_bounds__(ggml_cuda_fattn_mma_get_nthreads(DKQ, DV, ncols1* ncols2), ggml_cuda_fattn_mma_get_occupancy(DKQ, DV, ncols1* ncols2))
 static __global__ void flash_attn_ext_f16(
     flash_attn_ext_context ctx,
-    [[maybe_unused]] const char* __restrict__ K,
-    [[maybe_unused]] const char* __restrict__ V,
-    [[maybe_unused]] const int* __restrict__ KV_max,
-    [[maybe_unused]] float* __restrict__ dst,
-    [[maybe_unused]] float2* __restrict__ dst_meta,
+    [[maybe_unused]] const char* K_ptr,
+    [[maybe_unused]] const char* V_ptr,
+    [[maybe_unused]] const int* KV_max_ptr,
+    [[maybe_unused]] float* dst_ptr,
+    [[maybe_unused]] float2* dst_meta_ptr,
     [[maybe_unused]] const float scale,
     [[maybe_unused]] const float m0,
     [[maybe_unused]] const float m1,
@@ -1834,7 +1834,11 @@ static __global__ void flash_attn_ext_f16(
     [[maybe_unused]] const int32_t nb31,  [[maybe_unused]] const int32_t nb32,  [[maybe_unused]] const int64_t nb33) {
     ggml_cuda_pdl_sync(); // TODO optimize placement
     if constexpr (flash_attn_available_v && (volta_mma_available_v || turing_mma_available_v || amd_wmma_available_v || amd_mfma_available_v)) {
-
+        const char * GGML_CUDA_RESTRICT K        = K_ptr;
+        const char * GGML_CUDA_RESTRICT V        = V_ptr;
+        const int  * GGML_CUDA_RESTRICT KV_max   = KV_max_ptr;
+        float      * GGML_CUDA_RESTRICT dst      = dst_ptr;
+        float2     * GGML_CUDA_RESTRICT dst_meta = dst_meta_ptr;
         // Skip unused kernel variants for faster compilation:
         if (use_logit_softcap && !(DKQ == 128 || DKQ == 256 || DKQ == 512)) {
             NO_DEVICE_CODE;

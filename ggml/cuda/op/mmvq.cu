@@ -195,12 +195,16 @@ static std::pair<dim3, dim3> calc_launch_params(
 template <internal::ggml_type type, typename src_t, int ncols_dst, bool has_fusion, bool is_multi_token_id = false, bool small_k = false>
 __launch_bounds__(calc_nwarps(type, ncols_dst, get_device_table_id())*ggml_cuda_get_physical_warp_size(), 1)
 static __global__ void mul_mat_vec_q(
-    const void* __restrict__ vx, const void* __restrict__ vy, const int32_t* __restrict__ ids, const ggml_cuda_mm_fusion_args_device fusion, float* __restrict__ dst,
+    const void* vx_ptr, const void* vy_ptr, const int32_t* ids_ptr, const ggml_cuda_mm_fusion_args_device fusion, float* dst_ptr,
     const uint32_t ncols_x, const uint3 nchannels_y, const uint32_t stride_row_x, const uint32_t stride_col_y,
     const uint32_t stride_col_dst, const uint3 channel_ratio, const uint32_t stride_channel_x,
     const uint32_t stride_channel_y, const uint32_t stride_channel_dst, const uint3 sample_ratio,
     const uint32_t stride_sample_x, const uint32_t stride_sample_y, const uint32_t stride_sample_dst,
     const uint32_t ids_stride) {
+    const void    * GGML_CUDA_RESTRICT vx  = vx_ptr;
+    const void    * GGML_CUDA_RESTRICT vy  = vy_ptr;
+    const int32_t * GGML_CUDA_RESTRICT ids = ids_ptr;
+    float         * GGML_CUDA_RESTRICT dst = dst_ptr;
 
     constexpr int qk = ggml_cuda_type_traits<src_t>::qk;
     constexpr int qi = ggml_cuda_type_traits<src_t>::qi;
@@ -260,8 +264,8 @@ static __global__ void mul_mat_vec_q(
     }
 
 
-    float x_biases[ncols_dst] = { 0.0f };
-    float gate_biases[ncols_dst] = { 0.0f };
+    [[maybe_unused]] float x_biases[ncols_dst] = { 0.0f };
+    [[maybe_unused]] float gate_biases[ncols_dst] = { 0.0f };
     if constexpr (has_fusion) {
         const uint32_t channel_bias = ids ? channel_x : channel_dst;
         if (use_bias) {
@@ -321,13 +325,7 @@ static __global__ void mul_mat_vec_q(
     }
 
     __shared__ float tmp_shared[nwarps - 1 > 0 ? nwarps - 1 : 1][ncols_dst][rows_per_cuda_block][warp_size];
-    __shared__ float tmp_shared_gate[(has_fusion && (nwarps - 1 > 0)) ? nwarps - 1 : 1][ncols_dst][rows_per_cuda_block][warp_size];
-    if constexpr (!has_fusion) {
-        (void)tmp_shared_gate;
-    }
-    else if (!use_gate) {
-        (void)tmp_shared_gate;
-    }
+    [[maybe_unused]] __shared__ float tmp_shared_gate[(has_fusion && (nwarps - 1 > 0)) ? nwarps - 1 : 1][ncols_dst][rows_per_cuda_block][warp_size];
 
     if (threadIdx.y > 0) {
 #pragma unroll

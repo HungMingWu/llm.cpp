@@ -53,10 +53,6 @@ gated_delta_net_cuda(gated_delta_net_context ctx,
         s_shard[r]  = curr_state(col, i);
     }
 
-    // slot mapping: target_slot = t - shift. When n_tokens < K only the last n_tokens slots
-    // are written; earlier slots are left untouched (caller-owned).
-    const int shift = (int)ctx.n_tokens - ctx.K;
-
     const auto q_t = [=]() {
         auto q_data = make_strided_mdspan(ctx.q_d, ctx.qk_ne, ctx.qk_nb);
         return std::submdspan(q_data, iq3, std::full_extent, iq1, std::full_extent);
@@ -155,6 +151,10 @@ gated_delta_net_cuda(gated_delta_net_context ctx,
         }
 
         if constexpr (keep_rs_t) {
+            // slot mapping: target_slot = t - shift. When n_tokens < K only the last n_tokens slots
+            // are written; earlier slots are left untouched (caller-owned).
+            const int shift = (int)ctx.n_tokens - ctx.K;
+
             const int target_slot = t - shift;
             if (target_slot >= 0 && target_slot < ctx.K) {
                 auto curr_state_o = [&]() {

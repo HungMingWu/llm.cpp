@@ -8,11 +8,11 @@ template<int D, int ncols, int nwarps, int VKQ_stride, typename KQ_acc_t, bool u
 __launch_bounds__(nwarps* ggml_cuda_get_physical_warp_size(), 1)
 static __global__ void flash_attn_ext_f16(
     flash_attn_ext_context ctx,
-    [[maybe_unused]] const char* __restrict__ K,
-    [[maybe_unused]] const char* __restrict__ V,
-    [[maybe_unused]] const int* __restrict__ KV_max,
-    [[maybe_unused]] float* __restrict__ dst,
-    [[maybe_unused]] float2* __restrict__ dst_meta,
+    [[maybe_unused]] const char* K_ptr,
+    [[maybe_unused]] const char* V_ptr,
+    [[maybe_unused]] const int* KV_max_ptr,
+    [[maybe_unused]] float* dst_ptr,
+    [[maybe_unused]] float2* dst_meta_ptr,
     [[maybe_unused]] const float scale,
     [[maybe_unused]] const float m0,
     [[maybe_unused]] const float m1,
@@ -25,6 +25,11 @@ static __global__ void flash_attn_ext_f16(
     [[maybe_unused]] const int32_t ne31, [[maybe_unused]] const int32_t ne32, [[maybe_unused]] const int32_t ne33,
     [[maybe_unused]] const int32_t nb31, [[maybe_unused]] const int32_t nb32, [[maybe_unused]] const int64_t nb33) {
 #if defined(FLASH_ATTN_AVAILABLE) && (defined(GGML_HIP_ROCWMMA_FATTN) && defined(GGML_USE_WMMA_FATTN))
+    const char * GGML_CUDA_RESTRICT K        = K_ptr;
+    const char * GGML_CUDA_RESTRICT V        = V_ptr;
+    const int  * GGML_CUDA_RESTRICT KV_max   = KV_max_ptr;
+    float      * GGML_CUDA_RESTRICT dst      = dst_ptr;
+    float2     * GGML_CUDA_RESTRICT dst_meta = dst_meta_ptr;
     // Skip unused kernel variants for faster compilation:
     if (use_logit_softcap && !(D == 128 || D == 256)) {
         NO_DEVICE_CODE;

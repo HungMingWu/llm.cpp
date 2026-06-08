@@ -4,6 +4,30 @@
 #include "fattn-mma-f16.cuh"
 #include "fattn-vec.cuh"
 
+ggml_cuda_flash_attn_ext_f16_extra_data ggml_cuda_flash_attn_ext_get_f16_extra_data(
+        const flash_attn_ext_context &ctx, const bool need_f16_K, const bool need_f16_V) {
+    ggml_cuda_flash_attn_ext_f16_extra_data data = {};
+    data.end = (uintptr_t) ctx.KQV.data + ctx.KQV.nbytes;
+
+    if (need_f16_K && ctx.K.type != internal::GGML_TYPE_F16) {
+        data.end = GGML_PAD1(data.end, 128);
+        data.K   = data.end;
+        data.end += ctx.K.elements * sizeof(half);
+    }
+
+    if (need_f16_V && ctx.V.type != internal::GGML_TYPE_F16) {
+        if (ctx.V_is_K_view) {
+            data.V = data.K;
+        } else {
+            data.end = GGML_PAD1(data.end, 128);
+            data.V   = data.end;
+            data.end += ctx.V.elements * sizeof(half);
+        }
+    }
+
+    return data;
+}
+
 template<int DKQ, int DV, int ncols1, int ncols2, int nwarps, int ntiles, bool use_logit_softcap, bool mla>
 __launch_bounds__(nwarps* WARP_SIZE, 1)
 static __global__ void flash_attn_ext_f16(

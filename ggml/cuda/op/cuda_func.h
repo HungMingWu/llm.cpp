@@ -661,10 +661,20 @@ struct flash_attn_ext_context {
         const internal::ggml_type type;
         const void* data;
         const int64_t elements;
+        const size_t nbytes;
         const int64_t nrows;
         const int64_t ne0, ne1, ne2, ne3;
     } KQV;
 };
+
+struct ggml_cuda_flash_attn_ext_f16_extra_data {
+    uintptr_t K;
+    uintptr_t V;
+    uintptr_t end;
+};
+
+ggml_cuda_flash_attn_ext_f16_extra_data ggml_cuda_flash_attn_ext_get_f16_extra_data(
+    const flash_attn_ext_context& ctx, const bool need_f16_K, const bool need_f16_V);
 
 void ggml_cuda_flash_attn_ext_vec(const flash_attn_ext_context& ctx);
 void ggml_cuda_flash_attn_ext_tile(const flash_attn_ext_context& ctx);

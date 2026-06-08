@@ -48,11 +48,11 @@ template<int D, int ncols, typename type_K, typename type_V, bool use_logit_soft
 __launch_bounds__(ggml_cuda_fattn_vec_get_nthreads_device(), 1)
 static __global__ void flash_attn_ext_vec(
     flash_attn_ext_context ctx,
-    [[maybe_unused]] const char* __restrict__ K,
-    [[maybe_unused]] const char* __restrict__ V,
-    [[maybe_unused]] const int* __restrict__ KV_max,
-    [[maybe_unused]] float* __restrict__ dst,
-    [[maybe_unused]] float2* __restrict__ dst_meta,
+    [[maybe_unused]] const char* K_ptr,
+    [[maybe_unused]] const char* V_ptr,
+    [[maybe_unused]] const int* KV_max_ptr,
+    [[maybe_unused]] float* dst_ptr,
+    [[maybe_unused]] float2* dst_meta_ptr,
     [[maybe_unused]] const float scale,
     [[maybe_unused]] const float m0,
     [[maybe_unused]] const float m1,
@@ -66,6 +66,11 @@ static __global__ void flash_attn_ext_vec(
     [[maybe_unused]] const int32_t nb31, [[maybe_unused]] const int32_t nb32, [[maybe_unused]] const int64_t nb33) {
 
     ggml_cuda_pdl_lc();
+    const char * GGML_CUDA_RESTRICT K        = K_ptr;
+    const char * GGML_CUDA_RESTRICT V        = V_ptr;
+    const int  * GGML_CUDA_RESTRICT KV_max   = KV_max_ptr;
+    float      * GGML_CUDA_RESTRICT dst      = dst_ptr;
+    float2     * GGML_CUDA_RESTRICT dst_meta = dst_meta_ptr;
     // Skip unused kernel variants for faster compilation:
     constexpr bool emit_no_device_code_v = [=]() -> bool {
         if (!flash_attn_available_v) return true;

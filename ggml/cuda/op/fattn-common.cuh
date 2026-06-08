@@ -542,11 +542,14 @@ static __device__ __forceinline__ void quantize_q8_1_to_shared(
 template<int D> // D == head size
 __launch_bounds__(D, 1)
 static __global__ void flash_attn_combine_results(
-    const float* __restrict__ VKQ_parts,
-    const float2* __restrict__ VKQ_meta,
-    float* __restrict__ dst,
+    const float  * VKQ_parts_ptr,
+    const float2 * VKQ_meta_ptr,
+    float * dst_ptr,
     const int parallel_blocks) {
     ggml_cuda_pdl_lc();
+    const float  * GGML_CUDA_RESTRICT VKQ_parts = VKQ_parts_ptr;
+    const float2 * GGML_CUDA_RESTRICT VKQ_meta  = VKQ_meta_ptr;
+    float        * GGML_CUDA_RESTRICT dst       = dst_ptr;
     // Dimension 0: threadIdx.x
     // Dimension 1: blockIdx.x
     // Dimension 2: blockIdx.y
@@ -650,8 +653,8 @@ static __global__ void flash_attn_mask_to_KV_max(
 template<int D, int ncols1, int ncols2> // D == head size
 __launch_bounds__(D, 1)
 static __global__ void flash_attn_stream_k_fixup_uniform(
-        float * __restrict__ dst,
-        const float2 * __restrict__ dst_fixup,
+        float * dst_ptr,
+        const float2 * dst_fixup_ptr,
         const int ne01, const int ne02,
         const int ne12, const int nblocks_stream_k,
         const int gqa_ratio,
@@ -661,6 +664,8 @@ static __global__ void flash_attn_stream_k_fixup_uniform(
         const uint3 fd_iter_j) {
     constexpr int ncols = ncols1*ncols2;
     ggml_cuda_pdl_lc();
+    float        * GGML_CUDA_RESTRICT dst       = dst_ptr;
+    const float2 * GGML_CUDA_RESTRICT dst_fixup = dst_fixup_ptr;
 
     const int tile_idx = blockIdx.x; // One block per output tile.
     const int j        = blockIdx.y;
@@ -733,8 +738,8 @@ static __global__ void flash_attn_stream_k_fixup_uniform(
 template <int D, int ncols1, int ncols2> // D == head size
 __launch_bounds__(D, 1)
 static __global__ void flash_attn_stream_k_fixup_general(
-        float * __restrict__ dst,
-        const float2 * __restrict__ dst_fixup,
+        float * dst_ptr,
+        const float2 * dst_fixup_ptr,
         const int ne01, const int ne02,
         const int gqa_ratio,
         const int total_work,
@@ -742,6 +747,8 @@ static __global__ void flash_attn_stream_k_fixup_general(
         const uint3 fd_iter_k_j_z,
         const uint3 fd_iter_k_j,
         const uint3 fd_iter_k) {
+    float        * GGML_CUDA_RESTRICT dst       = dst_ptr;
+    const float2 * GGML_CUDA_RESTRICT dst_fixup = dst_fixup_ptr;
     constexpr int ncols = ncols1*ncols2;
 
     const int bidx0 = blockIdx.x;
@@ -859,8 +866,9 @@ void launch_fattn(
     const int cc = ggml_cuda_info().devices[id].cc;
     const int nsm = ggml_cuda_info().devices[id].nsm;
 
-    ggml_cuda_pool_alloc<half>   K_f16(pool);
-    ggml_cuda_pool_alloc<half>   V_f16(pool);
+    const ggml_cuda_flash_attn_ext_f16_extra_data f16_extra =
+        ggml_cuda_flash_attn_ext_get_f16_extra_data(ctx, need_f16_K, need_f16_V);
+
     ggml_cuda_pool_alloc<int>    KV_max(pool);
     ggml_cuda_pool_alloc<float>  dst_tmp(pool);
     ggml_cuda_pool_alloc<float2> dst_tmp_meta(pool);
@@ -881,19 +889,19 @@ void launch_fattn(
         const size_t bs = ctx.K.block_size;
         const size_t ts = ctx.K.type_size;
 
-        K_f16.alloc(ctx.K.elements);
-        GGML_ASSERT(ctx.K.nb0 == ts);
+        GGML_ASSERT(f16_extra.K != 0);
+        half * K_f16 = (half *) f16_extra.K;
         convert_context convert_ctx {
             .src_type = ctx.K.type,
             .src_ne = { ctx.K.ne0, ctx.K.ne1, ctx.K.ne2, ctx.K.ne3 },
             .src_nb = { nb10, nb11, nb12, nb13 },
         };
-        convert_to_cuda(convert_ctx, K_data, K_f16.ptr, main_stream);
+        convert_to_cuda(convert_ctx, K_data, K_f16, main_stream);
 
         nb11 = ctx.K.ne0 * sizeof(half);
         nb12 = ctx.K.ne1 * nb11;
         nb13 = ctx.K.ne2 * nb12;
-        K_data = (char*)K_f16.ptr;
+        K_data = (char*)K_f16;
     }
 
     if (need_f16_V && ctx.V.type != internal::GGML_TYPE_F16) {
@@ -907,19 +915,19 @@ void launch_fattn(
             const size_t bs = ctx.V.block_size;
             const size_t ts = ctx.V.type_size;
 
-            V_f16.alloc(ctx.V.elements);
-            GGML_ASSERT(ctx.V.nb0 == ts);
+            GGML_ASSERT(f16_extra.V != 0);
+            half * V_f16 = (half *) f16_extra.V;
             convert_context convert_ctx{
                 .src_type = ctx.V.type,
                 .src_ne = { ctx.V.ne0, ctx.V.ne1, ctx.V.ne2, ctx.V.ne3 },
                 .src_nb = { nb20, nb21, nb22, nb23 },
             };
-            convert_to_cuda(convert_ctx, V_data, V_f16.ptr, main_stream);
+            convert_to_cuda(convert_ctx, V_data, V_f16, main_stream);
 
             nb21 = ctx.V.ne0 * sizeof(half);
             nb22 = ctx.V.ne1 * nb21;
             nb23 = ctx.V.ne2 * nb22;
-            V_data = (char*)V_f16.ptr;
+            V_data = (char*)V_f16;
         }
     }
 
@@ -1038,8 +1046,8 @@ void launch_fattn(
     const uint3 ne01 = init_fastdiv_values(ctx.Q.ne[1]);
 
     GGML_ASSERT(block_dim.x % warp_size == 0);
-    // disabled PDL enrollment for now due to a compiler bug.
-    fattn_kernel<<<blocks_num, block_dim, nbytes_shared, main_stream>>>(
+    ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(blocks_num, block_dim, nbytes_shared, main_stream);
+    ggml_cuda_kernel_launch(fattn_kernel, launch_params,
         ctx,
         K_data,
         V_data,

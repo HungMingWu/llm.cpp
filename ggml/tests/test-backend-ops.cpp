@@ -2364,6 +2364,15 @@ struct test_set_rows : public test_case {
         }
         return 1e-7;
     }
+
+    // See dicussion here: https://github.com/ggml-org/llama.cpp/pull/23760#issuecomment-4566312209
+    double max_nmse_err(ggml_backend* backend) override {
+        ggml_backend_reg_t reg = backend->get_device()->get_backend_reg();
+        if (type == GGML_TYPE_Q8_0 && reg->get_name() == "WebGPU") {
+            return std::max(test_case::max_nmse_err(backend), 2e-7);
+        }
+        return test_case::max_nmse_err(backend);
+    }
 };
 
 // GGML_OP_IM2COL
@@ -7753,7 +7762,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
 
 #if 0
     // >4GB im2col destination. Too slow to run by default.
-    // Test cases taken from Wan2.1 T2V 1.3B.test_cases.emplace_back(new test_scale(
+    // Test cases taken from Wan2.1 T2V 1.3B.
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F32, GGML_TYPE_F32, { 832, 480, 192, 4 }, { 3, 3, 192, 96 }, 1, 1, 1, 1, 1, 1, true));
     test_cases.emplace_back(new test_im2col_3d(GGML_TYPE_F32, GGML_TYPE_F32, GGML_TYPE_F32, { 834, 482, 6, 96 }, { 3, 3,3, 9216 }, 96, 1, 1, 1, 0, 0, 0, 1, 1, 1, false));
 #endif
@@ -7762,6 +7771,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F32, GGML_TYPE_F32, { 3000, 128, 1, 1 }, { 3, 128, 1280, 1 }, 1, 0, 1, 0, 1, 0, false));
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F32, { 3000, 128, 1, 1 }, { 3, 128, 1280, 1 }, 1, 0, 1, 0, 1, 0, false));
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F16, { 3000, 128, 1, 1 }, { 3, 128, 1280, 1 }, 1, 0, 1, 0, 1, 0, false));
+    test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F16, { 3000, 384, 1, 1 }, { 3, 384,  384, 1 }, 1, 0, 1, 0, 1, 0, false));
     for (int s0 : {1, 3}) {
         for (int p0 : {0, 3}) {
             for (int d0 : {1, 3}) {
@@ -7803,6 +7813,8 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F16, { 12, 12, 2, 2560 }, { 3, 3, 2, 2560 }, 1, 1, 1, 1, 1, 1, true));
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F16, { 5, 5, 1, 32 }, { 3, 4, 1, 32 }, 1, 1, 0, 0, 1, 1, true));
     test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F32, GGML_TYPE_F32, { 2, 2, 1536, 729 }, { 2, 2, 1536, 4096 }, 1, 1, 0, 0, 1, 1, true));
+    test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F16, { 128, 128, 1, 2 }, { 32, 33, 1, 2 }, 1, 1, 1, 1, 1, 1, true));
+    test_cases.emplace_back(new test_im2col(GGML_TYPE_F32, GGML_TYPE_F16, GGML_TYPE_F16, { 128, 128, 2, 1 }, { 33, 34, 2, 1 }, 1, 1, 1, 1, 1, 1, true));
 
     // im2col 3D
     test_cases.emplace_back(new test_im2col_3d(GGML_TYPE_F32, GGML_TYPE_F32, GGML_TYPE_F32));
@@ -9035,6 +9047,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_flash_attn_ext(64, 64, 4, { 1, 1 }, 128, 2, true, false, 0, 0, GGML_PREC_F32, GGML_TYPE_Q4_0, GGML_TYPE_F16));
     test_cases.emplace_back(new test_flash_attn_ext(72, 72, 4, { 1, 1 }, 96, 2, true, false, 0, 0, GGML_PREC_F32, GGML_TYPE_Q4_0, GGML_TYPE_Q8_0));
     test_cases.emplace_back(new test_flash_attn_ext(64, 64, 4, { 1, 1 }, 96, 2, true, false, 0, 0, GGML_PREC_F32, GGML_TYPE_F16, GGML_TYPE_F32));
+    test_cases.emplace_back(new test_flash_attn_ext(128, 128, 4, { 1, 1 }, 256, 1, false, false, 0, 0, GGML_PREC_F32, GGML_TYPE_F16, GGML_TYPE_Q4_0));
     test_cases.emplace_back(new test_flash_attn_ext(128, 128, 4, { 1, 1 }, 96, 2, true, false, 0, 0, GGML_PREC_F32, GGML_TYPE_Q1_0, GGML_TYPE_Q1_0));
     test_cases.emplace_back(new test_flash_attn_ext(128, 64, 4, { 1, 1 }, 128, 2, true, false, 0, 0, GGML_PREC_F32, GGML_TYPE_Q1_0, GGML_TYPE_Q4_0));
     test_cases.emplace_back(new test_flash_attn_ext(64, 128, 4, { 1, 1 }, 128, 2, true, false, 0, 0, GGML_PREC_F32, GGML_TYPE_Q4_0, GGML_TYPE_Q1_0));

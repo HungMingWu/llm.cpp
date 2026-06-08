@@ -6569,13 +6569,14 @@ void ggml_compute_forward_tri(
 	}
 }
 
-static void ggml_compute_forward_fill_f32(
+template <typename T>
+static void ggml_compute_forward_fill(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	ggml_tensor* dst) {
-	const float c = std::bit_cast<float>(dst->op_params[0]);
+	const T c = fromFloat32<T>(std::bit_cast<ggml_fp32_t>(dst->op_params[0]));
 
-	auto dst_data = make_strided_mdspan(static_cast<float*>(dst->data), dst->ne, dst->nb);
+	auto dst_data = make_strided_mdspan(static_cast<T*>(dst->data), dst->ne, dst->nb);
 	for (int64_t i03 = 0; i03 < dst->ne[3]; i03++)
 		for (int64_t i02 = 0; i02 < dst->ne[2]; i02++)
 			for (int64_t i01 = 0; i01 < dst->ne[1]; i01++) {
@@ -6591,7 +6592,22 @@ void ggml_compute_forward_fill(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	ggml_tensor* dst) {
-	ggml_compute_forward_fill_f32(pool, scope, dst);
+	const ggml_tensor* src0 = dst->src[0];
+
+	switch (src0->type) {
+	case GGML_TYPE_F32:
+	{
+		ggml_compute_forward_fill<ggml_fp32_t>(pool, scope, dst);
+	} break;
+	case GGML_TYPE_F16:
+	{
+		ggml_compute_forward_fill<ggml_fp16_t>(pool, scope, dst);
+	} break;
+	default:
+	{
+		GGML_ABORT("unsupported type for ggml_compute_forward_fill: %s", ggml_type_name(src0->type));
+	}
+	}
 }
 
 static void ggml_compute_forward_solve_tri_f32(

@@ -8,6 +8,7 @@ module ggml;
 import :host_buffer;
 import :cuda.buffer;
 import :cuda.buffer_type;
+import :cuda.utils;
 
 static void* ggml_cuda_host_malloc(size_t size) {
 	if (getenv("GGML_CUDA_NO_PINNED") != nullptr) {
@@ -49,7 +50,9 @@ std::unique_ptr<ggml_backend_buffer> cuda_backend_buffer_type::alloc_buffer_impl
 
 size_t cuda_backend_buffer_type::get_alloc_size(const ggml_tensor* tensor)
 {
-	size_t size = tensor->nbytes();
+	size_t size = tensor->op == GGML_OP_FLASH_ATTN_EXT
+		? utils::ggml_cuda_flash_attn_ext_get_alloc_size(device, tensor)
+		: tensor->nbytes();
 	int64_t ne0 = tensor->ne[0];
 
 	if (ggml_is_quantized(tensor->type)) {

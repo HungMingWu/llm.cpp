@@ -589,7 +589,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
         else
             return true;
     case GGML_OP_FLASH_ATTN_EXT:
-        return op::ggml_cuda_flash_attn_ext_supported(device, op);
+        return utils::ggml_cuda_flash_attn_ext_supported(device, op);
     case GGML_OP_CROSS_ENTROPY_LOSS:
     case GGML_OP_CROSS_ENTROPY_LOSS_BACK:
     case GGML_OP_OPT_STEP_ADAMW:
