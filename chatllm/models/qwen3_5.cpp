@@ -48,10 +48,11 @@ namespace chatllm::qwen::v3_5
     class Prelude
     {
     public:
-        Prelude(const Config& config, int n = 2048 * 4) :
+        Prelude(const Config& config, int n_image_emb, int n_image) :
+            n_image_emb(n_image_emb), n_image(n_image),
             pos_helper(config.max_length, config.vocab_size),
             helper_prelude(new TensorPosHelperPrelude(&pos_helper)),
-            pad_arg(new BlockParams::PadEmbedding(n, n))
+            pad_arg(new BlockParams::PadEmbedding(n_image_emb* n_image, n_image_emb* n_image))
         {
             old_rms_eps = BlockParams::Epsilon::rms_norm;
             BlockParams::Epsilon::rms_norm = 1e-6f;
@@ -65,6 +66,8 @@ namespace chatllm::qwen::v3_5
         }
     protected:
         float old_rms_eps = 0.0f;
+        const int n_image_emb;
+        const int n_image;
         qwen::v2_5_vl::TensorPosHelper3D pos_helper;
         std::unique_ptr<TensorPosHelperPrelude> helper_prelude;
         std::unique_ptr<BlockParams::PadEmbedding> pad_arg;
@@ -471,11 +474,11 @@ namespace chatllm::qwen::v3_5
     }
 
     ConditionalGeneration::ConditionalGeneration(const Config& config, const RuntimeConfig& runtime_config, ModelType type, int vocab_size) :
-        Prelude(config),
+        Prelude(config, 2048, 10),
         BaseModelForConditionalGeneration(type, config, runtime_config),
         config(config),
         token_time(0),
-        visual(runtime_config, pad_arg->get())
+        visual(runtime_config, pad_arg->get() / n_image)
     {
         w_ctx_.dtype = config.dtype;
 
