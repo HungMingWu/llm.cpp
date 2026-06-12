@@ -6,8 +6,7 @@ module ggml:host_buffer;
 import :ds;
 import :func;
 
-template <auto free_func>
-struct host_backend_buffer : public ggml_backend_buffer {
+struct host_backend_buffer_base : public ggml_backend_buffer {
 	void* context;
 protected:
 	void* get_base_impl() override {
@@ -25,14 +24,10 @@ protected:
 		memset(context, value, size);
 	}
 public:
-	host_backend_buffer(ggml_backend_buffer_type* type, size_t size, void* context)
+	host_backend_buffer_base(ggml_backend_buffer_type* type, size_t size, void* context)
 		: ggml_backend_buffer(type, size), context(context)
 	{
 
-	}
-
-	~host_backend_buffer() override {
-		free_func(context);
 	}
 
 	void memset_tensor(ggml_tensor* tensor, uint8_t value, size_t offset, size_t size) override

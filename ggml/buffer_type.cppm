@@ -19,9 +19,12 @@ export
             std::vector<ggml_tensor*> allocated_tensors;
         };
         std::vector<alloc_buf_info> calc_alloc_info(const ggml_context* ctx);
+        ggml_backend_device* device_ = nullptr;
     public:
         virtual ~ggml_backend_buffer_type() = default;
+		void set_device(ggml_backend_device* device) { device_ = device; }
         virtual const char* get_name() = 0;
+        ggml_backend_device* get_device() { return device_; }
 
         std::unique_ptr<ggml_backend_buffer> alloc_buffer(size_t size);
         size_t calc_needed_size(const ggml_context* ctx);

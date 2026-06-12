@@ -1,5 +1,6 @@
 module;
 #include <memory>
+#include <mutex>
 #include <string>
 
 module ggml:cuda.device;
@@ -12,6 +13,10 @@ public:
     std::string description;
     std::string pci_bus_id;
     int op_offload_min_batch_size;
+#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+    std::mutex device_mutex;
+    int active_count = 0;
+#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
     using ggml_backend_device::ggml_backend_device;
     const char* get_name() override { return name.c_str(); }
     const char* get_description() override { return description.c_str(); }

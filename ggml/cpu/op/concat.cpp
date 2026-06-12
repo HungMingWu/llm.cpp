@@ -68,6 +68,10 @@ void ggml_compute_forward_concat(ggml_tensor* dst) {
     {
         ggml_compute_forward_concat<ggml_fp32_t>(dst);
     } break;
+    case GGML_TYPE_I64:
+    {
+        ggml_compute_forward_concat<int64_t>(dst);
+    } break;
     default:
     {
         ggml_compute_forward_concat<char>(dst);

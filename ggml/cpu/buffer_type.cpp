@@ -6,6 +6,14 @@ import :alloc;
 import :host_buffer;
 import :cpu.buffer_type;
 
+struct cpu_host_backend_buffer : public host_backend_buffer_base {
+public:
+	using host_backend_buffer_base::host_backend_buffer_base;
+	~cpu_host_backend_buffer() override {
+		internal::free(context);
+	}
+};
+
 std::unique_ptr<ggml_backend_buffer> cpu_backend_buffer_type::alloc_buffer_impl(size_t size) {
 	void* data = internal::aligned_alloc(64, size);
 
@@ -14,5 +22,5 @@ std::unique_ptr<ggml_backend_buffer> cpu_backend_buffer_type::alloc_buffer_impl(
 		return nullptr;
 	}
 
-	return std::make_unique<host_backend_buffer<internal::free>>(this, size, data);
+	return std::make_unique<cpu_host_backend_buffer>(this, size, data);
 }

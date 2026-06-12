@@ -1235,31 +1235,7 @@ namespace op
     }
 
     void rope(cudaStream_t stream, ggml_tensor* dst, bool forward, const ggml_tensor* set_rows = nullptr);
-    void concat(cudaStream_t stream, ggml_tensor* dst) {
-        const ggml_tensor* src0 = dst->src[0];
-        const ggml_tensor* src1 = dst->src[1];
-
-        GGML_ASSERT(src0->type == GGML_TYPE_F32);
-        GGML_ASSERT(src1->type == GGML_TYPE_F32);
-        GGML_ASSERT(dst->type == GGML_TYPE_F32);
-
-        concat_context ctx{
-            .dim = dst->op_params[0],
-            .src0_d = (const float*)src0->data,
-			.src1_d = (const float*)src1->data,
-			.dst_d = (float*)dst->data,
-            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
-            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
-            .src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
-            .src1_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
-            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
-            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
-			.src0_size = src0->nbytes(),
-			.src1_size = src1->nbytes()
-        };
-
-		concat_cuda(ctx, stream);
-    }
+    void concat(cudaStream_t stream, ggml_tensor* dst);
 
     void argsort(ggml_cuda_pool& pool, cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];

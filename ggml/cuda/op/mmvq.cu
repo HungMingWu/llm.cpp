@@ -138,7 +138,6 @@ static constexpr __host__ __device__ int calc_nwarps(internal::ggml_type type, i
                 case internal::GGML_TYPE_Q5_0:
                 case internal::GGML_TYPE_Q5_1:
                 case internal::GGML_TYPE_Q8_0:
-                case internal::GGML_TYPE_Q4_K:
                     return 8;
                 case internal::GGML_TYPE_Q6_K:
                     return 2;

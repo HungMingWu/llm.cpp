@@ -144,10 +144,11 @@ static void ggml_compute_forward_rms_norm_back_f32(ggml_tensor* dst) {
                 // dx := add(dx, dz)
                 // dx := scale(dx, rrms)
 
-                // dx[i03, i02, i01, i00] = (x[i03, i02, i01, i00]*(-sum_xdz/sum_eps) + dz[i03, i02, i01, i00]) / sqrtf(mean_eps)
+                // dx[i03, i02, i01, i00] = (dz[i03, i02, i01, i00] + x[i03, i02, i01, i00]*(-sum_xdz/sum_eps)) * rrms
+                // note: https://github.com/ggml-org/ggml/issues/1491
+                const float scale_x = (float)(-sum_xdz) / sum_eps;
                 for (int64_t i00 = 0; i00 < dz.extent(3); i00++)
-                    dx[i03, i02, i01, i00] = 
-                        (x[i03, i02, i01, i00] * ((float)(-sum_xdz) / sum_eps) + dz[i03, i02, i01, i00]) * rrms;
+                    dx[i03, i02, i01, i00] = (dz[i03, i02, i01, i00] + x[i03, i02, i01, i00] * scale_x) * rrms;
             }
         }
     }

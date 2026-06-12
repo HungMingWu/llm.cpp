@@ -113,10 +113,7 @@ public:
 
 	}
 
-	~cuda_backend_buffer() override
-	{
-		CUDA_CHECK(cudaFree(dev_ptr));
-	}
+	~cuda_backend_buffer() override;
 
 	ggml_status init_tensor(ggml_tensor* tensor) override
 	{
@@ -201,28 +198,8 @@ public:
 	void get_tensor(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
 };
 
-	ggml_backend_buffer_type* ggml_backend_cuda_buffer_type(int device) {
-		if (device >= ggml_backend_cuda_get_device_count()) {
-			return nullptr;
-		}
+ggml_backend_buffer_type* ggml_backend_cuda_buffer_type(int device);
 
-		static cuda_backend_buffer_type ggml_backend_cuda_buffer_types[GGML_CUDA_MAX_DEVICES];
-		static std::once_flag initialized;
+cuda_backend_buffer_type* to_cuda_buffer_type(ggml_backend_buffer_type* buft);
 
-		std::call_once(initialized, [&]() { 
-			for (int i = 0; i < ggml_backend_cuda_get_device_count(); i++) {
-				ggml_backend_cuda_buffer_types[i].device = i;
-				ggml_backend_cuda_buffer_types->name = GGML_CUDA_NAME + std::to_string(i);
-			}
-		});
-		return &ggml_backend_cuda_buffer_types[device];
-	}
-
-	cuda_backend_buffer_type* to_cuda_buffer_type(ggml_backend_buffer_type* buft)
-	{
-		return dynamic_cast<cuda_backend_buffer_type*>(buft);
-	}
-
-	cuda_split_backend_buffer_type* to_split_buffer_type(ggml_backend_buffer_type* buft) {
-		return dynamic_cast<cuda_split_backend_buffer_type*>(buft);
-	};
+cuda_split_backend_buffer_type* to_split_buffer_type(ggml_backend_buffer_type* buft);

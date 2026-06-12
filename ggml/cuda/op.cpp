@@ -623,6 +623,9 @@ namespace op {
         GGML_ASSERT(ggml_is_contiguous(src_beta));
         GGML_ASSERT(ggml_is_contiguous(src_state));
         GGML_ASSERT(src_q->ne == src_k->ne && src_q->nb == src_k->nb);
+        
+        // K (snapshot slot count) is an op param; state holds s0 only [S_v, S_v, H, n_seqs].
+        const int K = std::bit_cast<int>(dst->op_params[0]);
 
         gated_delta_net_context ctx {
             .kda = kda,
@@ -649,7 +652,7 @@ namespace op {
             .neqk1 = src_q->ne[1],
             .rq3 = src_v->ne[3] / src_q->ne[3],
             .scale = 1.0f / sqrtf((float)S_v),
-            .K = (int)src_state->ne[1]
+            .K = K
         };
 
         gated_delta_net_cuda(ctx, stream);
@@ -853,5 +856,33 @@ namespace op {
         const float scale = 1 / sqrtf(n);
 
         return fwht_cuda(n, src_d, dst_d, rows, scale, stream);
+    }
+
+    void concat(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+
+        GGML_ASSERT(src0->type == src1->type);
+        GGML_ASSERT(dst->type == src0->type);
+        GGML_ASSERT(!ggml_is_quantized(src0->type));
+        GGML_ASSERT(ggml_blck_size(src0->type) == 1);
+
+        concat_context ctx{
+			.type_size = ggml_type_size(src0->type),
+            .dim = dst->op_params[0],
+            .src0_d = src0->data,
+            .src1_d = src1->data,
+            .dst_d = dst->data,
+            .src0_ne = { src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3] },
+            .src0_nb = { src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3] },
+            .src1_ne = { src1->ne[0], src1->ne[1], src1->ne[2], src1->ne[3] },
+            .src1_nb = { src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3] },
+            .dst_ne = { dst->ne[0], dst->ne[1], dst->ne[2], dst->ne[3] },
+            .dst_nb = { dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3] },
+            .src0_size = src0->nbytes(),
+            .src1_size = src1->nbytes()
+        };
+
+        concat_cuda(ctx, stream);
     }
 }

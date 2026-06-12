@@ -505,9 +505,10 @@ void rope_cuda(const rope_context &ctx, cudaStream_t stream);
 
 // concat
 struct concat_context {
+    const size_t type_size;
     const int32_t dim;
-	const float* src0_d, * src1_d;
-    float* dst_d;
+	const void* src0_d, * src1_d;
+    void* dst_d;
     int64_t src0_ne[4];
     size_t src0_nb[4];
     int64_t src1_ne[4];

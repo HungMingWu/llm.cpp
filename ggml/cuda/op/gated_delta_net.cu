@@ -31,11 +31,11 @@ gated_delta_net_cuda(gated_delta_net_context ctx,
         return std::submdspan(state, sequence, h_idx, std::full_extent, std::full_extent);
     }();
 
-    // input state layout (D, K, n_seqs) ¡X seq stride is K * D = K * H * S_v * S_v.
+    // input state holds s0 only: [S_v, S_v, H, n_seqs] ¡X seq stride is D = H * S_v * S_v.
     // output state layout (per-slot D * n_seqs) ¡X same per-(seq,head) offset as before.
 	const auto curr_state = [=]() {
-        std::mdspan curr_state(ctx.s_d, ctx.n_seqs, ctx.K, ctx.H, S_v, S_v);
-        return std::submdspan(curr_state, sequence, 0, h_idx, std::full_extent, std::full_extent);
+        std::mdspan curr_state(ctx.s_d, ctx.n_seqs, ctx.H, S_v, S_v);
+        return std::submdspan(curr_state, sequence, h_idx, std::full_extent, std::full_extent);
     }();
 
     constexpr int warp_size = ggml_cuda_get_physical_warp_size() < S_v ? ggml_cuda_get_physical_warp_size() : S_v;
@@ -151,11 +151,9 @@ gated_delta_net_cuda(gated_delta_net_context ctx,
         }
 
         if constexpr (keep_rs_t) {
-            // slot mapping: target_slot = t - shift. When n_tokens < K only the last n_tokens slots
-            // are written; earlier slots are left untouched (caller-owned).
-            const int shift = (int)ctx.n_tokens - ctx.K;
-
-            const int target_slot = t - shift;
+            // snapshot slot mapping: slot 0 = most recent state, slot s = s tokens back.
+            // When n_tokens < K only slots 0..n_tokens-1 are written; older slots are caller-owned.
+            const int target_slot = (int) ctx.n_tokens - 1 - t;
             if (target_slot >= 0 && target_slot < ctx.K) {
                 auto curr_state_o = [&]() {
                     std::mdspan curr_state_o(ctx.dst_d + attn_score_elems, ctx.K, ctx.n_seqs, ctx.H, S_v, S_v);

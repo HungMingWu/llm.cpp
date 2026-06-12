@@ -15,6 +15,12 @@ void to_float(ggml_type type, const void* x, float* y, int64_t n)
 		case GGML_TYPE_F32:
 			memcpy(y, x, n * sizeof(float));
 			break;
+		case GGML_TYPE_I8: {
+			const int8_t* x_int = static_cast<const int8_t*>(x);
+			for (int i = 0; i < n; i++)
+				y[i] = static_cast<float>(x_int[i]);
+			break;
+		}
 		case GGML_TYPE_I16: {
 			const int16_t* x_int = static_cast<const int16_t*>(x);
 			for (int i = 0; i < n; i++)

@@ -124,17 +124,18 @@ backend_cuda_reg::backend_cuda_reg()
             continue;
         }
         else {
-            ggml_backend_cuda_device& dev = devices.emplace_back(this);
-            dev.device = i;
-            dev.name = GGML_CUDA_NAME + std::to_string(i);
-            dev.description = prop.name;
+            auto dev = std::make_unique<ggml_backend_cuda_device>(this);
+            dev->device = i;
+            dev->name = GGML_CUDA_NAME + std::to_string(i);
+            dev->description = prop.name;
             char pci_bus_id[32] = {};
             CUDA_CHECK(cudaDeviceGetPCIBusId(pci_bus_id, sizeof(pci_bus_id), i));
-            dev.pci_bus_id = std::string(pci_bus_id);
-            for (char& c : dev.pci_bus_id) {
+            dev->pci_bus_id = std::string(pci_bus_id);
+            for (char& c : dev->pci_bus_id) {
                 c = std::tolower(c);
             }
-            dev.op_offload_min_batch_size = min_batch_size;
+            dev->op_offload_min_batch_size = min_batch_size;
+            devices.push_back(std::move(dev));
         }
     }
 }
@@ -224,6 +225,14 @@ void ggml_backend_cuda_device::get_memory(size_t* free, size_t* total)
         }
     }
 #endif // defined(__linux__)
+
+#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+    // If no backends or buffers are active, the cudaMemGetInfo call above lazily created a CUDA
+    // context that permanently consumes VRAM. Reset the device to free it.
+    if (active_count == 0) {
+        CUDA_CHECK(cudaDeviceReset());
+    }
+#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 }
 
 bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
@@ -477,7 +486,15 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_CONCAT:
     {
         ggml_type src0_type = op->src[0]->type;
-        return src0_type != GGML_TYPE_I32 && src0_type != GGML_TYPE_I16;
+        ggml_type src1_type = op->src[1]->type;
+        return src0_type == src1_type &&
+            src0_type == op->type &&
+            !ggml_is_quantized(src0_type) &&
+            ggml_blck_size(src0_type) == 1 &&
+            (ggml_type_size(src0_type) == 1 ||
+                ggml_type_size(src0_type) == 2 ||
+                ggml_type_size(src0_type) == 4 ||
+                ggml_type_size(src0_type) == 8);
     } break;
     case GGML_OP_CONV_TRANSPOSE_1D:
     {

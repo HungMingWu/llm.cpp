@@ -2600,7 +2600,8 @@ ggml_tensor* ggml_gated_delta_net(
 	ggml_tensor* v,
 	ggml_tensor* g,
 	ggml_tensor* beta,
-	ggml_tensor* state)
+	ggml_tensor* state,
+	int64_t K)
 {
 	GGML_ASSERT(ggml_is_contiguous_rows(q));
 	GGML_ASSERT(ggml_is_contiguous_rows(k));
@@ -2625,14 +2626,17 @@ ggml_tensor* ggml_gated_delta_net(
 	GGML_ASSERT(g->ne[0] == 1 || g->ne[0] == S_v);
 	GGML_ASSERT(beta->ne[0] == 1);
 
-	// state is a 3D tensor (S_v*S_v*H, K, n_seqs). K is the snapshot slot count.
-	GGML_ASSERT(state->ne[0] == S_v * S_v * H);
-	GGML_ASSERT(state->ne[2] == n_seqs);
-	GGML_ASSERT(state->ne[3] == 1);
-	const int64_t K = state->ne[1];
+	// state holds the initial state s0 only: [S_v, S_v, H, n_seqs]. K (snapshot slot count) is an op param.
+	GGML_ASSERT(state->ne[0] == S_v);
+	GGML_ASSERT(state->ne[1] == S_v);
+	GGML_ASSERT(state->ne[2] == H);
+	GGML_ASSERT(state->ne[3] == n_seqs);
+	GGML_ASSERT(K >= 1);
 	const int64_t state_rows = K * S_v * n_seqs;
 	const int64_t ne[4] = { S_v * H, n_tokens * n_seqs + state_rows, 1, 1 };
 	ggml_tensor* result = ctx->create(GGML_TYPE_F32, ne);
+
+	result->op_params[0] = (uint32_t)K;
 
 	result->op = GGML_OP_GATED_DELTA_NET;
 	result->src.push_back(q);
@@ -2641,6 +2645,40 @@ ggml_tensor* ggml_gated_delta_net(
 	result->src.push_back(g);
 	result->src.push_back(beta);
 	result->src.push_back(state);
+
+	return result;
+}
+
+ggml_tensor* ggml_col2im_1d(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	int                   s0,
+	int                   oc,
+	int                   p0) {
+	GGML_ASSERT(ggml_is_matrix(a));
+	GGML_ASSERT(ggml_is_contiguous(a));
+	GGML_ASSERT(a->type == GGML_TYPE_F32 || a->type == GGML_TYPE_F16 || a->type == GGML_TYPE_BF16);
+	GGML_ASSERT(s0 > 0);
+	GGML_ASSERT(oc > 0);
+	GGML_ASSERT(p0 >= 0);
+
+	const int64_t K_OC = a->ne[0];
+	const int64_t T_in = a->ne[1];
+	const int64_t K = K_OC / oc;
+	const int64_t T_out = (T_in - 1) * s0 + K - 2 * p0;
+
+	GGML_ASSERT(K_OC == K * oc);  // a->ne[0] must be a whole number of oc blocks
+	GGML_ASSERT(K > 0 && T_out > 0);
+
+	const int64_t ne[4] = { T_out, oc, 1, 1 };
+	ggml_tensor* result = ctx->create(a->type, ne);
+
+	result->op_params[0] = std::bit_cast<uint32_t>(s0);
+	result->op_params[1] = (int32_t)oc;
+	result->op_params[2] = (int32_t)p0;
+
+	result->op = GGML_OP_COL2IM_1D;
+	result->src.push_back(a);
 
 	return result;
 }

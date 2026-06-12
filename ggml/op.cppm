@@ -891,10 +891,16 @@ export {
 	// TODO: add ggml_gated_delta_net_set_bcast() to be able to configure Q, K broadcast type: tiled vs interleaved [TAG_GGML_GDN_BCAST]
 	// ref: https://github.com/ggml-org/llama.cpp/pull/19468#discussion_r2786394306
 	//
-	// state is a 3D tensor of shape (S_v*S_v*H, K, n_seqs):
-	//   K == 1: output carries the final state only.
-	//   K  > 1: output carries K snapshot slots; the kernel writes the last min(n_tokens, K)
-	//   per-token snapshots into the trailing slots
+	// tensor shapes (S_k == S_v, H_v % H_k == 0):
+	//   q, k  : [S_k, H_k, n_tokens, n_seqs]
+	//   v     : [S_v, H_v, n_tokens, n_seqs]
+	//   g     : [1, H_v, n_tokens, n_seqs] (scalar gate) or [S_v, H_v, n_tokens, n_seqs] (KDA)
+	//   beta  : [1, H_v, n_tokens, n_seqs]
+	//   state : [S_v, S_v, H_v, n_seqs] -- initial recurrent state s0
+	//
+	// the output packs the attention scores [S_v, H_v, n_tokens, n_seqs] followed by K state
+	// snapshots, most-recent first (slot 0 = final state, slot s = state s tokens back). K == 1
+	// keeps only the final state; when n_tokens < K only slots 0..n_tokens-1 are written.
 	ggml_tensor* ggml_gated_delta_net(
 		ggml_context* ctx,
 		ggml_tensor* q,
@@ -902,5 +908,16 @@ export {
 		ggml_tensor* v,
 		ggml_tensor* g,
 		ggml_tensor* beta,
-		ggml_tensor* state);
+		ggml_tensor* state,
+		int64_t K);
+
+	// col2im_1d: scatter-add GEMM columns back to 1D signal
+	// a: [K*OC, T_in]  (columns from matmul, K = a->ne[0]/OC)
+	// result: [T_out, OC]  where T_out = (T_in - 1)*s0 + K - 2*p0
+	ggml_tensor* ggml_col2im_1d(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		int                   s0,
+		int                   oc,
+		int                   p0);
 }

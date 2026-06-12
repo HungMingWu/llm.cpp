@@ -1,11 +1,25 @@
 module;
 #include "common.h"
 #include <map>
+#include <mutex>
+#include <string>
 #define GGML_ASSERT(...)
 
 module ggml;
 import :cuda.buffer;
 import :cuda.buffer_type;
+import :cuda.device;
+import :cuda.registry;
+
+cuda_backend_buffer::~cuda_backend_buffer()
+{
+#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+	ggml_backend_cuda_device* dev = (ggml_backend_cuda_device*)get_type()->get_device();
+	std::lock_guard<std::mutex> lock(dev->device_mutex);
+	dev->active_count--;
+#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+	CUDA_CHECK(cudaFree(dev_ptr));
+}
 
 bool cuda_backend_buffer::cpy_tensor(const ggml_tensor* src, ggml_tensor* dst)
 {
@@ -165,3 +179,30 @@ void cuda_split_backend_buffer::get_tensor(const ggml_tensor* tensor, void* data
 		CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
 	}
 }
+
+ggml_backend_buffer_type* ggml_backend_cuda_buffer_type(int device) {
+	if (device >= ggml_backend_cuda_get_device_count()) {
+		return nullptr;
+	}
+
+	static cuda_backend_buffer_type ggml_backend_cuda_buffer_types[GGML_CUDA_MAX_DEVICES];
+	static std::once_flag initialized;
+
+	std::call_once(initialized, [&]() {
+		for (int i = 0; i < ggml_backend_cuda_get_device_count(); i++) {
+			ggml_backend_cuda_buffer_types[i].device = i;
+			ggml_backend_cuda_buffer_types[i].set_device(ggml_backend_cuda_reg()->get_device(i));
+			ggml_backend_cuda_buffer_types->name = GGML_CUDA_NAME + std::to_string(i);
+		}
+	});
+	return &ggml_backend_cuda_buffer_types[device];
+}
+
+cuda_backend_buffer_type* to_cuda_buffer_type(ggml_backend_buffer_type* buft)
+{
+	return dynamic_cast<cuda_backend_buffer_type*>(buft);
+}
+
+cuda_split_backend_buffer_type* to_split_buffer_type(ggml_backend_buffer_type* buft) {
+	return dynamic_cast<cuda_split_backend_buffer_type*>(buft);
+};

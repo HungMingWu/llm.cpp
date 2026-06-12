@@ -8,7 +8,7 @@ import :rpc.transport;
 
 constexpr uint8_t RPC_PROTO_MAJOR_VERSION = 4;
 constexpr uint8_t RPC_PROTO_MINOR_VERSION = 0;
-constexpr uint8_t RPC_PROTO_PATCH_VERSION = 0;
+constexpr uint8_t RPC_PROTO_PATCH_VERSION = 1;
 
 // all RPC structures must be packed
 #pragma pack(push, 1)
