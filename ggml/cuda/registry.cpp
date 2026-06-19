@@ -225,14 +225,6 @@ void ggml_backend_cuda_device::get_memory(size_t* free, size_t* total)
         }
     }
 #endif // defined(__linux__)
-
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-    // If no backends or buffers are active, the cudaMemGetInfo call above lazily created a CUDA
-    // context that permanently consumes VRAM. Reset the device to free it.
-    if (active_count == 0) {
-        CUDA_CHECK(cudaDeviceReset());
-    }
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 }
 
 bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
@@ -478,8 +470,9 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     } break;
     case GGML_OP_REPEAT:
     {
+        // the CUDA REPEAT path only implements F32/F16; other types assert at runtime
         ggml_type src0_type = op->src[0]->type;
-        return src0_type != GGML_TYPE_I32 && src0_type != GGML_TYPE_I16;
+        return src0_type == GGML_TYPE_F32 || src0_type == GGML_TYPE_F16;
     } break;
     case GGML_OP_REPEAT_BACK:
         return op->type == GGML_TYPE_F32 && (op->src[0]->ne[2] * op->src[0]->ne[3]) <= (1 << 15);
@@ -504,6 +497,14 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
             return true;
         }
         return false;
+    } break;
+    case GGML_OP_COL2IM_1D:
+    {
+        ggml_type src0_type = op->src[0]->type;
+        return (src0_type == GGML_TYPE_F32 || src0_type == GGML_TYPE_F16 || src0_type == GGML_TYPE_BF16) &&
+            op->type == src0_type &&
+            ggml_is_contiguous(op->src[0]) &&
+            ggml_is_contiguous(op);
     } break;
     case GGML_OP_SILU_BACK:
         return ggml_is_contiguous(op->src[0]) && op->src[0]->type == GGML_TYPE_F32;

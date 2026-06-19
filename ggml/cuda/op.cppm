@@ -1952,4 +1952,6 @@ namespace op
 
     // Returns whether the Fast Walsh-Hadamard transform could be used.
     bool fwht(cudaStream_t stream, const ggml_tensor* src, ggml_tensor* dst);
+
+    void col2im_1d(cudaStream_t stream, ggml_tensor* dst);
 }

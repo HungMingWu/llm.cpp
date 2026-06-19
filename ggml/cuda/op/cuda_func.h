@@ -1028,3 +1028,18 @@ void snake_cuda(const snake_context& ctx, cudaStream_t stream);
 
 bool fwht_cuda(const int n, const float* src_d, float* dst_d,
     const int64_t rows, const float scale, cudaStream_t stream);
+
+// col2im-1d.cu
+struct col2im_1d_context {
+    internal::ggml_type src0_type;
+    const void* src0_d;
+    const void* dst_d;
+    const int32_t s0;
+    const int32_t OC;
+    const int32_t p0;
+    const int K_OC;
+    const int T_in;
+    const int T_out;
+};
+
+void col2im_1d_cuda(const col2im_1d_context& ctx, cudaStream_t stream);

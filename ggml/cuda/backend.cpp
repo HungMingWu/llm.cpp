@@ -2622,6 +2622,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
     case GGML_OP_CONV_TRANSPOSE_1D:
         op::conv_transpose_1d(stream(), dst);
         break;
+    case GGML_OP_COL2IM_1D:
+        op::col2im_1d(stream(), dst);
+        break;
     case GGML_OP_POOL_2D:
         op::pool2d(stream(), dst);
         break;
@@ -2729,12 +2732,6 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
 
 ggml_backend_cuda::~ggml_backend_cuda()
 {
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-    ggml_backend_cuda_device* dev = (ggml_backend_cuda_device*)get_device();
-    std::lock_guard<std::mutex> lock1(dev->device_mutex);
-    dev->active_count--;
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-
     std::unique_lock<std::mutex> lock(ggml_cuda_lock);
     ggml_cuda_lock_cv.wait(lock, [] { return ggml_cuda_lock_counter.load(std::memory_order_relaxed) == 0; });
 

@@ -885,4 +885,23 @@ namespace op {
 
         concat_cuda(ctx, stream);
     }
+
+    void col2im_1d(cudaStream_t stream, ggml_tensor* dst)
+    {
+        const ggml_tensor* src0 = dst->src[0];
+        GGML_ASSERT(ggml_is_contiguous(src0));
+
+        col2im_1d_context ctx {
+			.src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+			.src0_d = src0->data,
+            .dst_d = dst->data,
+            .s0 = std::bit_cast<int32_t>(dst->op_params[0]),
+			.OC = std::bit_cast<int32_t>(dst->op_params[1]),
+			.p0 = std::bit_cast<int32_t>(dst->op_params[2]),
+			.K_OC = (int)src0->ne[0],
+            .T_in = (int)src0->ne[1],
+            .T_out = (int)dst->ne[0]
+        };
+        col2im_1d_cuda(ctx, stream);
+    }
 }

@@ -75,6 +75,7 @@ target_sources(libggml
       op/argmax.cu
       op/argsort.cu
       op/binbcast.cu
+      op/col2im-1d.cu
       op/clamp.cu
       op/compute_batched_ptrs.cu
       op/concat.cu

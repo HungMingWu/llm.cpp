@@ -13,11 +13,6 @@ import :cuda.registry;
 
 cuda_backend_buffer::~cuda_backend_buffer()
 {
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-	ggml_backend_cuda_device* dev = (ggml_backend_cuda_device*)get_type()->get_device();
-	std::lock_guard<std::mutex> lock(dev->device_mutex);
-	dev->active_count--;
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 	CUDA_CHECK(cudaFree(dev_ptr));
 }
 

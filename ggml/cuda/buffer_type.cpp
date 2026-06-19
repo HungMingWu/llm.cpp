@@ -1,7 +1,6 @@
 module;
 #include <assert.h>
 #include <memory>
-#include <mutex>
 #include "common.h"
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
 
@@ -16,8 +15,6 @@ static void* ggml_cuda_host_malloc(size_t size) {
 	if (getenv("GGML_CUDA_NO_PINNED") != nullptr) {
 		return nullptr;
 	}
-
-	ggml_cuda_set_device(0); // cudaMallocHost can create the implicit CUDA device context, make sure that this is consistently done on device 0.
 
 	void* ptr = nullptr;
 	cudaError_t err = cudaMallocHost((void**)&ptr, size);
@@ -45,11 +42,6 @@ std::unique_ptr<ggml_backend_buffer> cuda_backend_buffer_type::alloc_buffer_impl
 		return nullptr;
 	}
 
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-	ggml_backend_cuda_device* dev = (ggml_backend_cuda_device*)get_device();
-	std::lock_guard<std::mutex> lock(dev->device_mutex);
-	dev->active_count++;
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 	return std::make_unique<cuda_backend_buffer>(this, size, device, dev_ptr);
 }
 
@@ -111,11 +103,6 @@ struct cuda_host_buffer : public host_backend_buffer_base {
 public:
 	using host_backend_buffer_base::host_backend_buffer_base;
 	~cuda_host_buffer() override {
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-		ggml_backend_cuda_device* dev = (ggml_backend_cuda_device*)get_type()->get_device();
-		std::lock_guard<std::mutex> lock(dev->device_mutex);
-		dev->active_count--;
-#endif // !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 		CUDA_CHECK(cudaFreeHost(context));
 	}
 };
