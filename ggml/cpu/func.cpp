@@ -6928,7 +6928,8 @@ void ggml_compute_forward_gated_delta_net(
 
 template <typename elem_t>
 static void ggml_compute_forward_col2im_1d_impl(
-	const ggml_compute_params* params,
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src = dst->src[0];  // [K*OC, T_in]
@@ -6945,48 +6946,43 @@ static void ggml_compute_forward_col2im_1d_impl(
 	const int64_t K = K_OC / OC;
 	const int64_t T_out = dst->ne[0];
 
-	const elem_t* col_data = (const elem_t*)src->data;
-	elem_t* dst_data = (elem_t*)dst->data;
-
-	const int ith = params->ith;
-	const int nth = params->nth;
-
-	// Parallelize over the time axis: the split stays balanced whatever OC is,
-	// down to OC = 1 for mono audio, and threads read disjoint column bands
-	const int64_t dr = (T_out + nth - 1) / nth;
-	const int64_t it0 = dr * ith;
-	const int64_t it1 = it0 + dr < T_out ? it0 + dr : T_out;
+	const auto col_data = std::mdspan((const elem_t*)src->data, T_in, OC, K);
+	auto dst_data = std::mdspan((elem_t*)dst->data, OC, T_out);
 
 	for (int64_t oc = 0; oc < OC; oc++) {
-		for (int64_t t_out = it0; t_out < it1; t_out++) {
-			const int64_t t_abs = t_out + p0;  // absolute position in uncropped signal
-			// Gather: find all (t_in, k) where t_in * s + k == t_abs, 0 <= k < K
-			int64_t t_in_min = (t_abs - K + 1 + s0 - 1) / s0;  // ceil((t_abs-K+1)/s)
-			if (t_in_min < 0) t_in_min = 0;
-			int64_t t_in_max = t_abs / s0;
-			if (t_in_max >= T_in) t_in_max = T_in - 1;
+		for (int64_t t_out = 0; t_out < T_out; t_out++) {
+			stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
+				const int64_t t_abs = t_out + p0;  // absolute position in uncropped signal
+				// Gather: find all (t_in, k) where t_in * s + k == t_abs, 0 <= k < K
+				int64_t t_in_min = (t_abs - K + 1 + s0 - 1) / s0;  // ceil((t_abs-K+1)/s)
+				if (t_in_min < 0) t_in_min = 0;
+				int64_t t_in_max = t_abs / s0;
+				if (t_in_max >= T_in) t_in_max = T_in - 1;
 
-			float sum = 0.0f;
-			for (int64_t t_in = t_in_min; t_in <= t_in_max; t_in++) {
-				int64_t k = t_abs - t_in * s0;
-				if (k >= 0 && k < K) {
-					// col layout: [K*OC, T_in], element (oc*K+k, t_in)
-					sum += toFloat32(col_data[(oc * K + k) + t_in * K_OC]);
+				float sum = 0.0f;
+				for (int64_t t_in = t_in_min; t_in <= t_in_max; t_in++) {
+					int64_t k = t_abs - t_in * s0;
+					if (k >= 0 && k < K) {
+						// col layout: [T_in, OC, K], element (t_in, oc, k)
+						sum += toFloat32(col_data[t_in, oc, k]);
+					}
 				}
-			}
-			// dst layout: [T_out, OC], element (t_out, oc)
-			dst_data[t_out + oc * T_out] = fromFloat32<elem_t>(sum);
+				// dst layout: [OC, T_out], element (oc, t_out)
+				dst_data[oc, t_out] = fromFloat32<elem_t>(sum);
+			});
+			scope.spawn(std::move(sender));
 		}
 	}
 }
 
 void ggml_compute_forward_col2im_1d(
-	const ggml_compute_params* params,
+	exec::static_thread_pool& pool,
+	exec::async_scope& scope,
 	ggml_tensor* dst) {
 	switch (dst->src[0]->type) {
-	case GGML_TYPE_F32:  ggml_compute_forward_col2im_1d_impl<float>(params, dst); break;
-	case GGML_TYPE_F16:  ggml_compute_forward_col2im_1d_impl<ggml_fp16_t>(params, dst); break;
-	case GGML_TYPE_BF16: ggml_compute_forward_col2im_1d_impl<ggml_bf16_t>(params, dst); break;
+	case GGML_TYPE_F32:  ggml_compute_forward_col2im_1d_impl<float>(pool, scope, dst); break;
+	case GGML_TYPE_F16:  ggml_compute_forward_col2im_1d_impl<ggml_fp16_t>(pool, scope, dst); break;
+	case GGML_TYPE_BF16: ggml_compute_forward_col2im_1d_impl<ggml_bf16_t>(pool, scope, dst); break;
 	default: GGML_ABORT("col2im_1d: unsupported type %d", dst->src[0]->type);
 	}
 }
@@ -7198,7 +7194,7 @@ void ggml_compute_forward(
 	} break;
 	case GGML_OP_COL2IM_1D:
 	{
-		ggml_compute_forward_col2im_1d(params, tensor);
+		ggml_compute_forward_col2im_1d(pool, scope, tensor);
 	} break;
 	case GGML_OP_CONV_2D:
 	{
