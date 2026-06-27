@@ -1043,3 +1043,13 @@ struct col2im_1d_context {
 };
 
 void col2im_1d_cuda(const col2im_1d_context& ctx, cudaStream_t stream);
+
+// out_prod.cu
+void k_compute_out_prod_ptrs(
+    const float* src0_d, const float* src1_d, float* dst_d,
+    const float** ptrs_a, const float** ptrs_b, float** ptrs_c,
+    const int64_t ne2, const int64_t ne3,
+    const int64_t dps2, const int64_t dps3,
+    const size_t s02, const size_t s03,
+    const size_t s12, const size_t s13,
+    const size_t s2, const size_t s3, cudaStream_t stream);

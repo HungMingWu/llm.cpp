@@ -2556,7 +2556,7 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         });
         break;
     case GGML_OP_OUT_PROD:
-        op::out_prod(stream(), cublas_handle(), dst);
+        op::out_prod(pool(), stream(), cublas_handle(), dst);
         break;
     case GGML_OP_SCALE:
         op::scale(stream(), dst);

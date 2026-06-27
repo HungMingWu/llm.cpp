@@ -110,6 +110,7 @@ target_sources(libggml
       op/norm.cu
       op/opt-step-adamw.cu
       op/opt-step-sgd.cu
+      op/out-prod.cu
       op/pad.cu
       op/pad_reflect_1d.cu
       op/pool2d.cu

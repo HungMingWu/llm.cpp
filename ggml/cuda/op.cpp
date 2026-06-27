@@ -748,7 +748,7 @@ namespace op {
         relu_sqr_cuda(ctx);
     }
 
-    void out_prod(cudaStream_t stream, cublasHandle_t handle, ggml_tensor* dst) {
+    void out_prod(ggml_cuda_pool& pool, cudaStream_t stream, cublasHandle_t handle, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
         const ggml_tensor* src1 = dst->src[1];
 
@@ -809,19 +809,38 @@ namespace op {
                         batch_count));
             }
         }
+        else if (dst->ne[2] > 1 || dst->ne[3] > 1) {
+            // dps2 > 1 (src0 broadcast along dim 2 with non-uniform stride) or multiple GEMMs
+            // along dim 3: compute per-GEMM pointers on the device and use a single batched GEMM.
+            GGML_ASSERT(dst->ne[3] > 0);
+            GGML_ASSERT(dst->ne[2] <= (int64_t)std::numeric_limits<int>::max() / dst->ne[3]);
+
+            const int batch_count = (int)(dst->ne[2] * dst->ne[3]);
+            ggml_cuda_pool_alloc<const float*> ptrs_a(pool, batch_count);
+            ggml_cuda_pool_alloc<const float*> ptrs_b(pool, batch_count);
+            ggml_cuda_pool_alloc<      float*> ptrs_c(pool, batch_count);
+
+            k_compute_out_prod_ptrs(
+                src0_d, src1_d, dst_d,
+                ptrs_a.get(), ptrs_b.get(), ptrs_c.get(),
+                dst->ne[2], dst->ne[3], dps2, dps3, s02, s03, s12, s13, s2, s3, stream);
+            CUBLAS_CHECK(
+                cublasSgemmBatched(handle, CUBLAS_OP_N, src1_cublas_op,
+                    dst->ne[0], dst->ne[1], src0->ne[1],
+                    &alpha, ptrs_a.get(), lda,
+                    ptrs_b.get(), ldb,
+                    &beta, ptrs_c.get(), ldc,
+                    batch_count));
+
+        }
         else {
-            // Fallback: ne2 == 1 (no batching benefit) or dps2 > 1 (src0 broadcast along dim 2
-            // with non-uniform stride; would need cublasSgemmBatched with pointer arrays).
-            for (int64_t i3 = 0; i3 < dst->ne[3]; ++i3) {
-                for (int64_t i2 = 0; i2 < dst->ne[2]; ++i2) {
-                    CUBLAS_CHECK(
-                        cublasSgemm(handle, CUBLAS_OP_N, src1_cublas_op,
-                            dst->ne[0], dst->ne[1], src0->ne[1],
-                            &alpha, src0_d + (i3 / dps3) * s03 + (i2 / dps2) * s02, lda,
-                            src1_d + i3 * s13 + i2 * s12, ldb,
-                            &beta, dst_d + i3 * s3 + i2 * s2, ldc));
-                }
-            }
+            // ne2 == 1 && ne3 == 1: single GEMM
+            CUBLAS_CHECK(
+                cublasSgemm(handle, CUBLAS_OP_N, src1_cublas_op,
+                    dst->ne[0], dst->ne[1], src0->ne[1],
+                    &alpha, src0_d, lda,
+                    src1_d, ldb,
+                    &beta, dst_d, ldc));
         }
     }
 

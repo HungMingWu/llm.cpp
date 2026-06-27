@@ -5843,17 +5843,18 @@ static void ggml_call_mul_mat(ggml_type type,
 }
 
 // ggml_compute_forward_conv_2d
+
 template <typename kernel_t>
 static void ggml_compute_forward_conv_2d_impl(
 	exec::static_thread_pool& pool,
 	exec::async_scope& scope,
 	ggml_tensor* dst     // [N, COut, OH, OW]
-) {
-	const ggml_tensor* kernel = dst->src[0];  // [COut, CIn, KH, KW]
-	const ggml_tensor* input = dst->src[1];     // [N, CIn, IH, IW]
+)
+{
+	const ggml_tensor* kernel = dst->src[0];
+	const ggml_tensor* input = dst->src[1];
+
 	GGML_ASSERT(ggml_is_contiguous(kernel));
-	GGML_ASSERT(input->ne[2] == kernel->ne[2]);
-	GGML_ASSERT(kernel->ne[3] == dst->ne[2]);
 
 	const int32_t stride_w = dst->op_params[0];
 	const int32_t stride_h = dst->op_params[1];
@@ -5863,45 +5864,67 @@ static void ggml_compute_forward_conv_2d_impl(
 	const int32_t dilation_h = dst->op_params[5];
 
 	const int64_t N = input->ne[3];
-	const int64_t COut = kernel->ne[3];
-	const int64_t KH = kernel->ne[1];
-	const int64_t KW = kernel->ne[0];
-	const int64_t OH = dst->ne[1];
-	const int64_t OW = dst->ne[0];
+	GGML_ASSERT(N == dst->ne[3]);
 	const int64_t CIn = input->ne[2];
-	const int64_t IH = input->ne[1];
+	const int64_t COut = kernel->ne[3];
+	GGML_ASSERT(CIn == kernel->ne[2]);
+
 	const int64_t IW = input->ne[0];
+	const int64_t IH = input->ne[1];
+	const int64_t KW = kernel->ne[0];
+	const int64_t KH = kernel->ne[1];
+	const int64_t OW = dst->ne[0];
+	const int64_t OH = dst->ne[1];
+
+	std::vector<kernel_t> tmp_(N * OH * OW * CIn * KH * KW);
+	std::mdspan tmp(tmp_.data(), N, OH, OW, CIn, KH, KW);
+
 	std::mdspan input_data(static_cast<const float*>(input->data), N, CIn, IH, IW);
-	std::mdspan kernel_data(static_cast<const kernel_t*>(kernel->data), COut, CIn, KH, KW);
 	std::mdspan output_data(static_cast<float*>(dst->data), N, COut, OH, OW);
 
-	for (int64_t n = 0; n < N; n++) {
-		for (int64_t cout = 0; cout < COut; cout++) {
-			for (int64_t oh = 0; oh < OH; oh++) {
-				for (int64_t ow = 0; ow < OW; ow++) {
-					stdexec::sender auto sender = stdexec::schedule(pool.get_scheduler()) | stdexec::then([=] {
-						const int64_t kh_min = std::max(int64_t{ 0 }, (pad_h - oh * stride_h + dilation_h - 1) / dilation_h);
-						const int64_t kh_max = std::min(KH, (IH + pad_h - oh * stride_h + dilation_h - 1) / dilation_h);
-						const int64_t kw_min = std::max(int64_t{ 0 }, (pad_w - ow * stride_w + dilation_w - 1) / dilation_w);
-						const int64_t kw_max = std::min(KW, (IW + pad_w - ow * stride_w + dilation_w - 1) / dilation_w);
-						float accumulator = 0.0f;
+	//im2col for a patch
+	for (int64_t batch_n = 0; batch_n < N; batch_n++) {
+		for (int64_t oh = 0; oh < OH; oh++) {
+			for (int64_t ow = 0; ow < OW; ow++) {
+				for (int64_t cin = 0; cin < CIn; ++cin) {
+					for (int64_t kh = 0; kh < KH; ++kh) {
+						for (int64_t kw = 0; kw < KW; ++kw) {
+							const int64_t ih = oh * stride_h + kh * dilation_h - pad_h;
+							const int64_t iw = ow * stride_w + kw * dilation_w - pad_w;
 
-						for (int64_t cin = 0; cin < CIn; cin++) {
-							for (int64_t kh = kh_min; kh < kh_max; kh++) {
-								const int64_t ih = calculate_input_coord(oh, kh, stride_h, dilation_h, pad_h);
-
-								for (int64_t kw = kw_min; kw < kw_max; kw++) {
-									const int64_t iw = calculate_input_coord(ow, kw, stride_w, dilation_w, pad_w);
-
-									accumulator += input_data[n, cin, ih, iw] *
-										toFloat32(kernel_data[cout, cin, kh, kw]);
-								}
+							float src_val;
+							if (ih < 0 || ih >= IH || iw < 0 || iw >= IW) {
+								src_val = 0.0f;
 							}
-						}
+							else {
+								src_val = input_data[batch_n, cin, ih, iw];
+							}
 
-						output_data[n, cout, oh, ow] = accumulator;
-					});
-					scope.spawn(std::move(sender));
+							tmp[batch_n, oh, ow, cin, kh, kw] = fromFloat32<kernel_t>(src_val);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	stdexec::sync_wait(scope.on_empty());
+
+	std::vector<float> gemm_output1(N * OH * OW * COut);
+	std::mdspan gemm_output(gemm_output1.data(), N, OH, OW, COut);
+
+	// GEMM: patches[N * OH * OW, CIn * KH * KW] กั kernel[CIn * KH * KW, COut] = output[N * OH * OW, COut]
+	ggml_call_mul_mat(kernel->type, pool, scope, N * OH * OW, COut, KW * KH * CIn, tmp_.data(), kernel->data, gemm_output1.data(), false);
+
+	stdexec::sync_wait(scope.on_empty());
+
+	//permute back [N, OH, OW, COut] to [N, COut, OH, OW]
+
+	for (int64_t batch_n = 0; batch_n < N; batch_n++) {
+		for (int64_t oh = 0; oh < OH; oh++) {
+			for (int64_t ow = 0; ow < OW; ow++) {
+				for (int64_t cout = 0; cout < COut; ++cout) {
+					output_data[batch_n, cout, oh, ow] = gemm_output[batch_n, oh, ow, cout];
 				}
 			}
 		}

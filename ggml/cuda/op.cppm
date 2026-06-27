@@ -1117,7 +1117,7 @@ namespace op
         get_rows_cuda(ctx2, stream);
     }
 
-    void out_prod(cudaStream_t stream, cublasHandle_t handle, ggml_tensor* dst);
+    void out_prod(ggml_cuda_pool& pool, cudaStream_t stream, cublasHandle_t handle, ggml_tensor* dst);
 
     void sqr(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];
