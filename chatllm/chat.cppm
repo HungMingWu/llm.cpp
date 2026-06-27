@@ -779,7 +779,7 @@ export namespace chatllm
             uint32_t offset_tokenizer;
             uint32_t offset_tensors;
         };
-        GGMMHeader ggml_header;
+        GGMMHeader ggmm_header;
         FileFormat ff;
         std::string meta;
         json::JSON  meta_json;
