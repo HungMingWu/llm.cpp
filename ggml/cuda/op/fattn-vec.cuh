@@ -388,9 +388,8 @@ static __global__ void flash_attn_ext_vec(
 #pragma unroll
             for (int i_VKQ_1 = 0; i_VKQ_1 < V_rows_per_thread / 2; i_VKQ_1++) {
                 const t2 VKQ_val = VKQ(j_VKQ, i_VKQ_0 + i_VKQ_1);
-                const auto VKQ_val_s = std::bit_cast<std::array<t1, 2>>(VKQ_val);
-                KQ_mdspan(threadIdx.y, v_col, 2 * (i_VKQ + i_VKQ_1) + 0) = VKQ_val_s[0];
-                KQ_mdspan(threadIdx.y, v_col, 2 * (i_VKQ + i_VKQ_1) + 1) = VKQ_val_s[1];
+                KQ_mdspan(threadIdx.y, v_col, 2 * (i_VKQ + i_VKQ_1) + 0) = VKQ_val.x;
+                KQ_mdspan(threadIdx.y, v_col, 2 * (i_VKQ + i_VKQ_1) + 1) = VKQ_val.y;
             }
         }
 
