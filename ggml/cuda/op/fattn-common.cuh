@@ -89,15 +89,18 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ(
 
 #pragma unroll
     for (int k_KQ_0 = 0; k_KQ_0 < D / 2; k_KQ_0 += nthreads * cpy_ne) {
-        __align__(16) half2 tmp[cpy_ne];
-        ggml_cuda_memcpy_1<sizeof(tmp)>(tmp, ((const half2*)K_h2) + k_KQ_0 + (threadIdx.x % nthreads) * cpy_ne);
 #pragma unroll
         for (int k_KQ_1 = 0; k_KQ_1 < cpy_ne; ++k_KQ_1) {
-            if constexpr (v_dot2_f32_f16_available_v) {
-                ggml_cuda_mad(sum, tmp[k_KQ_1], ((const half2*)Q_v)[k_KQ_0 / nthreads + k_KQ_1]);
-            } else {
-                ggml_cuda_mad(sum, __half22float2(tmp[k_KQ_1]), ((const float2*)Q_v)[k_KQ_0 / nthreads + k_KQ_1]);
-            }
+            auto v = [=]() {
+                const half h1 = K_h2[2 * (k_KQ_0 + (threadIdx.x % nthreads) * cpy_ne + k_KQ_1)];
+                const half h2 = K_h2[2 * (k_KQ_0 + (threadIdx.x % nthreads) * cpy_ne + k_KQ_1) + 1];
+                if constexpr (v_dot2_f32_f16_available_v) {
+                    return make_half2(h1, h2);
+                } else {
+                    return make_float2(__half2float(h1), __half2float(h2));
+                }
+            }();
+            ggml_cuda_mad(sum, v, ((const decltype(v) *)Q_v)[k_KQ_0 / nthreads + k_KQ_1]);
         }
     }
 
@@ -115,16 +118,22 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ(
 
 #pragma unroll
     for (int k_KQ_0 = 0; k_KQ_0 < D/2; k_KQ_0 += nthreads*cpy_ne) {
-        __align__(16) nv_bfloat162 tmp[cpy_ne];
-        ggml_cuda_memcpy_1<sizeof(tmp)>(tmp, ((const nv_bfloat162*)K_bf16) + k_KQ_0 + (threadIdx.x % nthreads)*cpy_ne);
 #pragma unroll
         for (int k_KQ_1 = 0; k_KQ_1 < cpy_ne; ++k_KQ_1) {
-            if constexpr (v_dot2_f32_f16_available_v) {
-                // FIXME replace macros in vector FA kernel with templating and use FP32 for BF16
-                ggml_cuda_mad(sum, ggml_cuda_cast<float2>(tmp[k_KQ_1]), __half22float2(((const half2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1]));
-            } else {
-                ggml_cuda_mad(sum, ggml_cuda_cast<float2>(tmp[k_KQ_1]), ((const float2 *) Q_v)[k_KQ_0/nthreads + k_KQ_1]);
-            }
+            auto v = [=]() {
+                const nv_bfloat16 b1 = K_bf16[2 * (k_KQ_0 + (threadIdx.x % nthreads) * cpy_ne + k_KQ_1)];
+                const nv_bfloat16 b2 = K_bf16[2 * (k_KQ_0 + (threadIdx.x % nthreads) * cpy_ne + k_KQ_1) + 1];
+                return make_float2(__bfloat162float(b1), __bfloat162float(b2));
+            }();
+            auto u = [=]() {
+                if constexpr (v_dot2_f32_f16_available_v) {
+                    return __half22float2(((const half2*)Q_v)[k_KQ_0 / nthreads + k_KQ_1]);
+                }
+                else {
+                    return ((const float2*)Q_v)[k_KQ_0 / nthreads + k_KQ_1];
+                }
+            }();
+            ggml_cuda_mad(sum, v, u);
         }
     }
 
