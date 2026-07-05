@@ -79,8 +79,8 @@ static __global__ void quantize_q8_1(
 
     block_q8_1* y = (block_q8_1*)vy;
 
-    const int64_t ib = i_cont / QK8_1; // block index
-    const int64_t iqs = i_cont % QK8_1; // quant index
+    const int64_t ib = i_cont / block_q8_1::block_size; // block index
+    const int64_t iqs = i_cont % block_q8_1::block_size; // quant index
 
     ggml_cuda_pdl_sync();
     const float xi = i0 < ne00 ? x[i03 * s03 + i02 * s02 + i01 * s01 + i00] : 0.0f;
@@ -88,11 +88,11 @@ static __global__ void quantize_q8_1(
     float sum = xi;
 
     {
-        auto tile = cooperative_groups::tiled_partition<QK8_1>(cooperative_groups::this_thread_block());
+        auto tile = cooperative_groups::tiled_partition<block_q8_1::block_size>(cooperative_groups::this_thread_block());
         amax = cooperative_groups::reduce(tile, amax, cooperative_groups::greater<float>());
     }
     {
-        auto tile = cooperative_groups::tiled_partition<QK8_1>(cooperative_groups::this_thread_block());
+        auto tile = cooperative_groups::tiled_partition<block_q8_1::block_size>(cooperative_groups::this_thread_block());
         sum = cooperative_groups::reduce(tile, sum, cooperative_groups::plus<float>());
     }
 
@@ -138,9 +138,9 @@ static __global__ void quantize_mmq_q8_1(
 
     block_q8_1_mmq* y = (block_q8_1_mmq*)vy;
 
-    const int64_t ib0 = blockIdx.z * ((int64_t)gridDim.x * gridDim.y * blockDim.x / QK8_1); // first block of channel
-    const int64_t ib = ib0 + (i0 / (4 * QK8_1)) * ne1 + blockIdx.x;                    // block index in channel
-    const int64_t iqs = i0 % (4 * QK8_1);                                             // quant index in block
+    const int64_t ib0 = blockIdx.z * ((int64_t)gridDim.x * gridDim.y * blockDim.x / block_q8_1::block_size); // first block of channel
+    const int64_t ib = ib0 + (i0 / (4 * block_q8_1::block_size)) * ne1 + blockIdx.x;                    // block index in channel
+    const int64_t iqs = i0 % (4 * block_q8_1::block_size);                                             // quant index in block
 
     // Load 4 floats per thread and calculate max. abs. value between them:
     const float4 xi = i0 < ne00 ? x4[(i03 * s03 + i02 * s02 + i01 * s01 + i00) / 4] : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -214,7 +214,7 @@ void quantize_row_q8_1_cuda(
     const int64_t ne00, const int64_t s01, const int64_t s02, const int64_t s03,
     const int64_t ne0, const int64_t ne1, const int64_t ne2, const int64_t ne3, cudaStream_t stream) {
     GGML_ASSERT(!ids);
-    GGML_ASSERT(ne0 % QK8_1 == 0);
+    GGML_ASSERT(ne0 % block_q8_1::block_size == 0);
 
     const uint3 ne2_fastdiv = init_fastdiv_values(ne2);
 
@@ -230,7 +230,7 @@ void quantize_mmq_q8_1_cuda(
     const int64_t ne00, const int64_t s01, const int64_t s02, const int64_t s03,
     const int64_t ne0, const int64_t ne1, const int64_t ne2, const int64_t ne3, cudaStream_t stream) {
     GGML_ASSERT(ne00 % 4 == 0);
-    GGML_ASSERT(ne0 % (4 * QK8_1) == 0);
+    GGML_ASSERT(ne0 % (4 * block_q8_1::block_size) == 0);
 
     // ne1 tends to assume the highest values, therefore use it as the "x" dimension of the CUDA grid:
     const int64_t block_num_y = (ne0 + 4 * CUDA_QUANTIZE_BLOCK_SIZE_MMQ - 1) / (4 * CUDA_QUANTIZE_BLOCK_SIZE_MMQ);

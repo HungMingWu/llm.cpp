@@ -278,7 +278,7 @@ static __device__ __forceinline__ uint2 fast_div_modulo(uint32_t n, const uint3 
 #define QI8_0 (block_q8_0::block_size / (4 * QR8_0))
 #define QR8_0 1
 
-#define QI8_1 (QK8_1 / (4 * QR8_1))
+#define QI8_1 (block_q8_1::block_size / (4 * QR8_1))
 #define QR8_1 1
 
 #define QI2_K (QK_K / (4*QR2_K))

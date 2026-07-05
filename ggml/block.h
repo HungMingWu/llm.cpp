@@ -66,12 +66,12 @@ struct block_q8_0 {
 };
 static_assert(sizeof(block_q8_0) == sizeof(uint16_t) + block_q8_0::block_size, "wrong q8_0 block size/padding");
 
-#define QK8_1 32
 struct block_q8_1 {
+    static constexpr int block_size = 32;
     uint32_t ds;      // delta, d * sum(qs[i])
-    int8_t qs[QK8_1]; // quants
+    int8_t qs[block_size]; // quants
 };
-static_assert(sizeof(block_q8_1) == 2 * sizeof(uint16_t) + QK8_1, "wrong q8_1 block size/padding");
+static_assert(sizeof(block_q8_1) == 2 * sizeof(uint16_t) + block_q8_1::block_size, "wrong q8_1 block size/padding");
 
 //
 // Ternary quantization

@@ -178,7 +178,7 @@ static __global__ void flash_attn_ext_vec(
                         tmp_q_i32[i] = 0;
                     }
                 }
-                if (threadIdx.x < D / QK8_1) {
+                if (threadIdx.x < D / block_q8_1::block_size) {
                     tmp_q_ds[threadIdx.x] = make_float2(0.0f, 0.0f);
                 }
             }

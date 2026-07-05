@@ -220,7 +220,7 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
         GGML_TYPE_Q8_1,
         {
             .type_name = "q8_1",
-            .blck_size = QK8_1,
+            .blck_size = block_q8_1::block_size,
             .type_size = sizeof(block_q8_1),
             .is_quantized = true,
             //.from_float_ref = (ggml_from_float_t)quantize_row_q8_1_ref,

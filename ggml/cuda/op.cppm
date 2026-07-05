@@ -872,7 +872,7 @@ namespace op
 
         const int64_t ne10_padded = GGML_PAD(src1->ne[0], MATRIX_ROW_PADDING);
         ggml_cuda_pool_alloc<char> src1_q8_1(pool,
-            src1->ne[3] * src1->ne[2] * src1->ne[1] * ne10_padded * sizeof(block_q8_1) / QK8_1);
+            src1->ne[3] * src1->ne[2] * src1->ne[1] * ne10_padded * sizeof(block_q8_1) / block_q8_1::block_size);
         {
             const int64_t s11 = src1->nb[1] / ts_src1;
             const int64_t s12 = src1->nb[2] / ts_src1;
@@ -882,7 +882,7 @@ namespace op
         }
 
         const int64_t s01 = src0->nb[1] / ts_src0;
-        const int64_t s11 = ne10_padded / QK8_1;
+        const int64_t s11 = ne10_padded / block_q8_1::block_size;
         const int64_t s1 = dst->nb[1] / ts_dst;
         const int64_t s02 = src0->nb[2] / ts_src0;
         const int64_t s2 = dst->nb[2] / ts_dst;

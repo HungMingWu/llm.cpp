@@ -97,7 +97,7 @@ void ggml_vec_dot(int n, float* s, size_t bs, const block_q4_0* x, size_t bx, co
 
 void ggml_vec_dot(int n, float* s, size_t bs, const block_q4_1* x, size_t bx, const block_q8_1* y, size_t by, int nrc)
 {
-    const int qk = QK8_1;
+    const int qk = block_q8_1::block_size;
     const int nb = n / qk;
 
     assert(n % qk == 0);
@@ -235,7 +235,7 @@ void ggml_vec_dot(int n, float* s, size_t bs, const block_q5_0* x, size_t bx, co
 
 void ggml_vec_dot(int n, float* s, size_t bs, const block_q5_1* x, size_t bx, const block_q8_1* y, size_t by, int nrc)
 {
-    const int qk = QK8_1;
+    const int qk = block_q8_1::block_size;
     const int nb = n / qk;
 
     int ib = 0;

@@ -3159,15 +3159,15 @@ void quantize_row_q8_0_ref(const float* x, block_q8_0* y, int64_t k) {
 }
 
 void quantize_row_q8_1_ref(const float* x, block_q8_1* y, int64_t k) {
-    assert(QK8_1 == 32);
-    assert(k % QK8_1 == 0);
-    const int nb = k / QK8_1;
+    assert(block_q8_1::block_size == 32);
+    assert(k % block_q8_1::block_size == 0);
+    const int nb = k / block_q8_1::block_size;
 
     for (int i = 0; i < nb; i++) {
         float amax = 0.0f; // absolute max
 
-        for (int j = 0; j < QK8_1; j++) {
-            const float v = x[i * QK8_1 + j];
+        for (int j = 0; j < block_q8_1::block_size; j++) {
+            const float v = x[i * block_q8_1::block_size + j];
             amax = std::max(amax, fabsf(v));
         }
 
@@ -3179,15 +3179,15 @@ void quantize_row_q8_1_ref(const float* x, block_q8_1* y, int64_t k) {
 
         int sum = 0;
 
-        for (int j = 0; j < QK8_1 / 2; ++j) {
-            const float v0 = x[i * QK8_1 + j] * id;
-            const float v1 = x[i * QK8_1 + QK8_1 / 2 + j] * id;
+        for (int j = 0; j < block_q8_1::block_size / 2; ++j) {
+            const float v0 = x[i * block_q8_1::block_size + j] * id;
+            const float v1 = x[i * block_q8_1::block_size + block_q8_1::block_size / 2 + j] * id;
 
             y[i].qs[j] = roundf(v0);
-            y[i].qs[QK8_1 / 2 + j] = roundf(v1);
+            y[i].qs[block_q8_1::block_size / 2 + j] = roundf(v1);
 
             sum += y[i].qs[j];
-            sum += y[i].qs[QK8_1 / 2 + j];
+            sum += y[i].qs[block_q8_1::block_size / 2 + j];
         }
 
         ds[1] = fromFloat32<ggml_fp16_t>(sum * d);

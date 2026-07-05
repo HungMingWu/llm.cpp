@@ -1540,7 +1540,7 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
     constexpr int blocks_per_iter = MMQ_ITER_K / block_q1_0::block_size;
     constexpr int threads_per_row = blocks_per_iter * QI1_0;
     constexpr int nrows = warp_size / threads_per_row;
-    constexpr int scale_entries_per_block = block_q1_0::block_size / QK8_1;
+    constexpr int scale_entries_per_block = block_q1_0::block_size / block_q8_1::block_size;
     constexpr int scale_entries_per_row = blocks_per_iter * scale_entries_per_block;
 
     const int txi  = threadIdx.x % threads_per_row;
@@ -2763,10 +2763,10 @@ static __device__ __forceinline__ void mul_mat_q_process_tile(
     constexpr int ne_block = [=]() {
         if constexpr (blackwell_mma_available_v) {
             // FP4 tile stores 8 blocks
-            return (type == internal::GGML_TYPE_MXFP4) ? 8 * block_mxfp4::block_size : 4 * QK8_1;
+            return (type == internal::GGML_TYPE_MXFP4) ? 8 * block_mxfp4::block_size : 4 * block_q8_1::block_size;
         }
         else {
-            return 4 * QK8_1;
+            return 4 * block_q8_1::block_size;
         }
     }();
 

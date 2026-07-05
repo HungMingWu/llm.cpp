@@ -139,7 +139,7 @@ struct block_q8_1_mmq {
         half  d2s6[8];  // 1 16 bit scale per 64 values + 1 16 bit partial sum per 16 values for the first 96 values,
         //     stored as d0,d1,s1,s2,s3,s4,s5
     };
-    int8_t qs[4 * QK8_1]; // 128 values quantized to 8 bit each
+    int8_t qs[4 * block_q8_1::block_size]; // 128 values quantized to 8 bit each
 };
 
 // this struct is used for fp4 data types (currently only used for Blackwell)
@@ -150,7 +150,7 @@ struct block_fp4_mmq {
     int8_t   qs[4 * 32];  // 256 FP4 values packed as 4-bit pairs (2 per byte)
 };
 
-static_assert(sizeof(block_q8_1_mmq) == 4 * QK8_1 + 4 * sizeof(half2), "Unexpected block_q8_1_mmq size");
+static_assert(sizeof(block_q8_1_mmq) == 4 * block_q8_1::block_size + 4 * sizeof(half2), "Unexpected block_q8_1_mmq size");
 static_assert(sizeof(block_q8_1_mmq) == 4 * sizeof(block_q8_1), "Unexpected block_q8_1_mmq size");
 static_assert(sizeof(block_fp4_mmq) == sizeof(block_q8_1_mmq), "Unexpected block_fp4_mmq size");
 

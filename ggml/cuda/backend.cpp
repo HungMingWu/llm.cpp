@@ -368,7 +368,7 @@ namespace
         const size_t src0_ts = ggml_type_size(src0->type);
         const size_t src0_bs = ggml_blck_size(src0->type);
         const size_t q8_1_ts = sizeof(block_q8_1);
-        const size_t q8_1_bs = QK8_1;
+        const size_t q8_1_bs = block_q8_1::block_size;
 
         const bool src0_is_contiguous = ggml_is_contiguous(src0);
         const bool src1_is_contiguous = ggml_is_contiguous(src1);
@@ -570,7 +570,7 @@ namespace
                                 if (quantize_src1 == quantize_mmq_q8_1_cuda) {
                                     const size_t pitch = ne11 * sizeof(block_q8_1_mmq);
                                     const size_t width = src1_ncols * sizeof(block_q8_1_mmq);
-                                    const size_t height = src1_padded_col_size / (4 * QK8_1);
+                                    const size_t height = src1_padded_col_size / (4 * block_q8_1::block_size);
                                     CUDA_CHECK(ggml_cuda_Memcpy2DPeerAsync(src1_ddq_i, id, pitch, src1_ddq_i_source, ctx.device, pitch, width, height, stream));
                                 }
                                 else {
@@ -673,7 +673,7 @@ static void ggml_cuda_op_mul_mat_q(
 
     const int64_t ne10 = src1->ne[0];
     const int64_t ne11 = src1->ne[1];
-    GGML_ASSERT(ne10 % QK8_1 == 0);
+    GGML_ASSERT(ne10 % block_q8_1::block_size == 0);
 
     const int64_t ne0 = dst->ne[0];
 
@@ -1010,7 +1010,7 @@ void ggml_cuda_op_mul_mat_vec_q(
     const int64_t row_diff = row_high - row_low;
 
     const int64_t ne10 = src1->ne[0];
-    GGML_ASSERT(ne10 % QK8_1 == 0);
+    GGML_ASSERT(ne10 % block_q8_1::block_size == 0);
 
     const int64_t ne0 = dst->ne[0];
 
@@ -1021,7 +1021,7 @@ void ggml_cuda_op_mul_mat_vec_q(
     const int64_t nrows_dst = id == ctx.device ? ne0 : row_diff;
 
     const int stride_row_x = ne00 / ggml_blck_size(src0->type);
-    const int stride_col_y = src1_padded_row_size / QK8_1;
+    const int stride_col_y = src1_padded_row_size / block_q8_1::block_size;
 
     mat_vec_q_switch_context ctx1 {
         .type_x = std::bit_cast<internal::ggml_type>(src0->type),

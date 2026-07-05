@@ -63,7 +63,7 @@ namespace op {
         const bool use_native_fp4 = blackwell_mma_available(cc) && (src0->type == GGML_TYPE_MXFP4 || src0->type == GGML_TYPE_NVFP4);
 
         if (!ids) {
-            const size_t nbytes_src1_q8_1 = src1->ne[3] * src1->ne[2] * src1->ne[1] * ne10_padded * sizeof(block_q8_1) / QK8_1 +
+            const size_t nbytes_src1_q8_1 = src1->ne[3] * src1->ne[2] * src1->ne[1] * ne10_padded * sizeof(block_q8_1) / block_q8_1::block_size +
                 get_mmq_x_max_host(cc) * sizeof(block_q8_1_mmq);
             ggml_cuda_pool_alloc<char> src1_q8_1(pool, nbytes_src1_q8_1);
 
@@ -89,7 +89,7 @@ namespace op {
             // Stride depends on quantization format
             const int64_t s12 = use_native_fp4 ?
                 src1->ne[1] * ne10_padded * sizeof(block_fp4_mmq) / (QK_K * sizeof(int)) :  // block_fp4_mmq holds 256 values
-                src1->ne[1] * ne10_padded * sizeof(block_q8_1) / (QK8_1 * sizeof(int));
+                src1->ne[1] * ne10_padded * sizeof(block_q8_1) / (block_q8_1::block_size * sizeof(int));
             const int64_t s13 = src1->ne[2] * s12;
 
             const mmq_args args = {
@@ -124,7 +124,7 @@ namespace op {
             CUDA_CHECK(cudaGetLastError());
         }
 
-        const size_t nbytes_src1_q8_1 = src1->ne[2] * n_expert_used * ne10_padded * sizeof(block_q8_1) / QK8_1 +
+        const size_t nbytes_src1_q8_1 = src1->ne[2] * n_expert_used * ne10_padded * sizeof(block_q8_1) / block_q8_1::block_size +
             get_mmq_x_max_host(cc) * sizeof(block_q8_1_mmq);
         ggml_cuda_pool_alloc<char> src1_q8_1(pool, nbytes_src1_q8_1);
 
@@ -151,7 +151,7 @@ namespace op {
 
         static_assert(QK_K == 8 * block_mxfp4::block_size, "QK_K needs to be 8 * QK_MXFP4");
         const int64_t s12 = use_native_fp4 ? src1->ne[1] * ne10_padded * sizeof(block_fp4_mmq) / (QK_K * sizeof(int)) :
-            src1->ne[1] * ne10_padded * sizeof(block_q8_1) / (QK8_1 * sizeof(int));
+            src1->ne[1] * ne10_padded * sizeof(block_q8_1) / (block_q8_1::block_size * sizeof(int));
         const int64_t s13 = src1->ne[2] * s12;
 
         // Note that ne02 is used instead of ne12 because the number of y channels determines the z dimension of the CUDA grid.
