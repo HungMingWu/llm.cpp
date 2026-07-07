@@ -151,7 +151,7 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ(
         const int k_KQ = k_KQ_0 + (nthreads == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads);
 
         const int ib = k_KQ / QI8_1;
-        const int iqs4 = k_KQ % QI4_0;
+        const int iqs4 = k_KQ % ggml_cuda_type_traits<block_q4_0>::qi;
         const int shift = k_KQ & (QI8_1 / 2);
 
         int v;
@@ -179,7 +179,7 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ(
         const int k_KQ = k_KQ_0 + (nthreads == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads);
 
         const int ib = k_KQ / QI8_1;
-        const int iqs4 = k_KQ % QI4_1;
+        const int iqs4 = k_KQ % ggml_cuda_type_traits<block_q4_1>::qi;
         const int shift = k_KQ & (QI8_1 / 2);
 
         int v;
@@ -209,7 +209,7 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ(
         const int k_KQ = k_KQ_0 + (nthreads == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads);
 
         const int ib = k_KQ / QI8_1;
-        const int iqs4 = k_KQ % QI5_0;
+        const int iqs4 = k_KQ % ggml_cuda_type_traits<block_q5_0>::qi;
         const int iqs8 = k_KQ % QI8_1;
         const int shift = k_KQ & (QI8_1 / 2);
 
@@ -220,7 +220,7 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ(
         {
             int vh;
             ggml_cuda_memcpy_1<sizeof(int), 2>(&vh, K_q5_0[ib].qh);
-            vh >>= iqs8 * QI5_0;
+            vh >>= iqs8 * ggml_cuda_type_traits<block_q5_0>::qi;
 
             v |= (vh << 4) & 0x00000010; // 0 ->  4
             v |= (vh << 11) & 0x00001000; // 1 -> 12
@@ -251,7 +251,7 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ(
         const int k_KQ = k_KQ_0 + (nthreads == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads);
 
         const int ib = k_KQ / QI8_1;
-        const int iqs4 = k_KQ % QI5_1;
+        const int iqs4 = k_KQ % ggml_cuda_type_traits<block_q5_1>::qi;
         const int iqs8 = k_KQ % QI8_1;
         const int shift = k_KQ & (QI8_1 / 2);
 
@@ -262,7 +262,7 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ(
         {
             int vh;
             ggml_cuda_memcpy_1<sizeof(int)>(&vh, K_q5_1[ib].qh);
-            vh >>= iqs8 * QI5_0;
+            vh >>= iqs8 * ggml_cuda_type_traits<block_q5_0>::qi;
 
             v |= (vh << 4) & 0x00000010; // 0 ->  4
             v |= (vh << 11) & 0x00001000; // 1 -> 12
@@ -289,6 +289,7 @@ static __device__ __forceinline__ float vec_dot_fattn_vec_KQ(
 
     float sum = 0.0f;
 
+    static constexpr int QI8_0 = ggml_cuda_type_traits<block_q8_0>::qi;
 #pragma unroll
     for (int k_KQ_0 = 0; k_KQ_0 < int(D / sizeof(int)); k_KQ_0 += nthreads) {
         const int k_KQ = k_KQ_0 + (nthreads == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads);

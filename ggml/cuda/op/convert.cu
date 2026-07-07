@@ -423,17 +423,17 @@ static void convert_to(const convert_context& ctx, const void* x, dst_t* y, cuda
     case internal::GGML_TYPE_F32:
         return convert_unary_cuda<float>(ctx, x, y, stream);
     case internal::GGML_TYPE_Q1_0:
-        return dequantize_block_cuda<block_q1_0, QR1_0>(ctx, x, y, stream);
+        return dequantize_block_cuda<block_q1_0, ggml_cuda_type_traits<block_q1_0>::qr>(ctx, x, y, stream);
     case internal::GGML_TYPE_Q4_0:
-        return dequantize_block_cuda<block_q4_0, QR4_0>(ctx, x, y, stream);
+        return dequantize_block_cuda<block_q4_0, ggml_cuda_type_traits<block_q4_0>::qr>(ctx, x, y, stream);
     case internal::GGML_TYPE_Q4_1:
-        return dequantize_block_cuda<block_q4_1, QR4_1>(ctx, x, y, stream);
+        return dequantize_block_cuda<block_q4_1, ggml_cuda_type_traits<block_q4_1>::qr>(ctx, x, y, stream);
     case internal::GGML_TYPE_Q5_0:
-        return dequantize_block_cuda<block_q5_0, QR5_0>(ctx, x, y, stream);
+        return dequantize_block_cuda<block_q5_0, ggml_cuda_type_traits<block_q5_0>::qr>(ctx, x, y, stream);
     case internal::GGML_TYPE_Q5_1:
-        return dequantize_block_cuda<block_q5_1, QR5_1>(ctx, x, y, stream);
+        return dequantize_block_cuda<block_q5_1, ggml_cuda_type_traits<block_q5_1>::qr>(ctx, x, y, stream);
     case internal::GGML_TYPE_Q8_0:
-        return dequantize_block_cuda<block_q8_0, QR8_0>(ctx, x, y, stream);
+        return dequantize_block_cuda<block_q8_0, ggml_cuda_type_traits<block_q8_0>::qr>(ctx, x, y, stream);
     case internal::GGML_TYPE_Q2_K:
         return dequantize_block_cuda<block_q2_K>(ctx, x, y, stream);
     case internal::GGML_TYPE_Q3_K:

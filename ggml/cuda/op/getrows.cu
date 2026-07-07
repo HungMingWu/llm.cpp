@@ -91,22 +91,22 @@ static void ggml_cuda_get_rows_switch_src0_type(const get_row_context &ctx, cuda
         get_rows_cuda_float<nv_bfloat16, dst_t>(ctx, stream);
         break;
     case internal::GGML_TYPE_Q1_0:
-        get_rows_cuda<block_q1_0, QR1_0, dst_t>(ctx, stream);
+        get_rows_cuda<block_q1_0, ggml_cuda_type_traits<block_q1_0>::qr, dst_t>(ctx, stream);
         break;
     case internal::GGML_TYPE_Q4_0:
-        get_rows_cuda<block_q4_0, QR4_0, dst_t>(ctx, stream);
+        get_rows_cuda<block_q4_0, ggml_cuda_type_traits<block_q4_0>::qr, dst_t>(ctx, stream);
         break;
     case internal::GGML_TYPE_Q4_1:
-        get_rows_cuda<block_q4_1, QR4_1, dst_t>(ctx, stream);
+        get_rows_cuda<block_q4_1, ggml_cuda_type_traits<block_q4_1>::qr, dst_t>(ctx, stream);
         break;
     case internal::GGML_TYPE_Q5_0:
-        get_rows_cuda<block_q5_0, QR5_0, dst_t>(ctx, stream);
+        get_rows_cuda<block_q5_0, ggml_cuda_type_traits<block_q5_0>::qr, dst_t>(ctx, stream);
         break;
     case internal::GGML_TYPE_Q5_1:
-        get_rows_cuda<block_q5_1, QR5_1, dst_t>(ctx, stream);
+        get_rows_cuda<block_q5_1, ggml_cuda_type_traits<block_q5_1>::qr, dst_t>(ctx, stream);
         break;
     case internal::GGML_TYPE_Q8_0:
-        get_rows_cuda<block_q8_0, QR8_0, dst_t>(ctx, stream);
+        get_rows_cuda<block_q8_0, ggml_cuda_type_traits<block_q8_0>::qr, dst_t>(ctx, stream);
         break;
     default:
         // TODO: k-quants

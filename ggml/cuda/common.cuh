@@ -254,33 +254,6 @@ static __device__ __forceinline__ uint2 fast_div_modulo(uint32_t n, const uint3 
 // QR = QK / number of values before dequantization
 // QI = number of 32 bit integers before dequantization
 
-#define QI1_0 (block_q1_0::block_size / 32)
-#define QR1_0 1
-
-#define QI4_0 (block_q4_0::block_size / (4 * QR4_0))
-#define QR4_0 2
-
-#define QI4_1 (block_q4_1::block_size / (4 * QR4_1))
-#define QR4_1 2
-
-#define QI_MXFP4 (block_mxfp4::block_size / (4 * QR_MXFP4))
-#define QR_MXFP4 2
-
-#define QI_NVFP4 (block_nvfp4::block_size / (4 * QR_NVFP4))
-#define QR_NVFP4 2
-
-#define QI5_0 (block_q5_0::block_size / (4 * QR5_0))
-#define QR5_0 2
-
-#define QI5_1 (block_q5_1::block_size / (4 * QR5_1))
-#define QR5_1 2
-
-#define QI8_0 (block_q8_0::block_size / (4 * QR8_0))
-#define QR8_0 1
-
-#define QI8_1 (block_q8_1::block_size / (4 * QR8_1))
-#define QR8_1 1
-
 #define QI2_K (QK_K / (4*QR2_K))
 #define QR2_K 4
 
@@ -355,64 +328,71 @@ static constexpr int VDR_IQ4_XS_Q8_1_MMVQ = 4;
 template<>
 struct ggml_cuda_type_traits<block_q1_0> {
     static constexpr int qk = block_q1_0::block_size;
-    static constexpr int qr = QR1_0;
-    static constexpr int qi = QI1_0;
+    static constexpr int qr = 1;
+    static constexpr int qi = qk / 32;
     static constexpr int mmvq = VDR_Q1_0_Q8_1_MMVQ;
 };
 
 template<>
 struct ggml_cuda_type_traits<block_q4_0> {
     static constexpr int qk = block_q4_0::block_size;
-    static constexpr int qr = QR4_0;
-    static constexpr int qi = QI4_0;
+    static constexpr int qr = 2;
+    static constexpr int qi = qk / (4 * qr);
     static constexpr int mmvq = VDR_Q4_0_Q8_1_MMVQ;
 };
 
 template<>
 struct ggml_cuda_type_traits<block_q4_1> {
     static constexpr int qk = block_q4_1::block_size;
-    static constexpr int qr = QR4_1;
-    static constexpr int qi = QI4_1;
+    static constexpr int qr = 2;
+    static constexpr int qi = qk / (4 * qr);
     static constexpr int mmvq = VDR_Q4_1_Q8_1_MMVQ;
 };
 
 template<>
 struct ggml_cuda_type_traits<block_q5_0> {
     static constexpr int qk = block_q5_0::block_size;
-    static constexpr int qr = QR5_0;
-    static constexpr int qi = QI5_0;
+    static constexpr int qr = 2;
+    static constexpr int qi = qk / (4 * qr);
     static constexpr int mmvq = VDR_Q5_0_Q8_1_MMVQ;
 };
 
 template<>
 struct ggml_cuda_type_traits<block_q5_1> {
     static constexpr int qk = block_q5_1::block_size;
-    static constexpr int qr = QR5_1;
-    static constexpr int qi = QI5_1;
+    static constexpr int qr = 2;
+    static constexpr int qi = qk / (4 * qr);
     static constexpr int mmvq = VDR_Q5_1_Q8_1_MMVQ;
 };
 
 template<>
 struct ggml_cuda_type_traits<block_q8_0> {
     static constexpr int qk = block_q8_0::block_size;
-    static constexpr int qr = QR8_0;
-    static constexpr int qi = QI8_0;
+    static constexpr int qr = 1;
+    static constexpr int qi = qk / (4 * qr);
     static constexpr int mmvq = VDR_Q8_0_Q8_1_MMVQ;
+};
+
+template<>
+struct ggml_cuda_type_traits<block_q8_1> {
+    static constexpr int qk = block_q8_1::block_size;
+    static constexpr int qr = 1;
+    static constexpr int qi = qk / (4 * qr);
 };
 
 template<>
 struct ggml_cuda_type_traits<block_mxfp4> {
     static constexpr int qk = block_mxfp4::block_size;
-    static constexpr int qr = QR_MXFP4;
-    static constexpr int qi = QI_MXFP4;
+    static constexpr int qr = 2;
+    static constexpr int qi = qk / (4 * qr);
     static constexpr int mmvq = VDR_MXFP4_Q8_1_MMVQ;
 };
 
 template<>
 struct ggml_cuda_type_traits<block_nvfp4> {
     static constexpr int qk = block_nvfp4::block_size;
-    static constexpr int qr = QR_NVFP4;
-    static constexpr int qi = QI_NVFP4;
+    static constexpr int qr = 2;
+    static constexpr int qi = qk / (4 * qr);
     static constexpr int mmvq = VDR_NVFP4_Q8_1_MMVQ;
 };
 

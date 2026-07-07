@@ -13,6 +13,20 @@
 #define MMQ_NWARPS               8
 
 using namespace ggml_cuda_mma;
+static constexpr int QR4_0 = ggml_cuda_type_traits<block_q4_0>::qr;
+static constexpr int QI4_0 = ggml_cuda_type_traits<block_q4_0>::qi;
+static constexpr int QR4_1 = ggml_cuda_type_traits<block_q4_1>::qr;
+static constexpr int QI4_1 = ggml_cuda_type_traits<block_q4_1>::qi;
+static constexpr int QR5_0 = ggml_cuda_type_traits<block_q5_0>::qr;
+static constexpr int QI5_0 = ggml_cuda_type_traits<block_q5_0>::qi;
+static constexpr int QR5_1 = ggml_cuda_type_traits<block_q5_1>::qr;
+static constexpr int QI5_1 = ggml_cuda_type_traits<block_q5_1>::qi;
+static constexpr int QR8_0 = ggml_cuda_type_traits<block_q8_0>::qr;
+static constexpr int QI8_0 = ggml_cuda_type_traits<block_q8_0>::qi;
+static constexpr int QR_MXFP4 = ggml_cuda_type_traits<block_mxfp4>::qr;
+static constexpr int QI_MXFP4 = ggml_cuda_type_traits<block_mxfp4>::qi;
+static constexpr int QR_NVFP4 = ggml_cuda_type_traits<block_nvfp4>::qr;
+static constexpr int QI_NVFP4 = ggml_cuda_type_traits<block_nvfp4>::qi;
 
 using vec_dot_mmq_t = void (*)(const int* __restrict__ x, const int* __restrict__ y, float* __restrict__ sum, const int k00);
 
@@ -1537,6 +1551,7 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
         }
     }();
 
+    constexpr int QI1_0 = ggml_cuda_type_traits<block_q1_0>::qi;
     constexpr int blocks_per_iter = MMQ_ITER_K / block_q1_0::block_size;
     constexpr int threads_per_row = blocks_per_iter * QI1_0;
     constexpr int nrows = warp_size / threads_per_row;
