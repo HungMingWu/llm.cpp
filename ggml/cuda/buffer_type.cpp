@@ -62,43 +62,6 @@ size_t cuda_backend_buffer_type::get_alloc_size(const ggml_tensor* tensor)
 	return size;
 }
 
-std::unique_ptr<ggml_backend_buffer> cuda_split_backend_buffer_type::alloc_buffer_impl(size_t size)
-{
-	// since we don't know the exact split after rounding, we cannot allocate the device buffers at this point
-	// instead, we allocate them for each tensor separately in init_tensor
-	// however, the size still represents the maximum cumulative size of all the device buffers after the tensors are allocated,
-	// as returned by get_alloc_size. this limit is enforced during tensor allocation by ggml-alloc, so it must be correct.
-
-	return std::make_unique<cuda_split_backend_buffer>(this, size);
-}
-
-size_t cuda_split_backend_buffer_type::get_alloc_size(const ggml_tensor* tensor)
-{
-	GGML_ASSERT(ggml_is_contiguous(tensor) && "split buffers only supported for contiguous tensors");
-
-	size_t total_size = 0;
-
-	const int64_t ne0 = tensor->ne[0];
-
-	for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
-		const auto [row_low, row_high] = get_row_split(ggml_nrows(tensor), tensor_split, id);
-
-		int64_t nrows_split = row_high - row_low;
-		if (nrows_split == 0) {
-			continue;
-		}
-
-		total_size += ggml_nbytes_split(tensor, nrows_split);
-
-		// pad last row to a multiple of 512 elements to avoid out-of-bounds memory accesses
-		if (ne0 % MATRIX_ROW_PADDING != 0) {
-			total_size += ggml_row_size(tensor->type, MATRIX_ROW_PADDING - ne0 % MATRIX_ROW_PADDING);
-		}
-	}
-
-	return total_size;
-}
-
 struct cuda_host_buffer : public host_backend_buffer_base {
 public:
 	using host_backend_buffer_base::host_backend_buffer_base;
@@ -117,16 +80,4 @@ std::unique_ptr<ggml_backend_buffer> cuda_host_backend_buffer_type::alloc_buffer
 	}
 
 	return std::make_unique<cuda_host_buffer>(this, size, ptr);
-}
-
-bool buffer_type_from_device(ggml_backend_buffer_type* buft, int device)
-{
-	if (auto cuda_buffer_type = dynamic_cast<cuda_backend_buffer_type*>(buft)) {
-		return cuda_buffer_type->device == device;
-	}
-	if (auto cuda_split_buffer_type = dynamic_cast<cuda_split_backend_buffer_type*>(buft)) {
-		return cuda_split_buffer_type->device == device;
-	}
-	const bool integrated = ggml_cuda_info().devices[device].integrated;
-	return integrated && (dynamic_cast<cuda_host_backend_buffer_type*>(buft) != nullptr);
 }

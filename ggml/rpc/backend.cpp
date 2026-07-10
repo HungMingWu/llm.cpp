@@ -11,7 +11,7 @@ import :rpc.ds;
 import :rpc.helper;
 import :rpc.socket;
 
-static void add_tensor(ggml_tensor* tensor, std::vector<rpc_tensor>& tensors, std::unordered_set<ggml_tensor*>& visited) {
+static void add_tensor(ggml_tensor* tensor, const ggml_cgraph* cgraph, std::vector<rpc_tensor>& tensors, std::unordered_set<ggml_tensor*>& visited) {
     if (tensor == nullptr) {
         return;
     }
@@ -20,10 +20,15 @@ static void add_tensor(ggml_tensor* tensor, std::vector<rpc_tensor>& tensors, st
     }
     visited.insert(tensor);
     for (int i = 0; i < GGML_MAX_SRC; i++) {
-        add_tensor(tensor->src[i], tensors, visited);
+        add_tensor(tensor->src[i], cgraph, tensors, visited);
     }
-    add_tensor(tensor->view_src, tensors, visited);
-    tensors.push_back(serialize_tensor(tensor));
+    add_tensor(tensor->view_src, cgraph, tensors, visited);
+    rpc_tensor result = serialize_tensor(tensor);
+    auto it = cgraph->use_counts.find(tensor);
+    if (it != cgraph->use_counts.end()) {
+        result.use_count = it->second;
+    }
+    tensors.push_back(result);
 }
 
 static void serialize_graph(uint32_t device, const ggml_cgraph* cgraph, std::vector<uint8_t>& output) {
@@ -31,7 +36,7 @@ static void serialize_graph(uint32_t device, const ggml_cgraph* cgraph, std::vec
     std::vector<rpc_tensor> tensors;
     std::unordered_set<ggml_tensor*> visited;
     for (uint32_t i = 0; i < n_nodes; i++) {
-        add_tensor(cgraph->nodes[i], tensors, visited);
+        add_tensor(cgraph->nodes[i], cgraph, tensors, visited);
     }
     // serialization format:
     // | device (4 bytes) | n_nodes (4 bytes) | nodes (n_nodes * sizeof(uint64_t) | n_tensors (4 bytes) | tensors (n_tensors * sizeof(rpc_tensor)) |

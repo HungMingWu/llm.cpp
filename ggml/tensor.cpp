@@ -9,14 +9,14 @@ module;
 module ggml;
 import :ds;
 
-static bool ggml_is_contiguous_n(const ggml_tensor* tensor, int n) {
+static bool ggml_is_contiguous_m_n(const ggml_tensor* tensor, int m, int n) {
 	size_t next_nb = ggml_type_size(tensor->type);
 	if (tensor->ne[0] != ggml_blck_size(tensor->type) && tensor->nb[0] != next_nb) {
 		return false;
 	}
 	next_nb *= tensor->ne[0] / ggml_blck_size(tensor->type);
-	for (int i = 1; i < GGML_MAX_DIMS; i++) {
-		if (i > n) {
+	for (int i = 1; i < n; i++) {
+		if (i > m) {
 			if (tensor->ne[i] != 1 && tensor->nb[i] != next_nb) {
 				return false;
 			}
@@ -63,22 +63,33 @@ void ggml_tensor::set_flag(int32_t flag)
 		GGML_ASSERT(op == GGML_OP_NONE);
 	}
 	flags |= flag;
+	if (flag == GGML_TENSOR_FLAG_OUTPUT) {
+		for (ggml_tensor* cur = this; cur != nullptr; cur = cur->view_src) {
+			cur->flags |= GGML_TENSOR_FLAG_OUTPUT;
+		}
+	}
 }
 
 bool ggml_is_contiguous_0(const ggml_tensor* tensor) {
-	return ggml_is_contiguous_n(tensor, 0);
+	return ggml_is_contiguous_m_n(tensor, 0, GGML_MAX_DIMS);
 }
 
 bool ggml_is_contiguous_1(const ggml_tensor* tensor) {
-	return ggml_is_contiguous_n(tensor, 1);
+	return ggml_is_contiguous_m_n(tensor, 1, GGML_MAX_DIMS);
 }
 
 bool ggml_is_contiguous_2(const ggml_tensor* tensor) {
-	return ggml_is_contiguous_n(tensor, 2);
+	return ggml_is_contiguous_m_n(tensor, 2, GGML_MAX_DIMS);
 }
 
 bool ggml_is_contiguous(const ggml_tensor* tensor) {
 	return ggml_is_contiguous_0(tensor);
+}
+
+bool ggml_is_contiguous_rows(const ggml_tensor* tensor) {
+	return
+		tensor->ne[0] == ggml_blck_size(tensor->type) ||
+		tensor->nb[0] == ggml_type_size(tensor->type);
 }
 
 ggml_tensor* ggml_dup_tensor(ggml_context* ctx, const ggml_tensor* src) {
@@ -177,4 +188,16 @@ void ggml_flash_attn_ext_add_sinks(
 
 bool ggml_is_view(const ggml_tensor* t) {
 	return t->view_src != nullptr;
+}
+
+bool ggml_is_contiguous_to_1(const ggml_tensor* tensor) {
+	return ggml_is_contiguous_m_n(tensor, 0, 1);
+}
+
+bool ggml_is_contiguous_to_2(const ggml_tensor* tensor) {
+	return ggml_is_contiguous_m_n(tensor, 0, 2);
+}
+
+bool ggml_is_contiguous_to_3(const ggml_tensor* tensor) {
+	return ggml_is_contiguous_m_n(tensor, 0, 3);
 }

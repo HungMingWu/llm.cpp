@@ -167,6 +167,15 @@ static std::unordered_map<ggml_type, ggml_type_traits> type_traits {
         }
     },
     {
+        GGML_TYPE_Q2_0,
+        {
+            .type_name = "q2_0",
+            .blck_size = block_q2_0::block_size,
+            .type_size = sizeof(block_q2_0),
+            .is_quantized = true,
+        }
+    },
+    {
         GGML_TYPE_Q4_0,
         {
             .type_name = "q4_0",
@@ -518,6 +527,10 @@ static const char* GGML_OP_NAME[GGML_OP_COUNT] = {
     "RWKV_WKV7",
     "SOLVE_TRI",
     "GATED_DELTA_NET",
+    "LIGHTNING_INDEXER",
+    "DSV4_HC_COMB",
+    "DSV4_HC_PRE",
+    "DSV4_HC_POST",
 
     "UNARY",
 
@@ -622,6 +635,11 @@ static const char* GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "gated_linear_attn(k, v, q, gate, s)",
     "rwkv_wkv7(r, w, k, v, a, b, s)",
     "A X = B, A triangular, solve X",
+    "gated_delta_net(q, k, v, g, beta, s)",
+    "lightning_indexer(q, k, weights, mask)",
+    "dsv4_hc_comb(mixes, scale, base)",
+    "dsv4_hc_pre(x, weights)",
+    "dsv4_hc_post(x, residual, post, comb)",
 
     "unary(x)",
 
@@ -747,6 +765,11 @@ export
 
     template <>
     struct vec_dot_trait<block_q1_0> {
+        using type = block_q8_0;
+    };
+
+    template <>
+    struct vec_dot_trait<block_q2_0> {
         using type = block_q8_0;
     };
 

@@ -8,8 +8,10 @@
 template <int S_v, bool KDA, bool keep_rs_t>
 __global__ void __launch_bounds__((ggml_cuda_get_physical_warp_size() < S_v ? ggml_cuda_get_physical_warp_size() : S_v) * 4, 2)
 gated_delta_net_cuda(gated_delta_net_context ctx,
-                                     const uint3   neqk1_magic,
-                                     const uint3   rq3_magic) {
+                     float *       dst_state,
+                     int64_t state_slot_stride,
+                     const uint3   neqk1_magic,
+                     const uint3   rq3_magic) {
     const uint32_t h_idx    = blockIdx.x;
     const uint32_t sequence = blockIdx.y;
     // each warp owns one column, using warp-level primitives to reduce across rows
@@ -27,7 +29,7 @@ gated_delta_net_cuda(gated_delta_net_context ctx,
     }();
 
     auto state = [=]() {
-        std::mdspan state(ctx.dst_d + attn_score_elems, ctx.n_seqs, ctx.H, S_v, S_v);
+        std::mdspan state(dst_state, ctx.n_seqs, ctx.H, S_v, S_v);
         return std::submdspan(state, sequence, h_idx, std::full_extent, std::full_extent);
     }();
 
@@ -156,8 +158,8 @@ gated_delta_net_cuda(gated_delta_net_context ctx,
             const int target_slot = (int) ctx.n_tokens - 1 - t;
             if (target_slot >= 0 && target_slot < ctx.K) {
                 auto curr_state_o = [&]() {
-                    std::mdspan curr_state_o(ctx.dst_d + attn_score_elems, ctx.K, ctx.n_seqs, ctx.H, S_v, S_v);
-                    return std::submdspan(curr_state_o, target_slot, sequence, h_idx, std::full_extent, std::full_extent);
+                    std::mdspan curr_state_o(dst_state + target_slot * state_slot_stride, ctx.n_seqs, ctx.H, S_v, S_v);
+                    return std::submdspan(curr_state_o, sequence, h_idx, std::full_extent, std::full_extent);
                 }();
 #pragma unroll
                 for (int r = 0; r < rows_per_lane; r++) {
@@ -178,7 +180,9 @@ gated_delta_net_cuda(gated_delta_net_context ctx,
 }
 
 template <bool KDA, bool keep_rs_t>
-static void launch_gated_delta_net(const gated_delta_net_context& ctx, cudaStream_t stream) {
+static void launch_gated_delta_net(const gated_delta_net_context& ctx,
+    float * dst_state, int64_t state_slot_stride,
+    cudaStream_t stream) {
     //TODO: Add chunked kernel for even faster pre-fill
     const int warp_size = ggml_cuda_info().devices[ggml_cuda_get_device()].warp_size;
     const int num_warps = 4;
@@ -195,20 +199,20 @@ static void launch_gated_delta_net(const gated_delta_net_context& ctx, cudaStrea
     switch (S_v) {
         case 16:
             ggml_cuda_kernel_launch(gated_delta_net_cuda<16, KDA, keep_rs_t>, launch_params,
-                ctx, neqk1_magic, rq3_magic);
+                ctx, dst_state, state_slot_stride, neqk1_magic, rq3_magic);
             break;
         case 32:
             ggml_cuda_kernel_launch(gated_delta_net_cuda<32, KDA, keep_rs_t>, launch_params,
-                ctx, neqk1_magic, rq3_magic);
+                ctx, dst_state, state_slot_stride, neqk1_magic, rq3_magic);
             break;
         case 64: {
             ggml_cuda_kernel_launch(gated_delta_net_cuda<64, KDA, keep_rs_t>, launch_params,
-                ctx, neqk1_magic, rq3_magic);
+                ctx, dst_state, state_slot_stride, neqk1_magic, rq3_magic);
             break;
         }
         case 128: {
             ggml_cuda_kernel_launch(gated_delta_net_cuda<128, KDA, keep_rs_t>, launch_params,
-                ctx, neqk1_magic, rq3_magic);
+                ctx, dst_state, state_slot_stride, neqk1_magic, rq3_magic);
             break;
         }
         default:
@@ -217,21 +221,44 @@ static void launch_gated_delta_net(const gated_delta_net_context& ctx, cudaStrea
     }
 }
 
-void gated_delta_net_cuda(const gated_delta_net_context& ctx, cudaStream_t  stream)
+void gated_delta_net_cuda_impl(
+    const gated_delta_net_context& ctx,
+    const ggml_cuda_gated_delta_net_fused_cache * cache,
+    cudaStream_t stream)
 {
+    const int64_t attn_score_elems = ctx.S_v * ctx.H * ctx.n_tokens * ctx.n_seqs;
+    float * dst_state = ctx.dst_d + attn_score_elems;
+    int64_t state_slot_stride = ctx.S_v * ctx.S_v * ctx.H * ctx.n_seqs;
+    if (cache != nullptr) {
+        dst_state = cache->data;
+        state_slot_stride = cache->slot_stride;
+    }
+
     const bool keep_rs = ctx.K > 1;
     if (ctx.kda) {
         if (keep_rs) {
-            launch_gated_delta_net<true, true>(ctx, stream);
+            launch_gated_delta_net<true, true>(ctx, dst_state, state_slot_stride, stream);
         } else {
-            launch_gated_delta_net<true, true>(ctx, stream);
+            launch_gated_delta_net<true, true>(ctx, dst_state, state_slot_stride, stream);
         }
     }
     else {
         if (keep_rs) {
-            launch_gated_delta_net<false, true>(ctx, stream);
+            launch_gated_delta_net<false, true>(ctx, dst_state, state_slot_stride, stream);
         } else {
-            launch_gated_delta_net<false, false>(ctx, stream);
+            launch_gated_delta_net<false, false>(ctx, dst_state, state_slot_stride, stream);
         }
     }
+}
+
+void gated_delta_net_cuda(const gated_delta_net_context& ctx, cudaStream_t stream)
+{
+    gated_delta_net_cuda_impl(ctx, nullptr, stream);
+}
+
+void gated_delta_net_fused_cache(
+        const gated_delta_net_context& ctx,
+        ggml_cuda_gated_delta_net_fused_cache cache,
+        cudaStream_t stream) {
+    gated_delta_net_cuda_impl(ctx, &cache, stream);
 }

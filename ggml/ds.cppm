@@ -60,7 +60,8 @@ export {
         GGML_TYPE_MXFP4 = 39, // MXFP4 (1 block)
         GGML_TYPE_NVFP4 = 40, // NVFP4 (4 blocks, E4M3 scale)
         GGML_TYPE_Q1_0 = 41,
-        GGML_TYPE_COUNT = 42,
+        GGML_TYPE_Q2_0 = 42,
+        GGML_TYPE_COUNT = 43,
     };
 
     // precision
@@ -220,6 +221,10 @@ export {
         GGML_OP_RWKV_WKV7,
         GGML_OP_SOLVE_TRI,
         GGML_OP_GATED_DELTA_NET,
+        GGML_OP_LIGHTNING_INDEXER,
+        GGML_OP_DSV4_HC_COMB,
+        GGML_OP_DSV4_HC_PRE,
+        GGML_OP_DSV4_HC_POST,
 
         GGML_OP_UNARY,
 
@@ -270,6 +275,7 @@ export {
         GGML_FTYPE_MOSTLY_MXFP4 = 25, // except 1d tensors
         GGML_FTYPE_MOSTLY_NVFP4 = 26, // except 1d tensors
         GGML_FTYPE_MOSTLY_Q1_0 = 27, // except 1d tensors
+        GGML_FTYPE_MOSTLY_Q2_0 = 28, // except 1d tensors
     };
 
     //
@@ -547,6 +553,8 @@ export {
         bool buffer_from_host_ptr;
         // event synchronization
         bool events;
+        // mmap is supported for loading
+        bool mmap_support;
     };
 
     // all the device properties
@@ -785,9 +793,10 @@ export {
         ggml_backend* backend;
         int i_start;
         int i_end;
-        cpp26::inplace_vector<ggml_tensor*, GGML_SCHED_MAX_SPLIT_INPUTS> inputs;
+        std::vector<ggml_tensor*> inputs;
         // graph view of this split
         ggml_cgraph graph;
+		ggml_backend_sched_split() : inputs(GGML_SCHED_MAX_SPLIT_INPUTS) {}
     };
 
     struct ggml_backend_sched {
@@ -823,7 +832,7 @@ export {
 		std::unordered_map<ggml_backend*, 
             std::array<std::unique_ptr<ggml_backend_event>, GGML_SCHED_MAX_COPIES>> events;
 
-        cpp26::inplace_vector<ggml_tensor*, GGML_SCHED_MAX_SPLIT_INPUTS> graph_inputs;
+        std::vector<ggml_tensor*> graph_inputs;
 
         std::unique_ptr<ggml_context> ctx;
 

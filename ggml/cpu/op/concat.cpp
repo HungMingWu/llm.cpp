@@ -3,8 +3,10 @@ module;
 #include "mdspan.hpp"
 #include <algorithm>
 #include <bit>
+#include <cstring>
 #include <iostream>
 #include <ranges>
+#include "block.h"
 #include "mdspan_helper.h"
 
 #define GGML_ASSERT(...) assert(__VA_ARGS__)
@@ -26,10 +28,19 @@ static void ggml_compute_forward_concat(ggml_tensor* dst) {
     const int32_t dim = std::bit_cast<int32_t>(dst->op_params[0]);
 
     GGML_ASSERT(dim >= 0 && dim < 4);
+	std::array<int64_t, 4> src0_ne = src0->ne;
+    std::array<int64_t, 4> src1_ne = src1->ne;
+    std::array<int64_t, 4> dst_ne = dst->ne;
+    if (ggml_is_quantized(src0->type)) {
+        src0_ne[0] /= ggml_blck_size(src0->type);
+        src1_ne[0] /= ggml_blck_size(src1->type);
+        dst_ne[0] /= ggml_blck_size(dst->type);
+    }
 
-    auto dst_data = make_strided_mdspan(static_cast<T*>(dst->data), dst->ne, dst->nb);
-    auto src0_data = make_strided_mdspan(static_cast<const T*>(src0->data), src0->ne, src0->nb);
-    auto src1_data = make_strided_mdspan(static_cast<const T*>(src1->data), src1->ne, src1->nb);
+    auto dst_data = make_strided_mdspan(static_cast<T*>(dst->data), dst_ne, dst->nb);
+    auto src0_data = make_strided_mdspan(static_cast<const T*>(src0->data), src0_ne, src0->nb);
+    auto src1_data = make_strided_mdspan(static_cast<const T*>(src1->data), src1_ne, src1->nb);
+
     // TODO: smarter multi-theading
     for (auto [i3, i2, i1, i0] : 
         make_cartesian_product(dst_data.extent(0), dst_data.extent(1), dst_data.extent(2), dst_data.extent(3))) {
@@ -51,6 +62,12 @@ static void ggml_compute_forward_concat(ggml_tensor* dst) {
 
 void ggml_compute_forward_concat(ggml_tensor* dst) {
     const ggml_tensor* src0 = dst->src[0];
+    const ggml_tensor* src1 = dst->src[1];
+
+    if (ggml_is_quantized(src0->type)) {
+        GGML_ASSERT(ggml_is_contiguous_rows(src0));
+        GGML_ASSERT(ggml_is_contiguous_rows(src1));
+    }
 
     switch (src0->type) {
     case GGML_TYPE_F16:
@@ -72,9 +89,24 @@ void ggml_compute_forward_concat(ggml_tensor* dst) {
     {
         ggml_compute_forward_concat<int64_t>(dst);
     } break;
+    case GGML_TYPE_Q4_0: {
+        ggml_compute_forward_concat<block_q4_0>(dst);
+    } break;
+    case GGML_TYPE_Q4_1: {
+        ggml_compute_forward_concat<block_q4_1>(dst);
+    } break;
+    case GGML_TYPE_Q5_0: {
+        ggml_compute_forward_concat<block_q5_0>(dst);
+    } break;
+    case GGML_TYPE_Q5_1: {
+        ggml_compute_forward_concat<block_q5_1>(dst);
+    } break;
+    case GGML_TYPE_Q8_0: {
+        ggml_compute_forward_concat<block_q8_0>(dst);
+    } break;
     default:
     {
-        ggml_compute_forward_concat<char>(dst);
-    }
+        assert(false);
+    } break;
     }
 }

@@ -36,9 +36,9 @@ void k_compute_batched_ptrs_cuda(
 {
     const int threads_x = 16;
     const int threads_y = 16;
-    dim3 block_dims(threads_x, threads_y);
+    const dim3 block_dims(threads_x, threads_y);
 
-    dim3 grid_dims(
+    const dim3 grid_dims(
         (ne13 + threads_x - 1) / threads_x,
         (ne12 + threads_y - 1) / threads_y
     );

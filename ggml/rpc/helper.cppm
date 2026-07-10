@@ -39,7 +39,7 @@ rpc_tensor serialize_tensor(const ggml_tensor* tensor) {
 
     // Avoid sending uninitialized data over the wire
     memset(result.name, 0, sizeof(result.name));
-    memset(result.padding, 0, sizeof(result.padding));
+    result.use_count = 0;
 
     tensor->name.copy(result.name, GGML_MAX_NAME - 1);
     return result;

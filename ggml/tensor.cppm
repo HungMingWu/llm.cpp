@@ -55,6 +55,8 @@ export
 	bool ggml_is_contiguous_1(const ggml_tensor* tensor);
 	bool ggml_is_contiguous_2(const ggml_tensor* tensor);
 	bool ggml_is_contiguous(const ggml_tensor* tensor);
+	// true if the elements in dimension 0 are contiguous, or there is just 1 block of elements
+	bool ggml_is_contiguous_rows(const ggml_tensor* tensor);
 
 	bool ggml_is_scalar(const ggml_tensor* tensor) {
 		return tensor->ne[0] == 1 && tensor->ne[1] == 1 && tensor->ne[2] == 1 && tensor->ne[3] == 1;
@@ -135,14 +137,6 @@ export
 
 	bool ggml_is_view(const ggml_tensor* tensor);
 
-	// true if the elements in dimension 0 are contiguous, or there is just 1 block of elements
-	bool ggml_is_contiguous_rows(const ggml_tensor* tensor)
-	{
-		return
-			tensor->ne[0] == ggml_blck_size(tensor->type) ||
-			tensor->nb[0] == ggml_type_size(tensor->type);
-	}
-
 	enum ggml_glu_op ggml_get_glu_op(const ggml_tensor* tensor)
 	{
 		GGML_ASSERT(tensor->op == GGML_OP_GLU);
@@ -178,4 +172,8 @@ export
 	void ggml_flash_attn_ext_add_sinks(
 		ggml_tensor* a,
 		ggml_tensor* sinks);
+
+	bool ggml_is_contiguous_to_1(const ggml_tensor* tensor); // contiguous for dims < 1
+	bool ggml_is_contiguous_to_2(const ggml_tensor* tensor); // contiguous for dims < 2
+	bool ggml_is_contiguous_to_3(const struct ggml_tensor* tensor); // contiguous for dims < 3
 }

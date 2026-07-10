@@ -22,15 +22,24 @@ void ggml_cuda_error(const char* stmt, const char* func, const char* file, int l
     GGML_ABORT(GGML_CUDA_NAME " error");
 }
 
+int ggml_cuda_get_physical_device(int device) {
+    const ggml_cuda_device_info& info = ggml_cuda_info();
+    GGML_ASSERT(device >= 0 && device < info.device_count);
+    return info.devices[device].physical_device;
+}
+
 void ggml_cuda_set_device(int device) {
+    // translate the (possibly virtual) device id to the physical CUDA device that backs it
+    const int physical_device = ggml_cuda_get_physical_device(device);
+
     int current_device;
     CUDA_CHECK(cudaGetDevice(&current_device));
 
-    if (device == current_device) {
+    if (physical_device == current_device) {
         return;
     }
 
-    CUDA_CHECK(cudaSetDevice(device));
+    CUDA_CHECK(cudaSetDevice(physical_device));
 }
 
 int ggml_cuda_get_device() {
@@ -92,56 +101,103 @@ static int ggml_cuda_parse_id(char devName[]) {
 static ggml_cuda_device_info ggml_cuda_init() {
     ggml_cuda_device_info info = {};
 
-    cudaError_t err = cudaGetDeviceCount(&info.device_count);
+    cudaError_t err = cudaGetDeviceCount(&info.physical_device_count);
     if (err != cudaSuccess) {
-        GGML_LOG_ERROR("{}: failed to initialize " GGML_CUDA_NAME ": {}", __func__, cudaGetErrorString(err));
+        GGML_LOG_ERROR("%s: failed to initialize " GGML_CUDA_NAME ": %s\n", __func__, cudaGetErrorString(err));
         return info;
     }
 
-    GGML_ASSERT(info.device_count <= GGML_CUDA_MAX_DEVICES);
+    GGML_ASSERT(info.physical_device_count <= GGML_CUDA_MAX_DEVICES);
+
+    // by default expose exactly the physical devices; GGML_CUDA_DEVICES can request a different
+    // number of (virtual) devices to emulate multi-GPU systems on a machine with fewer GPUs
+    info.device_count = info.physical_device_count;
+
+    const char* devices_env = getenv("GGML_CUDA_DEVICES");
+    if (devices_env != nullptr && info.physical_device_count > 0) {
+        const int requested = atoi(devices_env);
+        if (requested > 0) {
+            info.device_count = requested;
+        }
+        else {
+            GGML_LOG_WARN("%s: ignoring invalid GGML_CUDA_DEVICES=\"%s\"\n", __func__, devices_env);
+        }
+    }
+
+    if (info.device_count > GGML_CUDA_MAX_DEVICES) {
+        GGML_LOG_WARN("%s: requested %d devices, clamping to GGML_CUDA_MAX_DEVICES=%d\n",
+            __func__, info.device_count, GGML_CUDA_MAX_DEVICES);
+        info.device_count = GGML_CUDA_MAX_DEVICES;
+    }
+
+    // map each (virtual) device to a backing physical device (round-robin), assign each its index
+    // among the (virtual) devices sharing that physical GPU, and store the per-physical share count
+    int physical_share_count[GGML_CUDA_MAX_DEVICES] = {};
+    GGML_ASSERT(info.device_count == 0 || info.physical_device_count > 0);
+    for (int id = 0; id < info.device_count; ++id) {
+        info.devices[id].physical_device = id % info.physical_device_count;
+        info.devices[id].virtual_index = physical_share_count[info.devices[id].physical_device]++;
+    }
 
     int64_t total_vram = 0;
-    for (int id = 0; id < info.device_count; ++id) {
+    for (int id = 0; id < info.physical_device_count; ++id) {
         cudaDeviceProp prop;
         CUDA_CHECK(cudaGetDeviceProperties(&prop, id));
         total_vram += prop.totalGlobalMem;
     }
     GGML_LOG_INFO("{}: found {} " GGML_CUDA_NAME " devices (Total VRAM: {} MiB):\n",
-        __func__, info.device_count, (size_t)(total_vram / (1024 * 1024)));
+        __func__, info.physical_device_count, (size_t)(total_vram / (1024 * 1024)));
+    if (info.device_count != info.physical_device_count) {
+        GGML_LOG_INFO("{}: emulating {} virtual device(s) on {} physical device(s) (GGML_CUDA_DEVICES)\n",
+            __func__, info.device_count, info.physical_device_count);
+    }
     total_vram = 0;
 
     std::vector<std::pair<int, std::string>> turing_devices_without_mma;
     for (int id = 0; id < info.device_count; ++id) {
+        const int physical_id = info.devices[id].physical_device;
+
         int device_vmm = 0;
 
         if constexpr (ggml_use_vmm_v) {
             CUdevice device;
-            CU_CHECK(cuDeviceGet(&device, id));
+            CU_CHECK(cuDeviceGet(&device, physical_id));
             CU_CHECK(cuDeviceGetAttribute(&device_vmm, CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED, device));
 
             if (device_vmm) {
                 CUmemAllocationProp alloc_prop = {};
                 alloc_prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
                 alloc_prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-                alloc_prop.location.id = id;
+                alloc_prop.location.id = physical_id;
                 CU_CHECK(cuMemGetAllocationGranularity(&info.devices[id].vmm_granularity, &alloc_prop, CU_MEM_ALLOC_GRANULARITY_RECOMMENDED));
             }
         }
         info.devices[id].vmm = !!device_vmm;
 
         cudaDeviceProp prop;
-        CUDA_CHECK(cudaGetDeviceProperties(&prop, id));
+        CUDA_CHECK(cudaGetDeviceProperties(&prop, physical_id));
+
+        // a virtual device owns only a share of its physical GPU's memory; report that share so the
+        // logged per-device VRAM sums to the physical total above.
+        GGML_ASSERT(physical_share_count[physical_id] > 0);
+        info.devices[id].physical_share_count = physical_share_count[physical_id];
+        const size_t device_vram = prop.totalGlobalMem / info.devices[id].physical_share_count;
+        const size_t device_vram_mib = device_vram / (1024 * 1024);
 
         info.default_tensor_split[id] = total_vram;
-        total_vram += prop.totalGlobalMem;
+        total_vram += device_vram;
+#if defined(GGML_USE_HIP)
+        info.devices[id].integrated = prop.integrated;
+#else
         info.devices[id].integrated = false; // Temporarily disabled due to issues with corrupted output (e.g. #15034)
+#endif
         info.devices[id].nsm = prop.multiProcessorCount;
         info.devices[id].smpb = prop.sharedMemPerBlock;
         info.devices[id].warp_size = prop.warpSize;
 
 #ifndef GGML_USE_MUSA
         int supports_coop_launch = 0;
-        CUDA_CHECK(cudaDeviceGetAttribute(&supports_coop_launch, cudaDevAttrCooperativeLaunch, id));
+        CUDA_CHECK(cudaDeviceGetAttribute(&supports_coop_launch, cudaDevAttrCooperativeLaunch, physical_id));
         info.devices[id].supports_cooperative_launch = !!supports_coop_launch;
 #else
         info.devices[id].supports_cooperative_launch = false;
@@ -162,7 +218,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
         }
         GGML_LOG_INFO("  Device {}: {}, {} (0x{:x}), VMM: {}, Wave Size: {}, VRAM: %zu MiB",
             id, prop.name, prop.gcnArchName, info.devices[id].cc & 0xffff,
-            device_vmm ? "yes" : "no", prop.warpSize, (size_t)(prop.totalGlobalMem / (1024 * 1024)));
+            device_vmm ? "yes" : "no", prop.warpSize, device_vram_mib);
 #elif defined(GGML_USE_MUSA)
         // FIXME: Ensure compatibility with varying warp sizes across different MUSA archs.
         info.devices[id].warp_size = 32;
@@ -171,13 +227,13 @@ static ggml_cuda_device_info ggml_cuda_init() {
         info.devices[id].cc += prop.minor * 0x10;
         GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}, VRAM: {} MiB",
             id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no",
-            (size_t)(prop.totalGlobalMem / (1024 * 1024)));
+            device_vram_mib);
 #else
         info.devices[id].smpbo = prop.sharedMemPerBlockOptin;
         info.devices[id].cc = 100 * prop.major + 10 * prop.minor;
         GGML_LOG_INFO("  Device {}: {}, compute capability {}.{}, VMM: {}, VRAM: {} MiB",
             id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no",
-            (size_t)(prop.totalGlobalMem / (1024 * 1024)));
+            device_vram_mib);
         std::string device_name(prop.name);
         if (device_name == "NVIDIA GeForce MX450") {
             turing_devices_without_mma.push_back({ id, device_name });
@@ -194,7 +250,7 @@ static ggml_cuda_device_info ggml_cuda_init() {
         // TODO: Check for future drivers the default scheduling strategy and
         // remove this call again when cudaDeviceScheduleSpin is default.
         if (prop.major == 12 && prop.minor == 1) {
-            CUDA_CHECK(cudaSetDevice(id));
+            CUDA_CHECK(cudaSetDevice(physical_id));
             CUDA_CHECK(cudaSetDeviceFlags(cudaDeviceScheduleSpin));
         }
 
@@ -219,9 +275,9 @@ static ggml_cuda_device_info ggml_cuda_init() {
     // CUBLAS_CHECK(cublasLoggerConfigure(1, 1, 0, nullptr));
 
     if (getenv("GGML_CUDA_P2P") != nullptr) {
-        for (int id = 0; id < info.device_count; ++id) {
-            ggml_cuda_set_device(id);
-            for (int id_other = 0; id_other < info.device_count; ++id_other) {
+        for (int id = 0; id < info.physical_device_count; ++id) {
+            CUDA_CHECK(cudaSetDevice(id));
+            for (int id_other = 0; id_other < info.physical_device_count; ++id_other) {
                 if (id == id_other) {
                     continue;
                 }
@@ -266,19 +322,6 @@ bool fast_fp16_hardware_available(const int cc)
 {
     return (GGML_CUDA_CC_IS_NVIDIA(cc) && cc >= GGML_CUDA_CC_PASCAL && cc != 610) || GGML_CUDA_CC_IS_AMD(cc) ||
         (GGML_CUDA_CC_IS_MTHREADS(cc) && cc >= GGML_CUDA_CC_QY2);
-}
-
-void CUDA_SET_SHARED_MEMORY_LIMIT(const void* kernel, size_t nbytes)
-{
-#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
-    static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = { false };
-    const int id = ggml_cuda_get_device();
-    if (!shared_memory_limit_raised[id]) {
-        CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, nbytes));
-        shared_memory_limit_raised[id] = true;
-    }
-#else
-#endif // !(defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 }
 
 bool amd_mfma_available(const int cc)

@@ -67,6 +67,16 @@ __device__ void sigmoid_warp_inplace(float(&vals)[experts_per_thread], const int
     }
 }
 
+template <int experts_per_thread, bool use_limit>
+__device__ void sqrt_softplus_warp_inplace(float(&vals)[experts_per_thread], const int limit, const int lane) {
+#pragma unroll
+    for (int i = 0; i < experts_per_thread; i++) {
+        const int  idx = lane + i * WARP_SIZE;
+        const bool active = !use_limit || (idx < limit);
+        vals[i] = active ? sqrtf(vals[i] > 20.0f ? vals[i] : logf(1.0f + expf(vals[i]))) : -INFINITY;
+    }
+}
+
 /*
     This kernel does the following:
     1. optionally softmax over the logits per token [n_experts, n_tokens]
@@ -108,6 +118,9 @@ __launch_bounds__(4 * WARP_SIZE, 1) __global__ void topk_moe_cuda(topk_moe_conte
     if (!config.delayed_softmax) {
         if (config.use_sigmoid) {
             sigmoid_warp_inplace<experts_per_thread, false>(wt, n_experts, threadIdx.x);
+        }
+        else if (config.use_sqrt_softplus) {
+            sqrt_softplus_warp_inplace<experts_per_thread, false>(wt, n_experts, threadIdx.x);
         }
         else {
             softmax_warp_inplace<experts_per_thread, false>(wt, n_experts, threadIdx.x);
@@ -286,6 +299,9 @@ static void launch_topk_moe_cuda(const topk_moe_context& ctx, cudaStream_t strea
         break;
     case 256:
         ggml_cuda_kernel_launch(topk_moe_cuda<256, has_bias>, launch_params, ctx);
+        break;
+    case 288: // StepFun 3.7
+        ggml_cuda_kernel_launch(topk_moe_cuda<288, has_bias>, launch_params, ctx);
         break;
     case 512:
         ggml_cuda_kernel_launch(topk_moe_cuda<512, has_bias>, launch_params, ctx);

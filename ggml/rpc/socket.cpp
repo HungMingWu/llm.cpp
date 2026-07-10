@@ -203,6 +203,19 @@ static void rpc_serve_client(std::span<std::unique_ptr<ggml_backend>> backends, 
             }
             break;
         }
+        case RPC_CMD_MEMSET_TENSOR: {
+            rpc_msg_memset_tensor_req request;
+            if (!recv_msg(sock, &request, sizeof(request))) {
+                return;
+            }
+            if (!server.memset_tensor(request)) {
+                return;
+            }
+            if (!send_msg(sock, nullptr, 0)) {
+                return;
+            }
+            break;
+        }
         case RPC_CMD_SET_TENSOR: {
             std::vector<uint8_t> input;
             if (!recv_msg(sock, input)) {

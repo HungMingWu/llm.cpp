@@ -22,8 +22,8 @@ static void ggml_compute_forward_pool_1d_ksp(
 	ggml_tensor* dst) {
 
 	const ggml_tensor* src0 = dst->src[0];
-	std::mdspan dst_data(static_cast<float*>(dst->data), dst->ne[1], dst->ne[0]);
-	std::mdspan src0_data(static_cast<const src0_t*>(src0->data), src0->ne[1], src0->ne[0]);
+	std::mdspan dst_data(static_cast<float*>(dst->data), ggml_nrows(dst), dst->ne[0]);
+	std::mdspan src0_data(static_cast<const src0_t*>(src0->data), ggml_nrows(src0), src0->ne[0]);
 
 	const int64_t IW = src0->ne[0];
 	const int64_t OW = dst->ne[0];

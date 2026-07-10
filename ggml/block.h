@@ -14,6 +14,13 @@ struct block_q1_0 {
 };
 static_assert(sizeof(block_q1_0) == sizeof(uint16_t) + block_q1_0::block_size / 8, "wrong q1_0 block size/padding");
 
+struct block_q2_0 {
+    static constexpr int block_size = 64;
+    uint16_t d;              // delta (scale)
+    uint8_t qs[block_size / 4];   // 2 bits per element
+};
+static_assert(sizeof(block_q2_0) == sizeof(uint16_t) + block_q2_0::block_size / 4, "wrong q2_0 block size/padding");
+
 struct block_q4_0 {
     static constexpr int block_size = 32;
     uint16_t d;            // delta

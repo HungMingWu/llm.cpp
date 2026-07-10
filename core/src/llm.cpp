@@ -11247,7 +11247,7 @@ static ggml_tensor* llm_build_mamba(
         // as described in the Annex D of the Mamba paper.
         // => {d_inner, n_seq_tokens, n_seqs} and {d_state, d_inner, n_seqs}
         // The answer is wwrong, fix it
-        struct ggml_tensor* y_ssm = ggml_ssm_scan(ctx, ssm, x, dt, model.layers[il].ssm_a, B, C, nullptr);
+        struct ggml_tensor* y_ssm = ggml_ssm_scan(ctx, ssm, x, dt, model.layers[il].ssm_a, B, C, nullptr, 0);
 
         // store last states
         graph->build_forward_expand(
@@ -12784,7 +12784,7 @@ struct llm_build_context {
                 cur = llm_build_lora_mm(lctx, ctx0, model.layers[il].wqkv, cur);
                 cb(cur, "wqkv", il);
 
-                cur = ggml_clamp(ctx0, cur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv);
+                cur = ggml_clamp(ctx0, cur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv, false);
                 cb(cur, "wqkv_clamped", il);
 
                 Qcur = ggml_cont(ctx0, ggml_view(ctx0, cur, { n_embd, n_tokens }, { cur->nb[1] }, 0 * sizeof(float) * (n_embd)));
@@ -13414,7 +13414,7 @@ struct llm_build_context {
                 }
 
                 if (hparams.f_clamp_kqv > 0.0f) {
-                    cur = ggml_clamp(ctx0, cur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv);
+                    cur = ggml_clamp(ctx0, cur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv, false);
                     cb(cur, "wqkv_clamped", il);
                 }
 
@@ -15776,21 +15776,21 @@ struct llm_build_context {
                 struct ggml_tensor* Qcur = llm_build_lora_mm(lctx, ctx0, model.layers[il].wq, cur);
                 cb(Qcur, "Qcur", il);
                 if (hparams.f_clamp_kqv > 0.0f) {
-                    Qcur = ggml_clamp(ctx0, Qcur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv);
+                    Qcur = ggml_clamp(ctx0, Qcur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv, false);
                     cb(Qcur, "Qcur", il);
                 }
 
                 struct ggml_tensor* Kcur = llm_build_lora_mm(lctx, ctx0, model.layers[il].wk, cur);
                 cb(Kcur, "Kcur", il);
                 if (hparams.f_clamp_kqv > 0.0f) {
-                    Kcur = ggml_clamp(ctx0, Kcur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv);
+                    Kcur = ggml_clamp(ctx0, Kcur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv, false);
                     cb(Kcur, "Kcur", il);
                 }
 
                 struct ggml_tensor* Vcur = llm_build_lora_mm(lctx, ctx0, model.layers[il].wv, cur);
                 cb(Vcur, "Vcur", il);
                 if (hparams.f_clamp_kqv > 0.0f) {
-                    Vcur = ggml_clamp(ctx0, Vcur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv);
+                    Vcur = ggml_clamp(ctx0, Vcur, -hparams.f_clamp_kqv, hparams.f_clamp_kqv, false);
                     cb(Vcur, "Vcur", il);
                 }
 
@@ -18124,7 +18124,7 @@ struct llm_build_context {
         // creates 1d tensor of size num_img_tokens and values -FLT_MAX,
         // which ensures that text token values are always at least larger than image token values
         ggml_tensor* img_logits = ctx0->create(GGML_TYPE_F32,  num_img_tokens);
-        img_logits = ggml_clamp(ctx0, img_logits, -FLT_MAX, -FLT_MAX);
+        img_logits = ggml_clamp(ctx0, img_logits, -FLT_MAX, -FLT_MAX, false);
         cb(img_logits, "img_logits", -1);
         cur = ggml_set_1d(ctx0, cur, img_logits, ggml_element_size(cur) * img_token_start_idx);
         cb(cur, "result_output", -1);

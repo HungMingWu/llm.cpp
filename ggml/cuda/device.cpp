@@ -47,6 +47,7 @@ void ggml_backend_cuda_device::get_props(ggml_backend_dev_props* props) {
         /* .host_buffer           = */ host_buffer,
         /* .buffer_from_host_ptr  = */ false,
         /* .events                = */ events,
+        /* .mmap_support          = */ props->type != GGML_BACKEND_DEVICE_TYPE_IGPU,
     };
 }
 
@@ -68,7 +69,13 @@ ggml_backend_buffer_type* ggml_backend_cuda_device::get_host_buffer_type()
 
 bool ggml_backend_cuda_device::supports_buft(ggml_backend_buffer_type* buft)
 {
-    return buffer_type_from_device(buft, device);
+    if (auto cuda_buft = dynamic_cast<cuda_backend_buffer_type*>(buft)) {
+        return cuda_buft->get_device() == this;
+    }
+	else if (auto cuda_host_buft = dynamic_cast<cuda_host_backend_buffer_type*>(buft)) {
+        return ggml_cuda_info().devices[device].integrated;
+    }
+    return false;
 }
 
 bool ggml_backend_cuda_device::offload_op(const ggml_tensor* op)

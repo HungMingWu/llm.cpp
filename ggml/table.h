@@ -95,11 +95,12 @@ HOST_DEVICE static constexpr int8_t kvalues_iq4nl[16] = {
 -127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
 };
 
-// e2m1 values (doubled)
+// e2m1 values (doubled), shared by MXFP4 and NVFP4
 // ref: https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
-HOST_DEVICE static constexpr int8_t kvalues_mxfp4[16] = {
+HOST_DEVICE static constexpr int8_t kvalues_fp4[16] = {
 0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12,
 };
+#define kvalues_mxfp4 kvalues_fp4
 
 HOST_DEVICE static constexpr uint64_t iq2xs_grid[512] = {
 0x0808080808080808, 0x080808080808082b, 0x0808080808081919, 0x0808080808082b08,

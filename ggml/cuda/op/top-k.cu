@@ -57,21 +57,32 @@ void top_k_cuda(const top_k_context& ctx, cudaStream_t  stream) {
     }
 #elif defined(GGML_CUDA_USE_CUB)  // CUB_TOP_K_AVAILABLE
     // Fall back to argsort + copy
-    const int    ncols_pad = next_power_of_2(ctx.ncols);
-    const size_t shared_mem = ncols_pad * sizeof(int);
+    const int    ncols_pad      = next_power_of_2(ctx.ncols);
+    const size_t shared_mem     = ncols_pad * sizeof(int);
     const size_t max_shared_mem = ggml_cuda_info().devices[ggml_cuda_get_device()].smpb;
+    const bool   use_bitonic    = shared_mem <= max_shared_mem && ctx.ncols <= 1024;
+    const int    chunk_nrows    = argsort_f32_i32_cuda_cub_chunk_nrows(ctx.nb01, ctx.nrows);
 
-    ggml_cuda_pool_alloc<int> temp_dst_alloc(ctx.pool, ctx.ncols * ctx.nrows);
-    int* tmp_dst = temp_dst_alloc.get();
+    ggml_cuda_pool_alloc<int> temp_dst_alloc(ctx.pool, ctx.ncols * chunk_nrows);
+    int *                     tmp_dst = temp_dst_alloc.get();
 
-    if (shared_mem > max_shared_mem || ctx.ncols > 1024) {
-        argsort_f32_i32_cuda(ctx.pool, ctx.src0_d, tmp_dst, ctx.ncols, ctx.nrows, internal::GGML_SORT_ORDER_DESC, stream);
+    const float *       src0_d = ctx.src0_d;
+    int *               dst_d  = ctx.dst_d;
+
+    for (int64_t i = 0; i < ctx.nrows; i += chunk_nrows) {
+        int iter_nrows = std::min((int64_t) chunk_nrows, ctx.nrows - i);
+
+        if (use_bitonic) {
+            argsort_f32_i32_cuda_bitonic(src0_d, tmp_dst, ctx.ncols, iter_nrows, internal::GGML_SORT_ORDER_DESC, stream);
+        } else {
+            argsort_f32_i32_cuda(ctx.pool, src0_d, tmp_dst, ctx.ncols, iter_nrows, ctx.nb01, internal::GGML_SORT_ORDER_DESC, stream);
+        }
+        CUDA_CHECK(cudaMemcpy2DAsync(dst_d, ctx.k * sizeof(int), tmp_dst, ctx.ncols * sizeof(int), ctx.k * sizeof(int), iter_nrows,
+                                     cudaMemcpyDeviceToDevice, stream));
+
+        src0_d += ctx.ncols * iter_nrows;
+        dst_d  += ctx.k     * iter_nrows;
     }
-    else {
-        argsort_f32_i32_cuda_bitonic(ctx.src0_d, tmp_dst, ctx.ncols, ctx.nrows, internal::GGML_SORT_ORDER_DESC, stream);
-    }
-    CUDA_CHECK(cudaMemcpy2DAsync(ctx.dst_d, ctx.k * sizeof(int), tmp_dst, ctx.ncols * sizeof(int), ctx.k * sizeof(int), ctx.nrows,
-        cudaMemcpyDeviceToDevice, stream));
 #else                             // GGML_CUDA_USE_CUB
     ggml_cuda_pool_alloc<int> temp_dst_alloc(ctx.pool, ctx.ncols * ctx.nrows);
     int* tmp_dst = temp_dst_alloc.get();

@@ -13,7 +13,6 @@ namespace utils
 		BEST_FATTN_KERNEL_NONE = 0,
 		BEST_FATTN_KERNEL_TILE = 200,
 		BEST_FATTN_KERNEL_VEC = 100,
-		BEST_FATTN_KERNEL_WMMA_F16 = 300,
 		BEST_FATTN_KERNEL_MMA_F16 = 400,
 	};
 
@@ -30,4 +29,13 @@ namespace utils
 	size_t ggml_cuda_flash_attn_ext_get_alloc_size(int device, const ggml_tensor* dst);
 	// maybe it cna be removed
 	bool should_use_mmv(ggml_type type, int cc, std::span<const int64_t> src0_ne, int64_t ne11);
+	gated_delta_net_context build_gated_delta_net_context(ggml_tensor* dst);
+
+	bool ggml_cuda_lightning_indexer_supported(int device, const ggml_tensor* dst);
+
+	// Checks whether the tensor's base data pointer and higher-dimensional strides are byte-aligned to `alignment` bytes.
+	bool ggml_cuda_is_aligned(const ggml_tensor* tensor, const size_t alignment);
+
+	// returns true when ggml_cuda_mul_mat_id takes the fallback path that requires stream synchronization
+	bool ggml_cuda_mul_mat_id_needs_sync(const ggml_tensor* dst, const int cc);
 }

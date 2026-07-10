@@ -170,8 +170,52 @@ void ggml_cpy_cuda(const dup_context& ctx, cudaStream_t stream)
     );
 }
 
+static constexpr size_t GGML_MAX_DIMS = 4;
+
+// check if a same-type copy reduces to a 2D strided copy (height rows of width
+// contiguous bytes), so it can use cudaMemcpy2DAsync instead of the scalar kernel
+static bool ggml_cuda_cpy_as_memcpy_2d(const dup_context& ctx,
+        size_t & width, size_t & height, size_t & spitch, size_t & dpitch) {
+    // require matching shape: a reshaped copy maps elements by flat order, which the
+    // prefix walk below does not handle
+    if (ctx.src_type != ctx.dst_type || !ctx.same_shape) {
+        return false;
+    }
+
+    // grow the contiguous prefix block shared by both tensors
+    size_t block_nb = ctx.block_nb;
+    int d = 0;
+    for (; d < GGML_MAX_DIMS; ++d) {
+        if (ctx.src_nb[d] != block_nb || ctx.dst_nb[d] != block_nb) {
+            break;
+        }
+        block_nb *= ctx.src_ne[d];
+    }
+
+    // d == 0: nothing contiguous; d == GGML_MAX_DIMS: fully contiguous (handled by memcpy)
+    if (d == 0 || d == GGML_MAX_DIMS) {
+        return false;
+    }
+
+    // dim d carries the rows; everything above it must be a single element
+    for (int i = d + 1; i < GGML_MAX_DIMS; ++i) {
+        if (ctx.src_ne[i] != 1) {
+            return false;
+        }
+    }
+
+    width  = block_nb;
+    height = ctx.src_ne[d];
+    spitch = ctx.src_nb[d];
+    dpitch = ctx.dst_nb[d];
+
+    return spitch >= width && dpitch >= width;
+}
+
 void dup_cuda(const dup_context& ctx, cudaStream_t stream)
 {
+    size_t mc_width = 0, mc_height = 0, mc_spitch = 0, mc_dpitch = 0;
+
     if (ctx.src_type == ctx.dst_type) {
         if (ctx.contiguous) {
             GGML_ASSERT(ctx.src_length == ctx.dst_length);
@@ -189,6 +233,10 @@ void dup_cuda(const dup_context& ctx, cudaStream_t stream)
             ggml_cpy_type_erasure_cuda(ctx, stream);
         }
     }
+    else if (ggml_cuda_cpy_as_memcpy_2d(ctx, mc_width, mc_height, mc_spitch, mc_dpitch)) {
+        CUDA_CHECK(cudaMemcpy2DAsync(ctx.dst_d, mc_dpitch, ctx.src_d, mc_spitch,
+                                     mc_width, mc_height, cudaMemcpyDeviceToDevice, stream));
+    } 
     else if (ctx.src_type == internal::GGML_TYPE_F32 && ctx.dst_type == internal::GGML_TYPE_BF16) {
         ggml_cpy_cuda<float, nv_bfloat16>(ctx, stream);
     }

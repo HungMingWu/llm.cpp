@@ -2,10 +2,24 @@
 #include "cuda_func.h"
 #include "mmq.cuh"
 
+int ggml_cuda_mmq_get_J_max(const internal::ggml_type type, const bool fallback, const int cc, const int64_t ne11) {
+    int ret = std::min(ne11, int64_t(512));
+    ret -= ret % 8;
+    for (;ret > 0; ret -= 8) {
+        if (ggml_cuda_mmq_get_config(type, ret, fallback, cc).type != internal::GGML_TYPE_COUNT) {
+            return ret;
+        }
+    }
+    return ret;
+}
+
 void ggml_cuda_mul_mat_q_switch_type(ggml_cuda_pool& pool, const mmq_args& args, cudaStream_t stream) {
     switch (args.type_x) {
     case internal::GGML_TYPE_Q1_0:
         mul_mat_q_case<internal::GGML_TYPE_Q1_0, block_q1_0>(pool, args, stream);
+        break;
+    case internal::GGML_TYPE_Q2_0:
+        mul_mat_q_case<internal::GGML_TYPE_Q2_0, block_q2_0>(pool, args, stream);
         break;
     case internal::GGML_TYPE_Q4_0:
         mul_mat_q_case<internal::GGML_TYPE_Q4_0, block_q4_0>(pool, args, stream);
@@ -22,12 +36,7 @@ void ggml_cuda_mul_mat_q_switch_type(ggml_cuda_pool& pool, const mmq_args& args,
     case internal::GGML_TYPE_Q8_0:
         mul_mat_q_case<internal::GGML_TYPE_Q8_0, block_q8_0>(pool, args, stream);
         break;
-    case internal::GGML_TYPE_MXFP4:
-        mul_mat_q_case<internal::GGML_TYPE_MXFP4, block_mxfp4>(pool, args, stream);
-        break;
-    case internal::GGML_TYPE_NVFP4:
-        mul_mat_q_case<internal::GGML_TYPE_NVFP4, block_nvfp4>(pool, args, stream);
-        break;
+// -----------------------------------------------------------------------
     case internal::GGML_TYPE_Q2_K:
         mul_mat_q_case<internal::GGML_TYPE_Q2_K, block_q2_K>(pool, args, stream);
         break;
@@ -42,6 +51,10 @@ void ggml_cuda_mul_mat_q_switch_type(ggml_cuda_pool& pool, const mmq_args& args,
         break;
     case internal::GGML_TYPE_Q6_K:
         mul_mat_q_case<internal::GGML_TYPE_Q6_K, block_q6_K>(pool, args, stream);
+        break;
+// -----------------------------------------------------------------------
+    case internal::GGML_TYPE_IQ1_S:
+        mul_mat_q_case<internal::GGML_TYPE_IQ1_S, block_iq1_s>(pool, args, stream);
         break;
     case internal::GGML_TYPE_IQ2_XXS:
         mul_mat_q_case<internal::GGML_TYPE_IQ2_XXS, block_iq2_xxs>(pool, args, stream);
@@ -58,14 +71,18 @@ void ggml_cuda_mul_mat_q_switch_type(ggml_cuda_pool& pool, const mmq_args& args,
     case internal::GGML_TYPE_IQ3_S:
         mul_mat_q_case<internal::GGML_TYPE_IQ3_S, block_iq3_s>(pool, args, stream);
         break;
-    case internal::GGML_TYPE_IQ1_S:
-        mul_mat_q_case<internal::GGML_TYPE_IQ1_S, block_iq1_s>(pool, args, stream);
-        break;
     case internal::GGML_TYPE_IQ4_XS:
         mul_mat_q_case<internal::GGML_TYPE_IQ4_XS, block_iq4_xs>(pool, args, stream);
         break;
     case internal::GGML_TYPE_IQ4_NL:
         mul_mat_q_case<internal::GGML_TYPE_IQ4_NL, block_iq4_nl>(pool, args, stream);
+        break;
+// -----------------------------------------------------------------------
+    case internal::GGML_TYPE_MXFP4:
+        mul_mat_q_case<internal::GGML_TYPE_MXFP4, block_mxfp4>(pool, args, stream);
+        break;
+    case internal::GGML_TYPE_NVFP4:
+        mul_mat_q_case<internal::GGML_TYPE_NVFP4, block_nvfp4>(pool, args, stream);
         break;
     default:
         GGML_ABORT("fatal error");

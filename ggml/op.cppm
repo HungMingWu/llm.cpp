@@ -92,7 +92,8 @@ export {
 		ggml_tensor* A,
 		ggml_tensor* B,
 		ggml_tensor* C,
-		ggml_tensor* ids);
+		ggml_tensor* ids,
+		int64_t K);
 
 	ggml_tensor* ggml_rwkv_wkv6(
 		ggml_context* ctx,
@@ -148,7 +149,8 @@ export {
 		ggml_context* ctx,
 		ggml_tensor* a,
 		float min,
-		float max);
+		float max,
+		bool inplace);
 
 	ggml_tensor* ggml_diag_mask_inf(
 		ggml_context* ctx,
@@ -920,4 +922,65 @@ export {
 		int                   s0,
 		int                   oc,
 		int                   p0);
+
+	// DSA lightning indexer
+	//
+	// q:       [n_embd_idx, n_head_idx, n_batch, ne3 ]
+	// k:       [n_embd_idx, 1,          n_kv,    ne3 ]
+	// weights: [n_head_idx, n_batch,    1,       ne3 ] !! prescaled !!
+	// mask:    [n_kv,       n_batch,    1,       ne33] !! f16 !!
+	// res:     [n_kv,       n_batch,    1,       ne3 ]
+	//
+	// broadcast:
+	//   ne3 % ne33 == 0
+	//
+	ggml_tensor* ggml_lightning_indexer(
+		ggml_context* ctx,
+		ggml_tensor* q,
+		ggml_tensor* k,
+		ggml_tensor* weights,
+		ggml_tensor* mask);
+
+	// DeepSeek V4 hyper-connections (ref. https://arxiv.org/pdf/2512.24880)
+	// In short these operations are replacements for the original residual connection (x = transformer(x) + x)
+	// using a richer representation through streams.
+	//
+	// hc_comb: mixes [(2 + hc)*hc, n_tokens], scale [3], base [(2 + hc)*hc]
+	//          -> [dst_hc, src_hc, n_tokens]
+	// logits[dst, src, t] = mixes[2*hc + dst + hc*src, t]*scale[2]
+	//                         + base[2*hc + dst + hc*src]
+	// Softmax over dst, add eps, normalize over src, then repeat normalization
+	// over dst followed by src for iterations 1 through n_iter - 1.
+	ggml_tensor* ggml_dsv4_hc_comb(
+		ggml_context* ctx,
+		ggml_tensor* mixes,
+		ggml_tensor* scale,
+		ggml_tensor* base,
+		float                 eps,
+		int32_t               n_iter);
+
+	// hc_pre: x [n_embd, hc, n_tokens], weights [hc, n_tokens] -> [n_embd, n_tokens]
+	//   result[i, t] = sum_h x[i, h, t]*weights[h, t]
+	//
+	ggml_tensor* ggml_dsv4_hc_pre(
+		ggml_context* ctx,
+		ggml_tensor* x,
+		ggml_tensor* weights);
+
+	// hc_post: x [n_embd, n_tokens], residual [n_embd, hc, n_tokens],
+	//          post [hc, n_tokens], comb [dst_hc, src_hc, n_tokens]
+	//          -> [n_embd, hc, n_tokens]
+	//   result[i, dst, t] = x[i, t]*post[dst, t]
+	//                       + sum_src residual[i, src, t]*comb[dst, src, t]
+	//
+	ggml_tensor* ggml_dsv4_hc_post(
+		ggml_context* ctx,
+		ggml_tensor* x,
+		ggml_tensor* residual,
+		ggml_tensor* post,
+		ggml_tensor* comb);
+
+	ggml_tensor* ggml_rope_set_offset(
+		ggml_tensor* a,
+		int n_offs);
 }

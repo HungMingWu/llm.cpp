@@ -54,6 +54,9 @@ void to_float(ggml_type type, const void* x, float* y, int64_t n)
 		case GGML_TYPE_Q1_0:
 			dequantize_row(static_cast<const block_q1_0*>(x), y, n);
 			break;
+		case GGML_TYPE_Q2_0:
+			dequantize_row(static_cast<const block_q2_0*>(x), y, n);
+			break;
 		case GGML_TYPE_Q4_0:
 			dequantize_row(static_cast<const block_q4_0*>(x), y, n);
 			break;
@@ -110,6 +113,9 @@ void to_float(ggml_type type, const void* x, float* y, int64_t n)
 			break;
 		case GGML_TYPE_NVFP4:
 			dequantize_row(static_cast<const block_nvfp4*>(x), y, n);
+			break;
+		case GGML_TYPE_TQ2_0:
+			dequantize_row(static_cast<const block_tq2_0*>(x), y, n);
 			break;
 		default:
 			assert(false);

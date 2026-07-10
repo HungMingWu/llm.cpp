@@ -9,6 +9,7 @@ void softcap_f32_cuda(const float* x, float* dst, const float scale, const float
 // Kernel config struct - passed by value to CUDA kernel
 struct topk_moe_config {
     bool use_sigmoid;
+    bool use_sqrt_softplus;
     bool with_norm;
     bool delayed_softmax;
 };

@@ -242,12 +242,12 @@ static void ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2(const flash_attn_ext_
         return;
     }
 
-    if constexpr (DKQ <= 256) {
-        if (ctx.use_gqa_opt && gqa_ratio > 1) {
-            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx);
-            return;
-        }
+    if (ctx.use_gqa_opt && gqa_ratio > 1) {
+        ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 2>(ctx);
+        return;
+    }
 
+    if constexpr (DKQ <= 256) {
         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<DKQ, DV, 1>(ctx);
     } else {
         GGML_ABORT("fatal error");

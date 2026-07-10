@@ -279,4 +279,9 @@ export {
 		 return get_reg().backends[index].reg;
 	 }
 
+	// add the tensor and its parents to the graph without marking them for compute
+	// the flag is set later, when the tensor is reached from a node that computes
+	void ggml_build_forward_order(
+		ggml_cgraph* cgraph,
+		ggml_tensor* tensor);
 }

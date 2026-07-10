@@ -52,7 +52,6 @@
 
 static constexpr int64_t MMVQ_MAX_BATCH_SIZE = 8; // Max. batch size for which to use MMVQ kernels.
 
-#define MUL_MAT_SRC1_COL_STRIDE 128
 #define MMQ_DP4A_MAX_BATCH_SIZE 64 // Max. batch size to use for dp4a MMQ kernels when FP16 tensor co
 
 static constexpr size_t GGML_CUDA_MAX_DEVICES = 16;
@@ -64,12 +63,13 @@ static constexpr int WARP_SIZE = 32;
 void ggml_cuda_error(const char* stmt, const char* func, const char* file, int line, const char* msg);
 
 // this is faster on Windows
-// probably because the Windows CUDA libraries forget to make this check before invoking the drivers
+// probably QI1_0 (QK1_0 / 32)because the Windows CUDA libraries forget to make this check before invoking the drivers
 void ggml_cuda_set_device(int device);
 int ggml_cuda_get_device();
 
 struct ggml_cuda_device_info {
-    int device_count;
+    int device_count;           // number of (possibly virtual) devices exposed to the rest of ggml
+    int physical_device_count;  // number of physical CUDA devices actually present
 
     struct cuda_device_info {
         int     cc;                             // compute capability
@@ -82,6 +82,9 @@ struct ggml_cuda_device_info {
         size_t  total_vram;
         int     warp_size;                      // Number of threads in a dispatch
         bool    supports_cooperative_launch;    // whether cooperative launch is supported
+        int     physical_device;                // backing physical CUDA device for this (virtual) device
+        int     physical_share_count;           // number of (virtual) devices sharing this device's physical GPU
+        int     virtual_index;                  // index of this (virtual) device among those sharing its physical GPU
     };
 
     cuda_device_info devices[GGML_CUDA_MAX_DEVICES] = {};
@@ -127,15 +130,6 @@ const char* cublas_get_error_str(const cublasStatus_t err);
 #define NCCL_CHECK(err) CUDA_CHECK_GEN(err, ncclSuccess, ncclGetErrorString)
 #endif // GGML_USE_NCCL
 
-#if !defined(GGML_USE_HIP) && !defined(GGML_CUDA_NO_VMM)
-static const char* cu_get_error_str(CUresult err) {
-    const char* err_str;
-    cuGetErrorString(err, &err_str);
-    return err_str;
-}
-#define CU_CHECK(err) CUDA_CHECK_GEN(err, CUDA_SUCCESS, cu_get_error_str)
-#endif
-
 #define MATRIX_ROW_PADDING 512 // last row of quant. matrices is a multiple of this to avoid out-of-bounds memory accesses
 
 int ggml_cuda_highest_compiled_arch(const int arch);
@@ -163,10 +157,6 @@ bool volta_mma_available(const int cc);
 bool turing_mma_available(const int cc);
 bool ampere_mma_available(const int cc);
 bool blackwell_mma_available(const int cc);
-
-constexpr int get_mmq_y_host(const int cc) {
-    return cc >= GGML_CUDA_CC_OFFSET_AMD ? (cc == GGML_CUDA_CC_RDNA1 ? 64 : 128) : (cc >= GGML_CUDA_CC_VOLTA ? 128 : 64);
-}
 
 static __device__ __forceinline__ float get_alibi_slope(
     const float max_bias, const uint32_t h, const uint32_t n_head_log2, const float m0, const float m1
@@ -197,7 +187,22 @@ bool bf16_mma_hardware_available(const int cc);
 // To be used for feature selection of external libraries, e.g. cuBLAS.
 bool fast_fp16_hardware_available(const int cc);
 
-void CUDA_SET_SHARED_MEMORY_LIMIT(const void* kernel, size_t nbytes);
+#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+#define CUDA_SET_SHARED_MEMORY_LIMIT(kernel, nbytes)                                                       \
+    do {                                                                                                   \
+        static bool shared_memory_limit_raised[GGML_CUDA_MAX_DEVICES] = { false };                         \
+        const int id = ggml_cuda_get_device();                                                             \
+        if (!shared_memory_limit_raised[id]) {                                                             \
+            CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, nbytes)); \
+            shared_memory_limit_raised[id] = true;                                                         \
+        }                                                                                                  \
+    } while (0)
+#else
+#define CUDA_SET_SHARED_MEMORY_LIMIT(kernel, nbytes) \
+    do {                                             \
+        GGML_UNUSED(nbytes);                         \
+    } while (0)
+#endif // !(defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
 
 bool amd_mfma_available(const int cc);
 
@@ -224,3 +229,6 @@ struct ggml_cuda_unroll<1> {
         f(0, args...);
     }
 };
+
+// map a (possibly virtual) device id to the physical CUDA device that backs it
+int ggml_cuda_get_physical_device(int device);

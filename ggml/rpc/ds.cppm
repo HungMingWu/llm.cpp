@@ -6,9 +6,9 @@ module ggml:rpc.ds;
 import :ds;
 import :rpc.transport;
 
-constexpr uint8_t RPC_PROTO_MAJOR_VERSION = 4;
-constexpr uint8_t RPC_PROTO_MINOR_VERSION = 0;
-constexpr uint8_t RPC_PROTO_PATCH_VERSION = 1;
+constexpr uint8_t RPC_PROTO_MAJOR_VERSION = 5;
+constexpr uint8_t RPC_PROTO_MINOR_VERSION = 1;
+constexpr uint8_t RPC_PROTO_PATCH_VERSION = 0;
 
 // all RPC structures must be packed
 #pragma pack(push, 1)
@@ -28,7 +28,7 @@ struct rpc_tensor {
     uint64_t data;
     char name[GGML_MAX_NAME];
 
-    char padding[4];
+    int32_t use_count;
 };
 
 static_assert(sizeof(rpc_tensor) % 8 == 0, "rpc_tensor size must be multiple of 8");
@@ -52,6 +52,7 @@ enum rpc_cmd {
     RPC_CMD_HELLO,
     RPC_CMD_DEVICE_COUNT,
     RPC_CMD_GRAPH_RECOMPUTE,
+    RPC_CMD_MEMSET_TENSOR,
     RPC_CMD_COUNT,
 };
 
@@ -128,6 +129,13 @@ struct rpc_msg_free_buffer_req {
 
 struct rpc_msg_buffer_clear_req {
     uint64_t remote_ptr;
+    uint8_t value;
+};
+
+struct rpc_msg_memset_tensor_req {
+    rpc_tensor tensor;
+    uint64_t offset;
+    uint64_t size;
     uint8_t value;
 };
 

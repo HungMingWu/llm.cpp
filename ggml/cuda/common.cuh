@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <bit>
 #include <mutex>
+#include <unordered_map>
 
 #include "common.h"
 #include "block.h"
@@ -257,6 +258,9 @@ static __device__ __forceinline__ uint2 fast_div_modulo(uint32_t n, const uint3 
 #define QI1_0 (block_q1_0::block_size / 32)
 #define QR1_0 1
 
+#define QI2_0 (block_q2_0::block_size / 32)
+#define QR2_0 1
+
 #define QI4_0 (block_q4_0::block_size / (4 * QR4_0))
 #define QR4_0 2
 
@@ -330,6 +334,7 @@ template <typename type>
 struct ggml_cuda_type_traits;
 
 static constexpr int VDR_Q1_0_Q8_1_MMVQ = 1;  // Process one 32-element chunk at a time for parallelism
+static constexpr int VDR_Q2_0_Q8_1_MMVQ = 1;  // Process one 32-element chunk at a time for parallelism
 static constexpr int VDR_Q4_0_Q8_1_MMVQ = 2;
 static constexpr int VDR_Q4_1_Q8_1_MMVQ = 2;
 static constexpr int VDR_Q5_0_Q8_1_MMVQ = 2;
@@ -358,6 +363,14 @@ struct ggml_cuda_type_traits<block_q1_0> {
     static constexpr int qr = QR1_0;
     static constexpr int qi = QI1_0;
     static constexpr int mmvq = VDR_Q1_0_Q8_1_MMVQ;
+};
+
+template<>
+struct ggml_cuda_type_traits<block_q2_0> {
+    static constexpr int qk = block_q2_0::block_size;
+    static constexpr int qr = QR2_0;
+    static constexpr int qi = QI2_0;
+    static constexpr int mmvq = VDR_Q2_0_Q8_1_MMVQ;
 };
 
 template<>
@@ -737,15 +750,15 @@ static __device__ __forceinline__ float ggml_cuda_ue4m3_to_fp32(uint8_t x) {
 }
 
 static __device__ __forceinline__ uint8_t ggml_cuda_fp32_to_ue4m3(float x) {
-#if defined(BLACKWELL_MMA_AVAILABLE) // This is used for NVFP4 subblock scale quantizations only
-    if (!(x > 0.0f)) {
-        return 0;
+    if constexpr (blackwell_mma_available_v) {
+        if (!(x > 0.0f)) {
+            return 0;
+        }
+        const __nv_fp8_e4m3 xf(x);
+        return xf.__x;
+    } else {
+        NO_DEVICE_CODE; // Used only for NVFP4 Scales for Activations, only for Blackwell
     }
-    const __nv_fp8_e4m3 xf(x);
-    return xf.__x;
-#else
-     NO_DEVICE_CODE; // Used only for NVFP4 Scales for Activations, only for Blackwell
-#endif // defined(BLACKWELL_MMA_AVAILABLE)
 }
 
 __device__ __forceinline__ uint8_t ggml_cuda_float_to_fp4_e2m1(float x, float e) {

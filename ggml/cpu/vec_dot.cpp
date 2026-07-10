@@ -56,6 +56,47 @@ void ggml_vec_dot(int n, float* s, size_t bs, const block_q1_0* x, size_t bx, co
     *s = sumf;
 }
 
+void ggml_vec_dot(int n, float* s, size_t bs, const block_q2_0* x, size_t bx, const block_q8_0* y, size_t by, int nrc) {
+    const int qk = block_q2_0::block_size;
+    const int nb = n / qk;
+
+    assert(n % qk == 0);
+    assert(nrc == 1);
+
+    float sumf = 0.0f;
+
+    for (int i = 0; i < nb; i++) {
+        const float d0 = toFloat32(std::bit_cast<ggml_fp16_t>(x[i].d));
+
+        float sumi = 0.0f;
+
+        // group 64: one Q2_0 block (64 weights) maps to two Q8_0 blocks (2 * 32 = 64)
+        for (int k = 0; k < 2; k++) {
+            const block_q8_0* yb = &y[i * 2 + k];
+            const float d1 = toFloat32(std::bit_cast<ggml_fp16_t>(yb->d));
+            int sumi_block = 0;
+
+            const uint8_t* qs = &x[i].qs[k * 8];
+            const int8_t* qy = yb->qs;
+
+            for (int b = 0; b < 8; ++b) {
+                const uint8_t byte = qs[b];
+                // Extract 4 two-bit values, map {0,1,2,3} -> {-1,0,1,2}
+                sumi_block += ((int)((byte >> 0) & 3) - 1) * qy[b * 4 + 0];
+                sumi_block += ((int)((byte >> 2) & 3) - 1) * qy[b * 4 + 1];
+                sumi_block += ((int)((byte >> 4) & 3) - 1) * qy[b * 4 + 2];
+                sumi_block += ((int)((byte >> 6) & 3) - 1) * qy[b * 4 + 3];
+            }
+
+            sumi += d1 * sumi_block;
+        }
+
+        sumf += d0 * sumi;
+    }
+
+    *s = sumf;
+}
+
 void ggml_vec_dot(int n, float* s, size_t bs, const block_q4_0* x, size_t bx, const block_q8_0* y, size_t by, int nrc)
 {
     const int qk = block_q8_0::block_size;

@@ -3,6 +3,7 @@
 void argsort_f32_i32_cuda(ggml_cuda_pool&,
     const float* x, int* dst,
     const int ncols, const int nrows,
+    const size_t /*nb01*/,
     internal::ggml_sort_order order, cudaStream_t stream)
 {
     argsort_f32_i32_cuda_bitonic(x, dst, ncols, nrows, order, stream);

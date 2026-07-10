@@ -3,11 +3,12 @@
 #include "cuda_func.h"
 #include "mdspan_helper.h"
 
+template <int block_size>
 static __global__ void norm_f32(
     auto x, auto dst, const int ncols, const float eps) {
     __shared__ float2 s_sum[32];
     auto block = cooperative_groups::this_thread_block();
-    auto tile = cooperative_groups::tiled_partition<32>(block);
+    auto tile = cooperative_groups::tiled_partition<block_size>(block);
 
     const int row = blockIdx.x;
     const int channel = blockIdx.y;
@@ -43,17 +44,17 @@ void norm_f32_cuda(const norm_context& ctx, cudaStream_t stream)
     const dim3 blocks_num(nrows, nchannels,  nsamples);
     if (ncols < 1024) {
         const dim3 block_dims(WARP_SIZE, 1, 1);
-        norm_f32 << <blocks_num, block_dims, 0, stream >> > 
+        norm_f32<WARP_SIZE> << <blocks_num, block_dims, 0, stream >> > 
             (s_data, dst_data, ncols, ctx.eps);
     }
     else {
         const dim3 block_dims(1024, 1, 1);
-        norm_f32 << <blocks_num, block_dims, 0, stream >> > 
+        norm_f32<1024> << <blocks_num, block_dims, 0, stream >> > 
             (s_data, dst_data, ncols, ctx.eps);
     }
 }
 
-template <typename dst_t, typename src_t, typename... Ts>
+template <int block_size, typename dst_t, typename src_t, typename... Ts>
 requires (std::is_same_v<Ts, src_t> && ...)
 static __global__ void rms_norm_f32(dst_t dst, src_t x, const int ncols, const float eps, Ts... args) {
     ggml_cuda_pdl_lc();
@@ -64,7 +65,7 @@ static __global__ void rms_norm_f32(dst_t dst, src_t x, const int ncols, const f
     const int tid = threadIdx.x;
     __shared__ float s_sum[32];
     auto block = cooperative_groups::this_thread_block();
-    auto tile = cooperative_groups::tiled_partition<32>(block);
+    auto tile = cooperative_groups::tiled_partition<block_size>(block);
 
     float tmp = 0.0f; // partial sum for thread in warp
 
@@ -97,10 +98,11 @@ static __global__ void rms_norm_f32(dst_t dst, src_t x, const int ncols, const f
     }
 }
 
+template <int block_size>
 static __global__ void rms_norm_back_f32(
     auto grad, auto xf, auto dst, const int ncols, const float eps) {
     auto block = cooperative_groups::this_thread_block();
-    auto tile = cooperative_groups::tiled_partition<32>(block);
+    auto tile = cooperative_groups::tiled_partition<block_size>(block);
     const int row = blockIdx.x * blockDim.y + threadIdx.y;
     const int tid = threadIdx.x;
 
@@ -135,14 +137,15 @@ void rms_norm_back_f32_cuda(const rms_norm_back_context& ctx, cudaStream_t strea
     std::mdspan dst(ctx.dst_d, ctx.nrows, ctx.ncols);
     if (ctx.ncols < 1024) {
         const dim3 block_dims(WARP_SIZE, 1, 1);
-        rms_norm_back_f32 << <ctx.nrows, block_dims, 0, stream >> > (grad, xf, dst, ctx.ncols, ctx.eps);
+        rms_norm_back_f32 <WARP_SIZE> << <ctx.nrows, block_dims, 0, stream >> > (grad, xf, dst, ctx.ncols, ctx.eps);
     }
     else {
         const dim3 block_dims(1024, 1, 1);
-        rms_norm_back_f32 << <ctx.nrows, block_dims, 0, stream >> > (grad, xf, dst, ctx.ncols, ctx.eps);
+        rms_norm_back_f32 <1024> << <ctx.nrows, block_dims, 0, stream >> > (grad, xf, dst, ctx.ncols, ctx.eps);
     }
 }
 
+template <int block_size>
 static __global__ void group_norm_f32(const float* x, float* dst, const int group_size, const int ne_elements, const float eps) {
     // blockIdx.x: num_groups idx
     // threadIdx.x: block_size idx
@@ -151,7 +154,7 @@ static __global__ void group_norm_f32(const float* x, float* dst, const int grou
     const int end = min(blockIdx.x * group_size + group_size, ne_elements);
 
     auto block = cooperative_groups::this_thread_block();
-    auto tile = cooperative_groups::tiled_partition<32>(block);
+    auto tile = cooperative_groups::tiled_partition<block_size>(block);
 
     float tmp = 0.0f; // partial sum for thread in warp
 
@@ -184,19 +187,20 @@ void group_norm_f32_cuda(
     const float* x, float* dst, const int num_groups, const float eps, const int group_size, const int ne_elements, cudaStream_t stream) {
     if (group_size < 1024) {
         const dim3 block_dims(WARP_SIZE, 1, 1);
-        group_norm_f32 << <num_groups, block_dims, 0, stream >> > (x, dst, group_size, ne_elements, eps);
+        group_norm_f32<WARP_SIZE> << <num_groups, block_dims, 0, stream >> > (x, dst, group_size, ne_elements, eps);
     }
     else {
         const dim3 block_dims(1024, 1, 1);
-        group_norm_f32 << <num_groups, block_dims, 0, stream >> > (x, dst, group_size, ne_elements, eps);
+        group_norm_f32<1024> <<<num_groups, block_dims, block_dims.x > WARP_SIZE ? 2 * 32 * sizeof(float): 0, stream>>>(x, dst, group_size, ne_elements, eps);
     }
 }
 
+template <int block_size>
 static __global__ void l2_norm_f32(
     auto x, auto dst, const int ncols,  const float eps) {
     __shared__ float s_sum[32];
     auto block = cooperative_groups::this_thread_block();
-    auto tile = cooperative_groups::tiled_partition<32>(block);
+    auto tile = cooperative_groups::tiled_partition<block_size>(block);
 
     const int row = blockIdx.x;
     const int channel = blockIdx.y;
@@ -229,11 +233,11 @@ void l2_norm_f32_cuda(const norm_context& ctx, cudaStream_t stream)
     const dim3 blocks_num(nrows, nchannels, nsamples);
     if (ncols < 1024) {
         const dim3 block_dims(WARP_SIZE, 1, 1);
-        l2_norm_f32 << <blocks_num, block_dims, 0, stream >> > (s_data, dst_data, ncols, ctx.eps);
+        l2_norm_f32 <WARP_SIZE> << <blocks_num, block_dims, 0, stream >> > (s_data, dst_data, ncols, ctx.eps);
     }
     else {
         const dim3 block_dims(1024, 1, 1);
-        l2_norm_f32 << <blocks_num, block_dims, 0, stream >> > (s_data, dst_data, ncols, ctx.eps);
+        l2_norm_f32 <1024> << <blocks_num, block_dims, 0, stream >> > (s_data, dst_data, ncols, ctx.eps);
     }
 }
 
@@ -261,13 +265,13 @@ void rms_norm_mul_f32_cuda(
         if (ncols < 1024) {
             const dim3 block_dims(256, 1, 1);
             const ggml_cuda_kernel_launch_params launch_params = {blocks_num, block_dims, block_dims.x > WARP_SIZE ? 32 * sizeof(float): 0, stream};
-            ggml_cuda_kernel_launch(rms_norm_f32<decltype(dst_data), decltype(x_data)>, launch_params,
+            ggml_cuda_kernel_launch(rms_norm_f32<256, decltype(dst_data), decltype(x_data)>, launch_params,
                 dst_data, x_data, ncols, eps);
         }
         else {
             const dim3 block_dims(1024, 1, 1);
             const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params{blocks_num, block_dims, block_dims.x > WARP_SIZE ? 32 * sizeof(float): 0, stream};
-            ggml_cuda_kernel_launch(rms_norm_f32<decltype(dst_data), decltype(x_data)>, launch_params,
+            ggml_cuda_kernel_launch(rms_norm_f32<1024, decltype(dst_data), decltype(x_data)>, launch_params,
                 dst_data, x_data, ncols, eps);
         }
         return;
@@ -277,13 +281,13 @@ void rms_norm_mul_f32_cuda(
         if (ncols < 1024) {
             const dim3 block_dims(256, 1, 1);
             const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params{blocks_num, block_dims, block_dims.x > WARP_SIZE ? 32 * sizeof(float): 0, stream};
-            ggml_cuda_kernel_launch(rms_norm_f32<decltype(dst_data), decltype(x_data), decltype(mul_data)>, launch_params,
+            ggml_cuda_kernel_launch(rms_norm_f32<256, decltype(dst_data), decltype(x_data), decltype(mul_data)>, launch_params,
                 dst_data, x_data, ncols, eps, mul_data);
         }
         else {
             const dim3 block_dims(1024, 1, 1);
             const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params{blocks_num, block_dims, block_dims.x > WARP_SIZE ? 32 * sizeof(float): 0, stream};
-            ggml_cuda_kernel_launch(rms_norm_f32<decltype(dst_data), decltype(x_data), decltype(mul_data)>, launch_params,
+            ggml_cuda_kernel_launch(rms_norm_f32<1024, decltype(dst_data), decltype(x_data), decltype(mul_data)>, launch_params,
                 dst_data, x_data, ncols, eps, mul_data);
         }
     }
@@ -292,13 +296,13 @@ void rms_norm_mul_f32_cuda(
         if (ncols < 1024) {
             const dim3 block_dims(256, 1, 1);
             const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params{blocks_num, block_dims,block_dims.x > WARP_SIZE ? 32 * sizeof(float): 0, stream};
-            ggml_cuda_kernel_launch(rms_norm_f32<decltype(dst_data), decltype(x_data), decltype(mul_data), decltype(add_data)>, launch_params,
+            ggml_cuda_kernel_launch(rms_norm_f32<256, decltype(dst_data), decltype(x_data), decltype(mul_data), decltype(add_data)>, launch_params,
                 dst_data, x_data, ncols, eps, mul_data, add_data);
         }
         else {
             const dim3 block_dims(1024, 1, 1);
             const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params{blocks_num, block_dims, block_dims.x > WARP_SIZE ? 32 * sizeof(float): 0, stream};
-            ggml_cuda_kernel_launch(rms_norm_f32<decltype(dst_data), decltype(x_data), decltype(mul_data), decltype(add_data)>, launch_params,
+            ggml_cuda_kernel_launch(rms_norm_f32<1024, decltype(dst_data), decltype(x_data), decltype(mul_data), decltype(add_data)>, launch_params,
                 dst_data, x_data, ncols, eps, mul_data, add_data);
         }
     }

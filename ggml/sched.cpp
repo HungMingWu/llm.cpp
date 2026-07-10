@@ -151,26 +151,37 @@ ggml_backend* ggml_backend_sched::backend_id_from_cur(ggml_tensor* tensor) {
     }
 
     // operations with weights are preferably run on the same backend as the weights
-    for (int i = 0; i < GGML_MAX_SRC; i++) {
-        const ggml_tensor* src = tensor->src[i];
-        if (src == NULL) {
-            continue;
-        }
-        // skip ROPE since the rope freqs tensor is too small to choose a backend based on it
-        // not an ideal solution
-        if (tensor->op != GGML_OP_ROPE && src->buffer != NULL && src->buffer->getUsage() == GGML_BACKEND_BUFFER_USAGE_WEIGHTS) {
-            ggml_backend* src_backend = backend_from_buffer(src, tensor);
-            // check if a backend with higher prio wants to offload the op
-            if (op_offload && src_backend == backends.back() && src->buffer->is_host()) {
-                for (int b = 0; b < backends.size() - 1; b++) {
-                    if (backends[b]->supports_op(tensor) && backends[b]->offload_op(tensor)) {
-                        SET_CAUSE(tensor, "1.off");
-                        return backends[b];
+    // TODO: there are exceptions (see below) - not an ideal solution
+    bool allow = true;
+
+    // skip ROPE since the rope freqs tensor is too small to choose a backend based on it
+    allow = allow && tensor->op != GGML_OP_ROPE;
+
+    // skip FLASH_ATTN_EXT since the sinks tensor is too small to choose a based based on it
+    allow = allow && tensor->op != GGML_OP_FLASH_ATTN_EXT;
+
+    if (allow) {
+        for (int i = 0; i < GGML_MAX_SRC; i++) {
+            const ggml_tensor* src = tensor->src[i];
+            if (src == NULL) {
+                continue;
+            }
+            // skip ROPE since the rope freqs tensor is too small to choose a backend based on it
+            // not an ideal solution
+            if (tensor->op != GGML_OP_ROPE && src->buffer != NULL && src->buffer->getUsage() == GGML_BACKEND_BUFFER_USAGE_WEIGHTS) {
+                ggml_backend* src_backend = backend_from_buffer(src, tensor);
+                // check if a backend with higher prio wants to offload the op
+                if (op_offload && src_backend == backends.back() && src->buffer->is_host()) {
+                    for (int b = 0; b < backends.size() - 1; b++) {
+                        if (backends[b]->supports_op(tensor) && backends[b]->offload_op(tensor)) {
+                            SET_CAUSE(tensor, "1.off");
+                            return backends[b];
+                        }
                     }
                 }
+                SET_CAUSE(tensor, "1.wgt%d", i);
+                return src_backend;
             }
-            SET_CAUSE(tensor, "1.wgt%d", i);
-            return src_backend;
         }
     }
 
@@ -511,7 +522,7 @@ void ggml_backend_sched::split_graph(ggml_cgraph& graph) {
                     }
                     // check if the split has too many inputs
                     // FIXME: count the number of inputs instead of only checking when full
-                    if (cur_split->inputs.size() == GGML_SCHED_MAX_SPLIT_INPUTS) {
+                    if (cur_split->inputs.size() == cur_split->inputs.capacity()) {
                         ggml_backend* src_backend = hv_tensor_backend.at(src);
                         bool supported = buffer_supported(src, cur_backend);
                         if (src_backend != cur_backend && hv_tensor_copies[src][cur_backend].empty() && !supported) {
@@ -587,7 +598,10 @@ void ggml_backend_sched::split_graph(ggml_cgraph& graph) {
         std::swap(leaf_backend_ids, prev_leaf_backend_ids);
     }
 
-    int graph_size = std::max<int>(graph.nodes.size(), graph.leafs.size() + splits.size() * GGML_SCHED_MAX_SPLIT_INPUTS * 2 * n_copies);
+    int total_inputs = graph_inputs.size();
+    for (const auto &split : splits)
+        total_inputs += split.inputs.size();
+    int graph_size = std::max(graph.nodes.size(), graph.leafs.size()) + total_inputs * 2 * n_copies;
     // remember the actual graph_size for performing reallocation checks later [GGML_SCHED_DEBUG_REALLOC]
     debug_prev_graph_size = std::exchange(debug_graph_size, graph_size);
 
@@ -767,8 +781,21 @@ ggml_status ggml_backend_sched::compute_splits() {
     std::vector<int32_t> ids;
     std::vector<ggml_bitset_t> used_ids;
 
+    ggml_backend* prev_backend = nullptr;
+
     for (auto& split : splits) {
         ggml_backend* split_backend = split.backend;
+
+        // ensure the previous split's async work has completed before we start
+        // this split, the allocator may have reused buffer regions across splits
+        if (split.inputs.empty() && prev_backend != nullptr && prev_backend != split_backend) {
+            if (events[prev_backend][cur_copy] != nullptr) {
+                events[prev_backend][cur_copy]->synchronize();
+            }
+            else {
+                prev_backend->synchronize();
+            }
+        }
 
         // copy the input tensors to the split backend
         for (size_t input_id = 0; input_id < split.inputs.size(); input_id++) {
@@ -937,12 +964,11 @@ ggml_status ggml_backend_sched::compute_splits() {
             }
         }
 
-        // record the event of this copy
-        if (!split.inputs.empty()) {
-            if (events[split_backend][cur_copy] != nullptr) {
-                split_backend->event_record(events[split_backend][cur_copy].get());
-            }
+        // record the event of this split
+        if (events[split_backend][cur_copy] != nullptr) {
+            split_backend->event_record(events[split_backend][cur_copy].get());
         }
+		prev_backend = split_backend;
     }
 
     cur_copy = (cur_copy + 1) % n_copies;

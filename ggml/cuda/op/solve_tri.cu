@@ -40,8 +40,6 @@ void solve_tri_f32_cublas(const solve_tri_context &ctx, ggml_cuda_pool& pool, cu
         }
     );
 
-    CUBLAS_CHECK(cublasSetStream(cublas_handle, stream));
-
     // Yes, this is necessary, without this we get RMSE errors
     CUBLAS_CHECK(cublasSetMathMode(cublas_handle, CUBLAS_DEFAULT_MATH));
     CUBLAS_CHECK(cublasStrsmBatched(cublas_handle, CUBLAS_SIDE_RIGHT, CUBLAS_FILL_MODE_UPPER, CUBLAS_OP_N,

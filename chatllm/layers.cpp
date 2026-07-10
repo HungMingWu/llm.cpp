@@ -478,7 +478,7 @@ namespace chatllm
         {
             a = ggml::cont(ctx, a);
         }
-        ggml::tensor* tensor = ggml_clamp(ctx->get_ctx(), a, min, max);
+        ggml::tensor* tensor = ggml_clamp(ctx->get_ctx(), a, min, max, false);
         ctx->cb_op_tensor(tensor);
         return tensor;
     }

@@ -27,6 +27,7 @@ public:
     bool buffer_get_base(const rpc_msg_buffer_get_base_req& request, rpc_msg_buffer_get_base_rsp& response);
     bool free_buffer(const rpc_msg_free_buffer_req& request);
     bool buffer_clear(const rpc_msg_buffer_clear_req& request);
+    bool memset_tensor(const rpc_msg_memset_tensor_req& request);
     bool set_tensor(const std::vector<uint8_t>& input);
     bool set_tensor_hash(const rpc_msg_set_tensor_hash_req& request, rpc_msg_set_tensor_hash_rsp& response);
     bool get_tensor(const rpc_msg_get_tensor_req& request, std::vector<uint8_t>& response);

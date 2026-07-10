@@ -20,6 +20,7 @@ public:
     }
     ~rpc_backend_buffer() override;
     ggml_status init_tensor(ggml_tensor* tensor) override;
+    void memset_tensor(ggml_tensor* tensor, uint8_t value, size_t offset, size_t size) override;
     void set_tensor(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
     void get_tensor(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
     bool cpy_tensor(const ggml_tensor* src, ggml_tensor* dst) override;

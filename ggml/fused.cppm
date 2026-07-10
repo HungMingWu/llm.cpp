@@ -54,4 +54,12 @@ namespace fused
 		const int* out_nodes,
 		const int           out_count,
 		const bool          is_topk_moe = false);
+
+	bool ggml_cuda_should_fuse_mul_mat(const ggml_tensor* ffn_up,
+		const ggml_tensor* ffn_gate,
+		const ggml_tensor* glu,
+		const ggml_tensor* ffn_up_bias = nullptr,
+		const ggml_tensor* ffn_gate_bias = nullptr,
+		const ggml_tensor* ffn_up_scale = nullptr,
+		const ggml_tensor* ffn_gate_scale = nullptr);
 }

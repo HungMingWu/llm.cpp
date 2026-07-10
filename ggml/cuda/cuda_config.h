@@ -48,31 +48,7 @@ static constexpr bool ggml_use_musa_v = true;
 static constexpr bool ggml_use_musa_v = false;
 #endif
 
-#if defined(GGML_USE_MUSA)
-static constexpr bool ggml_use_wmma_fattn_v = true;
-#elif defined(GGML_HIP_ROCWMMA_FATTN)
-// ignore judgement right now
-#if 0
-#if defined(CDNA) && (ROCWMMA_VERSION_MAJOR < 2 || ROCWMMA_VERSION_MINOR > 0 || ROCWMMA_VERSION_PATCH > 0)
-#define GGML_USE_WMMA_FATTN
-#elif defined(CDNA)
-#warning "rocwmma fattn on CDNA is broken on rocwmma v2.0.0, expect degraded performance"
-#endif // defined(CDNA) && (ROCWMMA_VERSION_MAJOR < 2 || ROCWMMA_VERSION_MINOR > 0 || ROCWMMA_VERSION_PATCH > 0)
-#if defined(RDNA3)
-#define GGML_USE_WMMA_FATTN
-#endif // defined(RDNA3)
-#if defined(RDNA4) && ROCWMMA_VERSION_MAJOR > 1
-#define GGML_USE_WMMA_FATTN
-#elif defined(RDNA4)
-#warning "rocwmma fattn is not supported on RDNA4 on rocwmma < v2.0.0, expect degraded performance"
-#endif // defined(RDNA4) && ROCWMMA_VERSION_MAJOR > 1
-#endif
-static constexpr bool ggml_use_wmma_fattn_v = true;
-#else
-static constexpr bool ggml_use_wmma_fattn_v = false;
-#endif
-
-#if defined(GGML_CUDA_FORCE_CUBLAS)
+#ifdef GGML_CUDA_FORCE_CUBLAS
 static constexpr bool force_enable_cuda_blas_v = true;
 #else
 static constexpr bool force_enable_cuda_blas_v = false;
@@ -89,8 +65,6 @@ static constexpr bool ggml_cuda_no_peer_copy_v = true;
 #else
 static constexpr bool ggml_cuda_no_peer_copy_v = false;
 #endif
-
-static constexpr int ggml_cuda_peer_max_batch_size_v = GGML_CUDA_PEER_MAX_BATCH_SIZE;
 
 #if defined(GGML_CUDA_FA_ALL_QUANTS)
 static constexpr bool ggml_cuda_fa_all_quants_v = true;

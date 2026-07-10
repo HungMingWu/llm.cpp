@@ -7,13 +7,6 @@
 
 #define MMQ_DP4A_MAX_BATCH_SIZE 64 // Max. batch size to use for dp4a MMQ kernels when FP16 tensor cores are available.
 
-static int get_mmq_x_max_host(const int cc) {
-    if (turing_mma_available(cc) || amd_wmma_available(cc)) return 128;
-    if (GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA)
-        return ggml_cuda_force_mmq_v ? 128 : MMQ_DP4A_MAX_BATCH_SIZE;
-    return 64;
-}
-
 void arange_f32_cuda(float* dst, size_t dst_size, const float start, const float step, cudaStream_t stream);
 
 // conv-transpose-1d.h
@@ -44,7 +37,9 @@ void quantize_mmq_q8_1_cuda(
 void quantize_mmq_fp4_cuda(const float* x,
     const int32_t* ids,
     void* vy,
-    const internal::ggml_type       type_src0,
+    float* scale,
+    internal::ggml_type       type_src0,
+    bool            use_aligned_float8,
     int64_t         ne00,
     int64_t         s01,
     int64_t         s02,
@@ -53,6 +48,33 @@ void quantize_mmq_fp4_cuda(const float* x,
     int64_t         ne1,
     int64_t         ne2,
     int64_t         ne3,
+    cudaStream_t    stream);
+
+// quantize each token once and scatter the block to its compact rows (via the inverse map)
+void quantize_scatter_mmq_fp4_cuda(const float* x,
+    const int32_t* ids_src1_inv,
+    void* vy,
+    float* scale,
+    internal::ggml_type       type_src0,
+    bool            use_aligned_float8,
+    int64_t         ne00,
+    int64_t         stride_token,
+    int64_t         ne0,
+    int64_t         n_tokens,
+    int64_t         nrows_dst,
+    int             n_expert_used,
+    cudaStream_t    stream);
+
+void quantize_scatter_mmq_q8_1_cuda(const float* x,
+    const int32_t* ids_src1_inv,
+    void* vy,
+    internal::ggml_type       type_src0,
+    int64_t         ne00,
+    int64_t         stride_token,
+    int64_t         ne0,
+    int64_t         n_tokens,
+    int64_t         nrows_dst,
+    int             n_expert_used,
     cudaStream_t    stream);
 
 // From mmvq.cu
@@ -90,20 +112,31 @@ struct mat_vec_q_switch_context {
 
 void mul_mat_vec_q_switch_type(const mat_vec_q_switch_context &ctx, cudaStream_t stream);
 
+// mmq.cu
 struct mmq_args {
     const char* x; internal::ggml_type type_x; const int* y; const int32_t* ids_dst; const int32_t* expert_bounds; float* dst;
+    const float* y_scale;
     int64_t ncols_x; int64_t nrows_x; int64_t ncols_dst; int64_t stride_row_x; int64_t ncols_y; int64_t nrows_dst;
     int64_t nchannels_x; int64_t nchannels_y; int64_t stride_channel_x; int64_t stride_channel_y; int64_t stride_channel_dst;
     int64_t nsamples_x; int64_t nsamples_y; int64_t stride_sample_x; int64_t stride_sample_y; int64_t stride_sample_dst;
-    bool use_stream_k; int64_t ncols_max;
+    int64_t ncols_max;
 };
 
+int ggml_cuda_mmq_get_J_max(const internal::ggml_type type, const bool fallback, const int cc, const int64_t ne11);
 void ggml_cuda_mul_mat_q_switch_type(ggml_cuda_pool& pool, const mmq_args& args, cudaStream_t stream);
 
 // mmid.cu
 void ggml_cuda_launch_mm_ids_helper(
-    const int32_t* ids, int32_t* ids_src1, int32_t* ids_dst, int32_t* expert_bounds,
-    const int n_experts, const int n_tokens, const int n_expert_used, const int nchannels_y, const int si1, const int sis1, cudaStream_t stream);
+    const int32_t* __restrict__ ids, int32_t* __restrict__ ids_src1, int32_t* __restrict__ ids_dst, int32_t* __restrict__ expert_bounds,
+    const int n_experts, const int n_tokens, const int n_expert_used, const int nchannels_y, const int si1, const int sis1, const bool write_inverse, cudaStream_t stream);
+
+// pool1d.cu
+void pool1d_nchw_kernel_f32_f32_cuda(
+    const int iw, const int ow,
+    const int kw, const int sw, const int pw,
+    const int parallel_elements,
+    const float* src, float* dst, const enum internal::ggml_op_pool op,
+    cudaStream_t stream);
 
 // pool2d.cu
 struct pool2d_context {
@@ -293,6 +326,8 @@ struct dup_context {
     int64_t dst_ne[4];
     size_t dst_nb[4];
     const bool contiguous;
+    const bool same_shape;
+    size_t block_nb;
 };
 void dup_cuda(const dup_context &ctx, cudaStream_t stream);
 
@@ -379,6 +414,7 @@ struct rwkv_wkv7_context {
     const int64_t n_seqs;
     const int64_t T;
     const int64_t C;
+    const int64_t B;
     const int64_t HEADS;
     const float* r;
     const float* w;
@@ -488,6 +524,7 @@ struct rope_context {
     int64_t dst_ne[4];
     size_t dst_nb[4];
     const int n_dims;
+    const int n_offs;
     const int n_ctx_orig;
     const int32_t* pos;
     const float freq_base;
@@ -503,11 +540,38 @@ struct rope_context {
 
 void rope_cuda(const rope_context &ctx, cudaStream_t stream);
 
+struct rms_norm_mul_rope_fused_context {
+    internal::ggml_type dst_type;
+    const float* x_data;
+    void* dst_d;
+	int64_t x_ne[4];
+    int64_t s01, s02, s03;
+    int64_t s1, s2, s3;
+    float eps;
+    const void* mul_src_data;
+    int64_t mul_s01, mul_s02, mul_s03;
+    int64_t mul_src_ne[4];
+    int n_dims;
+    const int32_t* pos;
+    const float* freq_factors;
+    int n_ctx_orig;
+    float freq_base;
+    float freq_scale;
+    float ext_factor;
+    float attn_factor;
+    float beta_fast;
+    float beta_slow;
+    const int64_t* row_indices;
+    int set_rows_stride;
+    const bool is_neox;
+};
+void rms_norm_mul_rope_fused_cuda(const rms_norm_mul_rope_fused_context& ctx, cudaStream_t stream);
+
 // concat
 struct concat_context {
-    const size_t type_size;
+    const internal::ggml_type src0_type;
     const int32_t dim;
-	const void* src0_d, * src1_d;
+    const void* src0_d, * src1_d;
     void* dst_d;
     int64_t src0_ne[4];
     size_t src0_nb[4];
@@ -515,14 +579,15 @@ struct concat_context {
     size_t src1_nb[4];
     int64_t dst_ne[4];
     size_t dst_nb[4];
-    const size_t src0_size, src1_size;
 };
 void concat_cuda(const concat_context &ctx, cudaStream_t stream);
 
 // argsort*.cu
+int argsort_f32_i32_cuda_cub_chunk_nrows(const size_t nb01, const int64_t nrows);
 void argsort_f32_i32_cuda(ggml_cuda_pool& pool,
     const float* x, int* dst,
     const int ncols, const int nrows,
+    const size_t nb01,
     internal::ggml_sort_order order, cudaStream_t stream);
 void argsort_f32_i32_cuda_bitonic(
     const float* x, int* dst,
@@ -731,13 +796,30 @@ struct ssm_conv_context {
 void ssm_conv_f32_cuda(const ssm_conv_context &ctx, cudaStream_t stream);
 
 // ssm-scan
+#if !defined(GGML_USE_HIP) && !defined(GGML_USE_MUSA)
+void ssm_scan_ssd_f32_cuda(
+    ggml_cuda_pool& pool,
+    cublasHandle_t handle,
+    cudaStream_t stream,
+    const float* src0_d, const float* src1_d, const float* src2_d, const float* src3_d,
+    const float* src4_d, const float* src5_d, const int32_t* src6_d, float* dst_d,
+    const int64_t s0_stride_seq,                                   // state (src0) stride between seqs
+    const int x_stride_tok, const int x_stride_seq,               // x (src1) strides
+    const int dt_stride_tok, const int dt_stride_seq,              // dt (src2) strides
+    const int A_stride,                                            // A (src3) stride between heads
+    const int B_stride_tok, const int B_stride_seq,               // B (src4) strides
+    const int C_stride_tok, const int C_stride_seq,               // C (src5) strides
+    const int64_t s_off, const int64_t d_state, const int64_t head_dim,
+    const int64_t n_head, const int64_t n_group, const int64_t n_tok, const int64_t n_seq);
+#endif
+
 void ssm_scan_f32_cuda(const float* src0, const float* src1, const float* src2, const float* src3,
     const float* src4, const float* src5, const int32_t* src6, float* dst,
     const int src0_nb2, const int src0_nb3, const int src1_nb2, const int src1_nb3, const int src2_nb1,
     const int src2_nb2, const int src3_nb1, const int src4_nb2, const int src4_nb3, const int src5_nb2,
     const int src5_nb3, const int64_t s_off, const int64_t d_state, const int64_t head_dim,
     const int64_t n_head, const int64_t n_group, const int64_t n_tok, const int64_t n_seq,
-    cudaStream_t stream);
+    const int64_t K, cudaStream_t stream);
 
 // conv2d-dw.cu
 struct conv2d_dw_context {
@@ -786,6 +868,7 @@ void mean_cuda(const mean_context& ctx, cudaStream_t stream);
 
 //set-rows.cu
 struct set_rows_context {
+    internal::ggml_type src0_type;
     internal::ggml_type src1_type;
     internal::ggml_type dst_type;
     const void* src0_d;
@@ -985,10 +1068,18 @@ struct top_k_context {
     const int64_t nrows;
     const int64_t ncols;
     const int64_t k;
+    const size_t nb01;
 };
 void top_k_cuda(const top_k_context& ctx, cudaStream_t  stream);
 
 // gated_delta_net.cu
+//
+// fused-kernel recurrent-state output; strides in elements (per-seq stride is always D, set in-kernel)
+struct ggml_cuda_gated_delta_net_fused_cache {
+    float* data;        // rollback slot 0
+    int64_t slot_stride; // between rollback slots (0 when K==1)
+};
+
 struct gated_delta_net_context {
     const bool kda;
     const float* q_d;
@@ -1013,6 +1104,10 @@ struct gated_delta_net_context {
 };
 
 void gated_delta_net_cuda(const gated_delta_net_context& ctx, cudaStream_t  stream);
+void gated_delta_net_fused_cache(
+    const gated_delta_net_context& ctx,
+    ggml_cuda_gated_delta_net_fused_cache cache,
+    cudaStream_t stream);
 
 // snake.cu
 struct snake_context {
@@ -1053,3 +1148,66 @@ void k_compute_out_prod_ptrs(
     const size_t s02, const size_t s03,
     const size_t s12, const size_t s13,
     const size_t s2, const size_t s3, cudaStream_t stream);
+
+// lightning-indexer.cu
+
+struct lightning_indexer_context {
+    const int n_embd;
+    const int n_head;
+    const int n_batch;
+    const int n_stream;
+    const int n_kv;
+    const bool use_wmma_kernel;
+    internal::ggml_type k_type;
+    const float* q_d;
+    const char* k_d;
+    const float* w_d;
+    const half* m_d;
+    float* dst_d;
+    int64_t m_ne[4];
+	size_t m_nb[4];
+    size_t k_nb[4];
+    size_t w_nb[4];
+    size_t q_nb[4];
+    size_t dst_nb[4];
+};
+
+void lightning_indexer_cuda(const lightning_indexer_context& ctx, cudaStream_t stream);
+
+// dsv4-hc.cu
+struct dsv4_hc_comb_context {
+    const int64_t n_tokens;
+    const float* mixes_data;
+	const float* scale_data;
+    const float* base_data;
+    float* dst_data;
+    const float eps;
+    const int32_t n_iter;
+	size_t nbm0, nbm1, nbb0, nbs0, nbs1, nbd0, nbd1, nbd2;
+};
+
+struct dsv4_hc_pre_context {
+    const int64_t n_embd;
+    const int64_t hc;
+    const int64_t n_tokens;
+    const float* x_data;
+    const float* weights_data;
+	float* dst_data;
+	size_t nbx0, nbx1, nbx2, nbw0, nbw1, nbd0, nbd1;
+};
+
+struct dsv4_hc_post_context {
+    const int64_t n_embd;
+    const int64_t n_tokens;
+    const int64_t hc;
+	const float* x_data;
+    const float* residual_data;
+    const float* post_data;
+    const float* comb_data;
+    float* dst_data;
+	size_t nbx0, nbx1, nbr0, nbr1, nbr2, nbp0, nbp1, nbc0, nbc1, nbc2, nbd0, nbd1, nbd2;
+};
+
+void dsv4_hc_comb_cuda(const dsv4_hc_comb_context& ctx, cudaStream_t stream);
+void dsv4_hc_pre_cuda(const dsv4_hc_pre_context& ctx, cudaStream_t stream);
+void dsv4_hc_post_cuda(const dsv4_hc_post_context& ctx, cudaStream_t stream);

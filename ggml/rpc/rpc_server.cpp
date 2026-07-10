@@ -494,6 +494,9 @@ bool rpc_server::graph_compute(const std::vector<uint8_t>& input) {
             GGML_LOG_ERROR("[{}] failed to create graph node {} (id={})\n", __func__, i, id);
             return false;
         }
+        if (graph->nodes[i] != nullptr) {
+            graph->use_counts[graph->nodes[i]] = tensor_ptrs.at(id)->use_count;
+        }
     }
     ggml_status status = backends[device]->graph_compute(graph.get());
     GGML_ASSERT(status == GGML_STATUS_SUCCESS && "Unsuccessful graph computations are not supported with RPC");
@@ -536,4 +539,41 @@ rpc_server::~rpc_server() {
     for (auto buffer : buffers) {
         delete buffer;
     }
+}
+
+bool rpc_server::memset_tensor(const rpc_msg_memset_tensor_req& request)
+{
+    ggml_context ctx_;
+    ggml_context* ctx = &ctx_;
+    ggml_tensor* tensor = deserialize_tensor(ctx, &request.tensor);
+    if (tensor == nullptr || tensor->buffer == nullptr) {
+        GGML_LOG_ERROR("[%s] error deserializing tensor\n", __func__);
+        return false;
+    }
+
+    const uint64_t tensor_size = tensor->nbytes();
+    if (request.offset > tensor_size || request.size > tensor_size - request.offset) {
+        GGML_LOG_ERROR("[{}] tensor region (offset={}, size={}) out of tensor bounds [0, {})",
+            __func__, request.offset, request.size, tensor_size);
+        return false;
+    }
+
+    const uint64_t buffer_start = (uint64_t)tensor->buffer->get_base();
+    const uint64_t buffer_size = tensor->buffer->get_size();
+    if (request.tensor.data < buffer_start) {
+        GGML_LOG_ERROR("[%s] tensor data before buffer start\n", __func__);
+        return false;
+    }
+    const uint64_t data_offset = request.tensor.data - buffer_start;
+    if (data_offset > buffer_size ||
+        request.offset > buffer_size - data_offset ||
+        request.size > buffer_size - data_offset - request.offset) {
+        GGML_LOG_ERROR("[%s] tensor region out of buffer bounds\n", __func__);
+        return false;
+    }
+
+    LOG_DBG("[{}] buffer: {}, data: {}, offset: {}, size: {}, value: {}",
+        __func__, (void*)tensor->buffer, tensor->data, request.offset, request.size, request.value);
+    ggml_backend_tensor_memset(tensor, request.value, request.offset, request.size);
+    return true;
 }

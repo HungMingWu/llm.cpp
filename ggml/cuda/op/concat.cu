@@ -36,21 +36,38 @@ void concat_cuda(const concat_context &ctx, cudaStream_t stream)
 }
 
 void concat_cuda(const concat_context &ctx, cudaStream_t stream) {
-
-    switch (ctx.type_size) {
-        case 1:
-            concat_cuda<uint8_t>(ctx, stream);
-            break;
-        case 2:
+    switch (ctx.src0_type) {
+        case internal::GGML_TYPE_F16:
+        case internal::GGML_TYPE_BF16:
+        case internal::GGML_TYPE_I16:
             concat_cuda<uint16_t>(ctx, stream);
             break;
-        case 4:
+        case internal::GGML_TYPE_I8:
+            concat_cuda<uint8_t>(ctx, stream);
+            break;
+        case internal::GGML_TYPE_F32:
+        case internal::GGML_TYPE_I32:
             concat_cuda<uint32_t>(ctx, stream);
             break;
-        case 8:
+        case internal::GGML_TYPE_I64:
             concat_cuda<uint64_t>(ctx, stream);
             break;
-        default:
+        case internal::GGML_TYPE_Q4_0:
+            concat_cuda<block_q4_0>(ctx, stream);
+            break;
+        case internal::GGML_TYPE_Q4_1:
+            concat_cuda<block_q4_1>(ctx, stream);
+            break;
+        case internal::GGML_TYPE_Q5_0:
+            concat_cuda<block_q5_0>(ctx, stream);
+            break;
+        case internal::GGML_TYPE_Q5_1:
+            concat_cuda<block_q5_1>(ctx, stream);
+            break;
+        case internal::GGML_TYPE_Q8_0:
+            concat_cuda<block_q8_0>(ctx, stream);
+            break;
+    default:
             GGML_ABORT("Unsupported type size: %zu", ggml_type_size(src0->type));
             break;
     }

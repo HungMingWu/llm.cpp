@@ -46,45 +46,6 @@ cudaError_t ggml_cuda_device_malloc(void** ptr, size_t size, int device) {
 	return err;
 }
 
-size_t ggml_nbytes_split(const ggml_tensor* tensor, int nrows_split) {
-	return nrows_split * ggml_row_size(tensor->type, tensor->ne[0]);
-}
-
-int64_t get_row_rounding(const std::array<float, GGML_CUDA_MAX_DEVICES>& tensor_split) {
-	int64_t row_rounding = 0;
-	for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
-		if (tensor_split[id] >= (id + 1 < ggml_backend_cuda_get_device_count() ? tensor_split[id + 1] : 1.0f)) {
-			continue;
-		}
-
-		const int cc = ggml_cuda_info().devices[id].cc;
-		row_rounding = std::max(row_rounding, (int64_t)get_mmq_y_host(cc));
-	}
-	return row_rounding;
-}
-
-std::pair<int64_t, int64_t> get_row_split(int64_t nrows, const std::array<float, GGML_CUDA_MAX_DEVICES>& tensor_split, int id) {
-	const int64_t rounding = get_row_rounding(tensor_split);
-
-	const int64_t row_low = [&] {
-		int64_t row_low = id == 0 ? 0 : nrows * tensor_split[id];
-		row_low -= row_low % rounding;
-		return row_low;
-	}();
-
-	const int64_t row_high = [&] {
-		if (id == ggml_backend_cuda_get_device_count() - 1) {
-			return nrows;
-		}
-		else {
-			int64_t row_high = nrows * tensor_split[id + 1];
-			row_high -= row_high % rounding;
-			return row_high;
-		}
-	}();
-	return { row_low, row_high };
-}
-
 struct cuda_backend_buffer : public ggml_backend_buffer {
 	int device;
 	void* dev_ptr = nullptr;
@@ -182,24 +143,7 @@ struct ggml_tensor_extra_gpu {
 	~ggml_tensor_extra_gpu();
 };
 
-struct cuda_split_backend_buffer : public ggml_backend_buffer {
-	std::map<ggml_tensor*, ggml_tensor_extra_gpu> tensor_extras;
-protected:
-	void* get_base_impl() override
-	{
-		// the pointers are stored in the tensor extras, this is just a dummy address and never dereferenced
-		return (void*)0x1000;
-	}
-	void clear_impl(uint8_t) override {}
-public:
-	using ggml_backend_buffer::ggml_backend_buffer;
-	ggml_status init_tensor(ggml_tensor* tensor) override;
-	void set_tensor(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
-	void get_tensor(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
-};
-
 ggml_backend_buffer_type* ggml_backend_cuda_buffer_type(int device);
 
 cuda_backend_buffer_type* to_cuda_buffer_type(ggml_backend_buffer_type* buft);
 
-cuda_split_backend_buffer_type* to_split_buffer_type(ggml_backend_buffer_type* buft);

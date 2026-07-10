@@ -23,6 +23,7 @@ module;
 module ggml:cpu.device;
 import :ds;
 import :utility;
+import :tensor;
 import :traits;
 import :cpu.buffer_type;
 import :cpu.traits;
@@ -139,6 +140,7 @@ struct ggml_backend_cpu_device : public ggml_backend_device {
 			/* .host_buffer           = */ false,
 			/* .buffer_from_host_ptr  = */ true,
 			/* .events                = */ false,
+			/* .mmap_support          = */ true,
 		};
 #endif
 	}
@@ -192,12 +194,17 @@ struct ggml_backend_cpu_device : public ggml_backend_device {
 			return std::bit_cast<float>(op->op_params[1]) == 0.0f;
 		}
 		case GGML_OP_IM2COL_BACK:
-			return src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_F32;
+			return src0->type == GGML_TYPE_F32 && (src1->type == GGML_TYPE_F32 || src1->type == GGML_TYPE_F16);
 		case GGML_OP_GET_ROWS_BACK:
 			return src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16;
 		case GGML_OP_OUT_PROD:
-			return (src0->type == GGML_TYPE_F32 || (ggml_is_quantized(src0->type) && src0->ne[2] == src1->ne[2] && src0->ne[3] == src1->ne[3])) &&
+			return (src0->type == GGML_TYPE_F32 ||
+				((src0->type == GGML_TYPE_F16 || ggml_is_quantized(src0->type)) && src0->ne[2] == src1->ne[2] && src0->ne[3] == src1->ne[3])) &&
 				src1->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
+		case GGML_OP_CONV_2D:
+			return ggml_is_contiguous(op->src[0]);
+		case GGML_OP_SSM_SCAN:
+			return std::bit_cast<int32_t>(op->op_params[0]) == 1 || op->src[3]->ne[0] == 1;
 		default:
 			return true;
 		}

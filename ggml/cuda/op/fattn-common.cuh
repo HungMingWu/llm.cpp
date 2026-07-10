@@ -609,7 +609,7 @@ static __global__ void flash_attn_combine_results(
 template <int ncols1>
 __launch_bounds__(FATTN_KQ_STRIDE / 2, 1)
 static __global__ void flash_attn_mask_to_KV_max(
-    auto mask_data, auto KV_max, const int ne30) {
+    mdspan_stride_t<const half, 4> mask_data, mdspan_t<int, 2> KV_max, const int ne30) {
     const int tid = threadIdx.x;
     const int sequence = blockIdx.y;
     const int jt = blockIdx.x;
@@ -958,8 +958,9 @@ void launch_fattn(
         KV_max.alloc(ne_KV_max);
         auto mask_data = make_strided_mdspan((const half*)(ctx.mask.data), ctx.mask.ne, ctx.mask.nb);
         std::mdspan KV_max_data(KV_max.ptr, blocks_num_KV_max.y, blocks_num_KV_max.x);
-        flash_attn_mask_to_KV_max<ncols1> << <blocks_num_KV_max, block_dim_KV_max, 0, main_stream >> >
-            (mask_data, KV_max_data, iter_k);
+        ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(blocks_num_KV_max, block_dim_KV_max, 0, main_stream);
+        ggml_cuda_kernel_launch(flash_attn_mask_to_KV_max<ncols1>, launch_params,
+            mask_data, KV_max_data, iter_k);
         CUDA_CHECK(cudaGetLastError());
     }
 

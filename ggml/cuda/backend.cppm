@@ -188,7 +188,9 @@ private:
     cudaEvent_t copy_event = nullptr;
     cudaStream_t streams[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = { { nullptr } };
 
-    cublasHandle_t cublas_handles[GGML_CUDA_MAX_DEVICES] = { nullptr };
+    cublasHandle_t cublas_handles[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = { nullptr };
+    void* cublas_workspaces[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = { nullptr };
+    size_t cublas_workspace_sizes[GGML_CUDA_MAX_DEVICES] = { 0 };
 
     // Map from first_node_ptr to cuda_graph - allows multiple graphs per context
     // when the computation is split across CPU/GPU (e.g., with --n-cpu-moe)
@@ -241,8 +243,7 @@ public:
     ggml_cuda_pool& pool(int device);
     ggml_cuda_pool& pool() { return pool(device); }
 
-    cublasHandle_t cublas_handle(int device);
-    cublasHandle_t cublas_handle() { return cublas_handle(device); }
+    cublasHandle_t cublas_handle();
 
 public:
     using ggml_backend::ggml_backend;

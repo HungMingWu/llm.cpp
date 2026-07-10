@@ -104,26 +104,30 @@ namespace utils
 
         switch (type) {
         case GGML_TYPE_Q1_0:
+        case GGML_TYPE_Q2_0:
         case GGML_TYPE_Q4_0:
         case GGML_TYPE_Q4_1:
         case GGML_TYPE_Q5_0:
         case GGML_TYPE_Q5_1:
         case GGML_TYPE_Q8_0:
-        case GGML_TYPE_MXFP4:
-        case GGML_TYPE_NVFP4:
+// -------------------------------------------------
         case GGML_TYPE_Q2_K:
         case GGML_TYPE_Q3_K:
         case GGML_TYPE_Q4_K:
         case GGML_TYPE_Q5_K:
         case GGML_TYPE_Q6_K:
+// -------------------------------------------------
+        case GGML_TYPE_IQ1_S:
         case GGML_TYPE_IQ2_XXS:
         case GGML_TYPE_IQ2_XS:
         case GGML_TYPE_IQ2_S:
         case GGML_TYPE_IQ3_XXS:
         case GGML_TYPE_IQ3_S:
-        case GGML_TYPE_IQ1_S:
         case GGML_TYPE_IQ4_XS:
         case GGML_TYPE_IQ4_NL:
+// -------------------------------------------------
+        case GGML_TYPE_MXFP4:
+        case GGML_TYPE_NVFP4:
             mmq_supported = true;
             break;
         default:
@@ -133,6 +137,15 @@ namespace utils
 
         if (!mmq_supported) {
             return false;
+        }
+
+        // MMQ tiles require at least 48 KiB per-block shared memory; fall back to BLAS otherwise.
+        {
+            const int    id = ggml_cuda_get_device();
+            const size_t smpbo = ggml_cuda_info().devices[id].smpbo;
+            if (smpbo < 48 * 1024) {
+                return false;
+            }
         }
 
         if (turing_mma_available(cc)) {
@@ -195,6 +208,13 @@ namespace utils
             // For RDNA4 MMQ is consistently faster than dequantization + hipBLAS:
             // https://github.com/ggml-org/llama.cpp/pull/18537#issuecomment-3706422301
             return true;
+        }
+
+        // gfx900 (Vega 10) lacks native dp4a, loses to dequant + hipBLAS
+        // for dense matrices; keep MMQ only for MoE, where the
+        // hipBLAS path is much slower.
+        if (cc == GGML_CUDA_CC_VEGA) {
+            return n_experts > 0;
         }
 
         return (!GGML_CUDA_CC_IS_CDNA(cc)) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE;
@@ -355,6 +375,45 @@ namespace utils
     }
 
     bool should_use_mmvq(enum ggml_type type, int cc, int64_t ne11) {
+        if (!ggml_is_quantized(type)) {
+            return false;
+        }
+        // k-quants cost more to decode and mvq redoes that per column, so MMQ wins sooner.
+        // Only list quant-types MMQ supports, others would fall back to cuBLAS.
+        if (GGML_CUDA_CC_IS_NVIDIA(cc) && cc == GGML_CUDA_CC_ADA_LOVELACE) {
+            switch (type) { // tuned on RTX 4090
+            case GGML_TYPE_Q2_K:
+                return ne11 <= 4;
+            case GGML_TYPE_Q3_K:
+                return ne11 <= 6;
+            case GGML_TYPE_Q4_K:
+            case GGML_TYPE_Q5_K:
+                return ne11 <= 7;
+            default:
+                return ne11 <= MMVQ_MAX_BATCH_SIZE;
+            }
+        }
+        if (GGML_CUDA_CC_IS_NVIDIA(cc) && cc == GGML_CUDA_CC_BLACKWELL) {
+            switch (type) { // tuned on RTX 5090
+            case GGML_TYPE_Q2_K:
+            case GGML_TYPE_Q3_K:
+            case GGML_TYPE_Q4_K:
+            case GGML_TYPE_Q5_K:
+                return ne11 <= 5;
+            case GGML_TYPE_Q6_K:
+                return ne11 <= 7;
+            default:
+                return ne11 <= MMVQ_MAX_BATCH_SIZE;
+            }
+        }
+        if (GGML_CUDA_CC_IS_NVIDIA(cc) && cc == GGML_CUDA_CC_DGX_SPARK) {
+            switch (type) { // tuned on DGX Spark GB10
+            case GGML_TYPE_Q2_K:
+                return ne11 <= 6;
+            default:
+                return ne11 <= MMVQ_MAX_BATCH_SIZE;
+            }
+        }
         if (GGML_CUDA_CC_IS_CDNA(cc)) {
             if (GGML_CUDA_CC_IS_CDNA1(cc)) {
                 switch (type) {
@@ -428,6 +487,26 @@ namespace utils
             return false;
         }
 #endif // defined(GGML_USE_HIP) && !defined(GGML_HIP_ROCWMMA_FATTN)
+    }
+
+    static bool ggml_cuda_fattn_kv_type_supported(ggml_type type) {
+        switch (type) {
+        case GGML_TYPE_F32:
+        case GGML_TYPE_F16:
+            return true;
+        case GGML_TYPE_Q4_1:
+        case GGML_TYPE_Q5_0:
+        case GGML_TYPE_Q5_1:
+            if constexpr (not ggml_cuda_fa_all_quants_v) {
+                return false;
+            }
+        case GGML_TYPE_Q4_0:
+        case GGML_TYPE_Q8_0:
+        case GGML_TYPE_BF16:
+            return true;
+        default:
+            return false;
+        }
     }
 
     best_fattn_kernel ggml_cuda_get_best_fattn_kernel([[maybe_unused]] const int device, [[maybe_unused]] const ggml_tensor* dst) {
@@ -521,21 +600,7 @@ namespace utils
             }
         }
 
-        switch (K->type) {
-        case GGML_TYPE_F32:
-        case GGML_TYPE_F16:
-            break;
-        case GGML_TYPE_Q4_1:
-        case GGML_TYPE_Q5_0:
-        case GGML_TYPE_Q5_1:
-            if constexpr (not ggml_cuda_fa_all_quants_v) {
-                return BEST_FATTN_KERNEL_NONE;
-            }
-        case GGML_TYPE_Q4_0:
-        case GGML_TYPE_Q8_0:
-        case GGML_TYPE_BF16:
-            break;
-        default:
+        if (!ggml_cuda_fattn_kv_type_supported(K->type) || !ggml_cuda_fattn_kv_type_supported(V->type)) {
             return BEST_FATTN_KERNEL_NONE;
         }
 
@@ -588,14 +653,6 @@ namespace utils
                 return BEST_FATTN_KERNEL_TILE; // On Volta tensor cores are only faster for sufficiently large matrices.
             }
             return BEST_FATTN_KERNEL_MMA_F16;
-        }
-
-        // Use the WMMA kernel if possible:
-        if (ggml_cuda_should_use_wmma_fattn(cc) && K->ne[1] % FATTN_KQ_STRIDE == 0 && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[0] != 192 && Q->ne[0] != 512 && Q->ne[0] != 576) {
-            if (can_use_vector_kernel && Q->ne[1] <= 2) {
-                return BEST_FATTN_KERNEL_VEC;
-            }
-            return BEST_FATTN_KERNEL_WMMA_F16;
         }
 
         // AMD MFMA needs a certain minimum batch size to outscale the tile kernel for large head sizes.
@@ -655,7 +712,6 @@ namespace utils
 
         switch (kernel) {
         case BEST_FATTN_KERNEL_TILE:
-        case BEST_FATTN_KERNEL_WMMA_F16:
         case BEST_FATTN_KERNEL_MMA_F16:
             need_f16_K = true;
             need_f16_V = true;
@@ -723,5 +779,142 @@ namespace utils
             ggml_cuda_flash_attn_ext_get_f16_extra_data(ctx, need_f16_K, need_f16_V);
 
         return f16_extra.end - (uintptr_t)dst->data;
+    }
+
+    gated_delta_net_context build_gated_delta_net_context(ggml_tensor* dst)
+    {
+        ggml_tensor* src_q = dst->src[0];
+        ggml_tensor* src_k = dst->src[1];
+        ggml_tensor* src_v = dst->src[2];
+        ggml_tensor* src_g = dst->src[3];
+        ggml_tensor* src_beta = dst->src[4];
+        ggml_tensor* src_state = dst->src[5];
+
+        const int64_t S_v = src_v->ne[0];
+
+        const bool kda = (src_g->ne[0] == S_v);
+
+        assert(src_q->ne[1] == src_k->ne[1]);
+
+        assert(ggml_is_contiguous_rows(src_q));
+        assert(ggml_is_contiguous_rows(src_k));
+        assert(ggml_is_contiguous_rows(src_v));
+        assert(ggml_are_same_stride(src_q, src_k));
+        assert(src_g->ne[0] == 1 || kda);
+        assert(ggml_is_contiguous(src_g));
+        assert(ggml_is_contiguous(src_beta));
+        assert(ggml_is_contiguous(src_state));
+        assert(src_q->ne == src_k->ne && src_q->nb == src_k->nb);
+
+        // K (snapshot slot count) is an op param; state holds s0 only [S_v, S_v, H, n_seqs].
+        const int K = std::bit_cast<int>(dst->op_params[0]);
+
+        return gated_delta_net_context {
+            .kda = kda,
+            .q_d = (const float*)src_q->data,
+            .k_d = (const float*)src_k->data,
+            .v_d = (const float*)src_v->data,
+            .g_d = (const float*)src_g->data,
+            .b_d = (const float*)src_beta->data,
+            .s_d = (const float*)src_state->data,
+            .dst_d = (float*)dst->data,
+            .S_v = S_v,
+            .H = src_v->ne[1],
+            .n_tokens = src_v->ne[2],
+            .n_seqs = src_v->ne[3],
+            // strides in floats (beta strides used for both g and beta offset computation)
+            .qk_ne = { src_q->ne[0], src_q->ne[1], src_q->ne[2], src_q->ne[3] },
+            .qk_nb = { src_q->nb[0], src_q->nb[1], src_q->nb[2], src_q->nb[3] },
+            .v_ne = { src_v->ne[0], src_v->ne[1], src_v->ne[2], src_v->ne[3] },
+            .v_nb = { src_v->nb[0], src_v->nb[1], src_v->nb[2], src_v->nb[3] },
+            .g_ne = { src_g->ne[0], src_g->ne[1], src_g->ne[2], src_g->ne[3] },
+            .g_nb = { src_g->nb[0], src_g->nb[1], src_g->nb[2], src_g->nb[3] },
+            .b_ne = { src_beta->ne[0], src_beta->ne[1], src_beta->ne[2], src_beta->ne[3] },
+            .b_nb = { src_beta->nb[0], src_beta->nb[1], src_beta->nb[2], src_beta->nb[3] },
+            .neqk1 = src_q->ne[1],
+            .rq3 = src_v->ne[3] / src_q->ne[3],
+            .scale = 1.0f / sqrtf((float)S_v),
+            .K = K
+        };
+    }
+
+    bool ggml_cuda_lightning_indexer_supported(int /*device*/, const ggml_tensor* dst) {
+        const ggml_tensor* q = dst->src[0];
+        const ggml_tensor* k = dst->src[1];
+        const ggml_tensor* w = dst->src[2]; // weights
+        const ggml_tensor* m = dst->src[3]; // mask
+
+        if (q->ne[0] != 128) {
+            return false;
+        }
+
+        if (q->ne[1] != 64 && q->ne[1] != 32) {
+            return false;
+        }
+
+        // alignment checks
+        for (const ggml_tensor* t : { q, k }) {
+            if (ggml_is_quantized(t->type)) {
+                continue;
+            }
+            for (size_t i = 1; i < GGML_MAX_DIMS; ++i) {
+                if (t->nb[i] % 16 != 0) {
+                    return false;
+                }
+            }
+        }
+
+        switch (k->type) {
+        case GGML_TYPE_F32:
+        case GGML_TYPE_BF16:
+        case GGML_TYPE_F16:
+        case GGML_TYPE_Q8_0:
+        case GGML_TYPE_Q5_1:
+        case GGML_TYPE_Q5_0:
+        case GGML_TYPE_Q4_1:
+        case GGML_TYPE_Q4_0:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    bool ggml_cuda_is_aligned(const ggml_tensor* tensor, const size_t alignment) {
+        assert(tensor != nullptr);
+        return (reinterpret_cast<uintptr_t>(tensor->data) % alignment) == 0 &&
+            tensor->nb[1] % alignment == 0 &&
+            tensor->nb[2] % alignment == 0 &&
+            tensor->nb[3] % alignment == 0;
+    }
+
+    // [TAG_MUL_MAT_ID_CUDA_GRAPHS]
+    bool ggml_cuda_mul_mat_id_needs_sync(const ggml_tensor* dst, const int cc) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+
+        if (src1->type != GGML_TYPE_F32 || dst->type != GGML_TYPE_F32) {
+            return true;
+        }
+
+        if (dst->ne[2] <= MMVQ_MAX_BATCH_SIZE) {
+            if (ggml_is_quantized(src0->type)) {
+                if (dst->ne[2] <= get_mmvq_mmid_max_batch(std::bit_cast<internal::ggml_type>(src0->type), cc)) {
+                    return false;
+                }
+            }
+            else if (GGML_CUDA_CC_IS_AMD(cc)) {
+                return false;
+            }
+        }
+
+        if (should_use_mmq(src0->type, cc, src1->ne[2], /*n_experts=*/src0->ne[2])) {
+            return false;
+        }
+
+        if (should_use_mmf(src0->type, cc, WARP_SIZE, src0->ne, src0->nb, src1->ne[2], /*mul_mat_id=*/true)) {
+            return false;
+        }
+
+        return true;
     }
 }

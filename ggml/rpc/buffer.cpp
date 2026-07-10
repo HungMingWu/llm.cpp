@@ -106,3 +106,15 @@ void rpc_backend_buffer::clear_impl(uint8_t value)
     bool status = send_rpc_cmd(sock, RPC_CMD_BUFFER_CLEAR, &request, sizeof(request), nullptr, 0);
     RPC_STATUS_ASSERT(status);
 }
+
+void rpc_backend_buffer::memset_tensor(ggml_tensor* tensor, uint8_t value, size_t offset, size_t size)
+{
+    rpc_msg_memset_tensor_req request = {
+        /* .tensor = */ serialize_tensor(tensor),
+        /* .offset = */ offset,
+        /* .size   = */ size,
+        /* .value  = */ value,
+    };
+    bool status = send_rpc_cmd(sock, RPC_CMD_MEMSET_TENSOR, &request, sizeof(request), nullptr, 0);
+    RPC_STATUS_ASSERT(status);
+}

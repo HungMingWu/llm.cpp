@@ -357,7 +357,11 @@ static std::optional<gguf_context> gguf_init_from_reader(const gguf_reader& gr) 
                 ok = false;
             }
             catch (std::bad_alloc&) {
-                GGML_LOG_ERROR("%s: encountered bad_alloc error while reading key {}", __func__, i);
+                GGML_LOG_ERROR("{}: encountered bad_alloc error while reading key {}", __func__, i);
+                ok = false;
+            }
+            if (ok && key.empty()) {
+                GGML_LOG_ERROR("{}: key {} is empty\n", __func__, i);
                 ok = false;
             }
             for (size_t j = 0; ok && j < ctx.kv.size(); ++j) {
@@ -409,6 +413,14 @@ static std::optional<gguf_context> gguf_init_from_reader(const gguf_reader& gr) 
         GGML_ASSERT(int64_t(ctx.kv.size()) == n_kv);
 
         const std::optional<size_t> alignment_idx = ctx.find_key(GGUF_KEY_GENERAL_ALIGNMENT);
+#if 0
+        if (!alignment_idx.has_value() && gguf_get_kv_type(ctx, alignment_idx) != GGUF_TYPE_UINT32) {
+            GGML_LOG_ERROR("{}: key '{}' must be of type {} but is {}\n",
+                __func__, GGUF_KEY_GENERAL_ALIGNMENT, gguf_type_name(GGUF_TYPE_UINT32),
+                gguf_type_name(gguf_get_kv_type(ctx, alignment_idx)));
+            return std::nullopt;
+        }
+#endif
         ctx.alignment = !alignment_idx.has_value() ? GGUF_DEFAULT_ALIGNMENT : gguf_get_val_u32(ctx, alignment_idx.value());
 
         if (ctx.alignment == 0 || (ctx.alignment & (ctx.alignment - 1)) != 0) {
@@ -481,9 +493,11 @@ static std::optional<gguf_context> gguf_init_from_reader(const gguf_reader& gr) 
             }
 
             // check that the total number of elements is representable
-            if (ok && ((INT64_MAX / info.t.ne[1] <= info.t.ne[0]) ||
-                (INT64_MAX / info.t.ne[2] <= info.t.ne[0] * info.t.ne[1]) ||
-                (INT64_MAX / info.t.ne[3] <= info.t.ne[0] * info.t.ne[1] * info.t.ne[2]))) {
+            // (a zero-element tensor is trivially representable; the guard also avoids a division by zero below)
+            if (ok && info.t.nelements() > 0 &&
+                ((INT64_MAX / info.t.ne[1] <= info.t.ne[0]) ||
+                    (INT64_MAX / info.t.ne[2] <= info.t.ne[0] * info.t.ne[1]) ||
+                    (INT64_MAX / info.t.ne[3] <= info.t.ne[0] * info.t.ne[1] * info.t.ne[2]))) {
 
                 GGML_LOG_ERROR("{}: total number of elements in tensor '{}' with shape "
                     "({}, {}, {}, {}) is >= {}",

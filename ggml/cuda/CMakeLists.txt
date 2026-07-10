@@ -91,9 +91,9 @@ target_sources(libggml
       op/cumsum.cu
       op/diag.cu
       op/diagmask.cu
+      op/dsv4-hc.cu
       op/dump.cu
       op/fattn-tile.cu
-      op/fattn-wmma-f16.cu
       op/fattn.cu
       op/fill.cu
       op/fwht.cu
@@ -101,6 +101,7 @@ target_sources(libggml
       op/getrows.cu
       op/gla.cu
       op/im2col.cu
+      op/lightning-indexer.cu
       op/mean_common.cu
       op/mmid.cu
       op/mmf.cu
@@ -113,6 +114,7 @@ target_sources(libggml
       op/out-prod.cu
       op/pad.cu
       op/pad_reflect_1d.cu
+      op/pool1d.cu
       op/pool2d.cu
       op/quantize.cu
       op/roll.cu
@@ -159,15 +161,14 @@ target_link_libraries(libggml PRIVATE CUDA::cudart_static CUDA::cuda_driver CUDA
 
 target_compile_definitions(libggml
   PRIVATE
-    $<$<NOT:$<BOOL:GGML_CUDA_DEBUG>>:GGML_CUDA_DEBUG>
-    $<$<BOOL:GGML_CUDA_FORCE_MMQ>:GGML_CUDA_FORCE_MMQ>
-    $<$<BOOL:GGML_CUDA_FORCE_CUBLAS>:GGML_CUDA_FORCE_CUBLAS>
-    $<$<BOOL:GGML_CUDA_NO_VMM>:GGML_CUDA_NO_VMM>
-    $<$<NOT:$<BOOL:GGML_CUDA_NO_PEER_COPY>>:GGML_CUDA_NO_PEER_COPY>
-    $<$<NOT:$<BOOL:GGML_CUDA_FA>>:GGML_CUDA_NO_FA>
-    $<$<NOT:$<BOOL:GGML_CUDA_FA_ALL_QUANTS>>:GGML_CUDA_FA_ALL_QUANTS>
-    $<$<NOT:$<BOOL:GGML_CUDA_GRAPHS>>:GGML_CUDA_USE_GRAPHS>
-    GGML_CUDA_PEER_MAX_BATCH_SIZE=${GGML_CUDA_PEER_MAX_BATCH_SIZE}
+    $<$<BOOL:${GGML_CUDA_DEBUG}>:GGML_CUDA_DEBUG>
+    $<$<BOOL:${GGML_CUDA_FORCE_MMQ}>:GGML_CUDA_FORCE_MMQ>
+    $<$<BOOL:${GGML_CUDA_FORCE_CUBLAS}>:GGML_CUDA_FORCE_CUBLAS>
+    $<$<BOOL:${GGML_CUDA_NO_VMM}>:GGML_CUDA_NO_VMM>
+    $<$<BOOL:${GGML_CUDA_NO_PEER_COPY}>:GGML_CUDA_NO_PEER_COPY>
+    $<$<BOOL:${GGML_CUDA_FA_ALL_QUANTS}>:GGML_CUDA_FA_ALL_QUANTS>
+    $<$<BOOL:${GGML_CUDA_GRAPHS}>:GGML_CUDA_USE_GRAPHS>
+    $<$<NOT:$<BOOL:${GGML_CUDA_FA}>>:GGML_CUDA_NO_FA>
 )
 
 target_compile_options(libggml 
@@ -177,6 +178,7 @@ target_compile_options(libggml
         -extended-lambda
         -Xcudafe
         --diag_suppress=737
+        -use_fast_math
         $<$<NOT:$<BOOL:GGML_CUDA_DEBUG>>:-lineinfo>
     >
 )

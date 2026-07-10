@@ -1,10 +1,12 @@
 module;
 #include <bit>
+#include <cassert>
 #include <format>
 #include <memory>
 #include <span>
 #include <string>
 #include <vector>
+#include "block.h"
 #include "cuda_config.h"
 #include "common.h"
 #include "vendors/cuda.h"
@@ -111,32 +113,43 @@ ggml_backend_reg_t ggml_backend_cuda_reg() {
     return &ggml_backend_cuda_reg;
 }
 
+static std::string ggml_cuda_device_description(int device) {
+    cudaDeviceProp prop;
+    CUDA_CHECK(cudaGetDeviceProperties(&prop, ggml_cuda_get_physical_device(device)));
+
+    const ggml_cuda_device_info& info = ggml_cuda_info();
+    std::string description = prop.name;
+    if (info.device_count > info.physical_device_count) {
+        description += " (dev p" + std::to_string(info.devices[device].physical_device) +
+            "/v" + std::to_string(info.devices[device].virtual_index) + ")";
+    }
+    return description;
+}
+
 backend_cuda_reg::backend_cuda_reg()
     : ggml_backend_reg()
 {
     const int min_batch_size = getenv("GGML_OP_OFFLOAD_MIN_BATCH") ? atoi(getenv("GGML_OP_OFFLOAD_MIN_BATCH")) : 32;
-    for (int i = 0; i < ggml_cuda_info().device_count; i++) {
-        cudaDeviceProp prop;
-        CUDA_CHECK(cudaGetDeviceProperties(&prop, i));
-        if (prop.major < 3) {
-            GGML_LOG_INFO("{}: skipping device {} {} with compute capability {}.{} (minimum is 3.0)",
-                __func__, i, prop.name, prop.major, prop.minor);
-            continue;
+    const ggml_cuda_device_info& info = ggml_cuda_info();
+    const bool virtual_devices = info.device_count > info.physical_device_count;
+    for (int i = 0; i < info.device_count; i++) {
+        const int physical_id = info.devices[i].physical_device;
+        auto dev = std::make_unique<ggml_backend_cuda_device>(this);
+        dev->device = i;
+        dev->name = GGML_CUDA_NAME + std::to_string(i);
+        dev->description = ggml_cuda_device_description(i);
+        char pci_bus_id[32] = {};
+        CUDA_CHECK(cudaDeviceGetPCIBusId(pci_bus_id, sizeof(pci_bus_id), physical_id));
+        dev->pci_bus_id = std::string(pci_bus_id);
+        if (virtual_devices) {
+            // make the pci bus id unique for virtual devices
+            dev->pci_bus_id += "-v" + std::to_string(i);
         }
-        else {
-            auto dev = std::make_unique<ggml_backend_cuda_device>(this);
-            dev->device = i;
-            dev->name = GGML_CUDA_NAME + std::to_string(i);
-            dev->description = prop.name;
-            char pci_bus_id[32] = {};
-            CUDA_CHECK(cudaDeviceGetPCIBusId(pci_bus_id, sizeof(pci_bus_id), i));
-            dev->pci_bus_id = std::string(pci_bus_id);
-            for (char& c : dev->pci_bus_id) {
-                c = std::tolower(c);
-            }
-            dev->op_offload_min_batch_size = min_batch_size;
-            devices.push_back(std::move(dev));
+        for (char& c : dev->pci_bus_id) {
+            c = std::tolower(c);
         }
+        dev->op_offload_min_batch_size = min_batch_size;
+        devices.push_back(std::move(dev));
     }
 }
 
@@ -172,8 +185,6 @@ std::span<const ggml_backend_feature> backend_cuda_reg::get_features()
             features.push_back({ "USE_GRAPHS", "1" });
         }
 
-        features.push_back({ "PEER_MAX_BATCH_SIZE", std::to_string(ggml_cuda_peer_max_batch_size_v) });
-
         if constexpr (ggml_cuda_fa_all_quants_v) {
             features.push_back({ "FA_ALL_QUANTS", "1" });
         }
@@ -197,16 +208,29 @@ std::span<const ggml_backend_feature> backend_cuda_reg::get_features()
     return features;
 }
 
+static int ggml_cuda_physical_device_share_count(int device) {
+    const ggml_cuda_device_info& info = ggml_cuda_info();
+    assert(device >= 0 && device < info.device_count);
+    return info.devices[device].physical_share_count;
+}
+
 void ggml_backend_cuda_device::get_memory(size_t* free, size_t* total)
 {
     ggml_cuda_set_device(device);
-    CUDA_CHECK(cudaMemGetInfo(free, total));
+    cudaError_t err = cudaMemGetInfo(free, total);
+    if (err != cudaSuccess) {
+        (void)cudaGetLastError();
+        GGML_LOG_WARN("{}: cudaMemGetInfo failed ({}), returning 0/0", __func__, cudaGetErrorString(err));
+        *free = 0;
+        *total = 0;
+        return;
+    }
 
     // ref: https://github.com/ggml-org/llama.cpp/pull/17368
-#if defined(__linux__)
+#if defined(__linux__) && !defined(GGML_USE_HIP)
     // Check if this is a UMA (Unified Memory Architecture) system
     cudaDeviceProp prop;
-    CUDA_CHECK(cudaGetDeviceProperties(&prop, this->device));
+    CUDA_CHECK(cudaGetDeviceProperties(&prop, ggml_cuda_get_physical_device(device)));
 
     // Check if UMA is explicitly enabled via environment variable
     bool uma_env = getenv("GGML_CUDA_ENABLE_UNIFIED_MEMORY") != nullptr;
@@ -224,22 +248,16 @@ void ggml_backend_cuda_device::get_memory(size_t* free, size_t* total)
             GGML_LOG_ERROR("%s: /proc/meminfo reading failed, using cudaMemGetInfo\n", __func__);
         }
     }
-#endif // defined(__linux__)
+#endif // defined(__linux__) && !defined(GGML_USE_HIP)
+
+    // virtual devices sharing one physical GPU share its memory pool; split it between them
+    const int share_count = ggml_cuda_physical_device_share_count(device);
+    *free /= share_count;
+    *total /= share_count;
 }
 
 bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
 {
-    // split buffers can only be used with GGML_OP_MUL_MAT
-    if (op->op != GGML_OP_MUL_MAT) {
-        for (auto& src : op->src) {
-            if (!src) continue;
-            if (!src->buffer) continue;
-            if (to_split_buffer_type(src->buffer->get_type())) {
-                return false;
-            }
-        }
-    }
-
     // check if all the sources are allocated on this device
     for (auto& src : op->src) {
         if (!src) continue;
@@ -301,19 +319,8 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     {
         const ggml_tensor* a = op->src[0];
         const ggml_tensor* b = op->src[1];
-        // for small weight matrices the active device can end up without any rows, don't use row split in those cases
-        // this avoids some edge cases (and the performance would not be good anyways)
-        cuda_split_backend_buffer_type* split_bufer_type = (a->buffer) ? to_split_buffer_type(a->buffer->get_type()) : nullptr;
-        if (split_bufer_type) {
-            if (a->ne[2] > 1 || a->ne[3] > 1) {
-                return false;
-            }
-            // for small weight matrices the active device can end up without any rows, don't use row split in those cases
-            // this avoids some edge cases (and the performance would not be good anyways)
-            auto [row_low, row_high] = get_row_split(ggml_nrows(a), split_bufer_type->tensor_split, device);
-            if (row_low == row_high) {
-                return false;
-            }
+        if (a->nb[0] != ggml_element_size(a) || b->nb[0] != ggml_element_size(b)) {
+            return false; // TODO this could in principle be implemented though currently there is no use case.
         }
         if (b->type == GGML_TYPE_F16 && a->type != GGML_TYPE_F16) {
             return false;
@@ -335,6 +342,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
         case GGML_TYPE_F32:
         case GGML_TYPE_F16:
         case GGML_TYPE_Q1_0:
+        case GGML_TYPE_Q2_0:
         case GGML_TYPE_Q4_0:
         case GGML_TYPE_Q4_1:
         case GGML_TYPE_Q5_0:
@@ -373,12 +381,31 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
         case GGML_TYPE_BF16:
         case GGML_TYPE_I32:
         case GGML_TYPE_Q1_0:
+        case GGML_TYPE_Q2_0:
         case GGML_TYPE_Q4_0:
         case GGML_TYPE_Q4_1:
         case GGML_TYPE_Q5_0:
         case GGML_TYPE_Q5_1:
         case GGML_TYPE_Q8_0:
+        case GGML_TYPE_Q2_K:
+        case GGML_TYPE_Q3_K:
+        case GGML_TYPE_Q4_K:
+        case GGML_TYPE_Q5_K:
+        case GGML_TYPE_Q6_K:
+        case GGML_TYPE_IQ2_XXS:
+        case GGML_TYPE_IQ2_XS:
+        case GGML_TYPE_IQ2_S:
+        case GGML_TYPE_IQ3_XXS:
+        case GGML_TYPE_IQ3_S:
+        case GGML_TYPE_IQ1_S:
+        case GGML_TYPE_IQ1_M:
+        case GGML_TYPE_IQ4_XS:
             return true;
+        case GGML_TYPE_IQ4_NL:
+        case GGML_TYPE_MXFP4:
+            // 32-value sub-blocks, the row size does not guarantee
+            // the QK_K super-blocks the get_rows kernel iterates on
+            return op->src[0]->ne[0] % QK_K == 0;
         default:
             return false;
         }
@@ -389,10 +416,16 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     } break;
     case GGML_OP_SET_ROWS:
     {
-        return (op->type == GGML_TYPE_F32 || op->type == GGML_TYPE_F16 || op->type == GGML_TYPE_BF16 ||
-            op->type == GGML_TYPE_Q4_0 || op->type == GGML_TYPE_Q4_1 || op->type == GGML_TYPE_Q5_0 ||
-            op->type == GGML_TYPE_Q5_1 || op->type == GGML_TYPE_Q8_0 || op->type == GGML_TYPE_IQ4_NL) &&
-            op->src[0]->type == GGML_TYPE_F32 &&
+        return (
+            (
+                (op->type == GGML_TYPE_F32 || op->type == GGML_TYPE_F16 || op->type == GGML_TYPE_BF16 ||
+                    op->type == GGML_TYPE_Q4_0 || op->type == GGML_TYPE_Q4_1 || op->type == GGML_TYPE_Q5_0 ||
+                    op->type == GGML_TYPE_Q5_1 || op->type == GGML_TYPE_Q8_0 || op->type == GGML_TYPE_IQ4_NL) &&
+                op->src[0]->type == GGML_TYPE_F32
+                ) || (
+                    op->type == GGML_TYPE_F16 && op->src[0]->type == GGML_TYPE_F16
+                    )
+            ) &&
             (op->src[1]->type == GGML_TYPE_I64 || op->src[1]->type == GGML_TYPE_I32);
     } break;
     case GGML_OP_SET:
@@ -480,14 +513,36 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     {
         ggml_type src0_type = op->src[0]->type;
         ggml_type src1_type = op->src[1]->type;
+        const int32_t dim = op->op_params[0];
         return src0_type == src1_type &&
             src0_type == op->type &&
-            !ggml_is_quantized(src0_type) &&
-            ggml_blck_size(src0_type) == 1 &&
-            (ggml_type_size(src0_type) == 1 ||
-                ggml_type_size(src0_type) == 2 ||
-                ggml_type_size(src0_type) == 4 ||
-                ggml_type_size(src0_type) == 8);
+            (
+                (
+                    ggml_is_quantized(src0_type) &&
+                    (
+                        (
+                            dim == 3 &&
+                            ggml_is_contiguous(op->src[0]) &&
+                            ggml_is_contiguous(op->src[1])
+                            ) || (
+                                dim != 3 &&
+                                ggml_is_contiguous_to_3(op->src[0]) &&
+                                ggml_is_contiguous_to_3(op->src[1])
+                                )
+                        ) &&
+                    op->src[0]->ne[0] % ggml_blck_size(src0_type) == 0 &&
+                    op->src[1]->ne[0] % ggml_blck_size(src0_type) == 0
+                    ) || (
+                        !ggml_is_quantized(src0_type) &&
+                        ggml_blck_size(src0_type) == 1 &&
+                        (
+                            ggml_type_size(src0_type) == 1 ||
+                            ggml_type_size(src0_type) == 2 ||
+                            ggml_type_size(src0_type) == 4 ||
+                            ggml_type_size(src0_type) == 8
+                            )
+                        )
+                );
     } break;
     case GGML_OP_CONV_TRANSPOSE_1D:
     {
@@ -537,12 +592,18 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
             (op->src[1]->type == GGML_TYPE_F32 || op->src[1]->type == GGML_TYPE_F16) &&
             (op->type == GGML_TYPE_F32 || op->type == GGML_TYPE_F16);
     case GGML_OP_SSM_SCAN: {
+        const int32_t K = std::bit_cast<uint32_t>(op->op_params[0]);
+
         if (op->src[3]->ne[0] == 1) {
             // Mamba2
             // (kernel only supports (d_state == 128 || d_state == 256) && d_head % 16 == 0)
             return (op->src[0]->ne[0] == 128 || op->src[0]->ne[0] == 256) && op->src[0]->ne[1] % 16 == 0;
         }
         else {
+            if (K > 1) {
+                return false;
+            }
+
             // Mamba
             // (kernel only supports d_state == 16, d_head == 1, n_head % 128 == 0, n_group == 1)
             return op->src[0]->ne[0] == 16 && op->src[0]->ne[1] == 1 && op->src[0]->ne[2] % 128 == 0 && op->src[4]->ne[1] == 1;
@@ -561,7 +622,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_SOFT_MAX_BACK:
         return std::bit_cast<float>(op->op_params[1]) == 0.0f;
     case GGML_OP_ROLL:
-        if (op->src[0]->type == GGML_TYPE_F32) {
+        if (op->src[0]->type == GGML_TYPE_F32 && ggml_is_contiguous(op->src[0])) {
             return true;
         }
         return false;
@@ -572,8 +633,11 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_IM2COL:
     case GGML_OP_IM2COL_3D:
     case GGML_OP_CONV_2D:
+        return (ggml_is_contiguous(op->src[0]) && ggml_is_contiguous(op->src[1]));
     case GGML_OP_CONV_2D_DW:
+        return op->src[0]->type == GGML_TYPE_F32;
     case GGML_OP_CONV_TRANSPOSE_2D:
+    case GGML_OP_POOL_1D:
     case GGML_OP_POOL_2D:
         return true;
     case GGML_OP_ACC:
@@ -606,6 +670,16 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
             return false;
         else
             return true;
+    case GGML_OP_DSV4_HC_COMB:
+        return op->src[0]->type == GGML_TYPE_F32 && op->src[1]->type == GGML_TYPE_F32 &&
+            op->src[2]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32;
+    case GGML_OP_DSV4_HC_PRE:
+        return op->src[0]->type == GGML_TYPE_F32 && op->src[1]->type == GGML_TYPE_F32 &&
+            op->type == GGML_TYPE_F32;
+    case GGML_OP_DSV4_HC_POST:
+        return op->src[0]->type == GGML_TYPE_F32 && op->src[1]->type == GGML_TYPE_F32 &&
+            op->src[2]->type == GGML_TYPE_F32 && op->src[3]->type == GGML_TYPE_F32 &&
+            op->type == GGML_TYPE_F32;
     case GGML_OP_FLASH_ATTN_EXT:
         return utils::ggml_cuda_flash_attn_ext_supported(device, op);
     case GGML_OP_CROSS_ENTROPY_LOSS:
@@ -618,6 +692,8 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
     case GGML_OP_DIAG:
     case GGML_OP_SOLVE_TRI:
         return true;
+    case GGML_OP_LIGHTNING_INDEXER:
+        return utils::ggml_cuda_lightning_indexer_supported(device, op);
     default:
         return false;
     }

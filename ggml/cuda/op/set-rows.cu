@@ -58,43 +58,63 @@ void set_rows_cuda(const set_rows_context& ctx, cudaStream_t stream) {
 template <typename src_t, typename idx_t>
 static void set_rows_cuda(const set_rows_context &ctx, cudaStream_t stream)
 {
-    if (ctx.dst_type == internal::GGML_TYPE_F32) {
-        set_rows_cuda<src_t, idx_t, float>(ctx, stream);
-    }
-    else if (ctx.dst_type == internal::GGML_TYPE_F16) {
-        set_rows_cuda<src_t, idx_t, half>(ctx, stream);
-    }
-    else if (ctx.dst_type == internal::GGML_TYPE_BF16) {
-        set_rows_cuda<src_t, idx_t, nv_bfloat16>(ctx, stream);
-    }
-    else if (ctx.dst_type == internal::GGML_TYPE_Q4_0) {
-        set_rows_cuda_quant<src_t, idx_t, block_q4_0>(ctx, stream);
-    }
-    else if (ctx.dst_type == internal::GGML_TYPE_Q4_1) {
-        set_rows_cuda_quant<src_t, idx_t, block_q4_1>(ctx, stream);
-    }
-    else if (ctx.dst_type == internal::GGML_TYPE_Q5_0) {
-        set_rows_cuda_quant<src_t, idx_t, block_q5_0>(ctx, stream);
-    }
-    else if (ctx.dst_type == internal::GGML_TYPE_Q5_1) {
-        set_rows_cuda_quant<src_t, idx_t, block_q5_1>(ctx, stream);
-    }
-    else if (ctx.dst_type == internal::GGML_TYPE_Q8_0) {
-        set_rows_cuda_quant<src_t, idx_t, block_q8_0>(ctx, stream);
-    }
-    else if (ctx.dst_type == internal::GGML_TYPE_IQ4_NL) {
-        set_rows_cuda_quant<src_t, idx_t, block_iq4_nl>(ctx, stream);
-    }
-    else {
-        GGML_ABORT("unsupported type %s", internal::GGML_TYPE_name(dst->type));
+    if constexpr (std::is_same_v<src_t, half>) {
+        if (ctx.dst_type == internal::GGML_TYPE_F16) {
+            set_rows_cuda<src_t, idx_t, half>(ctx, stream);
+        }
+        else {
+            GGML_ABORT("unsupported type %s", internal::GGML_TYPE_name(dst->type));
+        }
+        return;
+    } else {
+        if (ctx.dst_type == internal::GGML_TYPE_F32) {
+            set_rows_cuda<src_t, idx_t, float>(ctx, stream);
+        }
+        else if (ctx.dst_type == internal::GGML_TYPE_F16) {
+            set_rows_cuda<src_t, idx_t, half>(ctx, stream);
+        }
+        else if (ctx.dst_type == internal::GGML_TYPE_BF16) {
+            set_rows_cuda<src_t, idx_t, nv_bfloat16>(ctx, stream);
+        }
+        else if (ctx.dst_type == internal::GGML_TYPE_Q4_0) {
+            set_rows_cuda_quant<src_t, idx_t, block_q4_0>(ctx, stream);
+        }
+        else if (ctx.dst_type == internal::GGML_TYPE_Q4_1) {
+            set_rows_cuda_quant<src_t, idx_t, block_q4_1>(ctx, stream);
+        }
+        else if (ctx.dst_type == internal::GGML_TYPE_Q5_0) {
+            set_rows_cuda_quant<src_t, idx_t, block_q5_0>(ctx, stream);
+        }
+        else if (ctx.dst_type == internal::GGML_TYPE_Q5_1) {
+            set_rows_cuda_quant<src_t, idx_t, block_q5_1>(ctx, stream);
+        }
+        else if (ctx.dst_type == internal::GGML_TYPE_Q8_0) {
+            set_rows_cuda_quant<src_t, idx_t, block_q8_0>(ctx, stream);
+        }
+        else if (ctx.dst_type == internal::GGML_TYPE_IQ4_NL) {
+            set_rows_cuda_quant<src_t, idx_t, block_iq4_nl>(ctx, stream);
+        }
+        else {
+            GGML_ABORT("unsupported type %s", internal::GGML_TYPE_name(dst->type));
+        }
     }
 }
 
 void set_rows_cuda(const set_rows_context &ctx, cudaStream_t stream) {
-    if (ctx.src1_type == internal::GGML_TYPE_I64) {
-        set_rows_cuda<float, int64_t>(ctx, stream);
+    if (ctx.src0_type == internal::GGML_TYPE_F32) {
+        if (ctx.src1_type == internal::GGML_TYPE_I64) {
+            set_rows_cuda<float, int64_t>(ctx, stream);
+        }
+        else {
+            set_rows_cuda<float, int32_t>(ctx, stream);
+        }
     }
     else {
-        set_rows_cuda<float, int32_t>(ctx, stream);
+        if (ctx.src1_type == internal::GGML_TYPE_I64) {
+            set_rows_cuda<half, int64_t>(ctx, stream);
+        }
+        else {
+            set_rows_cuda<half, int32_t>(ctx, stream);
+        }
     }
 }
