@@ -537,30 +537,7 @@ namespace op
         get_rows_cuda(ctx, stream);
     }
 
-    void get_rows_back(cudaStream_t stream, ggml_tensor* dst) {
-        const ggml_tensor* src0 = dst->src[0]; // gradients of forward pass output
-        const ggml_tensor* src1 = dst->src[1]; // src1 in forward pass
-
-        GGML_ASSERT(src0->type == GGML_TYPE_F32);
-        GGML_ASSERT(src1->type == GGML_TYPE_I32);
-        GGML_ASSERT(dst->type == GGML_TYPE_F32);
-
-        GGML_ASSERT(ggml_is_contiguous(src0));
-        GGML_ASSERT(ggml_is_contiguous(src1));
-        GGML_ASSERT(ggml_is_contiguous(dst));
-        GGML_ASSERT(src0->ne[2] * src0->ne[3] == 1);
-        GGML_ASSERT(src1->ne[2] * src1->ne[3] == 1);
-        GGML_ASSERT(dst->ne[2] * dst->ne[3] == 1);
-        get_row_back_context context{
-            .src0_d = (const float*)src0->data,
-            .src1_d = (const int32_t*)src1->data,
-            .dst_d = (float*)dst->data,
-            .ne00 = src0->ne[0],
-            .ne10 = src1->ne[0],
-            .ne1 = dst->ne[1],
-        };
-        get_rows_back_cuda(context, stream);
-    }
+    void get_rows_back(cudaStream_t stream, ggml_tensor* dst);
 
     void argmax(cudaStream_t stream, ggml_tensor* dst) {
         const ggml_tensor* src0 = dst->src[0];

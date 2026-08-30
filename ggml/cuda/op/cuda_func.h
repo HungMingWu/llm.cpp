@@ -254,9 +254,12 @@ struct get_row_back_context {
     const float* src0_d;
     const int32_t* src1_d;
     float* dst_d;
-    const int64_t ne00;
-    const int64_t ne10;
-    const int64_t ne1;
+    int64_t src0_ne[4];
+    size_t src0_nb[4];
+    int64_t src1_ne[4];
+    size_t src1_nb[4];
+    int64_t dst_ne[4];
+    size_t dst_nb[4];
 };
 
 void get_rows_cuda(const get_row_context &ctx, cudaStream_t stream);
