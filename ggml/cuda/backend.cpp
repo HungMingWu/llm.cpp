@@ -1336,6 +1336,7 @@ static int ggml_cuda_try_fuse(ggml_cuda_pool& pool, cudaStream_t stream, ggml_cg
                 fusion_data.x_scale = up_scale;
                 fusion_data.gate_scale = gate_scale;
                 fusion_data.glu_op = ggml_get_glu_op(glu);
+                fusion_data.glu_limit = std::bit_cast<float>(glu->op_params[3]);
 
                 if (fused::should_mul_mat_vec_q(up_n)) {
                     op::mul_mat_vec_q(pool, stream, src0, src1, ids, cgraph->nodes[glu_idx], &fusion_data);
@@ -1431,6 +1432,7 @@ static int ggml_cuda_try_fuse(ggml_cuda_pool& pool, cudaStream_t stream, ggml_cg
                 fusion_data.x_scale = up_scale;
                 fusion_data.gate_scale = gate_scale;
                 fusion_data.glu_op = ggml_get_glu_op(glu);
+                fusion_data.glu_limit = std::bit_cast<float>(glu->op_params[3]);
 
                 if (fused::should_mul_mat_vec_q(up_n)) {
                     op::mul_mat_vec_q(pool, stream, src0, src1, ids, cgraph->nodes[glu_idx], &fusion_data);
@@ -1489,6 +1491,7 @@ static int ggml_cuda_try_fuse(ggml_cuda_pool& pool, cudaStream_t stream, ggml_cg
                 fusion_data.x_bias = up_bias_tensor;
                 fusion_data.gate_bias = gate_bias_tensor;
                 fusion_data.glu_op = ggml_get_glu_op(glu);
+                fusion_data.glu_limit = std::bit_cast<float>(glu->op_params[3]);
 
                 op::mul_mat_vec_f(stream, src0, src1, ids, glu, &fusion_data);
                 fused_mul_mat_vec = true;
@@ -1502,6 +1505,7 @@ static int ggml_cuda_try_fuse(ggml_cuda_pool& pool, cudaStream_t stream, ggml_cg
                 fusion_data.x_bias = up_bias_tensor;
                 fusion_data.gate_bias = gate_bias_tensor;
                 fusion_data.glu_op = ggml_get_glu_op(glu);
+                fusion_data.glu_limit = std::bit_cast<float>(glu->op_params[3]);
 
                 op::mul_mat_vec_q(pool, stream, src0, src1, ids, glu, &fusion_data);
                 fused_mul_mat_vec = true;
@@ -1529,6 +1533,7 @@ static int ggml_cuda_try_fuse(ggml_cuda_pool& pool, cudaStream_t stream, ggml_cg
                 op::ggml_cuda_mm_fusion_args_host fusion_data{};
                 fusion_data.gate = gate->src[0];
                 fusion_data.glu_op = ggml_get_glu_op(glu);
+                fusion_data.glu_limit = std::bit_cast<float>(glu->op_params[3]);
 
                 op::mul_mat_vec_f(stream, src0, src1, ids, glu, &fusion_data);
                 fused_mul_mat_vec = true;
@@ -1540,6 +1545,7 @@ static int ggml_cuda_try_fuse(ggml_cuda_pool& pool, cudaStream_t stream, ggml_cg
                 op::ggml_cuda_mm_fusion_args_host fusion_data{};
                 fusion_data.gate = gate->src[0];
                 fusion_data.glu_op = ggml_get_glu_op(glu);
+                fusion_data.glu_limit = std::bit_cast<float>(glu->op_params[3]);
 
                 op::mul_mat_vec_q(pool, stream, src0, src1, ids, glu, &fusion_data);
                 fused_mul_mat_vec = true;
@@ -2227,6 +2233,9 @@ bool ggml_backend_cuda::compute_forward(ggml_tensor* dst) {
         case GGML_GLU_OP_SWIGLU_OAI:
             op::swiglu_oai(stream(), dst);
 			break;
+        case GGML_GLU_OP_SWIGLU_CLAMP:
+            op::swiglu_clamp(stream(), dst);
+            break;
         default:
             return false;
         }

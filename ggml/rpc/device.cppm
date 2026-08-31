@@ -29,4 +29,8 @@ public:
     }
 
     bool supports_buft(ggml_backend_buffer_type* buft) override;
+
+    ggml_backend_event* event_new() override;
+    void event_free(ggml_backend_event* event) override;
+    void event_synchronize(ggml_backend_event* event) override;
 };

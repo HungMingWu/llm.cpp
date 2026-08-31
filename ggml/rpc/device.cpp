@@ -15,25 +15,21 @@ ggml_backend_buffer_type* ggml_backend_rpc_buffer_type(const char* endpoint, uin
     std::lock_guard<std::mutex> lock(mutex);
     // NOTE: buffer types are allocated and never freed; this is by design
     static std::unordered_map<std::string, ggml_backend_buffer_type*> buft_map;
-    auto it = buft_map.find(endpoint);
+    std::string buft_name = "RPC" + std::to_string(device) + "[" + std::string(endpoint) + "]";
+    auto it = buft_map.find(buft_map);
     if (it != buft_map.end()) {
         return it->second;
     }
-    auto sock = get_socket(endpoint);
-    if (sock == nullptr) {
-        fprintf(stderr, "Failed to connect to %s\n", endpoint);
-        return nullptr;
-    }
-    size_t alignment = get_alignment(sock, device);
-    size_t max_size = get_max_size(sock, device);
-
+    auto dispatcher = get_dispatcher(endpoint);
+    size_t alignment = get_alignment(dispatcher, device);
+    size_t max_size = get_max_size(dispatcher, device);
     ggml_backend_buffer_type* buft = new ggml_rpc_buffer_type(
         /* .endpoint  = */ endpoint,
         /* .name      = */ "RPC[" + std::string(endpoint) + "]",
         /* .alignment = */ alignment,
         /* .max_size  = */ max_size
     );
-    buft_map[endpoint] = buft;
+    buft_map[buft_name] = buft;
     return buft;
 }
 
@@ -61,11 +57,22 @@ void ggml_backend_rpc_device::get_props(struct ggml_backend_dev_props* props)
     props->type = get_type();
     get_memory(&props->memory_free, &props->memory_total);
     props->caps = {
-        /* .async                 = */ false,
+        /* .async                 = */ true,
         /* .host_buffer           = */ false,
         /* .buffer_from_host_ptr  = */ false,
-        /* .events                = */ false,
+        /* .events                = */ true,
+        /* .mmap_support          = */ true,
     };
+}
+
+void ggml_backend_rpc_device::event_free(ggml_backend_event* event) {
+    auto dispatcher = get_dispatcher(endpoint);
+    dispatcher->event_free(event);
+}
+
+void ggml_backend_rpc_device::event_synchronize(ggml_backend_event* event) {
+    auto dispatcher = get_dispatcher(endpoint);
+    dispatcher->event_synchronize(event);
 }
 
 std::unique_ptr<ggml_backend> ggml_backend_rpc_device::init_backend(const char* params)
@@ -85,4 +92,9 @@ bool ggml_backend_rpc_device::supports_buft(ggml_backend_buffer_type* buft)
         return rpc_buft->get_endpoint() == endpoint;
     }
     return false;
+}
+
+ggml_backend_event* ggml_backend_rpc_device::event_new( ) {
+    auto dispatcher = get_dispatcher(endpoint);
+    return dispatcher->event_new(dev);
 }

@@ -1,3 +1,4 @@
+#include <float.h>
 #include "cuda_func.h"
 
 static __global__ void pool1d_nchw_kernel(

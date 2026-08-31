@@ -62,6 +62,7 @@ static __global__ void mul_mat_vec_f(
     [[maybe_unused]] bool use_bias = false;
     [[maybe_unused]] bool use_gate_bias = false;
     [[maybe_unused]] internal::ggml_glu_op glu_op = internal::ggml_glu_op::GGML_GLU_OP_SWIGLU;
+    [[maybe_unused]] float glu_limit = 0.0f;
     [[maybe_unused]] const T* gate_x = nullptr;
     [[maybe_unused]] const float* x_bias = nullptr;
     [[maybe_unused]] const float* gate_bias = nullptr;
@@ -71,6 +72,7 @@ static __global__ void mul_mat_vec_f(
         use_bias = fusion.x_bias != nullptr;
         use_gate_bias = fusion.gate_bias != nullptr;
         glu_op = fusion.glu_op;
+        glu_limit = fusion.glu_limit;
 
         if (use_gate) {
             gate_x = static_cast<const T*>(fusion.gate);
@@ -376,6 +378,9 @@ static __global__ void mul_mat_vec_f(
                 break;
             case internal::GGML_GLU_OP_SWIGLU_OAI: {
                 value = swiglu_oai(gate_value, value);
+                break;
+            case internal::GGML_GLU_OP_SWIGLU_CLAMP:
+                value = swiglu_clamp(gate_value, value, glu_limit);
                 break;
             }
             default:

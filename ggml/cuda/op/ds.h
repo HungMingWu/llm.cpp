@@ -77,6 +77,7 @@ namespace internal {
         GGML_GLU_OP_SWIGLU_OAI,
         GGML_GLU_OP_GEGLU_ERF,
         GGML_GLU_OP_GEGLU_QUICK,
+        GGML_GLU_OP_SWIGLU_CLAMP,
 
         GGML_GLU_OP_COUNT,
     };
@@ -171,6 +172,7 @@ struct ggml_cuda_mm_fusion_args_device {
     const void* x_scale = nullptr;
     const void* gate_scale = nullptr;
     internal::ggml_glu_op glu_op;
+    float glu_limit = 0.0f;
 };
 
 struct ggml_cuda_topk_moe_args {

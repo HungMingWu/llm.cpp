@@ -309,6 +309,7 @@ bool ggml_backend_cuda_device::supports_op(const ggml_tensor* op)
         case GGML_GLU_OP_SWIGLU_OAI:
         case GGML_GLU_OP_GEGLU_ERF:
         case GGML_GLU_OP_GEGLU_QUICK:
+        case GGML_GLU_OP_SWIGLU_CLAMP:
             return ggml_is_contiguous_1(op->src[0]);
         default:
             return false;

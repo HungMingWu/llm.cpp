@@ -1,12 +1,15 @@
 module;
 #include <string.h>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <print>
+#include <queue>
 #include <string>
 #include <unordered_map>
 
 #define GGML_ABORT(...)
+#define GGML_ASSERT(...)
 #define GGML_PRINT_DEBUG(...)
 
 #define GGML_RPC_MAX_SERVERS       16
@@ -39,7 +42,7 @@ bool send_rpc_cmd(socket_ptr sock, enum rpc_cmd cmd, const void* input, size_t i
     if (!sock->send_data(input, input_size)) {
         return false;
     }
-    return true;
+    return sock->flush();
 }
 
 // RPC request : | rpc_cmd (1 byte) | request_size (8 bytes) | request_data (request_size bytes) |
@@ -95,82 +98,273 @@ bool parse_endpoint(const std::string& endpoint, std::string& host, int& port) {
     return true;
 }
 
-std::shared_ptr<socket_t> get_socket(const std::string& endpoint) {
-    static std::mutex mutex;
-    std::lock_guard<std::mutex> lock(mutex);
-    static std::unordered_map<std::string, std::weak_ptr<socket_t>> sockets;
+template <typename T>
+class message_queue {
+public:
+    message_queue() {}
 
-    auto it = sockets.find(endpoint);
-    if (it != sockets.end()) {
-        if (auto sock = it->second.lock()) {
-            return sock;
+    bool push(const T& value) {
+        std::unique_lock<std::mutex> lock(mutex);
+        if (interrupted) {
+            return false;
         }
+        queue.push(value);
+        cvar.notify_all();
+        return true;
     }
+
+    bool pop(T* out) {
+        std::unique_lock<std::mutex> lock(mutex);
+        cvar.wait(lock, [this] { return !queue.empty() || interrupted; });
+        if (interrupted) {
+            return false;
+        }
+        *out = queue.front();
+        queue.pop();
+        return true;
+    }
+
+    void interrupt() {
+        std::unique_lock<std::mutex> lock(mutex);
+        interrupted = true;
+        lock.unlock();
+        cvar.notify_all();
+    }
+
+private:
+    bool interrupted = false;
+    std::queue<T> queue;
+    std::mutex mutex;
+    std::condition_variable cvar;
+};
+
+struct rpc_msg {
+    rpc_cmd                       cmd;
+    std::shared_ptr<const void>   input;
+    size_t                        input_size;
+    void* output;
+    size_t                        output_size;
+    std::promise<void>            completion;
+};
+
+using rpc_msg_ptr = std::shared_ptr<rpc_msg>;
+using rpc_msg_queue = message_queue<rpc_msg_ptr>;
+
+struct rpc_event : public ggml_backend_event {
+    rpc_msg_ptr              msg;
+    std::shared_future<void> sf;
+};
+
+class rpc_dispatcher {
+public:
+    rpc_dispatcher() {
+    }
+
+    void send(enum rpc_cmd cmd, std::shared_ptr<const void> input, size_t input_size);
+    void send(enum rpc_cmd cmd, std::shared_ptr<const void> input, size_t input_size, void* output, size_t output_size);
+    void send_async(enum rpc_cmd cmd, std::shared_ptr<const void> input, size_t input_size);
+    void send_async(enum rpc_cmd cmd, std::shared_ptr<const void> input, size_t input_size, void* output, size_t output_size);
+
+    ggml_backend_event* event_new(ggml_backend_device* dev);
+    void event_free(ggml_backend_event* event);
+    void event_synchronize(ggml_backend_event* event);
+    void event_record(ggml_backend_event* event);
+    void synchronize();
+
+    void start(const std::string& endpoint);
+    void work();
+
+    ~rpc_dispatcher();
+
+private:
+    rpc_msg_queue    queue;
+    socket_ptr       sock;
+    std::atomic_bool running;
+    std::thread      thread;
+};
+
+static void rpc_dispatcher_trampoline(rpc_dispatcher* dispatcher)
+{
+    dispatcher->work();
+}
+
+void rpc_dispatcher::send(enum rpc_cmd cmd, std::shared_ptr<const void> input, size_t input_size) {
+    auto msg = std::make_shared<rpc_msg>();
+    msg->cmd = cmd;
+    msg->input = input;
+    msg->input_size = input_size;
+    msg->output = nullptr;
+    msg->output_size = 0;
+    GGML_ASSERT(queue.push(msg));
+    auto future = msg->completion.get_future();
+    future.wait();
+}
+
+void rpc_dispatcher::send_async(enum rpc_cmd cmd, std::shared_ptr<const void> input, size_t input_size) {
+    auto msg = std::make_shared<rpc_msg>();
+    msg->cmd = cmd;
+    msg->input = input;
+    msg->input_size = input_size;
+    msg->output = nullptr;
+    msg->output_size = 0;
+    GGML_ASSERT(queue.push(msg));
+}
+
+void rpc_dispatcher::send(enum rpc_cmd cmd, std::shared_ptr<const void> input, size_t input_size, void* output, size_t output_size) {
+    auto msg = std::make_shared<rpc_msg>();
+    msg->cmd = cmd;
+    msg->input = input;
+    msg->input_size = input_size;
+    msg->output = output;
+    msg->output_size = output_size;
+    GGML_ASSERT(queue.push(msg));
+    auto future = msg->completion.get_future();
+    future.wait();
+}
+
+void rpc_dispatcher::send_async(enum rpc_cmd cmd, std::shared_ptr<const void> input, size_t input_size, void* output, size_t output_size) {
+    auto msg = std::make_shared<rpc_msg>();
+    msg->cmd = cmd;
+    msg->input = input;
+    msg->input_size = input_size;
+    msg->output = output;
+    msg->output_size = output_size;
+    GGML_ASSERT(queue.push(msg));
+}
+
+ggml_backend_event* rpc_dispatcher::event_new(ggml_backend_device* dev) {
+    rpc_event* ev = new rpc_event;
+    ev->msg = std::make_shared<rpc_msg>();
+    ev->msg->cmd = RPC_CMD_NONE;
+    ev->sf = ev->msg->completion.get_future().share();
+    GGML_ASSERT(queue.push(ev->msg));
+    return ev;
+}
+
+void rpc_dispatcher::event_free(ggml_backend_event* event) {
+    delete event;
+}
+
+void rpc_dispatcher::event_synchronize(ggml_backend_event* event) {
+    rpc_event* ev = (rpc_event*)event->context;
+    ev->sf.wait();
+}
+
+void rpc_dispatcher::event_record(ggml_backend_event* event) {
+    rpc_event* ev = (rpc_event*)event->context;
+    ev->msg = std::make_shared<rpc_msg>();
+    ev->msg->cmd = RPC_CMD_NONE;
+    ev->sf = ev->msg->completion.get_future().share();
+    GGML_ASSERT(queue.push(ev->msg));
+}
+
+void rpc_dispatcher::synchronize() {
+    // to ensure all messages are processed, submit dummy message and wait for it to complete
+    auto msg = std::make_shared<rpc_msg>();
+    msg->cmd = RPC_CMD_NONE;
+    GGML_ASSERT(queue.push(msg));
+    msg->completion.get_future().wait();
+}
+
+void rpc_dispatcher::start(const std::string& endpoint) {
     std::string host;
     int port;
     if (!parse_endpoint(endpoint, host, port)) {
-        GGML_LOG_ERROR("Failed to parse endpoint: %{}", endpoint);
-        return nullptr;
+        GGML_ABORT("Failed to parse endpoint: %s\n", endpoint.c_str());
+    }
+    if (!rpc_transport_init()) {
+        GGML_ABORT("RPC transport initialization failed\n");
     }
 
-    if (!rpc_transport_init()) {
-        return nullptr;
-    }
-    auto sock = socket_t::connect(host.c_str(), port);
+    sock = socket_t::connect(host.c_str(), port);
     if (sock == nullptr) {
-        return nullptr;
+        GGML_ABORT("Failed to connect to %s\n", endpoint.c_str());
     }
     if (!negotiate_hello(sock)) {
-        return nullptr;
+        GGML_ABORT("RPC handshake failed for %s\n", endpoint.c_str());
     }
-    LOG_DBG("[{}] connected to {}", __func__, endpoint);
-    sockets[endpoint] = sock;
-    return sock;
+    LOG_DBG("[%s] connected to %s\n", __func__, endpoint.c_str());
+    running = true;
+    thread = std::thread(rpc_dispatcher_trampoline, this);
 }
 
-void get_device_memory(const std::shared_ptr<socket_t>& sock, size_t* free, size_t* total) {
+void rpc_dispatcher::work() {
+    while (running) {
+        rpc_msg_ptr msg_ptr;
+        if (!queue.pop(&msg_ptr)) {
+            break;
+        }
+        if (msg_ptr->cmd != RPC_CMD_NONE) {
+            if (msg_ptr->output) {
+                bool status = send_rpc_cmd(sock, msg_ptr->cmd, msg_ptr->input.get(), msg_ptr->input_size, msg_ptr->output, msg_ptr->output_size);
+                RPC_STATUS_ASSERT(status);
+            }
+            else {
+                bool status = send_rpc_cmd(sock, msg_ptr->cmd, msg_ptr->input.get(), msg_ptr->input_size);
+                RPC_STATUS_ASSERT(status);
+            }
+        }
+        msg_ptr->completion.set_value();
+    }
+}
+
+rpc_dispatcher::~rpc_dispatcher() {
+    running = false;
+    queue.interrupt();
+    sock = nullptr;
+    if (thread.joinable()) {
+        thread.join();
+    }
+}
+
+std::shared_ptr<rpc_dispatcher> get_dispatcher(const std::string& endpoint) {
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> lock(mutex);
+    static std::unordered_map<std::string, std::weak_ptr<rpc_dispatcher>> dispatchers;
+
+    auto it = dispatchers.find(endpoint);
+    if (it != dispatchers.end()) {
+        if (auto dispatcher = it->second.lock()) {
+            return dispatcher;
+        }
+    }
+
+    auto dispatcher = std::make_shared<rpc_dispatcher>();
+    dispatcher->start(endpoint);
+    dispatchers[endpoint] = dispatcher;
+    return dispatcher;
+}
+
+void ggml_backend_rpc_get_device_memory(const char* endpoint, uint32_t device, size_t* free, size_t* total) {
+    auto dispatcher = get_dispatcher(endpoint);
+    auto request = std::make_shared<rpc_msg_get_device_memory_req>();
+    request->device = device;
     rpc_msg_get_device_memory_rsp response;
-    bool status = send_rpc_cmd(sock, RPC_CMD_GET_DEVICE_MEMORY, nullptr, 0, &response, sizeof(response));
-    RPC_STATUS_ASSERT(status);
+    dispatcher->send(RPC_CMD_GET_DEVICE_MEMORY, request, sizeof(*request), &response, sizeof(response));
     *free = response.free_mem;
     *total = response.total_mem;
 }
 
-void ggml_backend_rpc_get_device_memory(const char* endpoint, uint32_t device, size_t* free, size_t* total) {
-    auto sock = get_socket(endpoint);
-    if (!sock) {
-        *free = 0;
-        *total = 0;
-        return;
-    }
-    get_device_memory(sock, free, total);
-}
-
-size_t get_alignment(const std::shared_ptr<socket_t>& sock, uint32_t device) {
-    rpc_msg_get_alignment_req request = { device };
+size_t get_alignment(const std::shared_ptr<rpc_dispatcher>& dispatcher, uint32_t device) {
+    auto request = std::make_shared<rpc_msg_get_alignment_req>();
+    request->device = device;
     rpc_msg_get_alignment_rsp response;
-    bool status = send_rpc_cmd(sock, RPC_CMD_GET_ALIGNMENT, &request, sizeof(request), &response, sizeof(response));
-    RPC_STATUS_ASSERT(status);
+    dispatcher->send(RPC_CMD_GET_ALIGNMENT, request, sizeof(*request), &response, sizeof(response));
     return response.alignment;
 }
 
-size_t get_max_size(const std::shared_ptr<socket_t>& sock, uint32_t device) {
-    rpc_msg_get_max_size_req request = { device };
+size_t get_max_size(const std::shared_ptr<rpc_dispatcher>& dispatcher, uint32_t device) {
+    auto request = std::make_shared<rpc_msg_get_max_size_req>();
+    request->device = device;
     rpc_msg_get_max_size_rsp response;
-    bool status = send_rpc_cmd(sock, RPC_CMD_GET_MAX_SIZE, &request, sizeof(request), &response, sizeof(response));
-    RPC_STATUS_ASSERT(status);
+    dispatcher->send(RPC_CMD_GET_MAX_SIZE, request, sizeof(*request), &response, sizeof(response));
     return response.max_size;
 }
 
 uint32_t get_device_count(const char* endpoint) {
-    auto sock = get_socket(endpoint);
-    if (sock == nullptr) {
-        GGML_LOG_ERROR("Failed to connect to {}", endpoint);
-        return 0;
-    }
+    auto dispatcher = get_dispatcher(endpoint);
     rpc_msg_device_count_rsp response;
-    bool status = send_rpc_cmd(sock, RPC_CMD_DEVICE_COUNT, nullptr, 0, &response, sizeof(response));
-    RPC_STATUS_ASSERT(status);
+    dispatcher->send(RPC_CMD_DEVICE_COUNT, nullptr, 0, &response, sizeof(response));
     return response.device_count;
 }
 

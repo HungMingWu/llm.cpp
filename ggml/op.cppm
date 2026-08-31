@@ -983,4 +983,10 @@ export {
 	ggml_tensor* ggml_rope_set_offset(
 		ggml_tensor* a,
 		int n_offs);
+
+	ggml_tensor* ggml_swiglu_clamp(
+		ggml_context* ctx,
+		ggml_tensor* a,
+		ggml_tensor* b,
+		float limit);
 }

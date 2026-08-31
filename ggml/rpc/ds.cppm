@@ -6,8 +6,8 @@ module ggml:rpc.ds;
 import :ds;
 import :rpc.transport;
 
-constexpr uint8_t RPC_PROTO_MAJOR_VERSION = 5;
-constexpr uint8_t RPC_PROTO_MINOR_VERSION = 1;
+constexpr uint8_t RPC_PROTO_MAJOR_VERSION = 6;
+constexpr uint8_t RPC_PROTO_MINOR_VERSION = 0;
 constexpr uint8_t RPC_PROTO_PATCH_VERSION = 0;
 
 // all RPC structures must be packed
@@ -53,6 +53,7 @@ enum rpc_cmd {
     RPC_CMD_DEVICE_COUNT,
     RPC_CMD_GRAPH_RECOMPUTE,
     RPC_CMD_MEMSET_TENSOR,
+    RPC_CMD_NONE,
     RPC_CMD_COUNT,
 };
 

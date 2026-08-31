@@ -2112,6 +2112,65 @@ struct test_swiglu_oai : public test_case {
     }
 };
 
+struct test_swiglu_clamp : public test_case {
+    const ggml_type type;
+    const std::array<int64_t, 4> ne_a;
+    int v; // view (1 : non-contiguous a)
+    float limit;
+
+    std::string vars() override {
+        return std::format("type={},ne_a={},v={},limit={:6f}", type, ne_a, v, limit);
+    }
+
+    test_swiglu_clamp(ggml_type type = GGML_TYPE_F32,
+        std::array<int64_t, 4> ne_a = { 128, 2, 2, 2 },
+        int v = 0,
+        float limit = 7.0f)
+        : type(type), ne_a(ne_a), v(v), limit(limit) {
+    }
+
+    ggml_tensor* build_graph(ggml_context* ctx) override {
+        ggml_tensor* a;
+        ggml_tensor* b;
+        if (v & 1) {
+            auto ne = ne_a; ne[0] *= 3;
+            a = ggml_new_tensor(ctx, type, ne);
+            a->set_flag(GGML_TENSOR_FLAG_PARAM);
+            a->set_name("a");
+
+            a = ggml_view(ctx, a, { ne_a[0], ne_a[1], ne_a[2], ne_a[3] }, { a->nb[1], a->nb[2], a->nb[3] }, 0);
+            a->set_name("view_of_a");
+
+            b = ggml_new_tensor(ctx, type, ne);
+            b->set_flag(GGML_TENSOR_FLAG_PARAM);
+            b->set_name("b");
+
+            b = ggml_view(ctx, b, { ne_a[0], ne_a[1], ne_a[2], ne_a[3] }, { b->nb[1], b->nb[2], b->nb[3] }, 0);
+            b->set_name("view_of_b");
+        }
+        else {
+            a = ggml_new_tensor(ctx, type, ne_a);
+            a->set_flag(GGML_TENSOR_FLAG_PARAM);
+            a->set_name("a");
+
+            b = ggml_new_tensor(ctx, type, ne_a);
+            b->set_flag(GGML_TENSOR_FLAG_PARAM);
+            b->set_name("b");
+        }
+
+        ggml_tensor* out = ggml_swiglu_clamp(ctx, a, b, limit);
+        out->set_name("out");
+
+        return out;
+    }
+
+    void initialize_tensors(ggml_context* ctx) override {
+        for (ggml_tensor* t : ctx->getTensors()) {
+            init_tensor_uniform(t, -150.f, 150.f);
+        }
+    }
+};
+
 // GGML_OP_GET_ROWS
 struct test_get_rows : public test_case {
     const ggml_type type;
@@ -2422,8 +2481,13 @@ struct test_set_rows : public test_case {
     // See dicussion here: https://github.com/ggml-org/llama.cpp/pull/23760#issuecomment-4566312209
     double max_nmse_err(ggml_backend* backend) override {
         ggml_backend_reg_t reg = backend->get_device()->get_backend_reg();
-        if (type_dst == GGML_TYPE_Q8_0 && reg->get_name() == "WebGPU") {
-            return std::max(test_case::max_nmse_err(backend), 2e-7);
+        if (type_dst == GGML_TYPE_Q8_0) {
+            if (reg->get_name() == "WebGPU") {
+                return std::max(test_case::max_nmse_err(backend), 2e-7);
+            }
+            if (reg->get_name() == "HTP") {
+                return std::max(test_case::max_nmse_err(backend), 5e-6);
+            }
         }
         return test_case::max_nmse_err(backend);
     }
@@ -4584,10 +4648,11 @@ struct test_ssm_scan : public test_case {
     const int64_t n_seqs;
     const bool    xbc_overlap;
     const int64_t K;
+    const bool    weak_decay;
 
     std::string vars() override {
-        return std::format("type={},d_state={},head_dim={},n_head={},n_group={},n_seq_tokens={},n_seqs={},xbc_overlap={},K={}",
-            type, d_state, head_dim, n_head, n_group, n_seq_tokens, n_seqs, static_cast<int>(xbc_overlap), K);
+        return std::format("type={},d_state={},head_dim={},n_head={},n_group={},n_seq_tokens={},n_seqs={},xbc_overlap={},K={},weak_decay={}",
+            type, d_state, head_dim, n_head, n_group, n_seq_tokens, n_seqs, static_cast<int>(xbc_overlap), K, static_cast<int>(weak_decay));
     }
 
     test_ssm_scan(ggml_type type = GGML_TYPE_F32,
@@ -4598,9 +4663,11 @@ struct test_ssm_scan : public test_case {
         int64_t n_seq_tokens = 32,
         int64_t n_seqs = 32,
         bool xbc_overlap = false,
-        int64_t K = 1)
-        : type(type), d_state(d_state), head_dim(head_dim), n_head(n_head), n_group(n_group), n_seq_tokens(n_seq_tokens), n_seqs(n_seqs), xbc_overlap(xbc_overlap), K(K) {
+        int64_t K = 1,
+        bool weak_decay = false)
+        : type(type), d_state(d_state), head_dim(head_dim), n_head(n_head), n_group(n_group), n_seq_tokens(n_seq_tokens), n_seqs(n_seqs), xbc_overlap(xbc_overlap), K(K), weak_decay(weak_decay) {
     }
+
 
 
     double max_nmse_err() override {
@@ -4656,7 +4723,7 @@ struct test_ssm_scan : public test_case {
             }
             else if (t->ne[1] == n_head && t->ne[2] == 1) {
                 // A {1 or d_state, n_head}: negative decay (2-D tensor, ne[2]==1 distinguishes from 3-D/4-D tensors)
-                init_tensor_uniform(t, -1.0f, -0.5f);
+                init_tensor_uniform(t, weak_decay ? -0.02f : -1.0f, weak_decay ? -0.005f : -0.5f);
             }
             else {
                 init_tensor_uniform(t);
@@ -6396,6 +6463,10 @@ struct test_mul_mat_vec_fusion : public test_case {
                 constexpr float alpha = 1.702f;
                 constexpr float limit = 7.0f;
                 out = ggml_swiglu_oai(ctx, ffn_gate, ffn_up, alpha, limit);
+            }
+            else if (glu_op == GGML_GLU_OP_SWIGLU_CLAMP) {
+                constexpr float limit = 10.0f;
+                out = ggml_swiglu_clamp(ctx, ffn_gate, ffn_up, limit);
             }
             else {
                 out = ggml_glu_split(ctx, ffn_gate, ffn_up, glu_op);
@@ -8406,8 +8477,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
         for (int v : {0, 1}) {
             for (int op = 0; op < GGML_GLU_OP_COUNT; op++) {
-                if (op == GGML_GLU_OP_SWIGLU_OAI) {
-                    // SWIGLU_OAI is handled separately
+                if (op == GGML_GLU_OP_SWIGLU_OAI || op == GGML_GLU_OP_SWIGLU_CLAMP) {
                     continue;
                 }
 
@@ -8426,6 +8496,14 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         for (float alpha : {.5f, 1.702f}) {
             for (float limit : {2.0f, 7.0f}) {
                 test_cases.emplace_back(new test_swiglu_oai(GGML_TYPE_F32, { 128, 2, 2, 2 }, v, alpha, limit));
+            }
+        }
+    }
+
+    for (ggml_type type : {GGML_TYPE_F16, GGML_TYPE_F32}) {
+        for (int v : {0, 1}) {
+            for (float limit : {2.0f, 10.0f}) {
+                test_cases.emplace_back(new test_swiglu_clamp(type, { 128, 2, 2, 2 }, v, limit));
             }
         }
     }
@@ -8815,6 +8893,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         test_cases.emplace_back(new test_conv_transpose_2d({ 3, 2, 3, 1 }, { 2, 2, 1, 3 }, 1, kernel_type));
         test_cases.emplace_back(new test_conv_transpose_2d({ 10, 10, 9, 1 }, { 3, 3, 1, 9 }, 2, kernel_type));
         test_cases.emplace_back(new test_conv_transpose_2d({ 129, 63, 35, 1 }, { 3, 3, 48, 35 }, 1, kernel_type));
+        test_cases.emplace_back(new test_conv_transpose_2d({ 10, 10, 9, 2 }, { 3, 3, 1, 9 }, 2, kernel_type)); // for multiple batches
     }
 
     test_cases.emplace_back(new test_count_equal(GGML_TYPE_F32, { 4,  500, 1, 1 }));
@@ -9148,6 +9227,10 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2, 4, 2, false, /*K=*/4)); // Mamba-2 rollback snapshots
     test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2, 8, 2, false, /*K=*/3)); // Mamba-2 rollback overflow
     test_cases.emplace_back(new test_ssm_scan_rollback(GGML_TYPE_F32, 128, 64, 16, 2, 8, 2, /*K=*/3)); // rollback snapshots match prefix states
+    test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2, 64, 4)); // Metal SSD one chunk MMA only, no seq tail
+    test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2, 65, 2)); // SSD one chunk + 1-token sequential tail
+    test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2, 128, 2)); // SSD multi-chunk, no tail (exercises the chunk-to-chunk state handoff)
+    test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2, 128, 2, false, /*K=*/1, /*weak_decay=*/true)); // SSD multi-chunk, carried state not numerically negligible
 
     test_cases.emplace_back(new test_rwkv_wkv6(GGML_TYPE_F32, 32, 64, 1, 1));
     test_cases.emplace_back(new test_rwkv_wkv6(GGML_TYPE_F32, 32, 64, 32, 1));
@@ -9392,7 +9475,12 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
         test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_BF16, GGML_TYPE_F32, 16, 16, b, 50, 200, 64));
     }
 
-    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_F16, GGML_TYPE_F32, 1, 1, false, 8, 16, 1));
+    // For issue 27873
+    test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_IQ2_XXS, GGML_TYPE_F32, 1, 1, false, 1, 8192, 4096));
+
+    for (int k : {1, 63, 65}) {
+        test_cases.emplace_back(new test_mul_mat_id(GGML_TYPE_F16, GGML_TYPE_F32, 1, 1, false, 8, 16, k));
+    }
     test_cases.emplace_back(new test_mul_mat_id_fusion(GGML_TYPE_F16, GGML_TYPE_F32, 16, 16, false, 32, 32, 32, 3));
 
     // gpt-oss issue with Vulkan mmq_id
@@ -9744,6 +9832,17 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
             }
         }
     }
+    for (int k : {4, 8, 16, 32}) {
+        for (int nrows : {1, 8, 16}) {
+            test_cases.emplace_back(new test_top_k(GGML_TYPE_F32, { 202048, nrows, 1, 1 }, k));
+            test_cases.emplace_back(new test_top_k(GGML_TYPE_F32, { 151936, nrows, 1, 1 }, k));
+            test_cases.emplace_back(new test_top_k(GGML_TYPE_F32, { 8192,   nrows, 1, 1 }, k));
+            test_cases.emplace_back(new test_top_k(GGML_TYPE_F32, { 8193,   nrows, 1, 1 }, k));
+            test_cases.emplace_back(new test_top_k(GGML_TYPE_F32, { 8192,   nrows, 1, 1 }, k, true));
+            test_cases.emplace_back(new test_top_k(GGML_TYPE_F32, { 202048, nrows, 1, 1 }, k, true));
+        }
+    }
+
     for (int k : {1, 2, 3, 7, 15}) {
         test_cases.emplace_back(new test_top_k(GGML_TYPE_F32, { 16, 10, 10, 10 }, k));
         test_cases.emplace_back(new test_top_k(GGML_TYPE_F32, { 60, 10, 10, 10 }, k));
@@ -10035,7 +10134,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
                         if (!with_gate && !with_bias) {
                             continue;
                         }
-                        for (ggml_glu_op glu_op : {GGML_GLU_OP_SWIGLU, GGML_GLU_OP_GEGLU}) {
+                        for (ggml_glu_op glu_op : {GGML_GLU_OP_SWIGLU, GGML_GLU_OP_GEGLU, GGML_GLU_OP_SWIGLU_CLAMP}) {
                             if (!with_bias && glu_op == GGML_GLU_OP_SWIGLU_OAI) {
                                 continue;
                             }
@@ -10050,7 +10149,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
                                     use_id, 16, 8, b, with_bias, with_gate, with_lane_scale));
                                 test_cases.emplace_back(new test_mul_mat_vec_fusion(type, glu_op, 1, 32, 256,
                                     use_id, 16, 8, b, with_bias, with_gate, with_lane_scale, { 1, 1 }));
-                                if (!use_id && with_gate && !with_bias) {
+                                if (!use_id && with_gate && !with_bias && glu_op != GGML_GLU_OP_SWIGLU_CLAMP) {
                                     // small multi-token batches (speculative decoding / MTP verify)
                                     for (int64_t m_batch : { 2, 4, 8 }) {
                                         test_cases.emplace_back(new test_mul_mat_vec_fusion(type, glu_op, m_batch, 32, 256,
@@ -10063,6 +10162,11 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
                 }
             }
         }
+    }
+
+    for (bool b : {false, true}) {
+        test_cases.emplace_back(new test_mul_mat_vec_fusion(GGML_TYPE_IQ2_S, GGML_GLU_OP_SWIGLU_CLAMP, 1, 32, 256,
+            true, 16, 8, b, false, true, false));
     }
 
     for (auto gate : { GATING_FUNC_SOFTMAX, GATING_FUNC_SIGMOID, GATING_FUNC_SOFTMAX_WEIGHT, GATING_FUNC_SQRT_SOFTPLUS }) {
@@ -10482,7 +10586,13 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
     test_cases.emplace_back(new test_argsort(GGML_TYPE_F32, { 200000, 16, 1, 1 }));
 
     test_cases.emplace_back(new test_top_k(GGML_TYPE_F32, { 2, 1, 1, 1 }, 1));
-    for (auto k : { 1, 10, 40, 400 }) {
+    // widths around the tiling threshold
+    for (auto cols : { 4096, 8192, 12288, 16384, 24576, 32768, 65536, 131072 }) {
+        for (auto nrows : { 1, 16 }) {
+            test_cases.emplace_back(new test_top_k(GGML_TYPE_F32, { cols, nrows, 1, 1 }, 16));
+        }
+    }
+    for (auto k : { 1, 4, 8, 10, 16, 32, 40, 400 }) {
         for (auto nrows : { 1, 16 }) {
             for (auto cols : { k, 1000, 65000, 200000 }) {
                 test_cases.emplace_back(new test_top_k(GGML_TYPE_F32, { cols, nrows, 1, 1 }, k));

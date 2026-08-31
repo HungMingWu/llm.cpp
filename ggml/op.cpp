@@ -2860,3 +2860,15 @@ ggml_tensor* ggml_rope_set_offset(
 	a->op_params[15] = std::bit_cast<int32_t>(n_offs);
 	return a;
 }
+
+ggml_tensor* ggml_swiglu_clamp(
+	ggml_context* ctx,
+	ggml_tensor* a,
+	ggml_tensor* b,
+	float limit)
+{
+	ggml_tensor* result = ggml_glu_impl(ctx, a, b, GGML_GLU_OP_SWIGLU_CLAMP, false);
+	result->op_params[2] = std::bit_cast<uint32_t>(limit);
+
+	return result;
+}

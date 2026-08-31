@@ -14,7 +14,10 @@ static bool send_msg(socket_ptr sock, const void* msg, size_t msg_size) {
     if (!sock->send_data(&msg_size, sizeof(msg_size))) {
         return false;
     }
-    return sock->send_data(msg, msg_size);
+    if (!sock->send_data(msg, msg_size)) {
+        return false;
+    }
+    return sock->flush();
 }
 
 static bool recv_msg(socket_ptr sock, void* msg, size_t msg_size) {

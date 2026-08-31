@@ -153,7 +153,9 @@ namespace utils
         }
 
         if (ggml_cuda_highest_compiled_arch(cc) < GGML_CUDA_CC_DP4A) {
-            return false;
+            // for MoE, mmq is faster even without native dp4a
+            // TODO: check if cards older than pascal might benefit from this as well
+            return cc >= GGML_CUDA_CC_PASCAL && n_experts > 0;
         }
 
         if constexpr (ggml_cuda_force_mmq_v) return true;

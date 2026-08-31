@@ -18,3 +18,10 @@ __device__ __forceinline__ float swiglu_oai(float x, float g, float alpha = 1.70
     out_glu = out_glu * (1.0f + g);
     return out_glu;
 }
+
+__device__ __forceinline__ float swiglu_clamp(float gate, float up, float limit) {
+    gate = fminf(gate, limit);
+    up = fmaxf(fminf(up, limit), -limit);
+
+    return silu(gate) * up;
+}

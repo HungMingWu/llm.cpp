@@ -1,12 +1,13 @@
 module;
 #include <stdint.h>
 #include <string.h>
+#include <memory>
 
 module ggml:rpc.helper;
 import :rpc.buffer;
 import :rpc.ds;
 
-rpc_tensor serialize_tensor(const ggml_tensor* tensor) {
+rpc_tensor serialize_tensor(const ggml_tensor* tensor, const std::shared_ptr<rpc_dispatcher>& dispatcher = nullptr) {
     rpc_tensor result;
     if (!tensor) {
         memset(&result, 0, sizeof(result));
@@ -15,8 +16,15 @@ rpc_tensor serialize_tensor(const ggml_tensor* tensor) {
     result.id = reinterpret_cast<uint64_t>(tensor);
     result.type = tensor->type;
     if (auto rpc_buffer = dynamic_cast<rpc_backend_buffer*>(tensor->buffer)) {
-        result.buffer = rpc_buffer->remote_ptr;
-        result.data = reinterpret_cast<uint64_t>(tensor->data);
+        // ref: https://github.com/ggml-org/llama.cpp/pull/26500
+        if (/*ctx != nullptr && */ (dispatcher == nullptr || rpc_buffer->dispatcher == dispatcher)) {
+            result.buffer = rpc_buffer->remote_ptr;
+            result.data = reinterpret_cast<uint64_t>(tensor->data);
+        }
+        else {
+            result.buffer = 0;
+            result.data = 0;
+        }
     }
     else {
         result.buffer = 0;
@@ -46,9 +54,8 @@ rpc_tensor serialize_tensor(const ggml_tensor* tensor) {
 }
 
 // Computes FNV-1a hash of the data
-uint64_t fnv_hash(const uint8_t* data, size_t len) {
+uint64_t fnv_hash(const uint8_t* data, size_t len, uint64_t hash = 0xcbf29ce484222325ULL) {
     const uint64_t fnv_prime = 0x100000001b3ULL;
-    uint64_t hash = 0xcbf29ce484222325ULL;
 
     for (size_t i = 0; i < len; ++i) {
         hash ^= data[i];

@@ -390,6 +390,51 @@ void swiglu_oai_cuda(const float* x, const float* g, float* dst, const int64_t k
     swiglu_oai_kernel << <num_blocks, CUDA_GLU_BLOCK_SIZE, 0, stream >> > (x, g, dst, k, n, o0, o1, alpha, limit);
 }
 
+template <typename T>
+static __global__ void swiglu_clamp_kernel(const T * gate, const T * up, T * dst, const int64_t k, const int64_t n, const int64_t o0, const int64_t o1, float limit) {
+    const int64_t i = int64_t(blockDim.x)*blockIdx.x + threadIdx.x;
+
+    if (i >= k) {
+        return;
+    }
+
+    const int64_t j0 = (i / n) * o0 + (i % n);
+    const int64_t j1 = o0 == o1 ? j0 : (i / n) * o1 + (i % n);
+
+    dst[i] = (T) swiglu_clamp((float) gate[j0], (float) up[j1], limit);
+}
+
+template <typename T>
+static void swiglu_clamp_cuda(const T * gate, const T * up, T * dst, const int64_t k, const int64_t n, const int64_t o0, const int64_t o1, const float limit, cudaStream_t stream) {
+    const int64_t num_blocks = (k + CUDA_GLU_BLOCK_SIZE - 1) / CUDA_GLU_BLOCK_SIZE;
+    swiglu_clamp_kernel<<<num_blocks, CUDA_GLU_BLOCK_SIZE, 0, stream>>>(gate, up, dst, k, n, o0, o1, limit);
+}
+
+void swiglu_clamp_cuda(const swiglu_clamp_context& ctx, cudaStream_t stream) {
+    if (ctx.src0_type == internal::GGML_TYPE_F16) {
+        half* src0_p = (half*)ctx.src0_d;
+        half* src1_p = (half*)ctx.src1_d;
+
+        if (!ctx.src1_exist) {
+            src0_p += ctx.swapped ? ctx.nc : 0;
+            src1_p += ctx.swapped ? 0 : ctx.nc;
+        }
+
+        swiglu_clamp_cuda(src0_p, src1_p, (half*)ctx.dst_d, ctx.dst_nelements, ctx.nc, ctx.src0_o / sizeof(half), ctx.src1_o / sizeof(half), ctx.limit, stream);
+    }
+    else {
+        float* src0_p = (float*)ctx.src0_d;
+        float* src1_p = (float*)ctx.src1_d;
+
+        if (!ctx.src1_exist) {
+            src0_p += ctx.swapped ? ctx.nc : 0;
+            src1_p += ctx.swapped ? 0 : ctx.nc;
+        }
+
+        swiglu_clamp_cuda(src0_p, src1_p, (float*)ctx.dst_d, ctx.dst_nelements, ctx.nc, ctx.src0_o / sizeof(float), ctx.src1_o / sizeof(float), ctx.limit, stream);
+    }
+}
+
 void geglu_erf_cuda(const gated_context* ctx)
 {
     ggml_cuda_op_unary_gated<gelu_erf>(ctx);

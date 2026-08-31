@@ -1,0 +1,54 @@
+
+ssm-scan.cu
+rope.cu
+mmvf.cu
+
+PS D:\Repos\ggml> git pull
+Updating 36da5713..d4716378
+Fast-forward
+ include/ggml-backend.h                             |    4 +
+ src/ggml-backend-impl.h                            |   13 +-
+ src/ggml-backend.cpp                               |   92 +-
+ src/ggml-cpu/ops.cpp                               |  195 +-
+ 139 files changed, 11429 insertions(+), 3665 deletions(-)
+ rename src/ggml-cuda/{mmq-config-pascal.cuh => mmq-config-pascal-dp4a.cuh} (99%)
+ create mode 100644 src/ggml-cuda/mmq-config-pascal-older.cuh
+ create mode 100644 src/ggml-rpc/transport-apple.cpp
+ create mode 100644 src/ggml-rpc/transport-apple.h
+
+
+ PS D:\ggml> git diff --name-only d4716378..e91ded11bd
+CMakeLists.txt
+include/ggml-backend.h
+include/ggml.h
+src/CMakeLists.txt
+src/ggml-backend-impl.h
+src/ggml-backend-reg.cpp
+src/ggml-backend.cpp
+src/ggml-common.h
+src/ggml-cpu/CMakeLists.txt
+src/ggml-cpu/ggml-cpu.c
+src/ggml-cpu/iqp.cpp
+src/ggml-cpu/iqp.h
+src/ggml-cuda/CMakeLists.txt
+src/ggml-cuda/common.cuh
+src/ggml-cuda/fattn-common.cuh
+src/ggml-cuda/fattn-mma-f16.cuh
+src/ggml-cuda/fattn-swizzle.cuh
+src/ggml-cuda/fattn-tile.cuh
+src/ggml-cuda/fattn-vec.cuh
+src/ggml-cuda/fattn.cu
+src/ggml-cuda/ggml-cuda.cu
+src/ggml-cuda/mmq-vec-dot.cuh
+src/ggml-cuda/mmq.cuh
+src/ggml-cuda/mmvq.cu
+src/ggml-cuda/moe-weighted-reduction.cu
+src/ggml-cuda/moe-weighted-reduction.cuh
+src/ggml-cuda/top-k.cu
+src/ggml-cuda/topk-moe.cu
+src/ggml-cuda/topk-moe.cuh
+src/ggml-musa/CMakeLists.txt
+src/ggml-rpc/ggml-rpc.cpp
+src/ggml-version.h.in
+src/ggml.c
+tests/test-backend-ops.cpp

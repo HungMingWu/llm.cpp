@@ -1394,4 +1394,335 @@ namespace op {
         };
         get_rows_back_cuda(context, stream);
     }
+
+    void mul_mat_vec_f(cudaStream_t stream,
+        const ggml_tensor* src0,
+        const ggml_tensor* src1,
+        const ggml_tensor* ids,
+        ggml_tensor* dst,
+        const ggml_cuda_mm_fusion_args_host* fusion)
+    {
+        GGML_ASSERT(src1->type == GGML_TYPE_F32);
+        GGML_ASSERT(!ids || ids->type == GGML_TYPE_I32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+
+        const size_t ts_src0 = ggml_type_size(src0->type);
+        const size_t ts_src1 = ggml_type_size(src1->type);
+        const size_t ts_dst = ggml_type_size(dst->type);
+
+        GGML_ASSERT(!ids || src1->ne[2] <= MMVF_MAX_BATCH_SIZE);
+        GGML_ASSERT(src1->ne[3] == dst->ne[3]);
+
+        GGML_ASSERT(src0->nb[0] == ts_src0);
+        GGML_ASSERT(src1->nb[0] == ts_src1);
+        GGML_ASSERT(!ids || ids->nb[0] == ggml_type_size(ids->type));
+        GGML_ASSERT(dst->nb[0] == ts_dst);
+
+        const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
+        const enum ggml_prec prec = fast_fp16_available(cc) ? ggml_prec(dst->op_params[0]) : GGML_PREC_F32;
+
+        const float* src1_d = (const float*)src1->data;
+        const int32_t* ids_d = ids ? (const int32_t*)ids->data : nullptr;
+        float* dst_d = (float*)dst->data;
+
+        ggml_cuda_mm_fusion_args_device fusion_local{};
+
+        if (fusion) {
+            GGML_ASSERT(!ids || dst->ne[2] == 1);
+            GGML_ASSERT(ids || dst->ne[1] == 1);
+            if (fusion->x_bias) {
+                GGML_ASSERT(fusion->x_bias->type == GGML_TYPE_F32);
+                GGML_ASSERT(fusion->x_bias->ne[0] == dst->ne[0]);
+                GGML_ASSERT(!ids || fusion->x_bias->ne[1] == src0->ne[2]);
+                fusion_local.x_bias = fusion->x_bias->data;
+            }
+            if (fusion->gate) {
+                GGML_ASSERT(fusion->gate->type == src0->type && ggml_are_same_stride(fusion->gate, src0));
+                fusion_local.gate = fusion->gate->data;
+            }
+            if (fusion->gate_bias) {
+                GGML_ASSERT(fusion->gate_bias->type == GGML_TYPE_F32);
+                GGML_ASSERT(fusion->gate_bias->ne[0] == dst->ne[0]);
+                GGML_ASSERT(!ids || fusion->gate_bias->ne[1] == src0->ne[2]);
+                fusion_local.gate_bias = fusion->gate_bias->data;
+            }
+            fusion_local.glu_op = std::bit_cast<internal::ggml_glu_op>(fusion->glu_op);
+            fusion_local.glu_limit = fusion->glu_limit;
+        }
+
+        const int64_t s01 = src0->nb[1] / ts_src0;
+        const int64_t s11 = src1->nb[1] / ts_src1;
+        const int64_t s1 = dst->nb[1] / ts_dst;
+        const int64_t s02 = src0->nb[2] / ts_src0;
+        const int64_t s12 = src1->nb[2] / ts_src1;
+        const int64_t s2 = dst->nb[2] / ts_dst;
+        const int64_t s03 = src0->nb[3] / ts_src0;
+        const int64_t s13 = src1->nb[3] / ts_src1;
+        const int64_t s3 = dst->nb[3] / ts_dst;
+
+        // For MUL_MAT_ID the memory layout is different than for MUL_MAT:
+        const int64_t ncols_dst = ids ? dst->ne[2] : dst->ne[1];
+        const int64_t nchannels_y = ids ? src1->ne[1] : src1->ne[2];
+        const int64_t nchannels_dst = ids ? dst->ne[1] : dst->ne[2];
+        const int64_t stride_col_dst = ids ? s2 : s1;
+        const int64_t stride_col_y = ids ? s12 : s11;
+        const int64_t stride_channel_dst = ids ? s1 : s2;
+        const int64_t stride_channel_y = ids ? s11 : s12;
+        const int64_t ids_stride = ids ? ids->nb[1] / ggml_type_size(ids->type) : 0;
+
+        mul_mat_vec_f_context ctx {
+            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .src0_d = src0->data,
+            .src1_d = (const float*)src1->data,
+            .ids_d = ids ? (const int32_t*)ids->data : nullptr,
+            .fusion_local = fusion_local,
+            .dst_d = (float*)dst->data,
+            .ne00 = src0->ne[0],
+            .ne01 = src0->ne[1],
+            .ne02 = src0->ne[2],
+            .ne03 = src0->ne[3],
+            .ne3 = dst->ne[3],
+
+            // For MUL_MAT_ID the memory layout is different than for MUL_MAT:
+            .ncols_dst = ncols_dst,
+            .nchannels_y = ids ? src1->ne[1] : src1->ne[2],
+            .nchannels_dst = ids ? dst->ne[1] : dst->ne[2],
+            .stride_col_dst = stride_col_dst,
+            .stride_col_y = stride_col_y,
+            .stride_channel_dst = ids ? s1 : s2,
+            .stride_channel_y = ids ? s11 : s12,
+
+            .s01 = s01,
+            .s02 = s02,
+            .s03 = s03,
+            .s13 = s13,
+            .s3 = s3,
+            .prec = std::bit_cast<internal::ggml_prec>(fast_fp16_available(cc) ? dst->op_params[0] : GGML_PREC_F32)
+        };
+        mul_mat_vec_f_cuda(&ctx, stream);
+    }
+
+    void mul_mat_vec_q(ggml_cuda_pool& pool, cudaStream_t stream,
+        const ggml_tensor* src0, const ggml_tensor* src1, const ggml_tensor* ids,
+        ggml_tensor* dst, const ggml_cuda_mm_fusion_args_host* fusion)
+    {
+        GGML_ASSERT(src1->type == GGML_TYPE_F32);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32);
+        GGML_ASSERT(!ids || ids->type == GGML_TYPE_I32); // Optional, used for batched GGML_MUL_MAT_ID.
+
+        const size_t ts_src0 = ggml_type_size(src0->type);
+        const size_t ts_src1 = ggml_type_size(src1->type);
+        const size_t ts_dst = ggml_type_size(dst->type);
+
+        GGML_ASSERT(src0->nb[0] == ts_src0);
+        GGML_ASSERT(src1->nb[0] == ts_src1);
+        GGML_ASSERT(dst->nb[0] == ts_dst);
+        GGML_ASSERT(!ids || ids->nb[0] == ggml_type_size(ids->type));
+
+        GGML_ASSERT(!ids || src1->ne[2] <= MMVQ_MAX_BATCH_SIZE);
+
+        const float* src1_d = (const float*)src1->data;
+        const int32_t* ids_d = ids ? (const int32_t*)ids->data : nullptr;
+        float* dst_d = (float*)dst->data;
+
+        ggml_cuda_mm_fusion_args_device fusion_local{};
+
+        if (fusion) {
+            GGML_ASSERT(!ids || dst->ne[2] == 1);
+            GGML_ASSERT(ids || dst->ne[1] == 1);
+            // Scale fusion is only allowed for NVFP4 currently as the cost of checking this at run-time in the prologue is
+            // non-negligible for some models such as gpt-oss-20b
+            GGML_ASSERT((fusion->x_scale == nullptr && fusion->gate_scale == nullptr) || src0->type == GGML_TYPE_NVFP4);
+
+            if (fusion->x_bias) {
+                GGML_ASSERT(fusion->x_bias->type == GGML_TYPE_F32);
+                GGML_ASSERT(fusion->x_bias->ne[0] == dst->ne[0]);
+                GGML_ASSERT(!ids || fusion->x_bias->ne[1] == src0->ne[2]);
+                fusion_local.x_bias = fusion->x_bias->data;
+            }
+            if (fusion->gate) {
+                GGML_ASSERT(fusion->gate->type == src0->type && ggml_are_same_stride(fusion->gate, src0));
+                fusion_local.gate = fusion->gate->data;
+            }
+            if (fusion->gate_bias) {
+                GGML_ASSERT(fusion->gate_bias->type == GGML_TYPE_F32);
+                GGML_ASSERT(fusion->gate_bias->ne[0] == dst->ne[0]);
+                GGML_ASSERT(!ids || fusion->gate_bias->ne[1] == src0->ne[2]);
+                fusion_local.gate_bias = fusion->gate_bias->data;
+            }
+            if (fusion->x_scale) {
+                GGML_ASSERT(fusion->x_scale->type == GGML_TYPE_F32);
+                GGML_ASSERT(ggml_is_contiguous(fusion->x_scale));
+                GGML_ASSERT(fusion->x_scale->nelements() == (ids ? src0->ne[2] : 1));
+                fusion_local.x_scale = fusion->x_scale->data;
+            }
+            if (fusion->gate_scale) {
+                GGML_ASSERT(fusion->gate_scale->type == GGML_TYPE_F32);
+                GGML_ASSERT(ggml_is_contiguous(fusion->gate_scale));
+                GGML_ASSERT(fusion->gate_scale->nelements() == (ids ? src0->ne[2] : 1));
+                fusion_local.gate_scale = fusion->gate_scale->data;
+            }
+            fusion_local.glu_op = std::bit_cast<internal::ggml_glu_op>(fusion->glu_op);
+            fusion_local.glu_limit = fusion->glu_limit;
+        }
+
+        // If src0 is a temporary compute buffer, clear any potential padding.
+        if (src0->buffer->getUsage() == GGML_BACKEND_BUFFER_USAGE_COMPUTE) {
+            const size_t size_data = src0->nbytes();
+            const size_t size_alloc = src0->buffer->get_alloc_size(src0);
+            if (size_alloc > size_data) {
+                GGML_ASSERT(ggml_is_contiguously_allocated(src0));
+                GGML_ASSERT(!src0->view_src);
+                CUDA_CHECK(cudaMemsetAsync((char*)src0->data + size_data, 0, size_alloc - size_data, stream));
+            }
+        }
+
+        const int64_t ne10_padded = GGML_PAD(src1->ne[0], MATRIX_ROW_PADDING);
+        ggml_cuda_pool_alloc<char> src1_q8_1(pool,
+            src1->ne[3] * src1->ne[2] * src1->ne[1] * ne10_padded * sizeof(block_q8_1) / block_q8_1::block_size);
+        {
+            const int64_t s11 = src1->nb[1] / ts_src1;
+            const int64_t s12 = src1->nb[2] / ts_src1;
+            const int64_t s13 = src1->nb[3] / ts_src1;
+            quantize_row_q8_1_cuda(src1_d, nullptr, src1_q8_1.get(), std::bit_cast<internal::ggml_type>(src0->type),
+                src1->ne[0], s11, s12, s13, ne10_padded, src1->ne[1], src1->ne[2], src1->ne[3], stream);
+        }
+
+        const int64_t s01 = src0->nb[1] / ts_src0;
+        const int64_t s11 = ne10_padded / block_q8_1::block_size;
+        const int64_t s1 = dst->nb[1] / ts_dst;
+        const int64_t s02 = src0->nb[2] / ts_src0;
+        const int64_t s2 = dst->nb[2] / ts_dst;
+        const int64_t s03 = src0->nb[3] / ts_src0;
+        const int64_t s3 = dst->nb[3] / ts_dst;
+
+        const int64_t s12 = src1->ne[1] * s11;
+        const int64_t s13 = src1->ne[2] * s12;
+
+        const int64_t ids_stride = ids ? ids->nb[1] / ggml_type_size(ids->type) : 0;
+
+        // For MUL_MAT_ID the memory layout is different than for MUL_MAT:
+
+        mat_vec_q_switch_context ctx{
+            .type_x = std::bit_cast<internal::ggml_type>(src0->type),
+            .vx = src0->data,
+            .vy = src1_q8_1.get(),
+            .ids = ids_d,
+            .fusion = fusion_local,
+            .dst = dst_d,
+            .ncols_x = src0->ne[0],
+            .nrows_x = src0->ne[1],
+            .ncols_dst = ids ? dst->ne[2] : dst->ne[1],
+            .stride_row_x = s01,
+            .stride_col_y = ids ? s12 : s11,
+            .stride_col_dst = ids ? s2 : s1,
+            .nchannels_x = src0->ne[2],
+            .nchannels_y = ids ? src1->ne[1] : src1->ne[2],
+            .nchannels_dst = ids ? dst->ne[1] : dst->ne[2],
+            .stride_channel_x = s02,
+            .stride_channel_y = ids ? s11 : s12,
+            .stride_channel_dst = ids ? s1 : s2,
+            .nsamples_x = src0->ne[3],
+            .nsamples_dst = dst->ne[3],
+            .stride_sample_x = s03,
+            .stride_sample_y = s13,
+            .stride_sample_dst = s3,
+            .ids_stride = ids_stride
+        };
+
+        mul_mat_vec_q_switch_type(ctx, stream);
+    }
+
+    void glu(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+        const int64_t nc = src1 ? src0->ne[0] : src0->ne[0] / 2;
+        GGML_ASSERT(ggml_is_contiguous_1(src0));
+        GGML_ASSERT(src0->nb[0] == ggml_element_size(src0));
+        GGML_ASSERT(ggml_is_contiguous(dst));
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
+        GGML_ASSERT(dst->type == GGML_TYPE_F32 || dst->type == GGML_TYPE_F16);
+        GGML_ASSERT(src0->type == dst->type);
+        GGML_ASSERT(dst->ne[0] == nc);
+        GGML_ASSERT(ggml_nrows(dst) == ggml_nrows(src0));
+
+        if (src1) {
+            GGML_ASSERT(ggml_is_contiguous_1(src1));
+            GGML_ASSERT(src1->nb[0] == ggml_element_size(src1));
+            GGML_ASSERT(src1->ne[0] == nc);
+            GGML_ASSERT(src0->type == src1->type);
+        }
+
+        gated_context ctx {
+            .stream = stream,
+            .src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .swapped = dst->op_params[1],
+            .src0_d = src0->data,
+            .src1_d = src1 ? src1->data : src0->data,
+            .dst_d = dst->data,
+            .src0_o = src0->nb[1],
+            .src1_o = src1 ? src1->nb[1] : src0->nb[1],
+            .nc = nc,
+            .dst_nelements = dst->nelements(),
+            .src1_exist = src1 != nullptr
+        };
+
+        switch (ggml_get_glu_op(dst)) {
+        case GGML_GLU_OP_REGLU:
+            reglu_cuda(&ctx);
+            break;
+        case GGML_GLU_OP_GEGLU:
+            geglu_cuda(&ctx);
+            break;
+        case GGML_GLU_OP_SWIGLU:
+            swiglu_cuda(&ctx);
+            break;
+        case GGML_GLU_OP_GEGLU_ERF:
+            geglu_erf_cuda(&ctx);
+            break;
+        case GGML_GLU_OP_GEGLU_QUICK:
+            geglu_quick_cuda(&ctx);
+            break;
+        default:
+            std::unreachable();
+        }
+    }
+
+    void swiglu_clamp(cudaStream_t stream, ggml_tensor* dst) {
+        const ggml_tensor* src0 = dst->src[0];
+        const ggml_tensor* src1 = dst->src[1];
+        const int64_t nc = src1 ? src0->ne[0] : src0->ne[0] / 2;
+
+        GGML_ASSERT(ggml_is_contiguous_1(src0));
+        GGML_ASSERT(src0->nb[0] == ggml_element_size(src0));
+        GGML_ASSERT(ggml_is_contiguous(dst));
+
+        GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
+        GGML_ASSERT(src0->type == dst->type);
+        GGML_ASSERT(dst->ne[0] == nc);
+        GGML_ASSERT(ggml_nrows(dst) == ggml_nrows(src0));
+
+        if (src1) {
+            GGML_ASSERT(ggml_is_contiguous_1(src1));
+            GGML_ASSERT(src1->nb[0] == ggml_element_size(src1));
+            GGML_ASSERT(src1->ne[0] == nc);
+            GGML_ASSERT(src0->type == src1->type);
+        }
+
+        swiglu_clamp_context ctx {
+			.src0_type = std::bit_cast<internal::ggml_type>(src0->type),
+            .src0_d = src0->data,
+            .src1_d = src1 ? src1->data : src0->data,
+            .dst_d = dst->data,
+            .src1_exist = src1 != nullptr,
+            .nc = nc,
+            .swapped = std::bit_cast<int32_t>(dst->op_params[1]),
+            .src0_o = (int64_t)src0->nb[1],
+            .src1_o = src1 ? (int64_t)src1->nb[1] : (int64_t)src0->nb[1],
+            .limit = std::bit_cast<float>(dst->op_params[3]),
+            .dst_nelements = dst->nelements()
+        };
+        swiglu_clamp_cuda(ctx, stream);
+    }
 }

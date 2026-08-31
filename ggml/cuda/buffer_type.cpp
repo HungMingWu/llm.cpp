@@ -52,6 +52,7 @@ size_t cuda_backend_buffer_type::get_alloc_size(const ggml_tensor* tensor)
 		: tensor->nbytes();
 	int64_t ne0 = tensor->ne[0];
 
+	// [TAG_ALLOC_SIZE_EXPAND]
 	if (ggml_is_quantized(tensor->type)) {
 		if (ne0 % MATRIX_ROW_PADDING != 0) {
 			GGML_ASSERT(tensor->nb[0] == ggml_element_size(tensor));
