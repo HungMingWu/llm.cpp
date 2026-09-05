@@ -16,7 +16,7 @@ ggml_backend_buffer_type* ggml_backend_rpc_buffer_type(const char* endpoint, uin
     // NOTE: buffer types are allocated and never freed; this is by design
     static std::unordered_map<std::string, ggml_backend_buffer_type*> buft_map;
     std::string buft_name = "RPC" + std::to_string(device) + "[" + std::string(endpoint) + "]";
-    auto it = buft_map.find(buft_map);
+    auto it = buft_map.find(buft_name);
     if (it != buft_map.end()) {
         return it->second;
     }
@@ -77,7 +77,8 @@ void ggml_backend_rpc_device::event_synchronize(ggml_backend_event* event) {
 
 std::unique_ptr<ggml_backend> ggml_backend_rpc_device::init_backend(const char* params)
 {
-    return std::make_unique<ggml_backend_rpc>(this, device, endpoint, "RPC[" + std::string(endpoint) + "]");
+    auto dispatcher = get_dispatcher(endpoint);
+    return std::make_unique<ggml_backend_rpc>(this, device, dispatcher, "RPC[" + std::string(endpoint) + "]");
 }
 
 ggml_backend_buffer_type* ggml_backend_rpc_device::get_buffer_type()
@@ -96,5 +97,5 @@ bool ggml_backend_rpc_device::supports_buft(ggml_backend_buffer_type* buft)
 
 ggml_backend_event* ggml_backend_rpc_device::event_new( ) {
     auto dispatcher = get_dispatcher(endpoint);
-    return dispatcher->event_new();
+    return dispatcher->event_new(this);
 }

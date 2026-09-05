@@ -101,7 +101,7 @@ void ggml_backend_rpc::set_tensor_async_impl(ggml_tensor* tensor, const void* da
         request->hash = fnv_hash((const uint8_t*)data, size);
         rpc_msg_set_tensor_hash_rsp response;
         // TODO: make this async
-        ctx->dispatcher->send(RPC_CMD_SET_TENSOR_HASH, request, sizeof(*request), &response, sizeof(response));
+        dispatcher->send(RPC_CMD_SET_TENSOR_HASH, request, sizeof(*request), &response, sizeof(response));
         if (response.result) {
             // the server has the same data, no need to send it
             return;
@@ -114,10 +114,10 @@ void ggml_backend_rpc::set_tensor_async_impl(ggml_tensor* tensor, const void* da
     memcpy(input + sizeof(rpc_tensor), &offset, sizeof(offset));
     memcpy(input + sizeof(rpc_tensor) + sizeof(offset), data, size);
     std::shared_ptr<uint8_t> input_ptr(input, std::default_delete<uint8_t[]>());
-    ctx->dispatcher->send_async(RPC_CMD_SET_TENSOR, input_ptr, input_size);
+    dispatcher->send_async(RPC_CMD_SET_TENSOR, input_ptr, input_size);
 }
 
-void ggml_backend_rpc::get_tensor_async_impl(ggml_backend_t backend, const ggml_tensor* tensor, void* data, size_t offset, size_t size) {
+void ggml_backend_rpc::get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size) {
     auto request = std::make_shared<rpc_msg_get_tensor_req>();
     request->tensor = serialize_tensor(tensor);
     request->offset = offset;
