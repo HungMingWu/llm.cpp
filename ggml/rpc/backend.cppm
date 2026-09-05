@@ -15,6 +15,8 @@ struct ggml_backend_rpc : public ggml_backend {
 	std::string name;
 protected:
 	ggml_status graph_compute_impl(ggml_cgraph* cgraph) override;
+	void set_tensor_async_impl(ggml_tensor* tensor, const void* data, size_t offset, size_t size) override;
+	void get_tensor_async_impl(const ggml_tensor* tensor, void* data, size_t offset, size_t size) override;
 public:
 	ggml_backend_rpc(ggml_backend_device* device, int deviceID, std::shared_ptr<rpc_dispatcher> dispatcher, std::string name) :
 		ggml_backend(device), device(deviceID), dispatcher(dispatcher), name(std::move(name))
