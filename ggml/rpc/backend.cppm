@@ -7,8 +7,8 @@ module;
 
 module ggml:rpc.backend;
 import :ds;
+import :rpc.socket;
 
-class rpc_dispatcher;
 struct ggml_backend_rpc : public ggml_backend {
 	std::shared_ptr<rpc_dispatcher> dispatcher;
 	int device;

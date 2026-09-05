@@ -749,6 +749,7 @@ struct flash_attn_ext_context {
         const size_t nbytes;
         const int64_t nrows;
         const int64_t ne0, ne1, ne2, ne3;
+        const int32_t n_kv_max;
     } KQV;
 };
 

@@ -307,8 +307,8 @@ namespace op {
                         return false;
             }
             return mask && max_bias == 0.0f && K->ne[1] % FATTN_KQ_STRIDE == 0;
-            }();
-        flash_attn_ext_context ctx{
+        }();
+        flash_attn_ext_context ctx {
             .device = device,
             .main_stream = stream,
             .pool = &pool,
@@ -377,7 +377,8 @@ namespace op {
                 .ne0 = dst->ne[0],
                 .ne1 = dst->ne[1],
                 .ne2 = dst->ne[2],
-                .ne3 = dst->ne[3]
+                .ne3 = dst->ne[3],
+				.n_kv_max = std::bit_cast<int32_t>(KQV->op_params[4]),
             }
         };
 
