@@ -96,5 +96,5 @@ bool ggml_backend_rpc_device::supports_buft(ggml_backend_buffer_type* buft)
 
 ggml_backend_event* ggml_backend_rpc_device::event_new( ) {
     auto dispatcher = get_dispatcher(endpoint);
-    return dispatcher->event_new(dev);
+    return dispatcher->event_new();
 }
